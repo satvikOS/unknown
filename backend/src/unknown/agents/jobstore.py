@@ -324,13 +324,20 @@ class JobStore:
 
         def tx() -> dict:
             now = self._clock_ns()
-            sets = {"state": state, "outcome": outcome, "reason": _cut(reason), "finished_ns": now,
-                    "proposal": proposal_text, "output_hash": output_hash, "discarded_output_hash": discarded_output_hash,
-                    "delivery": "PENDING" if proposal_text is not None else "NONE",
-                    "next_delivery_ns": now if proposal_text is not None else None}
+            st, out, why, text, ohash, discarded = state, outcome, reason, proposal_text, output_hash, discarded_output_hash
+            row = self._row(job_id)
+            if row is not None and row["state"] == "RUNNING" and row["cancel_requested"] and st != "CANCELLED":
+                # The owner's cancel arrived after the runner's last check: checked again here, in the same
+                # transaction as the terminal state, so an accepted cancel request always discards the output.
+                why = f"cancelled while running; the run ended {st} ({out}: {reason}); output discarded"
+                discarded = ohash or discarded
+                st, out, text, ohash = "CANCELLED", JobState.CANCELLED_BY_OWNER.value, None, None
+            sets = {"state": st, "outcome": out, "reason": _cut(why), "finished_ns": now,
+                    "proposal": text, "output_hash": ohash, "discarded_output_hash": discarded,
+                    "delivery": "PENDING" if text is not None else "NONE",
+                    "next_delivery_ns": now if text is not None else None}
             self._transition(job_id, ("RUNNING",), sets, event="finished",
-                             detail={"state": state, "outcome": outcome, "output_hash": output_hash,
-                                     "discarded_output_hash": discarded_output_hash},
+                             detail={"state": st, "outcome": out, "output_hash": ohash, "discarded_output_hash": discarded},
                              extra_where=" AND worker_id = ?", extra_args=(worker_id,))
             return self._decode(self._row(job_id))
 

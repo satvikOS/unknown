@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from test_agents_fixtures import SECOND, TempDirCase, envelope, sha  # noqa: E402
 from unknown.agents.envelope import JobState  # noqa: E402
+from unknown.domain.canonical import content_hash  # noqa: E402
 from unknown.agents.jobstore import (DEFAULT_DEDUPE_WINDOW_NS, JobStore, JobStoreError, StateConflict,  # noqa: E402
                                      store_state_for)
 
@@ -179,6 +180,18 @@ class JobStoreTest(TempDirCase, unittest.TestCase):
         with self.assertRaises(LookupError):
             s.cancel("nope", by="owner")
         self.assertEqual(s.get("r")["delivery"], "NONE")
+
+    def test_a_cancel_that_lands_after_the_last_runner_check_still_discards_the_output(self):
+        s = self.store()
+        s.submit(envelope(), INPUTS, submitted_by="owner")
+        s.claim_next("w", max_global=1, max_per_role=None)
+        s.cancel("job-1", by="owner")                       # the runner already passed its last cancellation check
+        job = s.finish("job-1", "w", state="SUCCEEDED", outcome="succeeded", reason="ok", proposal=PROPOSAL)
+        self.assertEqual((job["state"], job["outcome"], job["delivery"]), ("CANCELLED", "cancelled_by_owner", "NONE"))
+        self.assertIsNone(job["proposal"])
+        self.assertEqual(job["discarded_output_hash"], content_hash(PROPOSAL))
+        self.assertIn("the run ended SUCCEEDED", job["reason"])
+        self.assertEqual(s.due_deliveries(), [])
 
     def test_requeue_and_fail_from_recovery(self):
         s = self.store()

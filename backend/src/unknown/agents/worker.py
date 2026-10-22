@@ -51,7 +51,7 @@ from typing import Any, Callable, Mapping
 
 from ..data.pit import ResearchStore
 from ..data.registry import load_registry
-from ..domain.canonical import canonical_json, content_hash, sha256_hex
+from ..domain.canonical import canonical_json, sha256_hex
 from ..domain.clock import Clock, SystemClock
 from ..service.ipc import CoreClient, IpcError
 from ..service.paths import Paths
@@ -307,13 +307,12 @@ class Worker:
                 self._audit(jid, {"kind": "worker_error", "error": out.reason, "marked_unconfirmed": marked})
             except Exception:
                 log.exception("could not audit the worker error of job %s", jid)
-        self.jobs.finish(jid, self.worker_id, state=out.state, outcome=out.outcome, reason=out.reason,
-                         proposal=out.proposal, discarded_output_hash=out.discarded_output_hash)
-        self._audit(jid, {"kind": "job_finished", "state": out.state, "outcome": out.outcome, "reason": out.reason,
-                          "output_hash": content_hash(out.proposal) if out.proposal is not None else None,
-                          "discarded_output_hash": out.discarded_output_hash,
-                          "delivery": "PENDING" if out.proposal is not None else "NONE"})
-        log.info("job %s finished: %s (%s) %s", jid, out.state, out.outcome, out.reason)
+        done = self.jobs.finish(jid, self.worker_id, state=out.state, outcome=out.outcome, reason=out.reason,
+                                proposal=out.proposal, discarded_output_hash=out.discarded_output_hash)
+        self._audit(jid, {"kind": "job_finished", "state": done["state"], "outcome": done["outcome"], "reason": done["reason"],
+                          "output_hash": done["output_hash"], "discarded_output_hash": done["discarded_output_hash"],
+                          "delivery": done["delivery"]})
+        log.info("job %s finished: %s (%s) %s", jid, done["state"], done["outcome"], done["reason"])
 
     # ------------------------------------------------------------------ one job
     def _candidates(self, policy: OwnerPolicy, approvals, role: str) -> tuple[list[Candidate], str]:
