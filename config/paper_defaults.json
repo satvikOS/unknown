@@ -16,8 +16,7 @@
   "allow_automatic_fx_borrowing": false,
   "allow_transfers": false,
   "live_authorized_capital_cents": null,
-  "paid_model_daily_budget_cents": 0,
   "paid_data_monthly_budget_cents": 0,
   "cloud_monthly_budget_cents": 0,
-  "note": "Proposed paper defaults. The small reference does not load this complete production policy or implement every field."
+  "note": "Proposed paper defaults. The small reference does not load this complete production policy or implement every field. Paid model (agent) budgets are not set here: their single source is the owner policy <UNKNOWN_HOME>/config/agents.json (caps; an absent file or a zero per_day/per_job cap disables paid model calls), see docs/agents/README.md."
 }

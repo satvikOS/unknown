@@ -1,10 +1,10 @@
 # Bounded agent layer (increment I6)
 
-Status (ADR-0001 vocabulary): **implemented and tested offline**. No paid call has been made. Paid calls stay disabled until the owner writes `~/.unknown/config/agents.json` and approves the tariff rows and models involved. Decision record: [ADR-0016](../adr/0016-bounded-agents-and-model-providers.md). Evidence: the `model-providers` (CAP-MODEL-01..12) and `agent-operations` (CAP-AGT-01..14) records in [`docs/capabilities/register.json`](../capabilities/register.json), verified 2026-10-22.
+Status (ADR-0001 vocabulary): **implemented and tested offline**, including the model worker, the durable job store, the audit trail and the terminal API routes (see [Running research jobs on this Mac](#running-research-jobs-on-this-mac)). The only paid call so far is the CI live smoke test (`live-anthropic.yml`). Paid calls stay disabled until the owner writes `~/.unknown/config/agents.json` and approves the tariff rows and models involved; `approved.json` still ships empty. Decision record: [ADR-0016](../adr/0016-bounded-agents-and-model-providers.md). Evidence: the `model-providers` (CAP-MODEL-01..12) and `agent-operations` (CAP-AGT-01..14) records in [`docs/capabilities/register.json`](../capabilities/register.json), verified 2026-10-22.
 
 ## Architecture
 
-Agents are research-side code under `backend/src/unknown/agents/`. They hold no broker credential and no ledger write handle. Their only write to the core is `submit_research_proposal`, sent with the agent token (role `AGENT`, ADR-0007/0013). A static test fails the build if the package imports broker, core, gateway, risk, policy, store, API or market code.
+Agents are research-side code under `backend/src/unknown/agents/`. They hold no broker credential and no ledger write handle. Their only write to the core is `submit_research_proposal`, sent with the agent token (role `AGENT`, ADR-0007/0013). A static test fails the build if the package imports broker, core, gateway, risk, policy, store, API or market code. Only `worker.py` may import the core socket client (`service/ipc.py`), and it may use only the agent token. Only the evidence builders and the worker may read the point-in-time research store.
 
 One job goes through the runner in this order (`runner.py`):
 
@@ -50,7 +50,7 @@ Tool use is provider-neutral: the model asks for a tool through the `tool_reques
 1. **Write the policy file.** It goes at `~/.unknown/config/agents.json` (or `$UNKNOWN_HOME/config/agents.json`), mode `0600`, owned by you. Money values are decimal strings; JSON numbers are refused for money.
 2. **Provide the API key.** Use the environment variable named in `api_key_env`. For Anthropic you can instead use a file under `~/.unknown/secrets/` named by `api_key_file`; it must be mode `0600` or it is refused. Keys are never stored in the policy file and never logged.
 3. **Approve the tariff rows.** In `config/models/tariffs.json`, re-verify each price against the provider's pricing page and set `approved_by` on the rows you rely on. Shipped rows are all unapproved, so admission refuses until you do this. With `refusal_fallback: "default"`, also approve the rows of the fallback targets (`claude-opus-4-8`, `claude-opus-5`), because the worst case must bound a fallback attempt.
-4. **Approve models per role.** Add an entry to `config/models/approved.json` (shipped empty). In code, the catalog comes from a live list call; approval entries name the exact id from that snapshot.
+4. **Approve models per role.** Add an entry to `config/models/approved.json` (shipped empty). In code, the catalog comes from a live list call; approval entries name the exact id from that snapshot. The exact entry for Claude Opus 5.5 and the research role is in [step 3 below](#owner-steps-for-a-live-job).
 
 ### `agents.json` schema (schema_version 1)
 
@@ -107,7 +107,7 @@ Required keys: `schema_version`, `currency`, `caps.per_day`, `caps.per_job`, `pr
 - **`retry`.** Absent means no retries. Retries apply only to transient classes, never earlier than `retry-after`, never past the deadline, and within the envelope's `retry_budget`.
 - **`circuit_breaker`.** Absent means it opens after 1 overload or server error and stays open for 300 s.
 - **`token_estimate`.** Absent means factor 1 on UTF-8 bytes plus 1024 tokens.
-- **`concurrency`.** Absent means 1 job at a time. A role without a limit never runs. Pass it to `JobRegistry(max_global=..., max_per_role=...)`.
+- **`concurrency`.** Absent means 1 job at a time. A role without a limit never runs: the model worker fails its queued jobs with that reason. The worker runs one job at a time and one worker runs per `UNKNOWN_HOME`, so `global` above 1 has no effect yet.
 
 ### Environment variable names
 
@@ -150,6 +150,128 @@ It skips unless all of these hold:
 ```bash
 cd backend && UNKNOWN_LIVE_ANTHROPIC=1 PYTHONPATH=src ~/.unknown/venvs/agents/bin/python -m unittest tests.test_agents_live_anthropic -v
 ```
+
+## Running research jobs on this Mac
+
+The owner asks a question through the terminal API. The API writes a job to the durable job store. The model worker runs it under the spend caps and delivers the proposal to the core, where it is recorded as a research proposal. The terminal reads the job, its audit trail, its spend and the recorded proposal back.
+
+```
+terminal API ──writes──> agents/jobs.sqlite <──claims/finishes── model worker ──AGENT token──> core socket
+ (no key, no provider code)        │                                   │  provider call (key, ledger, gate)
+                                   └── GET /api/research/jobs/<id> <── agents/audit.sqlite, agents/ledger.sqlite, core proposals
+```
+
+### Budget source (one owner source)
+
+The only source of model budgets is the owner policy `<UNKNOWN_HOME>/config/agents.json`. Its `caps` are lifetime, month, UTC day, job, role per day and provider limits, all exact decimal strings in one currency. An absent file, or a zero `per_day` or `per_job`, disables paid model calls (AI-05). `config/paper_defaults.json` used to carry `paid_model_daily_budget_cents: 0`, which no code read; that field has been removed and the file's note points here. The API reads `agents.json`, read-only, for two things: to refuse a submission (HTTP 409) while paid calls are disabled, and to default a job's envelope spend cap to `per_job`. A request can lower that cap but never raise it. The spend ledger enforces every cap at reservation time. Nothing in the agent layer writes `agents.json`.
+
+### Components
+
+| Piece | Where | What it guarantees |
+|---|---|---|
+| Job store (`jobstore.py`) | `<UNKNOWN_HOME>/agents/jobs.sqlite` | WAL, `synchronous=FULL`, `fullfsync` on macOS, mode 0600. States are QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED and EXPIRED; `outcome` keeps the runner's fine status (`budget_exhausted`, `schema_invalid`, ...). Submission is idempotent: the same job id with the same content returns the job, and an equivalent job (CAP-AGT-01 key: role, schema, prompt template, input hashes) that is queued, running or succeeded within 24 h is returned instead of a new one. Claims are atomic and respect the concurrency limits. A finished job's proposal is stored in the same transaction as its terminal state. |
+| Audit trail (`audit.py`) | `<UNKNOWN_HOME>/agents/audit.sqlite` | Append-only (UPDATE and DELETE refused by triggers). It holds every runner record (reservations, settlements, gate decisions, generations, tool calls, schema failures, discards) and every worker action (start, candidates, budget admission, catalog refresh, recovery, delivery), written as they happen and hash-chained like the core event log. `verify()` reports edits, deletions and re-attribution; truncating the newest rows is detectable only against a head kept elsewhere. |
+| Evidence (`pit_evidence.py`) | `<UNKNOWN_HOME>/research/research.sqlite` (read-only) | Issuers (PIT entity ids such as `SEC-CIK-0000320193`, or tickers such as `AAPL`) and XBRL concepts become spans pinned to the submission instant with `as_of(t, knowledge_cutoff_ns=t)`. Each span states concept, period, unit and exact value, and carries a typed fact for exact numeric checks. The worker re-derives the spans and refuses the job if they differ from what was submitted, so only store-derived text, labelled with the store's dataset id, reaches the data-use gate and the provider. |
+| Model worker (`worker.py`) | `python -m unknown.agents.worker` | See below. |
+| API routes (`api/routes/research_jobs.py`) | `GET/POST /api/research/jobs`, `GET /api/research/jobs/<id>`, `POST /api/research/jobs/<id>/cancel` | Owner session required; POSTs also require the CSRF token. The API writes only the job store. It holds no key and loads no provider, runner, worker or tool module; a test checks every module the API process loads. |
+
+What the worker does with each job, in order:
+
+1. **Owner policy.** It re-reads the owner policy, so an edit applies without a restart. An absent or invalid policy fails the job closed, with the reason and no network call.
+2. **Evidence.** It re-derives the evidence and checks the task hash against the envelope.
+3. **Candidates.** Candidates are enabled providers crossed with the models approved for the job's role in `config/models/approved.json`, with the provider's `default_model` first. An unapproved model is never a candidate, and the runner re-checks catalog approval, lifecycle and freshness.
+4. **Local admission (no network).** The adapter must be enabled, hold a key and have its SDK installed, and an owner-approved tariff row must exist. A **budget probe** then reserves, and immediately releases, the cheapest call the job could make: `max_output_tokens` at the output rate with zero prompt tokens, checked against every cap. If even that does not fit, the job fails `budget_exhausted` before any provider call.
+5. **Catalog.** The model catalog is refreshed from the list endpoint only when the last snapshot is older than `catalog.max_age_hours`. Snapshots persist in `agents/catalog/` across restarts. A failed refresh is retried no sooner than 5 minutes later.
+6. **Run.** The runner runs the job: count, worst case, gate, reservation, call, settlement, validation and claim verification.
+7. **Delivery.** The proposal, or the runner's abstention, goes to the core as `submit_research_proposal` with command id `agent.proposal.<job_id>`, sent as principal `agent.<role>` with the AGENT token.
+   - **Core unreachable.** The proposal stays PENDING and is retried with backoff, starting at 1 s and doubling to 5 min. It is never dropped.
+   - **Resend after a crash.** The resend is byte-identical, so the core's command-id deduplication records it once.
+   - **Rejected or conflicting.** A proposal the core rejects, or one that conflicts with a different payload under the same command id, is kept and marked REJECTED or CONFLICT.
+   - **Refused before the runner.** A job refused before the runner starts (no policy, provider disabled, model not approved, no key, budget probe refused, evidence changed) records no proposal; the reason is on the job.
+
+**Crash recovery.** At start the worker takes an exclusive lock on `agents/worker.lock`, so only one worker runs per home. It then checks every RUNNING job left by a dead worker against the spend ledger:
+- Any OPEN, SETTLED or UNCONFIRMED reservation means a request may have been sent. The job becomes FAILED with reason `worker restarted`, and its OPEN reservations become UNCONFIRMED: the outcome is unknown, so the money stays reserved until reconciled.
+- If every reservation was released (nothing left the process), the job is queued again, at most 3 times.
+
+### Owner steps for a live job
+
+Everything here stays on this Mac; nothing below is committed except the approval in step 3.
+
+1. **Policy.** `~/.unknown/config/agents.json` already exists (USD 200 lifetime, 15.00 per day, 2.00 per job; Anthropic enabled with `api_key_env: ANTHROPIC_API_KEY` and `api_key_file: anthropic_api_key`). No change is needed.
+2. **API key.** It goes in `~/.unknown/secrets/anthropic_api_key` with mode 600 (the directory is mode 700); the worker refuses a file readable by others. Alternatively, export `ANTHROPIC_API_KEY` in the worker's environment only, never in the API's. For example:
+
+   ```bash
+   mkdir -p ~/.unknown/secrets && chmod 700 ~/.unknown/secrets
+   ( umask 077 && read -rs KEY && printf '%s' "$KEY" > ~/.unknown/secrets/anthropic_api_key ); chmod 600 ~/.unknown/secrets/anthropic_api_key
+   ```
+
+3. **Approve `claude-opus-5-5` for the research role.** Add exactly this entry to the `approvals` list in `config/models/approved.json`. Use today's date, and set `policy_version` to the owner policy hash printed by the command below; any version label is accepted.
+
+   ```json
+   {"provider": "anthropic", "model_id": "claude-opus-5-5", "roles": ["research"], "approved_by": "owner",
+    "approved_at": "2026-10-22", "policy_version": "<owner policy hash>",
+    "note": "Owner approval for research jobs under the USD 200 authorization"}
+   ```
+
+   ```bash
+   cd backend && PYTHONPATH=src python3 -c "from unknown.agents.config import load_owner_policy; print(load_owner_policy().policy_hash)"
+   ```
+
+   Notes:
+   - The tariff row for `claude-opus-5-5` is already owner-approved in `config/models/tariffs.json`.
+   - `lifecycle_reviewed_until` should not be needed: the CI smoke run routed this model, which requires the list endpoint to report it as active. If a job ever records `catalog:lifecycle_unknown_without_owner_review`, add one.
+   - Approving a different model, or another role, follows the same shape.
+4. **SDK.** The worker runs in the agents venv, because the core stays standard-library only:
+
+   ```bash
+   python3 -m venv ~/.unknown/venvs/agents && ~/.unknown/venvs/agents/bin/pip install -r backend/requirements-agents.txt
+   ```
+
+5. **Start the core, the API and the worker.** The core creates `secrets/agent_token` at start. `--check` lists what is still missing and makes no network call.
+
+   ```bash
+   cd backend
+   PYTHONPATH=src python3 -m unknown.service.core --account SIM-1 --deployment mac-dev --fixture-market &   # or the IBKR PAPER service
+   PYTHONPATH=src python3 -m unknown.api.server --account SIM-1 --port 8765 &
+   PYTHONPATH=src ~/.unknown/venvs/agents/bin/python -m unknown.agents.worker --check
+   PYTHONPATH=src ~/.unknown/venvs/agents/bin/python -m unknown.agents.worker &      # --once exits when idle
+   ```
+
+6. **Ask a question.** The terminal has no research panel yet, so use the API directly. Log in with the owner passphrase, then submit with the returned CSRF token:
+
+   ```bash
+   read -rs P; printf '{"passphrase": "%s"}' "$P" | curl -s -c ~/.unknown/run/api.cookies -H 'Content-Type: application/json' \
+     --data @- http://127.0.0.1:8765/api/auth/login; unset P            # prints {"csrf_token": ...}
+   CSRF=...   # the csrf_token value
+   curl -s -b ~/.unknown/run/api.cookies -H "X-CSRF-Token: $CSRF" -H 'Content-Type: application/json' \
+     -d '{"question": "Did Apple grow revenue in its latest fiscal year?", "issuer_ids": ["AAPL"], "max_output_tokens": 4000}' \
+     http://127.0.0.1:8765/api/research/jobs
+   curl -s -b ~/.unknown/run/api.cookies http://127.0.0.1:8765/api/research/jobs/<job_id>
+   ```
+
+   Request fields:
+   - `question` is required.
+   - `role` defaults to `research`.
+   - `issuer_ids` takes up to 5 PIT entity ids or tickers.
+   - `fields` takes XBRL concepts (taxonomy:Concept); the default is 12 common us-gaap/dei concepts.
+   - `max_output_tokens` defaults to 8000 (range 256..32000).
+   - `deadline_seconds` defaults to 3600.
+   - `horizon_seconds` defaults to 90 days.
+   - `spend_cap` must be at or below the owner's `per_job`.
+
+   The detail response shows:
+   - the job and its events;
+   - the evidence spans;
+   - the audit trail with its chain status;
+   - the ledger rows for the job;
+   - the proposal, and the proposal as the core recorded it.
+
+**Cost of one job** at the approved rates of 4.00 USD input and 20.00 USD output per million tokens:
+- **Evidence size.** AAPL and MSFT with the default concepts gave 138 spans, about 35 KB (measured on this Mac's store, 2026-10-22). That is roughly 10k prompt tokens.
+- **First reservation.** With the provider's token count, the reservation is about 0.05 USD of prompt plus 0.16 USD for 8000 output tokens. If counting fails, the local estimate (1 token per byte plus 1024) reserves about 0.15 USD of prompt instead.
+- **Settlement** is the actual usage.
+- **Truncation.** A truncated answer is retried once with twice the output tokens.
+- **Caps.** Every call is checked against 2.00 USD per job and 15.00 USD per day.
 
 ## Verified versus open
 
@@ -267,6 +389,9 @@ Only numbers present in the register, or in the coordinator-supplied Claude API 
 - The approval queue (CAP-AGT-04).
 - The OpenTelemetry traces (CAP-AGT-13).
 - The evaluation release gate (CAP-AGT-14).
-- A tamper-evident audit chain (CAP-AGT-09). The runner returns its records in memory.
-- A durable job store (the registry is in memory).
-- A model-worker process that wires `JobRegistry`, `JobRunner` and the `CoreClient` with the agent token.
+- A terminal panel for research jobs. The API routes exist; the browser terminal does not call them yet.
+- `kill_grace_s`. A provider call in flight at the deadline is not interrupted; its output is discarded.
+- Child jobs in the durable store. The envelope supports depth 1, but the store accepts root jobs only.
+- More than one job at a time. One worker runs per `UNKNOWN_HOME`, one job at a time.
+- Reconciliation of UNCONFIRMED spend against a provider cost report. `SpendLedger.reconcile()` takes owner evidence; no cost API is integrated.
+- Proposal-to-order lineage (CAP-AGT-09). No order intent consumes research proposals yet.
