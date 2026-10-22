@@ -169,7 +169,7 @@ The only source of model budgets is the owner policy `<UNKNOWN_HOME>/config/agen
 
 | Piece | Where | What it guarantees |
 |---|---|---|
-| Job store (`jobstore.py`) | `<UNKNOWN_HOME>/agents/jobs.sqlite` | WAL, `synchronous=FULL`, `fullfsync` on macOS, mode 0600. States are QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED and EXPIRED; `outcome` keeps the runner's fine status (`budget_exhausted`, `schema_invalid`, ...). Submission is idempotent: the same job id with the same content returns the job, and an equivalent job (CAP-AGT-01 key: role, schema, prompt template, input hashes) that is queued, running or succeeded within 24 h is returned instead of a new one. Claims are atomic and respect the concurrency limits. A finished job's proposal is stored in the same transaction as its terminal state. |
+| Job store (`jobstore.py`) | `<UNKNOWN_HOME>/agents/jobs.sqlite` | WAL, `synchronous=FULL`, `fullfsync` on macOS, mode 0600. States are QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED and EXPIRED; `outcome` keeps the runner's fine status (`budget_exhausted`, `schema_invalid`, ...). Submission is idempotent: the same job id with the same content returns the job, and an equivalent job (CAP-AGT-01 key: role, schema, prompt template, input hashes) that is queued, running or succeeded within 24 h, and is not being cancelled, is returned instead of a new one. The key leaves out caps and the deadline. Claims are atomic and respect the concurrency limits. A finished job's proposal is stored in the same transaction as its terminal state. |
 | Audit trail (`audit.py`) | `<UNKNOWN_HOME>/agents/audit.sqlite` | Append-only (UPDATE and DELETE refused by triggers). It holds every runner record (reservations, settlements, gate decisions, generations, tool calls, schema failures, discards) and every worker action (start, candidates, budget admission, catalog refresh, recovery, delivery), written as they happen and hash-chained like the core event log. `verify()` reports edits, deletions and re-attribution; truncating the newest rows is detectable only against a head kept elsewhere. |
 | Evidence (`pit_evidence.py`) | `<UNKNOWN_HOME>/research/research.sqlite` (read-only) | Issuers (PIT entity ids such as `SEC-CIK-0000320193`, or tickers such as `AAPL`) and XBRL concepts become spans pinned to the submission instant with `as_of(t, knowledge_cutoff_ns=t)`. Each span states concept, period, unit and exact value, and carries a typed fact for exact numeric checks. The worker re-derives the spans and refuses the job if they differ from what was submitted, so only store-derived text, labelled with the store's dataset id, reaches the data-use gate and the provider. |
 | Model worker (`worker.py`) | `python -m unknown.agents.worker` | See below. |
@@ -190,8 +190,15 @@ What the worker does with each job, in order:
    - **Refused before the runner.** A job refused before the runner starts (no policy, provider disabled, model not approved, no key, budget probe refused, evidence changed) records no proposal; the reason is on the job.
 
 **Crash recovery.** At start the worker takes an exclusive lock on `agents/worker.lock`, so only one worker runs per home. It then checks every RUNNING job left by a dead worker against the spend ledger:
-- Any OPEN, SETTLED or UNCONFIRMED reservation means a request may have been sent. The job becomes FAILED with reason `worker restarted`, and its OPEN reservations become UNCONFIRMED: the outcome is unknown, so the money stays reserved until reconciled.
-- If every reservation was released (nothing left the process), the job is queued again, at most 3 times.
+- **Admission probes.** An OPEN probe is released, because a probe is never sent.
+- **Possibly sent.** Any other OPEN, SETTLED or UNCONFIRMED reservation means a request may have been sent. The job becomes FAILED with reason `worker restarted`, and its OPEN reservations become UNCONFIRMED: the outcome is unknown, so the money stays reserved until reconciled.
+- **Cancel requested.** A job the owner asked to cancel becomes CANCELLED instead, and is never queued again.
+- **Nothing sent.** If every reservation was released, the job is queued again, at most 3 times.
+
+**Other failures.**
+- **The job's end cannot be stored** (for example SQLite busy). The outcome, which may hold a paid proposal, stays in memory and is retried at the start of every cycle.
+- **One delivery fails unexpectedly.** It never blocks other deliveries, expiry or new jobs.
+- **A cancel accepted while a job runs** always discards the output, even when it lands after the runner's last check. The store re-checks the cancel in the same transaction as the terminal state.
 
 ### Owner steps for a live job
 

@@ -91,6 +91,14 @@ class JobStoreTest(TempDirCase, unittest.TestCase):
         later = envelope(job_id="job-6", created_ns=self.clock.now_ns(), deadline_ns=self.clock.now_ns() + 600 * SECOND)
         self.assertTrue(s.submit(later, INPUTS, submitted_by="owner").created)
 
+    def test_a_job_being_cancelled_does_not_absorb_a_resubmission(self):
+        s = self.store()
+        s.submit(envelope(job_id="job-1"), INPUTS, submitted_by="owner")
+        s.claim_next("w", max_global=1, max_per_role=None)
+        s.cancel("job-1", by="owner")
+        again = s.submit(envelope(job_id="job-2"), INPUTS, submitted_by="owner")
+        self.assertEqual((again.job_id, again.created), ("job-2", True))
+
     def test_past_deadlines_and_child_jobs_are_refused(self):
         s = self.store()
         self.clock.advance(601 * SECOND)

@@ -330,6 +330,41 @@ class WorkerEndToEndTest(WorkerHarness, unittest.TestCase):
         self.assertEqual([d["duplicate"] for d in delivered], [True])
         self.assertEqual(len(self.client.messages.calls), 1)
 
+    def test_a_failed_store_write_at_the_end_of_a_job_is_retried_and_the_proposal_kept(self):
+        w = self.worker()
+        jid = self.submit(w)
+        self.client.messages.outcomes = [message(answer(w.jobs.get(jid)["inputs"]["evidence"]["spans"]))]
+        original = w.jobs.finish
+        calls = []
+
+        def busy_once(*a, **kw):
+            calls.append(1)
+            if len(calls) == 1:
+                raise sqlite3.OperationalError("database is locked")
+            return original(*a, **kw)
+        w.jobs.finish = busy_once
+        w.step()
+        self.assertEqual(w.jobs.get(jid)["state"], "RUNNING")
+        self.assertEqual(self.core.calls, [])
+        w.step()
+        job = w.jobs.get(jid)
+        self.assertEqual((job["state"], job["delivery"]), ("SUCCEEDED", "DELIVERED"))
+        self.assertEqual(len(self.core.proposals), 1)
+        self.assertEqual(len(self.client.messages.calls), 1)                 # the paid answer was not asked for twice
+
+    def test_one_failing_delivery_never_blocks_other_jobs(self):
+        w = self.worker()
+        first = self.submit(w)
+        self.client.messages.outcomes = [message(answer(w.jobs.get(first)["inputs"]["evidence"]["spans"]))]
+        self.core.command = lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("unexpected core client failure"))
+        w.step()
+        self.assertEqual(w.jobs.get(first)["delivery"], "PENDING")
+        second = self.submit(w, question="another question")
+        self.client.messages.outcomes = [message(answer(w.jobs.get(second)["inputs"]["evidence"]["spans"]))]
+        w.step()
+        self.assertEqual(w.jobs.get(second)["state"], "SUCCEEDED")
+        self.assertEqual(w.jobs.get(first)["delivery"], "PENDING")
+
     def test_rejected_and_conflicting_deliveries_are_kept_not_retried(self):
         w = self.worker()
         jid = self.submit(w)
@@ -530,6 +565,31 @@ class WorkerRecoveryTest(WorkerHarness, unittest.TestCase):
         w.step()
         self.assertEqual(w.jobs.get(jid)["state"], "SUCCEEDED")
         self.assertEqual(len(self.core.proposals), 1)
+
+    def test_an_interrupted_admission_probe_is_released_not_counted_as_sent(self):
+        w = self.worker()
+        jid = self.claimed_by_a_dead_worker(w)
+        led = self.ledger()
+        probe = led.reserve(job_id=jid, role="research", provider="anthropic", model_id=MODEL, amount=Money("USD", Fixed.parse("0.04")),
+                            purpose="admission_probe")
+        self.assertEqual([a["action"] for a in w.recover()], ["requeued"])
+        self.assertEqual(led.state(probe.reservation_id)["state"], "RELEASED")
+        self.assertEqual(led.consumed(job_id=jid), Fixed(0))
+
+    def test_a_job_cancelled_while_running_is_not_requeued_after_a_restart(self):
+        w = self.worker()
+        never_sent = self.claimed_by_a_dead_worker(w)
+        w.jobs.cancel(never_sent, by="owner")
+        sent = self.claimed_by_a_dead_worker(w, question="second")
+        w.jobs.cancel(sent, by="owner")
+        led = self.ledger()
+        res = led.reserve(job_id=sent, role="research", provider="anthropic", model_id=MODEL, amount=Money("USD", Fixed.parse("0.05")))
+        self.assertEqual(sorted(a["action"] for a in w.recover()), ["cancelled", "cancelled"])
+        for jid in (never_sent, sent):
+            self.assertEqual((w.jobs.get(jid)["state"], w.jobs.get(jid)["outcome"]), ("CANCELLED", "cancelled_by_owner"))
+        self.assertEqual(led.state(res.reservation_id)["state"], "UNCONFIRMED")      # possibly sent: stays reserved
+        self.assertFalse(w.step())
+        self.assert_no_network()
 
     def test_repeated_restarts_before_sending_eventually_fail(self):
         w = self.worker()

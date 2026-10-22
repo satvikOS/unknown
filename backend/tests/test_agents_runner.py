@@ -353,7 +353,7 @@ class RunnerWorkerHooksTest(TempDirCase, unittest.TestCase):
             runner.run(envelope(), inputs(), [Candidate("anthropic", MODEL)])
         self.assertEqual(fake.calls, [])
         rows = self.deps.ledger.reservations("job-1")
-        self.assertEqual([r["state"] for r in rows if r["purpose"] == "generate"], ["OPEN"])  # the worker marks it UNCONFIRMED
+        self.assertEqual([r["state"] for r in rows if r["purpose"] == "generate"], ["RELEASED"])   # provably never sent
 
     def test_an_unclassified_adapter_exception_keeps_the_reservation_unconfirmed(self):
         runner = self.runner(FakeAdapter([RuntimeError("unexpected SDK failure")]))

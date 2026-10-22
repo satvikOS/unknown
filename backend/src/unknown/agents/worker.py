@@ -27,8 +27,10 @@ provider. It runs research jobs from the durable job store (``jobstore.py``) one
 
 Crash recovery at start: a RUNNING job left by a dead worker is FAILED "worker restarted" when the spend
 ledger shows any reservation that may have been sent (its OPEN reservations become UNCONFIRMED: the
-outcome is unknown, so the money stays reserved until reconciled). If every reservation was released
-(nothing left this process) the job is queued again, at most ``MAX_START_ATTEMPTS`` times.
+outcome is unknown, so the money stays reserved until reconciled; an OPEN admission probe is released,
+since a probe is never sent). A job whose cancel was requested becomes CANCELLED. If nothing was sent
+the job is queued again, at most ``MAX_START_ATTEMPTS`` times. A job end that cannot be stored is kept
+in memory and retried every cycle; one failing delivery never blocks the others or new jobs.
 
 Concurrency: one job at a time per worker, and one worker per ``UNKNOWN_HOME`` (an exclusive lock on
 ``agents/worker.lock``). A role absent from ``concurrency.per_role`` in the owner policy never runs; its
@@ -153,6 +155,7 @@ class Worker:
         self._breaker: CircuitBreaker | None = None
         self._lock_fd: int | None = None
         self._delivery_errors: dict[str, str] = {}
+        self._unfinished: dict[str, _Outcome] = {}
 
     # ------------------------------------------------------------------ lifecycle
     def start(self) -> list[dict]:
@@ -217,15 +220,26 @@ class Worker:
     def _default_core(self) -> CoreClient:
         return CoreClient(self.paths.socket, self.paths.token("agent"))
 
+    @staticmethod
+    def _close_open_rows(ledger: SpendLedger, rows: list[dict], note: str) -> tuple[list[str], list[str]]:
+        """OPEN rows of a job whose run was interrupted. An admission probe is never sent (it is reserved and
+        released around no call), so it is released; any other OPEN row may have been sent and becomes UNCONFIRMED."""
+        unconfirmed, released = [], []
+        for r in rows:
+            if r["state"] != "OPEN":
+                continue
+            if r["purpose"] == "admission_probe":
+                ledger.release(r["reservation_id"], note="admission probe interrupted; never sent")
+                released.append(r["reservation_id"])
+            else:
+                ledger.mark_unconfirmed(r["reservation_id"], note=note)
+                unconfirmed.append(r["reservation_id"])
+        return unconfirmed, released
+
     def _unconfirm_open(self, job_id: str, note: str) -> list[str]:
         if self._ledger is None:
             return []
-        marked = []
-        for r in self._ledger.reservations(job_id):
-            if r["state"] == "OPEN":
-                self._ledger.mark_unconfirmed(r["reservation_id"], note=note)
-                marked.append(r["reservation_id"])
-        return marked
+        return self._close_open_rows(self._ledger, self._ledger.reservations(job_id), note)[0]
 
     # ------------------------------------------------------------------ recovery
     def recover(self) -> list[dict]:
@@ -235,14 +249,15 @@ class Worker:
         for job in self.jobs.running_jobs():
             jid = job["job_id"]
             rows = ledger.reservations(jid)
-            marked = []
-            for r in rows:
-                if r["state"] == "OPEN":
-                    ledger.mark_unconfirmed(r["reservation_id"], note="worker restarted while this request may have been in "
-                                                                       "flight; outcome unknown, kept reserved until reconciled")
-                    marked.append(r["reservation_id"])
-            sent = any(r["state"] in ("OPEN", "SETTLED", "UNCONFIRMED") for r in rows)
-            if sent:
+            sent = any(r["state"] in ("SETTLED", "UNCONFIRMED") or (r["state"] == "OPEN" and r["purpose"] != "admission_probe")
+                       for r in rows)
+            marked, released = self._close_open_rows(
+                ledger, rows, "worker restarted while this request may have been in flight; outcome unknown, kept reserved "
+                              "until reconciled")
+            if job["cancel_requested"]:
+                action, reason = "cancelled", "cancelled by the owner while running; the worker restarted before the job ended"
+                self.jobs.finish(jid, job["worker_id"], state="CANCELLED", outcome="cancelled_by_owner", reason=reason)
+            elif sent:
                 action, reason = "failed", "worker restarted"
                 self.jobs.fail(jid, from_states=("RUNNING",), outcome="worker_restarted", reason=reason)
             elif job["start_attempts"] >= MAX_START_ATTEMPTS:
@@ -254,15 +269,19 @@ class Worker:
             self._audit(jid, {"kind": "recovered", "action": action, "reason": reason, "previous_worker": job["worker_id"],
                               "reservations": [{"reservation_id": r["reservation_id"], "state": r["state"], "purpose": r["purpose"]}
                                                for r in rows],
-                              "marked_unconfirmed": marked})
+                              "marked_unconfirmed": marked, "released_probes": released})
             log.warning("recovered job %s: %s (%s)", jid, action, reason)
             actions.append({"job_id": jid, "action": action, "reason": reason, "marked_unconfirmed": marked})
         return actions
 
     # ------------------------------------------------------------------ one cycle
     def step(self) -> bool:
-        """Deliver due proposals, expire overdue jobs, then run at most one job. Returns whether anything happened."""
-        worked = self._deliver_due()
+        """Record any job end that could not be stored earlier, deliver due proposals, expire overdue jobs, then
+        run at most one job. Returns whether anything happened."""
+        worked = False
+        for jid, out in list(self._unfinished.items()):
+            worked = self._finish(jid, out) or worked
+        worked = self._deliver_due() or worked
         for jid in self.jobs.expire_overdue():
             self._audit(jid, {"kind": "expired", "reason": "deadline passed while queued"})
             worked = True
@@ -307,12 +326,29 @@ class Worker:
                 self._audit(jid, {"kind": "worker_error", "error": out.reason, "marked_unconfirmed": marked})
             except Exception:
                 log.exception("could not audit the worker error of job %s", jid)
-        done = self.jobs.finish(jid, self.worker_id, state=out.state, outcome=out.outcome, reason=out.reason,
-                                proposal=out.proposal, discarded_output_hash=out.discarded_output_hash)
+        self._finish(jid, out)
+
+    def _finish(self, jid: str, out: _Outcome) -> bool:
+        """Store a job's end (and its proposal). If the store write fails, the outcome, which may hold a paid
+        proposal, is kept in memory and retried at the start of every step instead of being lost."""
+        try:
+            done = self.jobs.finish(jid, self.worker_id, state=out.state, outcome=out.outcome, reason=out.reason,
+                                    proposal=out.proposal, discarded_output_hash=out.discarded_output_hash)
+        except StateConflict:
+            log.error("job %s is no longer running under this worker; its outcome %s (%s) was not recorded",
+                      jid, out.state, out.outcome)
+            self._unfinished.pop(jid, None)
+            return False
+        except Exception:
+            log.exception("could not record the end of job %s; kept in memory and retried", jid)
+            self._unfinished[jid] = out
+            return False
+        self._unfinished.pop(jid, None)
         self._audit(jid, {"kind": "job_finished", "state": done["state"], "outcome": done["outcome"], "reason": done["reason"],
                           "output_hash": done["output_hash"], "discarded_output_hash": done["discarded_output_hash"],
                           "delivery": done["delivery"]})
         log.info("job %s finished: %s (%s) %s", jid, done["state"], done["outcome"], done["reason"])
+        return True
 
     # ------------------------------------------------------------------ one job
     def _candidates(self, policy: OwnerPolicy, approvals, role: str) -> tuple[list[Candidate], str]:
@@ -492,7 +528,10 @@ class Worker:
     def _deliver_due(self) -> bool:
         due = self.jobs.due_deliveries()
         for job in due:
-            self._deliver(job)
+            try:
+                self._deliver(job)
+            except Exception:  # one bad delivery never blocks the others, expiry or new jobs
+                log.exception("delivery of job %s failed unexpectedly; it stays pending", job["job_id"])
         return bool(due)
 
     def _deliver(self, job: dict) -> None:

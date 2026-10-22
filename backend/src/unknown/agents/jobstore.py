@@ -17,8 +17,10 @@ Job states::
 
 Submission is idempotent: the same job id with the same envelope and inputs returns the
 existing job, and an equivalent job (CAP-AGT-01 dedupe key: role, schema, prompt template and
-input hashes) that is queued, running or succeeded within the dedupe window is returned instead
-of a new one. A failed, cancelled or expired job does not block a resubmission.
+input hashes) that is queued, running or succeeded within the dedupe window, and is not being
+cancelled, is returned instead of a new one. A failed, cancelled or expired job does not block a
+resubmission. The key deliberately leaves out caps and deadline: a resubmission with a lower
+spend cap returns the earlier job, whose cap is still within the owner's per-job cap.
 
 Proposal outbox: a finished job's proposal (or abstention) is stored in the same transaction as
 its terminal state, with delivery ``PENDING``. Delivery to the core is retried until the core
@@ -227,7 +229,7 @@ class JobStore:
                 raise JobStoreError("deadline already passed")
             canon = self._db.execute(
                 "SELECT job_id, state, submitted_ns FROM jobs WHERE dedupe_key = ? AND state IN ('QUEUED','RUNNING','SUCCEEDED')"
-                " ORDER BY submitted_ns DESC, job_id DESC LIMIT 1", (key,)).fetchone()
+                " AND cancel_requested = 0 ORDER BY submitted_ns DESC, job_id DESC LIMIT 1", (key,)).fetchone()
             if canon is not None and now - canon["submitted_ns"] <= dedupe_window_ns:
                 self._event(canon["job_id"], "duplicate_submission", {"by": submitted_by, "refused_job_id": env.job_id})
                 return SubmitResult(canon["job_id"], False, canon["job_id"], canon["state"])
@@ -300,7 +302,7 @@ class JobStore:
             if sum(counts.values()) >= max_global:
                 return None
             for row in self._db.execute("SELECT job_id, role FROM jobs WHERE state = 'QUEUED' AND deadline_ns > ?"
-                                        " ORDER BY submitted_ns, job_id", (now,)).fetchall():
+                                        " AND cancel_requested = 0 ORDER BY submitted_ns, job_id", (now,)).fetchall():
                 if max_per_role is not None and counts.get(row["role"], 0) >= max_per_role.get(row["role"], 0):
                     continue
                 self._transition(row["job_id"], ("QUEUED",), {"state": "RUNNING", "started_ns": now, "worker_id": worker_id,
@@ -407,8 +409,9 @@ class JobStore:
                                    (canonical_json(dict(core_result)), self._clock_ns(), self._clock_ns(), job_id))
             if cur.rowcount != 1:
                 raise StateConflict(f"job {job_id} has no pending delivery")
+            body = core_result.get("body")
             self._event(job_id, "delivered", {"duplicate": bool(core_result.get("duplicate")),
-                                              "proposal_id": (core_result.get("body") or {}).get("proposal_id")})
+                                              "proposal_id": body.get("proposal_id") if isinstance(body, Mapping) else None})
         self._write(tx)
 
     def mark_delivery_failed(self, job_id: str, error: str, *, retry_at_ns: int | None = None,

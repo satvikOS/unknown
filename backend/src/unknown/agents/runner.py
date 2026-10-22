@@ -389,8 +389,12 @@ class JobRunner:
                                            amount=worst, job_cap=env.spend_cap, purpose="generate")
                 except BudgetError as exc:
                     raise _Terminal(JobState.BUDGET_EXHAUSTED, str(exc)) from None
-                self._rec(records, "reserved", reservation=res.reservation_id, amount=str(worst), prompt_tokens=tc.input_tokens,
-                          max_output_tokens=max_out, count_method=tc.method)
+                try:
+                    self._rec(records, "reserved", reservation=res.reservation_id, amount=str(worst),
+                              prompt_tokens=tc.input_tokens, max_output_tokens=max_out, count_method=tc.method)
+                except BaseException:
+                    d.ledger.release(res, note="not sent: the reservation could not be recorded in the audit trail")
+                    raise
                 turns_used += 1
                 result.turns_used = turns_used
                 try:
