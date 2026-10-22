@@ -31,6 +31,31 @@ def _refs(s: dict) -> dict:
     return dict(account_key=s["account_key"], session_id=s["session_id"])
 
 
+def attributed_exceptions(ctx: Context, s: dict, kinds: frozenset[str] | None = None) -> list[dict]:
+    """Open blocking exceptions attributed to the session: by session id, or by naming the session's
+    ledger owner (an uncovered sell or a correction below the sold quantity carries only the owner)."""
+    owner = ledger.session_owner(s["session_id"])
+    return [e for e in state.open_exceptions(ctx.tx, s["account_key"], blocking_only=True)
+            if (e.get("session_id") == s["session_id"] or e.get("owner_hint") == owner)
+            and (kinds is None or e["kind"] in kinds)]
+
+
+def sessions_of_case(case: dict) -> list[str]:
+    """Ids of the sessions an exception case is attributed to (session id and/or session owner)."""
+    ids = [case["session_id"]] if case.get("session_id") else []
+    hint = case.get("owner_hint") or ""
+    if hint.startswith("session:") and hint.split(":", 1)[1] not in ids:
+        ids.append(hint.split(":", 1)[1])
+    return ids
+
+
+def _cancel_open_buys(ctx: Context, s: dict, reason: str) -> None:
+    from .orders import cancel_order
+    for o in state.orders(ctx.tx, s["account_key"], session_id=s["session_id"], open_only=True):
+        if o["side"] == "BUY":
+            cancel_order(ctx, o, reason)
+
+
 def _new_row(session_id: str, account_key: str, m: Mandate, predecessor: str | None, now_ns: int) -> dict:
     return {"session_id": session_id, "account_key": account_key, "state": "REQUESTED", "mandate_hash": m.mandate_hash,
             "predecessor_id": predecessor, "currency": m.currency, "seed": m.seed.amount.to_str(),
@@ -145,12 +170,9 @@ def suspend_session(ctx: Context, p: dict) -> dict:
 
 
 def suspend(ctx: Context, s: dict, reason: str, evidence: dict | None = None) -> None:
-    from .orders import cancel_order
     ctx.emit("SessionSuspended", {"reason": reason, "evidence": evidence or {}},
              {"sessions": [{**s, "state": "SUSPENDED", "suspend_reason": reason}]}, **_refs(s))
-    for o in state.orders(ctx.tx, s["account_key"], session_id=s["session_id"], open_only=True):
-        if o["side"] == "BUY":
-            cancel_order(ctx, o, f"session suspended: {reason}")
+    _cancel_open_buys(ctx, s, f"session suspended: {reason}")
 
 
 def resume_session(ctx: Context, p: dict) -> dict:
@@ -309,7 +331,7 @@ def evaluate_reconciling(ctx: Context, s: dict) -> None:
     rec = state.latest_reconciliation(ctx.tx, key)
     if rec is None or rec["status"] != "CLEAN" or rec["epoch"] != ctx.epoch or rec.get("event_seq_at_start", 0) < (last_seq_row["s"] or 0):
         blockers.append("CLEAN_RECONCILIATION_AFTER_LAST_EXECUTION_REQUIRED")
-    if [e for e in state.open_exceptions(ctx.tx, key, blocking_only=True) if e.get("session_id") == s["session_id"]]:
+    if attributed_exceptions(ctx, s):
         blockers.append("SESSION_EXCEPTIONS_OPEN")
     if state.orders(ctx.tx, key, session_id=s["session_id"], open_only=True) or ledger.owner_lots(ctx.tx, key, owner):
         blockers.append("NOT_FLAT")
@@ -414,6 +436,23 @@ def flag_review(ctx: Context, session_id: str, case_id: str) -> None:
         return
     ctx.emit("SessionFailedReview", {"case_id": case_id},
              {"sessions": [{**s, "state": "FAILED_REVIEW", "review_return_state": s["state"]}]}, **_refs(s))
+    # A frozen session must not keep adding inventory it can no longer manage (review finding 33).
+    _cancel_open_buys(ctx, s, f"session failed review: {case_id}")
+
+
+def exit_review_if_clear(ctx: Context, s: dict) -> bool:
+    """FAILED_REVIEW -> previous state once no blocking exception is attributed to the session (ADR-0008).
+
+    Runs when the owner resolves a case and on every session tick, so a case the system resolves itself
+    (reconciliation, a broker status) also ends the review (review finding 10). The exit never grants new
+    exposure: a RUNNING session returns SUSPENDED and needs an owner resume."""
+    if s["state"] != "FAILED_REVIEW" or attributed_exceptions(ctx, s):
+        return False
+    back = s.get("review_return_state") or "SUSPENDED"
+    back = "SUSPENDED" if back == "RUNNING" else back
+    ctx.emit("SessionReviewResolved", {"returns_to": back, "by": ctx.principal.id},
+             {"sessions": [{**s, "state": back, "review_return_state": None}]}, **_refs(s))
+    return True
 
 
 # ---------------------------------------------------------------- tick
@@ -422,6 +461,8 @@ def session_tick(ctx: Context, p: dict) -> dict:
     state.account(ctx.tx, key)
     for s in state.sessions(ctx.tx, key):
         s = state.session(ctx.tx, s["session_id"])
+        if exit_review_if_clear(ctx, s):
+            s = state.session(ctx.tx, s["session_id"])
         if s["state"] in ("RUNNING", "SUSPENDED"):
             m = state.mandate(ctx.tx, s["mandate_hash"])
             if m.expires_at_ns is not None and ctx.now_ns >= m.expires_at_ns:
@@ -430,8 +471,7 @@ def session_tick(ctx: Context, p: dict) -> dict:
             advance_wind_down(ctx, s)
         elif s["state"] == "RECONCILING":
             evaluate_reconciling(ctx, s)
-        for b in [x for x in state.open_exceptions(ctx.tx, key, blocking_only=True)
-                  if x.get("session_id") == s["session_id"] and x["kind"] in REVIEW_KINDS]:
+        for b in attributed_exceptions(ctx, s, REVIEW_KINDS):
             flag_review(ctx, s["session_id"], b["case_id"])
     retry_waiting_funding(ctx, key)
     mark_settled_sessions(ctx, key)
