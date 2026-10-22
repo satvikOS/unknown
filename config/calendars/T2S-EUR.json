@@ -1,0 +1,209 @@
+{
+  "calendar_id": "T2S-EUR",
+  "version": "2026-10-22.1",
+  "kind": "settlement",
+  "timezone": "Europe/Berlin",
+  "source": "https://www.ecb.europa.eu/paym/target/t2s/html/index.en.html",
+  "retrieved_on": "2026-10-22",
+  "statement": "ECB, T2S opening hours: 'T2S is open from Monday to Friday and closed on Saturday and Sunday. For euro settlement, T2S is also closed on: 1 January (New Year's Day) Good Friday Easter Monday 1 May (Labour Day) 25 December (Christmas Day) 26 December (Boxing Day)'. The ECB states a rule, not dated lists; the dates below expand it for 2026-2032, the years for which the Good Friday and Easter Monday dates were cross-checked against a published table (Deutsche Boerse).",
+  "sources": [
+    {
+      "url": "https://www.ecb.europa.eu/paym/target/t2s/html/index.en.html",
+      "retrieved_on": "2026-10-22",
+      "covers": "T2S euro closing days (rule)"
+    },
+    {
+      "url": "https://www.ecb.europa.eu/paym/target/target-professional-use-documents-links/t2s/shared/pdf/List_of_CSDs_connected_to_T2S.pdf",
+      "retrieved_on": "2026-10-22",
+      "covers": "CSDs connected to T2S include Clearstream Banking AG (Germany), Euroclear Belgium, Euroclear France, Euroclear Netherlands, EuroNext Securities Milan (Italy), EuroNext Securities Porto (Portugal), Iberclear - BME Group (Spain)"
+    },
+    {
+      "url": "https://www.cashmarket.deutsche-boerse.com/cash-en/trading/trading-calendar-and-trading-hours",
+      "retrieved_on": "2026-10-22",
+      "covers": "Good Friday and Easter Monday dates 2026-2032; 'No trading but settlement is open' on 24 and 31 December (consistent with T2S)"
+    },
+    {
+      "url": "http://publications.europa.eu/resource/celex/32014R0909",
+      "retrieved_on": "2026-10-22",
+      "covers": "CSDR Art. 2(1)(14): 'business day' means business day as defined in point (n) of Article 2 of Directive 98/26/EC (the settlement system's business day)"
+    }
+  ],
+  "valid_from": "2026-01-01",
+  "valid_through": "2032-12-31",
+  "holidays": [
+    [
+      "2026-01-01",
+      "New Year's Day"
+    ],
+    [
+      "2026-04-03",
+      "Good Friday"
+    ],
+    [
+      "2026-04-06",
+      "Easter Monday"
+    ],
+    [
+      "2026-05-01",
+      "Labour Day"
+    ],
+    [
+      "2026-12-25",
+      "Christmas Day"
+    ],
+    [
+      "2026-12-26",
+      "Boxing Day"
+    ],
+    [
+      "2027-01-01",
+      "New Year's Day"
+    ],
+    [
+      "2027-03-26",
+      "Good Friday"
+    ],
+    [
+      "2027-03-29",
+      "Easter Monday"
+    ],
+    [
+      "2027-05-01",
+      "Labour Day"
+    ],
+    [
+      "2027-12-25",
+      "Christmas Day"
+    ],
+    [
+      "2027-12-26",
+      "Boxing Day"
+    ],
+    [
+      "2028-01-01",
+      "New Year's Day"
+    ],
+    [
+      "2028-04-14",
+      "Good Friday"
+    ],
+    [
+      "2028-04-17",
+      "Easter Monday"
+    ],
+    [
+      "2028-05-01",
+      "Labour Day"
+    ],
+    [
+      "2028-12-25",
+      "Christmas Day"
+    ],
+    [
+      "2028-12-26",
+      "Boxing Day"
+    ],
+    [
+      "2029-01-01",
+      "New Year's Day"
+    ],
+    [
+      "2029-03-30",
+      "Good Friday"
+    ],
+    [
+      "2029-04-02",
+      "Easter Monday"
+    ],
+    [
+      "2029-05-01",
+      "Labour Day"
+    ],
+    [
+      "2029-12-25",
+      "Christmas Day"
+    ],
+    [
+      "2029-12-26",
+      "Boxing Day"
+    ],
+    [
+      "2030-01-01",
+      "New Year's Day"
+    ],
+    [
+      "2030-04-19",
+      "Good Friday"
+    ],
+    [
+      "2030-04-22",
+      "Easter Monday"
+    ],
+    [
+      "2030-05-01",
+      "Labour Day"
+    ],
+    [
+      "2030-12-25",
+      "Christmas Day"
+    ],
+    [
+      "2030-12-26",
+      "Boxing Day"
+    ],
+    [
+      "2031-01-01",
+      "New Year's Day"
+    ],
+    [
+      "2031-04-11",
+      "Good Friday"
+    ],
+    [
+      "2031-04-14",
+      "Easter Monday"
+    ],
+    [
+      "2031-05-01",
+      "Labour Day"
+    ],
+    [
+      "2031-12-25",
+      "Christmas Day"
+    ],
+    [
+      "2031-12-26",
+      "Boxing Day"
+    ],
+    [
+      "2032-01-01",
+      "New Year's Day"
+    ],
+    [
+      "2032-03-26",
+      "Good Friday"
+    ],
+    [
+      "2032-03-29",
+      "Easter Monday"
+    ],
+    [
+      "2032-05-01",
+      "Labour Day"
+    ],
+    [
+      "2032-12-25",
+      "Christmas Day"
+    ],
+    [
+      "2032-12-26",
+      "Boxing Day"
+    ]
+  ],
+  "early_closes": [],
+  "notes": [
+    "Settlement calendar for euro settlement in T2S. Used for XETR, XPAR, XAMS, XBRU, XLIS, XMIL and XMAD trades on the assumption that each venue's domestic shares settle at a CSD connected to T2S (the ECB list above); CSD-specific closing days, if any, are not verified.",
+    "Closing days that fall on a weekend are listed anyway; they do not change business-day arithmetic.",
+    "Not used for trading: Xetra and Borsa Italiana do not trade on 24 and 31 December, but T2S settles on those days."
+  ]
+}

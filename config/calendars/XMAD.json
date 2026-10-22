@@ -1,0 +1,31 @@
+{
+  "calendar_id": "XMAD",
+  "version": "2026-10-22.1",
+  "kind": "trading",
+  "timezone": "Europe/Madrid",
+  "source": "https://www.bolsasymercados.es/en/bme-exchange/trading/trading-calendar.html",
+  "retrieved_on": "2026-10-22",
+  "statement": "BME 'Stock Exchange Calendar': 'BME, operator of the equity, fixed income and derivatives markets in Spain, has set the trading calendar for 2026. It has agreed to consider the following days as non-trading days for operational purposes: 1st of January Thursday, 3rd of April Friday, 6th of April Monday, 1st of May Friday, 25th of December Friday. On 24 and 31 December the BME markets will trade until 14:00 hrs CET.' Only 2026 is published, so the horizon ends on 2026-12-31.",
+  "sources": [
+    {"url": "https://www.bolsasymercados.es/en/bme-exchange/trading/trading-calendar.html", "retrieved_on": "2026-10-22", "covers": "2026 non-trading days and the 14:00 CET closes on 24 and 31 December (reached from https://www.bolsasymercados.es/ing/Media/Calendar)"},
+    {"url": "https://www.bolsasymercados.es/en/media/press-releases/2025/spanish-financial-markets-2026-trading-calendar.html", "retrieved_on": "2026-10-22", "covers": "BME press release published 20/11/2025: same closures; 'On Thursday, 24 December and Thursday, 31 December, the market will be open until 2:00 pm.'"},
+    {"url": "https://www.bolsasymercados.es/en/bme-exchange/trading-hours.html", "retrieved_on": "2026-10-22", "covers": "SIBE (Spanish Stock Market Interconnection System) open market: 'Opening Auction From 8:30 h to 9:00 h, Market Open From 9:00 h to 17:30 h, Closing Auction From 17:30 h to 17:35 h'"}
+  ],
+  "valid_from": "2026-01-01",
+  "valid_through": "2026-12-31",
+  "regular_session": {"open": "09:00", "close": "17:30"},
+  "holidays": [
+    ["2026-01-01", "New Year's Day"], ["2026-04-03", "Good Friday"], ["2026-04-06", "Easter Monday"],
+    ["2026-05-01", "Labour Day"], ["2026-12-25", "Christmas Day"]
+  ],
+  "early_closes": [
+    ["2026-12-24", "14:00", "Christmas Eve: BME markets trade until 14:00 CET"],
+    ["2026-12-31", "14:00", "New Year's Eve: BME markets trade until 14:00 CET"]
+  ],
+  "notes": [
+    "regular_session is the SIBE 'Open' (continuous) phase for equities; the fixing segment, ETFs and Latibex have other hours and are not represented.",
+    "The same page's FAQ text mentions Epiphany among holidays 'such as' the market observes; the dated 2026 list does not include 6 January, and the dated list is what is encoded. Confirm with BME if this matters.",
+    "XMAD is a segment MIC under operating MIC BMEX (ISO 10383 list, retrieved 2026-10-22).",
+    "Settlement is counted on T2S-EUR, not on this file."
+  ]
+}

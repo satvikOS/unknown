@@ -1,0 +1,33 @@
+{
+  "calendar_id": "NCL-CM",
+  "version": "2026-10-22.1",
+  "kind": "settlement",
+  "timezone": "Asia/Kolkata",
+  "source": "https://www.nseindia.com/api/holiday-master?type=clearing",
+  "retrieved_on": "2026-10-22",
+  "statement": "NSE Clearing Limited (NCL) settlement holidays, Capital Market segment 'CM', calendar year 2026, as served by the clearing-holiday data endpoint of https://www.nseindia.com/resources/exchange-communication-holidays. NSE's settlement-cycle page: 'For arriving at the settlement day all intervening holidays, which include bank holidays, NSE holidays, Saturdays and Sundays are excluded.' No 2027 list was published on 2026-10-22, so the horizon ends on 2026-12-31.",
+  "sources": [
+    {"url": "https://www.nseindia.com/api/holiday-master?type=clearing", "retrieved_on": "2026-10-22", "covers": "settlement holidays (segment CM)"},
+    {"url": "https://nsearchives.nseindia.com/content/circulars/CMPT71904.pdf", "retrieved_on": "2026-10-22", "covers": "NCL/CMPT/71904 of 2025-12-22 (circular 394/2025): 'CM - Settlement Holidays for the Calendar Year 2026' (19 weekday holidays; 15 January 2026 was added later and is in the live list)"},
+    {"url": "https://www.nseindia.com/static/products-services/equity-market-settlement-cycle", "retrieved_on": "2026-10-22", "covers": "'NSE Clearing follows a T+1/ T+0 rolling settlement cycle' and the rule that bank holidays, NSE holidays, Saturdays and Sundays are excluded"},
+    {"url": "https://nsearchives.nseindia.com/content/circulars/CMPT77037.pdf", "retrieved_on": "2026-10-22", "covers": "NCL/CMPT/77037 of 2026-10-21: trades of Muhurat Sunday 2026-11-08 and of Friday 2026-11-06 settle on Monday 2026-11-09; trades of 2026-11-09 settle on 2026-11-11"}
+  ],
+  "valid_from": "2026-01-01",
+  "valid_through": "2026-12-31",
+  "holidays": [
+    ["2026-01-15", "Municipal Corporation Election in Maharashtra"], ["2026-01-26", "Republic Day"],
+    ["2026-02-19", "Chhatrapati Shivaji Maharaj Jayanti"], ["2026-03-03", "Holi (Second Day)"], ["2026-03-19", "Gudhi Padwa"],
+    ["2026-03-26", "Ram Navami"], ["2026-03-31", "Mahavir Jayanti"], ["2026-04-01", "Annual Bank Closing"],
+    ["2026-04-03", "Good Friday"], ["2026-04-14", "Dr. Babasaheb Ambedkar Jayanti"], ["2026-05-01", "Maharashtra Din / Buddha Pournima"],
+    ["2026-05-28", "Bakri ID (Id-Uz-Zuha)"], ["2026-06-26", "Muharram"], ["2026-08-26", "Id-E-Milad"],
+    ["2026-09-14", "Ganesh Chaturthi"], ["2026-10-02", "Mahatma Gandhi Jayanti"], ["2026-10-20", "Dussehra"],
+    ["2026-11-10", "Diwali (Bali Pratipada)"], ["2026-11-24", "Guru Nanak Jayanti"], ["2026-12-25", "Christmas"]
+  ],
+  "early_closes": [],
+  "notes": [
+    "Settlement calendar only: it says nothing about trading. 2026-02-19, 2026-03-19, 2026-04-01 and 2026-08-26 are NSE trading days but NCL settlement holidays.",
+    "Weekend settlement holidays listed in NCL/CMPT/71904 (2026-02-15, 2026-03-21, 2026-08-15, 2026-11-08) are weekends and need no entry.",
+    "The Muhurat session (Sunday 2026-11-08) is a trade date, not a settlement day; T+1 from it lands on Monday 2026-11-09, matching NCL/CMPT/77037.",
+    "NSE's terms of use prohibit systematic automated collection from its website; refresh by a manual, owner-approved retrieval."
+  ]
+}

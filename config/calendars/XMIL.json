@@ -1,0 +1,28 @@
+{
+  "calendar_id": "XMIL",
+  "version": "2026-10-22.1",
+  "kind": "trading",
+  "timezone": "Europe/Rome",
+  "source": "https://www.borsaitaliana.it/borsaitaliana/calendario-e-orari-di-negoziazione/calendario-borsa-orari-di-negoziazione.en.htm",
+  "retrieved_on": "2026-10-22",
+  "statement": "Borsa Italiana 'Trading Calendar and Hours', Year 2026: 'For the year 2026, Borsa Italiana adopted the following closing days for its markets: every Saturday; every Sunday; Thursday 1st January; Friday 3rd of April (Good Friday) and Monday 6th of April (Easter Monday); Friday 1st of May (Labor Day); Thursday 24th (Christmas Eve), Friday 25th (Christmas) and Thursday 31st of December (New Year's Eve); as well as, limited to the multilateral trading system called Trading After Hours, for the following sessions: ...'. Only 2026 is published, so the horizon ends on 2026-12-31.",
+  "sources": [
+    {"url": "https://www.borsaitaliana.it/borsaitaliana/calendario-e-orari-di-negoziazione/calendario-borsa-orari-di-negoziazione.en.htm", "retrieved_on": "2026-10-22", "covers": "2026 closing days of Borsa Italiana markets"},
+    {"url": "https://www.euronext.com/en/trading/trading-hours-holidays", "retrieved_on": "2026-10-22", "covers": "Euronext 2026 holiday table, column Milan: closed 1 Jan, 3 Apr, 6 Apr, 1 May, 24 Dec, 25 Dec, 31 Dec (consistent)"},
+    {"url": "https://www.euronext.com/en/media/1927/download", "retrieved_on": "2026-10-22", "covers": "'Appendix of Trading Manual 4-01', effective 19 October 2026, 'Trading hours in CET': continuous equities groups on Milan: continuous trading 09:00-17:30, closing uncross 17:35"}
+  ],
+  "valid_from": "2026-01-01",
+  "valid_through": "2026-12-31",
+  "regular_session": {"open": "09:00", "close": "17:30"},
+  "holidays": [
+    ["2026-01-01", "New Year's Day"], ["2026-04-03", "Good Friday"], ["2026-04-06", "Easter Monday"], ["2026-05-01", "Labor Day"],
+    ["2026-12-24", "Christmas Eve"], ["2026-12-25", "Christmas"], ["2026-12-31", "New Year's Eve"]
+  ],
+  "early_closes": [],
+  "notes": [
+    "Closures that apply only to the Trading After Hours MTF (segment MIC MTAH) are not holidays of the regulated market and are not encoded.",
+    "The equity regulated market is Euronext Milan, segment MIC MTAA under operating MIC XMIL (ISO 10383 list, retrieved 2026-10-22).",
+    "regular_session is the continuous-trading phase of continuous ('C') equity groups, in CET/CEST (Europe/Rome).",
+    "Settlement is counted on T2S-EUR, not on this file."
+  ]
+}

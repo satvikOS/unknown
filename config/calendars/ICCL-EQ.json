@@ -1,0 +1,32 @@
+{
+  "calendar_id": "ICCL-EQ",
+  "version": "2026-10-22.1",
+  "kind": "settlement",
+  "timezone": "Asia/Kolkata",
+  "source": "https://www.bseindia.com/markets/MarketInfo/DispNewNoticesCirculars.aspx?page=20251224-1",
+  "retrieved_on": "2026-10-22",
+  "statement": "BSE notice 20251224-1 (24 Dec 2025, category Settlement/RMS), 'Settlement Holidays for the Calendar Year 2026': 'Members and Custodians are hereby informed that the ICCL shall observe following Settlement Holidays during the Calendar Year 2026.' Issued for Indian Clearing Corporation Ltd. 15 January 2026 is added from ICCL notice 20260109-67. No 2027 list was found, so the horizon ends on 2026-12-31.",
+  "sources": [
+    {"url": "https://www.bseindia.com/markets/MarketInfo/DispNewNoticesCirculars.aspx?page=20251224-1", "retrieved_on": "2026-10-22", "covers": "ICCL settlement holidays 2026 (19 weekday holidays and 4 on Saturday/Sunday)"},
+    {"url": "https://www.bseindia.com/markets/MarketInfo/DispNewNoticesCirculars.aspx?page=20260109-67", "retrieved_on": "2026-10-22", "covers": "ICCL notice (EGR segment): 'With Reference to Circular of Reserve Bank of India (RBI) dated 08 January,2026 regarding Settlement holiday on account of Election of Municipal Corporations in Maharashtra on January 15, 2026'; trades of 14-01-2026 pay in on 16-01-2026"}
+  ],
+  "valid_from": "2026-01-01",
+  "valid_through": "2026-12-31",
+  "holidays": [
+    ["2026-01-15", "Settlement holiday: Election of Municipal Corporations in Maharashtra (RBI circular of 2026-01-08)"],
+    ["2026-01-26", "Republic Day"], ["2026-02-19", "Chhatrapati Shivaji Maharaj Jayanti"], ["2026-03-03", "Holi (Second Day)"],
+    ["2026-03-19", "Gudi Padwa"], ["2026-03-26", "Ram Navami"], ["2026-03-31", "Mahavir Jayanti"],
+    ["2026-04-01", "Annual Bank Closing"], ["2026-04-03", "Good Friday"], ["2026-04-14", "Dr. Babasaheb Ambedkar Jayanti"],
+    ["2026-05-01", "Maharashtra Din /Buddha Pournima"], ["2026-05-28", "Bakri ID (Id-Uz-Zuha)"], ["2026-06-26", "Moharum"],
+    ["2026-08-26", "Id-E-Milad"], ["2026-09-14", "Ganesh Chaturthi"], ["2026-10-02", "Mahatma Gandhi Jayanti"],
+    ["2026-10-20", "Dussera"], ["2026-11-10", "Diwali (Bali Pratipada)"], ["2026-11-24", "Guru Nanak Jayanti"],
+    ["2026-12-25", "Christmas"]
+  ],
+  "early_closes": [],
+  "notes": [
+    "Settlement calendar only. 2026-02-19, 2026-03-19, 2026-04-01 and 2026-08-26 are BSE trading days but ICCL settlement holidays.",
+    "15 January 2026: the retrieved ICCL notice concerns the EGR segment and cites the RBI settlement holiday; no equity-segment ICCL notice for that date was retrieved. The date is in the past and does not affect forward computations.",
+    "Weekend settlement holidays listed in the notice (2026-02-15, 2026-03-21, 2026-08-15, 2026-11-08) are weekends and need no entry.",
+    "Verification gap: ICCL's own site (icclindia.com) did not respond on 2026-10-22 and BSE notices after early March 2026 are not rendered server-side; an ICCL amendment published after March 2026 would not be reflected here."
+  ]
+}

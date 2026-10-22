@@ -1,0 +1,73 @@
+{
+  "calendar_id": "XLIS",
+  "version": "2026-10-22.1",
+  "kind": "trading",
+  "timezone": "Europe/Lisbon",
+  "session_timezone": "Europe/Brussels",
+  "source": "https://www.euronext.com/en/trading/trading-hours-holidays",
+  "retrieved_on": "2026-10-22",
+  "statement": "Euronext '2026 Holiday Calendar for Euronext's Cash and Derivatives markets', column Lisbon: 'The Euronext Cash Markets and the Euronext Derivatives Markets will be open Monday to Friday throughout 2026 except on the following days'. Closed: 1 January, 3 April (Good Friday), 6 April (Easter Monday), 1 May, 25 December. Half Trading Day: 24 December and 31 December. Only 2026 is published, so the horizon ends on 2026-12-31.",
+  "sources": [
+    {
+      "url": "https://www.euronext.com/en/trading/trading-hours-holidays",
+      "retrieved_on": "2026-10-22",
+      "covers": "2026 holiday table, column Lisbon"
+    },
+    {
+      "url": "https://connect2.euronext.com/sites/default/files/2025-11/IF251107CADE%202026%20Holiday%20Calendar%20for%20Euronexts%20Cash%20and%20Derivatives%20markets_1.pdf?VersionId=3ehe2.c9cMxv1K36.i6o4tz.5CAJmuw2",
+      "retrieved_on": "2026-10-22",
+      "covers": "Euronext notice IF251107CADE (file dated 2025-11-07; its header reads '07 November 2026', copyright 2025): same table"
+    },
+    {
+      "url": "https://www.euronext.com/en/media/1927/download",
+      "retrieved_on": "2026-10-22",
+      "covers": "'Appendix of Trading Manual 4-01', effective 19 October 2026, 'Trading hours in CET': continuous equities groups on Lisbon: opening uncross 09:00, continuous trading 09:00-17:30, closing uncross 17:35"
+    }
+  ],
+  "valid_from": "2026-01-01",
+  "valid_through": "2026-12-31",
+  "regular_session": {
+    "open": "09:00",
+    "close": "17:30"
+  },
+  "holidays": [
+    [
+      "2026-01-01",
+      "New Year's Day"
+    ],
+    [
+      "2026-04-03",
+      "Good Friday"
+    ],
+    [
+      "2026-04-06",
+      "Easter Monday"
+    ],
+    [
+      "2026-05-01",
+      "Labour Day"
+    ],
+    [
+      "2026-12-25",
+      "Christmas"
+    ]
+  ],
+  "early_closes": [
+    [
+      "2026-12-24",
+      null,
+      "Half Trading Day; Euronext: 'End of year trading hours, including half day trading, will be announced in an end of year appendix to the Euronext Instructions 4-01 4-03 Trading Manuals.' Close time not yet published (only the 2025 appendix was linked on 2026-10-22)."
+    ],
+    [
+      "2026-12-31",
+      null,
+      "Half Trading Day; Euronext: 'End of year trading hours, including half day trading, will be announced in an end of year appendix to the Euronext Instructions 4-01 4-03 Trading Manuals.' Close time not yet published (only the 2025 appendix was linked on 2026-10-22)."
+    ]
+  ],
+  "notes": [
+    "regular_session is the continuous-trading phase of continuous ('C') equity groups; double-fixing ('DU') groups trade only in auctions at 11:30 and 16:30 and are not represented.",
+    "Half Trading Days are recorded as early closes with an unknown close time; session() raises SessionTimeUnknown for them until the 2026 end-of-year appendix is retrieved.",
+    "Settlement is counted on T2S-EUR, not on this file.",
+    "Euronext states all cash-market hours in CET/CEST ('Trading hours in CET'). Lisbon local time is one hour earlier, so session times are stored in session_timezone Europe/Brussels (a CET/CEST zone, the same UTC offsets as Paris and Amsterdam): 09:00-17:30 CET is 08:00-16:30 in Lisbon."
+  ]
+}
