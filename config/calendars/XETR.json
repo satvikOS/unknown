@@ -1,0 +1,43 @@
+{
+  "calendar_id": "XETR",
+  "version": "2026-10-22.1",
+  "kind": "trading",
+  "timezone": "Europe/Berlin",
+  "source": "https://www.cashmarket.deutsche-boerse.com/cash-en/trading/trading-calendar-and-trading-hours",
+  "retrieved_on": "2026-10-22",
+  "statement": "Deutsche Boerse 'Trading Calendar and Trading Hours', trading venues Deutsche Boerse Xetra and Deutsche Boerse Frankfurt: 'Trading on Xetra takes place from Mondays to Fridays from 9 until 17:30 CET.' 'Non-trading days at Frankfurter Wertpapierboerse (FWB, the Frankfurt Stock Exchange) (Xetra and Boerse Frankfurt) are*:' a table for 2026 to 2032. '* The overview is for information purposes only. Changes for future years are not excluded. ** No trading but settlement is open if the holiday is not on a Saturday or Sunday.'",
+  "sources": [
+    {"url": "https://www.cashmarket.deutsche-boerse.com/cash-en/trading/trading-calendar-and-trading-hours", "retrieved_on": "2026-10-22", "covers": "non-trading days 2026-2032, regular hours 09:00-17:30 CET, note on 30 December 2026"},
+    {"url": "https://www.cashmarket.deutsche-boerse.com/resource/blob/4481276/1b643791fcb4d60bdd7f25efad3f4626/data/deutsche-boerse-trading-calendar-2026.pdf", "retrieved_on": "2026-10-22", "covers": "'there will be trading Mondays to Fridays in 2026, with the exception of 1 January, 3 April, 6 April, 1 May, 24 December, 25 December and 31 December. 24 December and 31 December are settlement days.' '*) Trading hours may differ from normal trading days' (marked on 30 December)"}
+  ],
+  "valid_from": "2026-01-01",
+  "valid_through": "2032-12-31",
+  "regular_session": {"open": "09:00", "close": "17:30"},
+  "holidays": [
+    ["2026-01-01", "New Year's Day"], ["2026-04-03", "Good Friday"], ["2026-04-06", "Easter Monday"], ["2026-05-01", "Labor Day"],
+    ["2026-12-24", "Christmas Eve (settlement open)"], ["2026-12-25", "Christmas Day"], ["2026-12-26", "Boxing Day"], ["2026-12-31", "New Year's Eve (settlement open)"],
+    ["2027-01-01", "New Year's Day"], ["2027-03-26", "Good Friday"], ["2027-03-29", "Easter Monday"], ["2027-05-01", "Labor Day"],
+    ["2027-12-24", "Christmas Eve (settlement open)"], ["2027-12-25", "Christmas Day"], ["2027-12-26", "Boxing Day"], ["2027-12-31", "New Year's Eve (settlement open)"],
+    ["2028-01-01", "New Year's Day"], ["2028-04-14", "Good Friday"], ["2028-04-17", "Easter Monday"], ["2028-05-01", "Labor Day"],
+    ["2028-12-24", "Christmas Eve"], ["2028-12-25", "Christmas Day"], ["2028-12-26", "Boxing Day"], ["2028-12-31", "New Year's Eve"],
+    ["2029-01-01", "New Year's Day"], ["2029-03-30", "Good Friday"], ["2029-04-02", "Easter Monday"], ["2029-05-01", "Labor Day"],
+    ["2029-12-24", "Christmas Eve (settlement open)"], ["2029-12-25", "Christmas Day"], ["2029-12-26", "Boxing Day"], ["2029-12-31", "New Year's Eve (settlement open)"],
+    ["2030-01-01", "New Year's Day"], ["2030-04-19", "Good Friday"], ["2030-04-22", "Easter Monday"], ["2030-05-01", "Labor Day"],
+    ["2030-12-24", "Christmas Eve (settlement open)"], ["2030-12-25", "Christmas Day"], ["2030-12-26", "Boxing Day"], ["2030-12-31", "New Year's Eve (settlement open)"],
+    ["2031-01-01", "New Year's Day"], ["2031-04-11", "Good Friday"], ["2031-04-14", "Easter Monday"], ["2031-05-01", "Labor Day"],
+    ["2031-12-24", "Christmas Eve (settlement open)"], ["2031-12-25", "Christmas Day"], ["2031-12-26", "Boxing Day"], ["2031-12-31", "New Year's Eve (settlement open)"],
+    ["2032-01-01", "New Year's Day"], ["2032-03-26", "Good Friday"], ["2032-03-29", "Easter Monday"], ["2032-05-01", "Labor Day"],
+    ["2032-12-24", "Christmas Eve (settlement open)"], ["2032-12-25", "Christmas Day"], ["2032-12-26", "Boxing Day"], ["2032-12-31", "New Year's Eve (settlement open)"]
+  ],
+  "early_closes": [],
+  "session_times_pending": [
+    ["2026-12-30", "Deutsche Boerse: 'On December 30, 2026, deviating trading hours may apply. In this case, a circular with the relevant data for the last trading day of the year (final trading session of the year) will be published.'"]
+  ],
+  "notes": [
+    "All non-trading days on the page are kept, including those that fall on a weekend.",
+    "Christmas Eve and New Year's Eve are trading holidays but settlement days ('No trading but settlement is open if the holiday is not on a Saturday or Sunday'). Settlement is counted on T2S-EUR, not on this file.",
+    "For 2026 the page states that regular trading takes place on Ascension Day (14 May), Whit Monday (25 May) and Corpus Christi (4 June). It makes that statement for 2026 only; for 2027-2032 those days are simply absent from the non-trading list.",
+    "Session times are CET/CEST local time (Europe/Berlin). Extended Xetra Retail Service hours (08:00-08:55, 17:30-22:00) are not the regular session and are not encoded.",
+    "Deutsche Boerse says the multi-year overview is for information only and future years may change; re-retrieve before relying on 2027+ dates."
+  ]
+}
