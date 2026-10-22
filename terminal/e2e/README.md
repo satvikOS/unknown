@@ -27,6 +27,13 @@ The harness runs the real `unknown.service.core.main` and `unknown.api.server.ma
 
 - **Core: the simulated broker survives a restart.** The simulator lives inside the core process, so a plain restart makes it forget every fill and cash movement while the ledger remembers them. Reconciliation then reports `POSITION_MISMATCH`, and start stays blocked: an acknowledgement cannot clear it, because the next run re-opens it. A real broker keeps the account when our process restarts. To model that, the harness pickles the simulator after a clean SIGTERM shutdown and restores it on the next start.
 - **API: a 12 s step-up window instead of the policy's `reauth_max_age_s` (900 s in the default simulated policy).** The harness sets a cap that can only shorten the window. This lets the suite exercise HTTP 428, the passphrase prompt and the retry with the same command id. The core's own `reauth_max_age_s` check is untouched.
+- **A FIXTURE IBKR market-data status file (`harness.py md-status [--age-s N]`).** The suite never connects to IBKR, and the status file is written only by a running market-data session. The harness runs the real `IbkrMarketDataSession` against the backend's own socket stand-in (`backend/tests/test_ibkr_marketdata.py` `PureHost`, with a fixture paper account id). It replays IBKR's documented callbacks for a live non-consolidated quote, a delayed quote delivered for a live request, entitlement errors 354 and 10197, and warning 10090. The session code writes the file. `--age-s` back-dates the session clock so that the API sees a stale file. The file holds no prices.
+
+`support/plugins.ts` runs owner steps that the terminal cannot take itself. Each is a short synchronous process with a timeout, in the run's `UNKNOWN_HOME`, and every `*API_KEY*` variable is removed from its environment:
+
+- `recordSnapshot()`: the owner's end-of-day CLI, `python -m unknown.analytics.snapshots record --account SIM-1`.
+- `writeOwnerPolicyProviderDisabled()`: `config/agents.json` (mode 600) with positive caps (`per_job` 0.50 USD), so that the API queues jobs. Its only provider, anthropic, is **disabled**. No key exists, and `config/models/approved.json` approves no model.
+- `runWorkerOnce()`: the real model worker, `python -m unknown.agents.worker --once`. Under that policy it claims each queued job and fails it (`denied_by_policy`, "paid model calls are off") before any network call.
 
 ## Scenarios
 
@@ -86,3 +93,15 @@ It also checks five widths, from 390 px to 1600 px: no sideways page scroll, no 
    - no sideways page scroll at 390 px.
 
 Run it alone with `npx playwright test e2e/03-research.spec.ts`. Global setup still starts a fresh core and API.
+
+`03-portfolio-agents.spec.ts` runs after `01-flow`, which leaves a session, a FIXTURE position and a STOP/START history. It covers three workspaces:
+
+1. **Portfolio, holdings.** The unallocated owner's settled cash equals the API's exact decimal. The owner is marked system. NAV by owner and the position appear, and scoping to one owner leaves one row.
+2. **Portfolio, snapshots and performance.** With no snapshot, the page shows the backend's reason with the `snapshots record` command. After one real recorded snapshot, there is one FIXTURE run, "No time-weighted return" (fewer than two complete valuations) and no P&L day.
+3. **Portfolio, exposure and VaR.** The "VaR does not represent the worst-case loss" statement, exposure, and the backtest with no day yet. The confidence toggle reaches the API.
+4. **Portfolio, stress.** An out-of-range gap is refused in the form. An overnight gap computed on a private copy is labelled HYPOTHETICAL, with its core seq and scenario P&L. Each loss threshold shows its level with its currency and the API's crossed decision (crossed, no or unknown).
+5. **Portfolio, what-if.** An intent for the 01-flow session goes through the real gate and gives a would-be decision with every check. The order count is unchanged afterwards.
+6. **Portfolio, allocation.** It is labelled PROPOSAL ONLY, and no control can send, place, submit, buy or sell.
+7. **Market data.** With no status file, the API's "not running" reason. With the FIXTURE status: connected and paper verified, error rate 3/7, LIVE non-consolidated, "delayed (requested live)" flagged as differing, NOT_SUBSCRIBED (354) with its cause in the detail, COMPETING_SESSION and PARTIALLY_SUBSCRIBED. A status file 300 s old is shown as stale, with nothing live.
+8. **Research jobs.** The spend acknowledgement is required. With no owner policy, the API's 409 "paid model calls are disabled" is shown. With the policy: QUEUED with a 0.50 USD cap, and a duplicate returns the same job. The spend panel then reports that cap. Cancel with a reason gives CANCELLED. The real worker refuses a second job: it shows FAILED with the worker's reason, the audit trail (job_started, job_finished), a verified hash chain, no proposal and 0.00 USD consumed. The list shows both jobs, and the state filter works.
+9. **Accessibility and layout.** The checks in `support/a11y.ts` run on 12 views in both themes (each view must have had more than 20 text elements and 10 targets to check), plus an executed stress result with its lineage open. At 390 px there is no sideways scroll and STOP stays in view. Console errors are allowed only for the expected 401, 409, 428 and 503 responses.

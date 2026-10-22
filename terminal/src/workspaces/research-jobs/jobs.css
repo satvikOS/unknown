@@ -1,0 +1,130 @@
+/* Research jobs workspace: local layout only; colours come from the shared tokens in src/ui/styles.css. */
+
+.rj-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+@media (max-width: 1180px) {
+  .rj-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.rj-stack {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.rj-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  margin: 0 0 10px;
+}
+.rj-toolbar .spacer {
+  flex: 1;
+}
+.rj-gap {
+  margin: 0 0 12px;
+}
+.rj-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+.rj-textarea {
+  height: auto;
+  min-height: 110px;
+  padding: 8px 10px;
+  resize: vertical;
+  line-height: 1.45;
+}
+.rj-two {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0 12px;
+}
+.rj-hint {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.rj-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+}
+.rj-inline .input {
+  min-width: 0;
+  flex: 1 1 200px;
+}
+.rj-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+/* Model output is fenced off from everything the system itself asserts. */
+.rj-model {
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: 8px 12px;
+  margin: 8px 0 0;
+}
+.rj-model-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.rj-model blockquote {
+  margin: 0 0 8px;
+  padding: 0 0 0 10px;
+  border-left: 2px solid var(--border-strong);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.rj-model ol,
+.rj-model ul {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+.rj-model li {
+  overflow-wrap: anywhere;
+  margin: 2px 0;
+}
+.rj-model h3 {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  font-weight: 600;
+  margin: 8px 0 2px;
+}
+
+.rj-spans {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+.rj-spans li {
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 6px;
+  overflow-wrap: anywhere;
+}
+.rj-spans li:last-child {
+  border-bottom: none;
+}
+details.rj-details > summary {
+  cursor: pointer;
+  padding: 2px 0;
+  min-height: 24px;
+}

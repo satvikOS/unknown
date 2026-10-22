@@ -4,7 +4,7 @@ Each workspace lives in `src/workspaces/<id>/`. Its `index.ts` exports a `Worksp
 
 Register a workspace only when the backend service behind it exists. Unbuilt capabilities appear only on the Capabilities page.
 
-Registered: `overview` (g o), `sessions` (g s), `orders` (g b), `risk` (g r), `instruments` (g i), `operations` (g p), `audit` (g a), `policy` (g y) and `capabilities` (g c). Each directory has a README covering its routes, commands and the API gaps it found.
+Registered: `overview` (g o), `sessions` (g s), `orders` (g b), `risk` (g r), `instruments` (g i), `operations` (g p), `audit` (g a), `policy` (g y), `capabilities` (g c), `portfolio` (g f), `marketdata` (g d) and `research-jobs` (g j). Shared plugin-route access for the last three is in `plugin-api/` (not a workspace). Each directory has a README covering its routes, commands and the API gaps it found.
 
 Shared code that workspaces use:
 - `ui/primitives.tsx`: Money, Qty, StatusPill and badges.
