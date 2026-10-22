@@ -6,7 +6,7 @@
  * missing inputs) is shown as REFUSED with the API's reason; nothing is computed in the browser.
  */
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { formatDecimal } from '../../format/decimal';
+import { formatDecimal, isDecimal } from '../../format/decimal';
 import { Money } from '../../ui/primitives';
 import { apiPath, useApi } from '../research-common/api';
 import { RangeBars } from '../research-common/charts';
@@ -17,6 +17,7 @@ import { Bridge, PriceLine } from './Metrics';
 import {
   EMPTY_DCF,
   TREASURY_TENORS,
+  bridgeCaveat,
   dcfParams,
   isRefused,
   isUnavailable,
@@ -227,6 +228,11 @@ function DcfResultView({ d }: { d: DcfResult }) {
     .filter((x): x is { k: 'dcf_scenarios' | 'dcf_sensitivity'; r: { min: string; max: string } } => !!x.r?.min && !!x.r.max)
     .map(({ k, r }) => ({ label: k === 'dcf_scenarios' ? 'DCF scenarios' : 'WACC x g grid', min: Number(r.min), max: Number(r.max), minText: r.min, maxText: r.max }));
   const price = ff.current_price as PriceInputJson | undefined;
+  // The owner's price input, drawn on the same per-share axis. The API includes it when there is a per-share value;
+  // a price in another currency than the reporting currency is listed below but not drawn on this axis.
+  const marker = price && price.currency === ccy && isDecimal(price.value) ? { value: Number(price.value), text: price.value, label: 'price input' } : null;
+  const caveat = bridgeCaveat(d.equity_bridge);
+  const incomplete = caveat ? <StatusTag status={d.equity_bridge.status} detail={caveat} /> : null;
   return (
     <>
       <Section
@@ -242,9 +248,17 @@ function DcfResultView({ d }: { d: DcfResult }) {
             <Money amount={v.enterprise_value} currency={ccy} />
           </Tile>
           <Tile label="Equity value">
-            <Money amount={d.equity_bridge.equity_value} currency={ccy} />
+            <Money amount={d.equity_bridge.equity_value} currency={ccy} /> {incomplete}
           </Tile>
-          <Tile label="Per share (diluted)">{d.equity_bridge.per_share ? <Money amount={d.equity_bridge.per_share} currency={ccy} /> : <span className="muted">not computed</span>}</Tile>
+          <Tile label="Per share (diluted)">
+            {d.equity_bridge.per_share ? (
+              <>
+                <Money amount={d.equity_bridge.per_share} currency={ccy} /> {incomplete}
+              </>
+            ) : (
+              <span className="muted">not computed</span>
+            )}
+          </Tile>
           <Tile label="WACC">
             <RateValue value={v.wacc} />
           </Tile>
@@ -411,7 +425,7 @@ function DcfResultView({ d }: { d: DcfResult }) {
 
       <SensitivityGrid d={d} />
 
-      <Section title="Scenarios" note={d.scenarios.note} flush>
+      <Section title="Scenarios" note={caveat ? `${d.scenarios.note} Equity and per-share values use the same ${caveat}.` : d.scenarios.note} flush>
         <div className="rx-table-wrap">
           <table className="rx-table">
             <caption>Scenario shifts and their values ({perShareUnit} for per share)</caption>
@@ -458,11 +472,12 @@ function DcfResultView({ d }: { d: DcfResult }) {
       <Section title="Football field (per share)">
         {rangeRows.length ? (
           <RangeBars
-            title={`Per-share value ranges in ${ccy}`}
-            summary={rangeRows.map((r) => `${r.label}: ${r.minText} to ${r.maxText} ${perShareUnit}`).join('; ')}
+            title={`Per-share value ranges in ${ccy}${marker ? `, with the ${marker.label}` : ''}`}
+            summary={`${rangeRows.map((r) => `${r.label}: ${r.minText} to ${r.maxText} ${perShareUnit}`).join('; ')}${marker ? `; ${marker.label} ${marker.text} ${perShareUnit}` : ''}${caveat ? ` (${caveat})` : ''}`}
             rows={rangeRows}
             format={(x) => String(Number(x.toPrecision(4)))}
             unit={perShareUnit}
+            marker={marker}
           />
         ) : (
           <p className="muted">No per-share ranges (diluted shares not available).</p>
@@ -551,6 +566,7 @@ function SensitivityGrid({ d }: { d: DcfResult }) {
           Rows: WACC; columns: terminal growth g. The outlined cell is the base case.
           {s.range ? ` Range ${s.range.min} to ${s.range.max} ${ccy}${s.measure === 'per_share' ? ' per share' : ''}.` : ''}
           {s.invalid_cells ? ` ${s.invalid_cells} cell(s) invalid (WACC must exceed g).` : ''}
+          {s.measure !== 'enterprise_value' && bridgeCaveat(d.equity_bridge) ? ` Every value uses the same ${bridgeCaveat(d.equity_bridge)}.` : ''}
         </>
       }
     >

@@ -3,6 +3,7 @@
  * route parsing, and the pure helpers the views use. Decimal values stay strings throughout.
  */
 import { compareDecimal, isDecimal } from '../../format/decimal';
+import { routeHref } from '../../state/router';
 
 // ------------------------------------------------------------------ wire types
 
@@ -80,6 +81,17 @@ export interface SearchFigi {
 }
 
 export type SearchCandidate = SearchIssuer | SearchInstrument | SearchFigi;
+
+/**
+ * Whether the API searched any SEC issuer source. With a research store it always lists the SEC ticker snapshot
+ * (`sec.company_tickers_exchange`, OK or NOT_AVAILABLE with a reason) and `research.issuers`; without one it lists
+ * only `core.instruments` and says nothing about issuers (data/fundamentals/search.py). A refused query
+ * (LICENSED_ID) searched nothing on purpose and says so in its own `query` source.
+ */
+export function searchedIssuers(r: Pick<SearchResponse, 'sources' | 'query_type'>): boolean {
+  if (r.query_type === 'LICENSED_ID') return true;
+  return r.sources.some((s) => s.source.startsWith('sec.') || s.source.startsWith('research.'));
+}
 
 export interface SearchResponse {
   query: string;
@@ -491,6 +503,17 @@ export function isRefused(x: unknown): x is DcfRefused {
   return typeof x === 'object' && x !== null && (x as { status?: unknown }).status === 'REFUSED';
 }
 
+/**
+ * The caveat every equity-derived DCF figure carries when the equity bridge is not complete: equity value, per-share
+ * value, the sensitivity grid, the scenarios and the football field all come from that one bridge (data/fundamentals/
+ * dcf.py equity_value). Null when the bridge is OK.
+ */
+export function bridgeCaveat(b: Pick<DcfResult['equity_bridge'], 'status' | 'missing_components'>): string | null {
+  if (b.status === 'OK') return null;
+  const missing = b.missing_components?.length ? `: ${b.missing_components.join(', ')} not reported, excluded (not treated as zero)` : '';
+  return `equity bridge ${b.status}${missing}`;
+}
+
 // ------------------------------------------------------------------ route
 
 export const COMPANY_TABS = ['tearsheet', 'statements', 'metrics', 'dcf', 'peers', 'filings'] as const;
@@ -555,11 +578,19 @@ export function companyRoute(r: { cik: number | null; tab?: CompanyTab; opts?: C
   return segs.length === 1 && r.cik === null ? [] : segs;
 }
 
-/** Options that apply to every issuer view (as of and the price input); the search text and tab-local ones are dropped. */
+/**
+ * Options carried when another issuer is opened (from search results or a peer group): the point in time only.
+ * The price input is never carried: it is an observation of one issuer's listing, and applied to another issuer it
+ * would compute that issuer's market cap, EV and multiples from the wrong price. The search text and tab-local
+ * options are dropped too. (Across the tabs of one issuer every option stays, through the route.)
+ */
 export function carriedOptions(opts: CompanyOptions): CompanyOptions {
-  const out: CompanyOptions = {};
-  for (const k of ['as_of', 'price', 'price_currency', 'price_source', 'price_time'] as const) if (opts[k]) out[k] = opts[k];
-  return out;
+  return opts.as_of ? { as_of: opts.as_of } : {};
+}
+
+/** `#/company/<cik>/tearsheet[/as_of=…]`: a link to another issuer at the same point in time. */
+export function issuerHref(cik: number, opts: CompanyOptions = {}): string {
+  return routeHref('company', ...companyRoute({ cik, tab: 'tearsheet', opts: carriedOptions(opts) }));
 }
 
 // ------------------------------------------------------------------ inputs

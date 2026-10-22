@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseHash } from '../../state/router';
 import { WORKSPACES, findWorkspace } from '../registry';
 import {
   EMPTY_DCF,
@@ -6,13 +7,16 @@ import {
   cellCensus,
   companyRoute,
   dcfParams,
+  bridgeCaveat,
   isRefused,
   isUnavailable,
+  issuerHref,
   parseCompanyRoute,
   parsePeerList,
   priceParams,
   priceProblems,
   sameDecimal,
+  searchedIssuers,
   statementOrder,
   unitLabel,
   type StatementResponse,
@@ -49,13 +53,23 @@ describe('company route', () => {
     expect(companyRoute({ cik: null, opts: { q: 'abc' } })).toEqual(['search', 'q=abc']);
   });
 
-  it('carries as-of and the price input across issuers, not the search text or tab options', () => {
+  it('carries only the point in time to another issuer: never the price input, the search text or tab options', () => {
+    // A price is an observation of one issuer's listing; carried to another issuer it would compute that issuer's
+    // market cap, EV and multiples from the wrong price.
     expect(carriedOptions({ q: 'x', as_of: 'a', basis: 'Q', price: '1', price_currency: 'USD', price_source: 's', price_time: 't', peers: '1' })).toEqual({
       as_of: 'a',
-      price: '1',
-      price_currency: 'USD',
-      price_source: 's',
-      price_time: 't',
+    });
+    expect(carriedOptions({ price: '1', price_currency: 'USD', price_source: 's', price_time: 't' })).toEqual({});
+  });
+
+  it('links another issuer at the same point in time', () => {
+    expect(issuerHref(9000002, { as_of: '2026-02-01', price: '50.00', price_currency: 'USD', price_source: 's', price_time: '2026-01-30T20:00:00Z', q: 'x' })).toBe(
+      '#/company/9000002/tearsheet/as_of%3D2026-02-01',
+    );
+    expect(issuerHref(9000002)).toBe('#/company/9000002/tearsheet');
+    expect(parseHash(issuerHref(9000003, { as_of: '2026-10-22T12:00:00Z' }))).toEqual({
+      workspace: 'company',
+      rest: ['9000003', 'tearsheet', 'as_of=2026-10-22T12:00:00Z'],
     });
   });
 });
@@ -171,5 +185,33 @@ describe('statements', () => {
     expect(unitLabel('USD/shares')).toBe('USD per share');
     expect(unitLabel('shares')).toBe('shares');
     expect(unitLabel('USD')).toBe('USD');
+  });
+});
+
+describe('search sources', () => {
+  it('tells when no SEC issuer source was searched (no research store: only the core instrument master)', () => {
+    // data/fundamentals/search.py without a store: only core.instruments; with one: the SEC snapshot and research.issuers.
+    expect(searchedIssuers({ query_type: 'NAME', sources: [{ source: 'core.instruments', status: 'OK', matched: 0 }] })).toBe(false);
+    expect(
+      searchedIssuers({
+        query_type: 'NAME',
+        sources: [
+          { source: 'sec.company_tickers_exchange', status: 'NOT_AVAILABLE', reason: 'no snapshot received at or before the as-of time (never ingested)' },
+          { source: 'research.issuers', status: 'OK', matched: 1 },
+          { source: 'core.instruments', status: 'OK', matched: 0 },
+        ],
+      }),
+    ).toBe(true);
+    // A licensed identifier is refused on purpose and the API says so in its own source row.
+    expect(searchedIssuers({ query_type: 'LICENSED_ID', sources: [{ source: 'query', status: 'REFUSED', reason: 'CUSIP/SEDOL-shaped query' }] })).toBe(true);
+  });
+});
+
+describe('DCF equity bridge caveat', () => {
+  it('names the missing components every equity-derived figure inherits', () => {
+    expect(bridgeCaveat({ status: 'OK', missing_components: [] })).toBeNull();
+    expect(bridgeCaveat({ status: 'INCOMPLETE', missing_components: ['preferred_stock', 'noncontrolling_interest'] })).toBe(
+      'equity bridge INCOMPLETE: preferred_stock, noncontrolling_interest not reported, excluded (not treated as zero)',
+    );
   });
 });

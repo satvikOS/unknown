@@ -79,7 +79,7 @@ export function TearsheetView({ ctx }: { ctx: IssuerContext }) {
               )}
             </BlockPanel>
             <BlockPanel name="Peers" b={t.blocks.peers} actions={tab('peers', 'Comparables')}>
-              {(c) => <PeerGroupPanel g={c.group} />}
+              {(c) => <PeerGroupPanel g={c.group} opts={ctx.opts} />}
             </BlockPanel>
             <BlockPanel name="Filings" wide b={t.blocks.filings} actions={tab('filings', 'All filings')}>
               {(c) => <FilingsTable f={{ ...c, filings: c.filings.slice(0, 10) }} title="Latest filings" />}

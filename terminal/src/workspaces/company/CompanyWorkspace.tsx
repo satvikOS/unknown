@@ -13,8 +13,8 @@ import { Badge } from '../../ui/primitives';
 import { WorkspaceFrame, WorkspaceLink } from '../../ui/WorkspaceFrame';
 import { RouteTabs, TabPanel } from '../operations/parts';
 import { apiPath, useApi } from '../research-common/api';
-import { checkInstant } from '../research-common/format';
-import { ErrorNotice, IsoTime, Loading, Section, StatusTag } from '../research-common/parts';
+import { POPULATE, checkInstant, shownOf } from '../research-common/format';
+import { ErrorNotice, IsoTime, Loading, Section, StatusTag, Unavailable } from '../research-common/parts';
 import type { WorkspaceProps } from '../types';
 import { DcfView } from './Dcf';
 import { MetricsView } from './Metrics';
@@ -24,8 +24,10 @@ import {
   carriedOptions,
   companyRoute,
   isUnavailable,
+  issuerHref,
   parseCompanyRoute,
   priceProblems,
+  searchedIssuers,
   type CompanyOptions,
   type CompanyRoute,
   type CompanyTab,
@@ -105,7 +107,7 @@ function SearchView({ r, go, navigate }: { r: CompanyRoute; go: Go; navigate: Wo
       ) : null}
       <ErrorNotice what="Search" error={search.error} />
       {query && search.status === 'loading' ? <Loading what="search results" /> : null}
-      {search.data ? <SearchResults data={search.data} open={open} /> : null}
+      {search.data ? <SearchResults data={search.data} open={open} opts={r.opts} /> : null}
     </WorkspaceFrame>
   );
 }
@@ -118,7 +120,7 @@ function candidateId(c: SearchCandidate): string {
   return c.kind === 'issuer' ? `CIK ${c.cik}` : c.kind === 'instrument' ? c.instrument_id : (c.figi ?? c.composite_figi ?? 'no FIGI');
 }
 
-function SearchResults({ data, open }: { data: SearchResponse; open: (c: SearchCandidate) => void }) {
+function SearchResults({ data, open, opts }: { data: SearchResponse; open: (c: SearchCandidate) => void; opts: CompanyOptions }) {
   const columns: Column<SearchCandidate>[] = [
     {
       id: 'name',
@@ -127,7 +129,7 @@ function SearchResults({ data, open }: { data: SearchResponse; open: (c: SearchC
       sortValue: candidateName,
       cell: (c) =>
         c.kind === 'issuer' ? (
-          <a href={`#/company/${c.cik}/tearsheet`} tabIndex={-1}>
+          <a href={issuerHref(c.cik, opts)} tabIndex={-1}>
             <strong>{c.name}</strong>
           </a>
         ) : c.kind === 'instrument' ? (
@@ -180,7 +182,15 @@ function SearchResults({ data, open }: { data: SearchResponse; open: (c: SearchC
   ];
   return (
     <>
-      <Section title={`Candidates (${data.total_matches})`} flush note={data.note}>
+      {searchedIssuers(data) ? null : (
+        <Unavailable
+          what="SEC issuers"
+          status="NOT_SEARCHED"
+          reason="The API searched no SEC issuer source (it lists only the sources below), which is what it does when the research store has not been initialised. An issuer that is not listed here may still exist."
+          commands={[POPULATE.sec]}
+        />
+      )}
+      <Section title={`Candidates · ${shownOf(data.candidates.length, data.total_matches)}`} flush note={data.note}>
         <DataTable
           caption={`Search results for ${data.query} (${data.query_type}) as of ${data.as_of}`}
           captionHidden
@@ -306,7 +316,7 @@ function IssuerStrip({ cik, q }: { cik: number; q: QueryResult<FilingsResponse |
     return (
       <p className="rx-identity">
         <span className="rx-name">CIK {cik}</span>
-        <StatusTag status="UNAVAILABLE" detail={q.data.reason} /> <span className="muted">identity not available (the reason is shown below)</span>
+        <StatusTag status="UNAVAILABLE" /> <span className="muted">identity not available:</span> <span className="rx-reason">{q.data.reason}</span>
         <a href="#/company">Search issuers</a>
       </p>
     );

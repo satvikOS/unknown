@@ -5,11 +5,11 @@
  */
 import { useEffect, useState, type FormEvent } from 'react';
 import { apiPath, useApi } from '../research-common/api';
-import { humanize } from '../research-common/format';
+import { humanize, shownOf } from '../research-common/format';
 import { ErrorNotice, ExtLink, Flags, IsoTime, KV, Loading, Section, StatusTag, Unavailable, UnitValue } from '../research-common/parts';
 import { IssuerFrame, TextField, type IssuerContext } from './CompanyWorkspace';
 import { PriceLine } from './Metrics';
-import { isUnavailable, parsePeerList, priceParams, type Comps, type FilingsContent, type FilingsResponse, type PeerGroup, type PeersResponse, type UnavailableBody } from './model';
+import { isUnavailable, issuerHref, parsePeerList, priceParams, type CompanyOptions, type Comps, type FilingsContent, type FilingsResponse, type PeerGroup, type PeersResponse, type UnavailableBody } from './model';
 
 export function PeersView({ ctx }: { ctx: IssuerContext }) {
   const q = useApi<PeersResponse | UnavailableBody>(apiPath('company', ctx.cik, 'peers'), { as_of: ctx.opts.as_of, peers: ctx.opts.peers, ...priceParams(ctx.opts) });
@@ -46,7 +46,7 @@ export function PeersView({ ctx }: { ctx: IssuerContext }) {
       {!q.data && !q.error ? <Loading what="peers" /> : null}
       {data ? (
         <>
-          <PeerGroupPanel g={data.group} />
+          <PeerGroupPanel g={data.group} opts={ctx.opts} />
           <CompsPanel comps={data.comps} target={data.group.target.entity_id} names={new Map([data.group.target, ...data.group.members].map((m) => [m.entity_id, m.name]))} />
         </>
       ) : null}
@@ -54,7 +54,8 @@ export function PeersView({ ctx }: { ctx: IssuerContext }) {
   );
 }
 
-export function PeerGroupPanel({ g }: { g: PeerGroup }) {
+/** The peer rule and members; a member opens at the same point in time (`opts.as_of`), never with this issuer's price. */
+export function PeerGroupPanel({ g, opts }: { g: PeerGroup; opts: CompanyOptions }) {
   return (
     <Section title={`Peer group · ${g.rule.id}`}>
       <KV
@@ -69,7 +70,7 @@ export function PeerGroupPanel({ g }: { g: PeerGroup }) {
               <ul className="rx-tree-list">
                 {g.members.map((m) => (
                   <li key={m.entity_id}>
-                    <a href={`#/company/${m.cik}/tearsheet`}>{m.name}</a> <span className="muted mono">CIK {m.cik} · SIC {m.sic ?? '—'}</span>
+                    <a href={issuerHref(m.cik, opts)}>{m.name}</a> <span className="muted mono">CIK {m.cik} · SIC {m.sic ?? '—'}</span>
                   </li>
                 ))}
               </ul>
@@ -238,7 +239,7 @@ export function FilingsView({ ctx }: { ctx: IssuerContext }) {
 export function FilingsTable({ f, title = 'Filings' }: { f: FilingsContent; title?: string }) {
   return (
     <Section
-      title={`${title} · ${f.filings.length === f.count ? f.count : `${f.filings.length} of ${f.count}`} accepted by as of`}
+      title={`${title} · ${shownOf(f.filings.length, f.count)} accepted by as of`}
       flush
       note={
         <>
@@ -267,8 +268,8 @@ export function FilingsTable({ f, title = 'Filings' }: { f: FilingsContent; titl
                   {x.form}
                 </th>
                 <td className="mono">{x.filing_date}</td>
-                <td>
-                  <IsoTime iso={x.acceptance_time_raw} />
+                <td className="mono" title="acceptanceDateTime exactly as the SEC submissions file publishes it">
+                  {x.acceptance_time_raw}
                 </td>
                 <td>
                   <ExtLink href={x.links.filing_index}>{x.accession}</ExtLink>
