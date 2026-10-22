@@ -1,0 +1,59 @@
+# ONE paid Anthropic smoke call through the bounded agent runner (ADR-0016).
+# Runs only on manual dispatch, or on a push to impl/foundation whose head commit message contains
+# "[live-anthropic]". Never on pull requests (forks never see the secret). The owner authorized
+# USD 200.00 of Anthropic spend on 2026-10-22; each run is capped at USD 0.50 by the policy written
+# below, and the test itself sends max_tokens <= 300 at effort "low". The spend ledger lives in the
+# runner's temporary UNKNOWN_HOME, so its caps apply per run: the owner's lifetime total is tracked
+# on the Anthropic console, not here.
+name: live-anthropic
+on:
+  workflow_dispatch:
+  push:
+    branches: [impl/foundation]
+permissions:
+  contents: read
+concurrency:
+  group: live-anthropic
+  cancel-in-progress: false
+jobs:
+  smoke:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[live-anthropic]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install the pinned agent dependencies
+        run: python -m pip install --no-deps -r backend/requirements-agents.txt
+      - name: Write a per-run owner policy (USD 0.50 cap)
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/unknown/config"
+          cat > "$RUNNER_TEMP/unknown/config/agents.json" <<'JSON'
+          {"schema_version":1,"comment":"CI smoke run; owner authorization 2026-10-22 (USD 200.00 total)","currency":"USD",
+           "caps":{"lifetime":"0.50","per_day":"0.50","per_job":"0.25",
+                   "per_provider":{"anthropic":{"lifetime":"0.50","per_day":"0.50"}}},
+           "providers":{"anthropic":{"enabled":true,"api_key_env":"ANTHROPIC_API_KEY","api_key_file":"anthropic_api_key",
+             "region":"global","default_model":"claude-opus-5-5","effort":{"default":"low","by_role":{"research":"low"}},
+             "refusal_fallback":"off","account":{"training_permission_granted":false,"zdr_enabled":false}}},
+           "data_policy":{"max_policy_age_days":30,"default":{"max_provider_retention_days":30,
+             "allowed_processing_regions":["any"],"allowed_storage_regions":["any"]}},
+           "retry":{"max_attempts":1,"base_ms":1000,"max_ms":30000,"jitter_ms":250},
+           "circuit_breaker":{"failures":3,"window_s":60,"cooldown_s":300},
+           "token_estimate":{"bytes_per_token_factor":"1","overhead_tokens":1024},
+           "catalog":{"max_age_hours":24},"concurrency":{"global":1,"per_role":{"research":1}}}
+          JSON
+          chmod 600 "$RUNNER_TEMP/unknown/config/agents.json"
+      - name: One live structured call
+        working-directory: backend
+        env:
+          PYTHONPATH: src
+          UNKNOWN_HOME: ${{ runner.temp }}/unknown
+          UNKNOWN_LIVE_ANTHROPIC: "1"
+          ANTHROPIC_API_KEY: ${{ secrets.API_KEY_ANTHROPIC }}
+        run: |
+          python -m unittest tests.test_agents_live_anthropic -v 2>&1 | tee "$RUNNER_TEMP/live.txt"
+          # A skipped live test verifies nothing: treat it as a failure, never as a pass.
+          if grep -qi "skipped" "$RUNNER_TEMP/live.txt"; then echo "::error::live test skipped"; exit 1; fi

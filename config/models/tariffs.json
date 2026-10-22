@@ -108,7 +108,7 @@
       "effective_from": "2026-10-22", "effective_until": null,
       "source_url": "https://platform.claude.com/docs/en/about-claude/pricing", "retrieved_on": "2026-10-22",
       "records": ["claude-api skill model table cached 2026-10-06; re-verify against https://platform.claude.com pricing before relying", "CAP-MODEL-05"],
-      "approved_by": null,
+      "approved_by": "owner (delegated to Claude Code, 2026-10-22: owner authorized USD 200.00 of Anthropic spend; input 4.00 / output 20.00 / cache read 0.20 USD per million re-checked against the claude-api reference on 2026-10-22)",
       "note": "Cache read 0.20 agrees with CAP-MODEL-05 (0.05x of 4.00)."
     },
     {
