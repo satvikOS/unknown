@@ -1,0 +1,3425 @@
+{
+ "baselines": [
+  "BUY_AND_HOLD (incumbent)",
+  "VOL_CAPPED_PASSIVE"
+ ],
+ "candidate": "TREND_DAILY_V1 (book ch. 15 eq. 15.1)",
+ "label": "FIXTURE",
+ "protocol": {
+  "body": {
+   "confidence": "0.90",
+   "cost_multiplier_required": "2",
+   "holdout_min_difference": "0",
+   "hurdle_per_period": "0",
+   "max_pbo": "0.5",
+   "max_stress_drawdown": "0.35",
+   "mean_block": null,
+   "min_dsr": "0.90",
+   "min_n_eff": 100,
+   "min_oos_observations": 120,
+   "min_oos_sharpe_per_period": "0",
+   "min_paper_days": 10,
+   "replications": 1000,
+   "seed": 20261022,
+   "statistic": "mean",
+   "utility_c_drawdown": "0",
+   "utility_c_es": "0"
+  },
+  "hash": "97bebda2f4980763e2ada7ba831e6ba0bf2186ecc1ae31d424cc376adab61456",
+  "note": "approved by the fixture-study owner principal; an illustration, not an owner decision"
+ },
+ "provenance": {
+  "elapsed_s": 25.04,
+  "formulas": [
+   "bootstrap.stationary.paired@1",
+   "cost.price_fraction@1",
+   "dsr@1",
+   "ema.span@1",
+   "eq15.1@1",
+   "eq4.2@1",
+   "eq5.2.ewma_var@1",
+   "eq7.1.br-dat-03@1",
+   "es@1",
+   "fee.ibkr.us.fixed@2026-10-22",
+   "fee.ibkr.us.tiered@2026-10-22",
+   "impact.sqrt@1",
+   "lrv.flat_top@1",
+   "maxdd@1",
+   "n_hat@1",
+   "nav@1",
+   "pbo.cscv@1",
+   "psr@1",
+   "return.simple@1",
+   "sharpe.per_period@1",
+   "turnover.one_way@1",
+   "utility.ch20@1"
+  ],
+  "generated_at_ns": 1792683463832152000,
+  "git": {
+   "commit": "d87331f711b078a46565f0dc4a88c1a0dbd6f805",
+   "dirty": true,
+   "dirty_scope": "research, domain, data/pit.py"
+  },
+  "initial_cash_usd": "100000",
+  "registry_path": "~/.unknown/research/experiments.sqlite"
+ },
+ "report_hash": "043a37f6de6e2715ebf6de4dbcbd79fd3faa2cc9b59a96c8025f0bfd1df65034",
+ "report_id": "FS-20261022-R2-report",
+ "results": [
+  {
+   "baselines_development": {
+    "BUY_AND_HOLD": {
+     "metrics": {
+      "annualized_return": {
+       "convention": "geometric, 252 sessions per year (labelled assumption)",
+       "value": -0.03545589637790414
+      },
+      "avg_loss": -0.006696368271910382,
+      "avg_win": 0.006738410387136962,
+      "costs": {
+       "all_in_costs": "0.000000",
+       "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+       "all_in_pnl": "-7231.635000",
+       "commission": "8.835000",
+       "definitions": {
+        "all_in": "net - all_in_cost_per_day x sessions",
+        "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+        "net": "NAV_T - initial cash"
+       },
+       "gross_pnl": "-7022.010000",
+       "net_pnl": "-7231.635000",
+       "price_cost": "200.790000",
+       "third_party": "0.000000"
+      },
+      "decisions": 525,
+      "event_log_hash": "ac26a6035132988d6635ba31d4a0ac8236096721b0620215e15e14b70d777dbe",
+      "expected_shortfall_5pct": 0.018242496909748725,
+      "exposure_mean": 0.947320392613254,
+      "fill_ratio": 1.0,
+      "fills": 2,
+      "final_nav": "92768.365000",
+      "formulas": [
+       "return.simple@1",
+       "sharpe.per_period@1",
+       "maxdd@1",
+       "es@1",
+       "turnover.one_way@1",
+       "eq4.2@1"
+      ],
+      "hit_rate": 0.4904580152671756,
+      "kurtosis_non_excess": 3.2213555286914484,
+      "max_drawdown": 0.278934796227901,
+      "mean": -0.00010717339524021508,
+      "n": 524,
+      "no_trade_decisions": 524,
+      "orders": 2,
+      "rejected_orders": 0,
+      "sd": 0.008500881935677667,
+      "sharpe_annualized": {
+       "K": 252,
+       "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+       "value": -0.2001351058256558
+      },
+      "sharpe_per_period": -0.012607326634006653,
+      "skewness": 0.008492104664720742,
+      "time_in_market": 1.0,
+      "total_return": -0.07231634999999992,
+      "turnover_mean": 0.0009079922709923663
+     },
+     "trial_id": "FS-20261022-R2-TREND:T00007"
+    },
+    "VOL_CAPPED_PASSIVE": {
+     "metrics": {
+      "annualized_return": {
+       "convention": "geometric, 252 sessions per year (labelled assumption)",
+       "value": -0.02250009419860477
+      },
+      "avg_loss": -0.005854699207875473,
+      "avg_win": 0.005698037651824737,
+      "costs": {
+       "all_in_costs": "0.000000",
+       "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+       "all_in_pnl": "-4621.813309",
+       "commission": "33.185000",
+       "definitions": {
+        "all_in": "net - all_in_cost_per_day x sessions",
+        "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+        "net": "NAV_T - initial cash"
+       },
+       "gross_pnl": "-4322.040000",
+       "net_pnl": "-4621.813309",
+       "price_cost": "259.870000",
+       "third_party": "6.718309"
+      },
+      "decisions": 525,
+      "event_log_hash": "428a023aebee19829d090f44929f546e179348091a175777c3fa55b76d35fe4d",
+      "expected_shortfall_5pct": 0.015492609746546348,
+      "exposure_mean": 0.808337579623785,
+      "fill_ratio": 1.0,
+      "fills": 26,
+      "final_nav": "95378.186691",
+      "formulas": [
+       "return.simple@1",
+       "sharpe.per_period@1",
+       "maxdd@1",
+       "es@1",
+       "turnover.one_way@1",
+       "eq4.2@1"
+      ],
+      "hit_rate": 0.500990099009901,
+      "kurtosis_non_excess": 3.3224648031168913,
+      "max_drawdown": 0.2350019531561263,
+      "mean": -6.446693601710043e-05,
+      "n": 524,
+      "no_trade_decisions": 500,
+      "orders": 26,
+      "rejected_orders": 0,
+      "sd": 0.007193486232239025,
+      "sharpe_annualized": {
+       "K": 252,
+       "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+       "value": -0.14226493940293936
+      },
+      "sharpe_per_period": -0.008961848808186935,
+      "skewness": -0.06126508987262896,
+      "time_in_market": 0.9637404580152672,
+      "total_return": -0.04621813309,
+      "turnover_mean": 0.002157556754020597
+     },
+     "trial_id": "FS-20261022-R2-TREND:T00008"
+    }
+   },
+   "budget": 8,
+   "budget_consumption": 0.75,
+   "conclusion": "SYNTHETIC trend fixture: the candidate reached status 'reproducible'; failing gates: PAIRED_BOOTSTRAP. Fixture results validate the research machinery only; they are not evidence of profitability.",
+   "core_replay": {
+    "commissions_checked_against_core_fee_model": 13,
+    "comparable": true,
+    "days_compared": 130,
+    "event_log_hash": "2c7ca633300a2ae1605eebde1793347c5ba2389c5ea63be4e8f23be4f4eab373",
+    "fills_compared": 13,
+    "final": {
+     "cash": "87965.519543",
+     "positions": {
+      "FIX-TREND-2": [
+       "244",
+       "14103.200000"
+      ]
+     }
+    },
+    "ledger_problems": [],
+    "mismatches": [],
+    "mode": "core replay: SIMULATED account on a temporary database with the SimulatedBroker fixture",
+    "note": "the selected candidate's orders on a short development window replayed through a temporary core; validates fills, cash and positions accounting, not the candidate's economics",
+    "orders_submitted": 13,
+    "rejections_matched": 0,
+    "rounding": "none observed: prices <= 4 dp and integer quantities are exact at the 6 dp ledger scale; the core's HALF_EVEN notional and lot-cost rounding is mirrored by the engine",
+    "source_trial": "FS-20261022-R2-TREND:T00024"
+   },
+   "cost_sensitivity": {
+    "0.5": {
+     "costs": {
+      "all_in_costs": "0.000000",
+      "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+      "all_in_pnl": "35686.762615",
+      "commission": "62.790000",
+      "definitions": {
+       "all_in": "net - all_in_cost_per_day x sessions",
+       "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+       "net": "NAV_T - initial cash"
+      },
+      "gross_pnl": "36323.660000",
+      "net_pnl": "35686.762615",
+      "price_cost": "548.110000",
+      "third_party": "25.997385"
+     },
+     "net_mean": 0.000592644914990395,
+     "sharpe_per_period": 0.1316931972636709,
+     "total_return": 0.3568676261500001,
+     "trial_id": "FS-20261022-R2-TREND:T00010"
+    },
+    "1": {
+     "costs": {
+      "all_in_costs": "0.000000",
+      "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+      "all_in_pnl": "35073.660374",
+      "commission": "125.465000",
+      "definitions": {
+       "all_in": "net - all_in_cost_per_day x sessions",
+       "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+       "net": "NAV_T - initial cash"
+      },
+      "gross_pnl": "36222.530000",
+      "net_pnl": "35073.660374",
+      "price_cost": "971.560000",
+      "third_party": "51.844626"
+     },
+     "net_mean": 0.0005840099685985223,
+     "sharpe_per_period": 0.12969269934230668,
+     "total_return": 0.35073660373999993,
+     "trial_id": "FS-20261022-R2-TREND:T00011"
+    },
+    "2": {
+     "costs": {
+      "all_in_costs": "0.000000",
+      "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+      "all_in_pnl": "33838.163462",
+      "commission": "250.400000",
+      "definitions": {
+       "all_in": "net - all_in_cost_per_day x sessions",
+       "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+       "net": "NAV_T - initial cash"
+      },
+      "gross_pnl": "36036.350000",
+      "net_pnl": "33838.163462",
+      "price_cost": "1844.670000",
+      "third_party": "103.116538"
+     },
+     "net_mean": 0.0005664514277793158,
+     "sharpe_per_period": 0.12587277902745103,
+     "total_return": 0.3383816346199999,
+     "trial_id": "FS-20261022-R2-TREND:T00012"
+    },
+    "3": {
+     "costs": {
+      "all_in_costs": "0.000000",
+      "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+      "all_in_pnl": "32795.075232",
+      "commission": "374.925000",
+      "definitions": {
+       "all_in": "net - all_in_cost_per_day x sessions",
+       "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+       "net": "NAV_T - initial cash"
+      },
+      "gross_pnl": "35884.780000",
+      "net_pnl": "32795.075232",
+      "price_cost": "2560.810000",
+      "third_party": "153.969768"
+     },
+     "net_mean": 0.000551532265479751,
+     "sharpe_per_period": 0.12243206061551692,
+     "total_return": 0.32795075232000004,
+     "trial_id": "FS-20261022-R2-TREND:T00013"
+    },
+    "impact_y=0.5": {
+     "net_mean": 0.0005848032443922873,
+     "total_return": 0.3513046126999999,
+     "trial_id": "FS-20261022-R2-TREND:T00014"
+    },
+    "impact_y=1.0": {
+     "net_mean": 0.0005840099685985223,
+     "total_return": 0.35073660373999993,
+     "trial_id": "FS-20261022-R2-TREND:T00015"
+    },
+    "impact_y=2.0": {
+     "net_mean": 0.0005818841409859609,
+     "total_return": 0.34924343572999983,
+     "trial_id": "FS-20261022-R2-TREND:T00016"
+    }
+   },
+   "development": [
+    "2021-01-04",
+    "2023-01-06"
+   ],
+   "dsr": {
+    "M": 6,
+    "M_registry": 6,
+    "M_source": "registry trial_count (all statuses)",
+    "M_with_returns": 6,
+    "T": 524,
+    "dsr": 0.9990296452312853,
+    "formula": [
+     "dsr@1",
+     "psr@1",
+     "n_hat@1"
+    ],
+    "g3": 0.9472367766440576,
+    "g4": 10.21354636871817,
+    "ill_conditioned": false,
+    "n_hat": 1.2812256246309879,
+    "note": "per-period Sharpe; N-hat from the average off-diagonal correlation (both M and N-hat reported); the paper warns the estimate can be ill-conditioned when T < M(M-1)/2",
+    "psr_zero": 0.9990296452312853,
+    "rho_bar": 0.9437548750738024,
+    "sr0": 0.0,
+    "sr_selected": 0.12969269934230668,
+    "trial_sharpes": [
+     0.12969269934230668,
+     0.10701447597080622,
+     0.1269160898590541,
+     0.09395113586299328,
+     0.10863849337233657,
+     0.06569877113532806
+    ],
+    "var_sr": 0.0005546792108887862
+   },
+   "evidence": [
+    {
+     "evidence_id": "ev:5bfcfab4953518b505cd7e8e",
+     "kind": "REPLAY_EXACT",
+     "passed": true,
+     "reasons": []
+    },
+    {
+     "evidence_id": "ev:baf564061c8321d2694ab5be",
+     "kind": "WALK_FORWARD_OOS",
+     "passed": true,
+     "reasons": []
+    },
+    {
+     "evidence_id": "ev:03c8cf2164a05ec2a8a26602",
+     "kind": "PAIRED_BOOTSTRAP",
+     "passed": false,
+     "reasons": [
+      "conservative lower bound -0.00022757553767738503 does not exceed the hurdle 0"
+     ]
+    },
+    {
+     "evidence_id": "ev:3553e2ca45a9b144fd13c278",
+     "kind": "HOLDOUT",
+     "passed": true,
+     "reasons": []
+    },
+    {
+     "evidence_id": "ev:d3fd7db81bd764eb816916aa",
+     "kind": "COST_SENSITIVITY",
+     "passed": true,
+     "reasons": []
+    },
+    {
+     "evidence_id": "ev:68f15484ba962364c7a92c9f",
+     "kind": "STRESS",
+     "passed": true,
+     "reasons": []
+    },
+    {
+     "evidence_id": "ev:4c9946e51d966369c36b0b41",
+     "kind": "DSR",
+     "passed": true,
+     "reasons": []
+    },
+    {
+     "evidence_id": "ev:a133bd788502fa2f177d72cc",
+     "kind": "PBO",
+     "passed": true,
+     "reasons": []
+    },
+    {
+     "evidence_id": "ev:3408715678d3d843419566ac",
+     "kind": "N_EFF",
+     "passed": true,
+     "reasons": []
+    },
+    {
+     "evidence_id": "ev:bec9de8ed64e9611979b48cf",
+     "kind": "CORE_REPLAY_MATCH",
+     "passed": true,
+     "reasons": []
+    }
+   ],
+   "experiment_id": "FS-20261022-R2-TREND",
+   "failing_gates": [
+    "PAIRED_BOOTSTRAP"
+   ],
+   "family": [
+    {
+     "event_log_hash": "f8703eff55ba48a5c80a9964f43ec12c66f9b04aad3b4db0fdaa12d87bc44190",
+     "parameters": {
+      "epsilon": "0.0001",
+      "fast_span": "5",
+      "horizon_h": "10",
+      "k": "0.5",
+      "slow_span": "40",
+      "vol_half_life": "20",
+      "w_max": "0.45"
+     },
+     "sharpe_per_period": 0.12969269934230668,
+     "total_return": 0.35073660373999993,
+     "trial_id": "FS-20261022-R2-TREND:T00001"
+    },
+    {
+     "event_log_hash": "483564647a4afb844debd4e3c55f8a739a2450f45221f6a9af8efe7e2c63e9aa",
+     "parameters": {
+      "epsilon": "0.0001",
+      "fast_span": "5",
+      "horizon_h": "10",
+      "k": "0.5",
+      "slow_span": "80",
+      "vol_half_life": "20",
+      "w_max": "0.45"
+     },
+     "sharpe_per_period": 0.10701447597080622,
+     "total_return": 0.2912656225000001,
+     "trial_id": "FS-20261022-R2-TREND:T00002"
+    },
+    {
+     "event_log_hash": "b042468bab9c64ae8bff1fb2f6966421e09e67e791be9f95da616c3c727dc815",
+     "parameters": {
+      "epsilon": "0.0001",
+      "fast_span": "10",
+      "horizon_h": "10",
+      "k": "0.5",
+      "slow_span": "40",
+      "vol_half_life": "20",
+      "w_max": "0.45"
+     },
+     "sharpe_per_period": 0.1269160898590541,
+     "total_return": 0.3203202095100002,
+     "trial_id": "FS-20261022-R2-TREND:T00003"
+    },
+    {
+     "event_log_hash": "b059bb339c7bf23ad19773cea5ae132af14767eea7e599ca879b6db7edcadffa",
+     "parameters": {
+      "epsilon": "0.0001",
+      "fast_span": "10",
+      "horizon_h": "10",
+      "k": "0.5",
+      "slow_span": "80",
+      "vol_half_life": "20",
+      "w_max": "0.45"
+     },
+     "sharpe_per_period": 0.09395113586299328,
+     "total_return": 0.25066237989000006,
+     "trial_id": "FS-20261022-R2-TREND:T00004"
+    },
+    {
+     "event_log_hash": "9328ed18ee602b917e92cb0537b6bf281fef6443adc998f3cc489f6ef289bfb4",
+     "parameters": {
+      "epsilon": "0.0001",
+      "fast_span": "20",
+      "horizon_h": "10",
+      "k": "0.5",
+      "slow_span": "40",
+      "vol_half_life": "20",
+      "w_max": "0.45"
+     },
+     "sharpe_per_period": 0.10863849337233657,
+     "total_return": 0.2331841696600001,
+     "trial_id": "FS-20261022-R2-TREND:T00005"
+    },
+    {
+     "event_log_hash": "93c8a9c694ed4ecbd3cd1c3d9bd856ee6929472e2232080d2a4230b4cb2cc41a",
+     "parameters": {
+      "epsilon": "0.0001",
+      "fast_span": "20",
+      "horizon_h": "10",
+      "k": "0.5",
+      "slow_span": "80",
+      "vol_half_life": "20",
+      "w_max": "0.45"
+     },
+     "sharpe_per_period": 0.06569877113532806,
+     "total_return": 0.1649458637500001,
+     "trial_id": "FS-20261022-R2-TREND:T00006"
+    }
+   ],
+   "holdout": {
+    "access_id": "holdout:4",
+    "candidate": {
+     "annualized_return": {
+      "convention": "geometric, 252 sessions per year (labelled assumption)",
+      "value": 0.05842761983319078
+     },
+     "avg_loss": -0.002841523421881215,
+     "avg_win": 0.003480002484129476,
+     "expected_shortfall_5pct": 0.0021311425664109116,
+     "exposure_mean": null,
+     "formulas": [
+      "return.simple@1",
+      "sharpe.per_period@1",
+      "maxdd@1",
+      "es@1",
+      "turnover.one_way@1",
+      "eq4.2@1"
+     ],
+     "hit_rate": 0.7096774193548387,
+     "kurtosis_non_excess": 21.97228351865901,
+     "max_drawdown": 0.0076717600680698645,
+     "mean": 0.00022660597268407795,
+     "n": 225,
+     "n_eff": {
+      "K": 10,
+      "formula": "eq4.2@1",
+      "gate": 48.29656728140965,
+      "label_horizon": 1,
+      "n": 225,
+      "note": "raw is eq. 4.2 (None if 1 + 2 sum rho <= 0); gate = min(n, n / label_horizon, n / max(1, 1 + 2 sum rho)) per BR-DAT-13",
+      "raw": 48.29656728140965,
+      "rhos": [
+       -0.08962233408008395,
+       0.4401769258254431,
+       0.3579132632332201,
+       0.04120915701769237,
+       0.34335145524534366,
+       0.09481507325737945,
+       0.18854901858974876,
+       0.19301317367165205,
+       0.00949585330722451,
+       0.2504565098089697
+      ]
+     },
+     "sd": 0.001583944077927922,
+     "sharpe_annualized": {
+      "K": 252,
+      "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+      "value": 2.2710765778105273
+     },
+     "sharpe_per_period": 0.14306437698262586,
+     "skewness": 2.3331678121840445,
+     "time_in_market": null,
+     "total_return": 0.052007647016813374,
+     "turnover_mean": null
+    },
+    "consumptions": 1,
+    "incumbent": {
+     "annualized_return": {
+      "convention": "geometric, 252 sessions per year (labelled assumption)",
+      "value": -0.3568804426884258
+     },
+     "avg_loss": -0.006810022110574925,
+     "avg_win": 0.005505733861682157,
+     "expected_shortfall_5pct": 0.01729957091858215,
+     "exposure_mean": null,
+     "formulas": [
+      "return.simple@1",
+      "sharpe.per_period@1",
+      "maxdd@1",
+      "es@1",
+      "turnover.one_way@1",
+      "eq4.2@1"
+     ],
+     "hit_rate": 0.41333333333333333,
+     "kurtosis_non_excess": 3.0684290584043112,
+     "max_drawdown": 0.4039406723612486,
+     "mean": -0.001719509642041998,
+     "n": 225,
+     "n_eff": {
+      "K": 10,
+      "formula": "eq4.2@1",
+      "gate": 147.27614540115312,
+      "label_horizon": 1,
+      "n": 225,
+      "note": "raw is eq. 4.2 (None if 1 + 2 sum rho <= 0); gate = min(n, n / label_horizon, n / max(1, 1 + 2 sum rho)) per BR-DAT-13",
+      "raw": 147.27614540115312,
+      "rhos": [
+       0.023627449466554592,
+       0.15117392106870775,
+       0.0677487165338306,
+       0.03006384984595569,
+       0.048310906547492746,
+       0.046067665706289174,
+       0.02256098136484325,
+       -0.00633279620039095,
+       0.01747199907868502,
+       -0.1368215336014588
+      ]
+     },
+     "sd": 0.007841097903471423,
+     "sharpe_annualized": {
+      "K": 252,
+      "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+      "value": -3.4811922609511403
+     },
+     "sharpe_per_period": -0.21929449972569964,
+     "skewness": 0.11109624221968918,
+     "time_in_market": null,
+     "total_return": -0.32573302332104304,
+     "turnover_mean": null
+    },
+    "incumbent_trial_id": "FS-20261022-R2-TREND:T00023",
+    "paired_bootstrap": {
+     "block_rule": "round(n^(1/3))",
+     "bootstrap_mean": 0.001939182186232003,
+     "bootstrap_sd": 0.0005712713682866128,
+     "computable": true,
+     "confidence": 0.9,
+     "conservative_lower": 0.000982212715093832,
+     "conservative_upper": 0.0028789780778006656,
+     "formula": "bootstrap.stationary.paired@1",
+     "gate_rule": "conservative_lower = min(bootstrap percentile lower, flat-top HAC normal lower) > hurdle",
+     "hac": {
+      "bandwidth_M": 1,
+      "fallback_to_variance": false,
+      "formula": "lrv.flat_top@1",
+      "lower": 0.0011161933173488856,
+      "se": 0.0005045569306463741,
+      "upper": 0.0027760379121032665
+     },
+     "hurdle": 0.0,
+     "lower": 0.000982212715093832,
+     "mean_block": 6,
+     "n": 225,
+     "passes": true,
+     "point": 0.001946115614726076,
+     "replications": 1000,
+     "seed": 20261022,
+     "statistic": "mean",
+     "upper": 0.0028789780778006656
+    },
+    "trial_id": "FS-20261022-R2-TREND:T00022"
+   },
+   "instruments": [
+    "FIX-TREND-1",
+    "FIX-TREND-2"
+   ],
+   "kind": "trend",
+   "label": "FIXTURE",
+   "n_eff": {
+    "K": 10,
+    "formula": "eq4.2@1",
+    "gate": 123.70524842334136,
+    "label_horizon": 1,
+    "n": 274,
+    "note": "raw is eq. 4.2 (None if 1 + 2 sum rho <= 0); gate = min(n, n / label_horizon, n / max(1, 1 + 2 sum rho)) per BR-DAT-13",
+    "raw": 123.70524842334136,
+    "rhos": [
+     0.07764355948123228,
+     -0.012054263900085863,
+     0.1305591017166108,
+     0.09013539790895625,
+     0.052966869282581194,
+     0.022736743220921087,
+     0.14694467600006503,
+     -0.006841450166276983,
+     -0.05461713080265676,
+     0.15999769792397658
+    ],
+    "series": "walk-forward OOS paired differences (candidate - incumbent)"
+   },
+   "n_eff_development": {
+    "K": 10,
+    "formula": "eq4.2@1",
+    "gate": 162.08175494903216,
+    "label_horizon": 1,
+    "n": 524,
+    "note": "raw is eq. 4.2 (None if 1 + 2 sum rho <= 0); gate = min(n, n / label_horizon, n / max(1, 1 + 2 sum rho)) per BR-DAT-13",
+    "raw": 162.08175494903216,
+    "rhos": [
+     0.07834220255745937,
+     0.08927730146263024,
+     0.08608447728430618,
+     0.18237917613645452,
+     0.18847273760435854,
+     0.08489508538782427,
+     0.0580432470411742,
+     0.03416127930283598,
+     0.165949205816639,
+     0.14886347090043078
+    ]
+   },
+   "paired_bootstrap_oos": {
+    "block_rule": "round(n^(1/3))",
+    "bootstrap_mean": 0.0004519104027490216,
+    "bootstrap_sd": 0.0004445273960675,
+    "computable": true,
+    "confidence": 0.9,
+    "conservative_lower": -0.00022757553767738503,
+    "conservative_upper": 0.0012421289924546114,
+    "formula": "bootstrap.stationary.paired@1",
+    "gate_rule": "conservative_lower = min(bootstrap percentile lower, flat-top HAC normal lower) > hurdle",
+    "hac": {
+     "bandwidth_M": 1,
+     "fallback_to_variance": false,
+     "formula": "lrv.flat_top@1",
+     "lower": -0.00012787217470848673,
+     "se": 0.00036473302486759947,
+     "upper": 0.0010719927029364178
+    },
+    "hurdle": 0.0,
+    "lower": -0.00022757553767738503,
+    "mean_block": 6,
+    "n": 274,
+    "passes": false,
+    "point": 0.00047206026411396556,
+    "replications": 1000,
+    "seed": 20261022,
+    "statistic": "mean",
+    "upper": 0.0012421289924546114
+   },
+   "pbo": {
+    "N": 6,
+    "S": 16,
+    "T": 524,
+    "combinations": 12870,
+    "formula": "pbo.cscv@1",
+    "logit_mean": 0.237219517005488,
+    "metric": "sharpe",
+    "pbo": 0.4093240093240093,
+    "prob_oos_loss": 0.11724941724941725,
+    "rows_dropped": 12,
+    "rows_per_block": 32
+   },
+   "prereg_hash": "62506c195c358549b223b1ffd9f8be82e07148c51e301f76d9c7865a55d96059",
+   "recipes": [
+    {
+     "calendar": "WEEKDAYS@1",
+     "generator": "unknown.research.fixtures.synthetic_bars@v1",
+     "instrument_id": "FIX-TREND-1",
+     "kind": "trend",
+     "label": "FIXTURE",
+     "mean_volume": 1000000.0,
+     "seed": 11,
+     "sessions": 750,
+     "sigma": null,
+     "start": "2021-01-04",
+     "start_price": 50.0
+    },
+    {
+     "calendar": "WEEKDAYS@1",
+     "generator": "unknown.research.fixtures.synthetic_bars@v1",
+     "instrument_id": "FIX-TREND-2",
+     "kind": "trend",
+     "label": "FIXTURE",
+     "mean_volume": 1000000.0,
+     "seed": 12,
+     "sessions": 750,
+     "sigma": null,
+     "start": "2021-01-04",
+     "start_price": 60.0
+    }
+   ],
+   "replay": {
+    "event_log_hash": "f8703eff55ba48a5c80a9964f43ec12c66f9b04aad3b4db0fdaa12d87bc44190",
+    "formula": "replay_exact = 1 iff SHA-256(event log of replay) == stored event-log hash (CAP-RES-11)",
+    "manifest_differences": [],
+    "replay_event_log_hash": "f8703eff55ba48a5c80a9964f43ec12c66f9b04aad3b4db0fdaa12d87bc44190",
+    "replay_exact": 1
+   },
+   "selected": {
+    "artifact_hash": "fec3ee1fd2fe690dff234760bd8ea991246c1d425e53e95dbe009e1f569651c8",
+    "development": {
+     "annualized_return": {
+      "convention": "geometric, 252 sessions per year (labelled assumption)",
+      "value": 0.15556273428337586
+     },
+     "avg_loss": -0.003252734773487758,
+     "avg_win": 0.004411980228671403,
+     "costs": {
+      "all_in_costs": "0.000000",
+      "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+      "all_in_pnl": "35073.660374",
+      "commission": "125.465000",
+      "definitions": {
+       "all_in": "net - all_in_cost_per_day x sessions",
+       "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+       "net": "NAV_T - initial cash"
+      },
+      "gross_pnl": "36222.530000",
+      "net_pnl": "35073.660374",
+      "price_cost": "971.560000",
+      "third_party": "51.844626"
+     },
+     "decisions": 525,
+     "event_log_hash": "f8703eff55ba48a5c80a9964f43ec12c66f9b04aad3b4db0fdaa12d87bc44190",
+     "expected_shortfall_5pct": 0.009084518316474463,
+     "exposure_mean": 0.26865418089846316,
+     "fill_ratio": 0.9939795918367347,
+     "fills": 110,
+     "final_nav": "135073.660374",
+     "formulas": [
+      "return.simple@1",
+      "sharpe.per_period@1",
+      "maxdd@1",
+      "es@1",
+      "turnover.one_way@1",
+      "eq4.2@1"
+     ],
+     "hit_rate": 0.5479876160990712,
+     "kurtosis_non_excess": 10.21354636871817,
+     "max_drawdown": 0.09062517291863141,
+     "mean": 0.0005840099685985223,
+     "n": 524,
+     "no_trade_decisions": 423,
+     "orders": 111,
+     "rejected_orders": 0,
+     "sd": 0.004503028864077425,
+     "sharpe_annualized": {
+      "K": 252,
+      "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+      "value": 2.058807775922482
+     },
+     "sharpe_per_period": 0.12969269934230668,
+     "skewness": 0.9472367766440576,
+     "time_in_market": 0.6049618320610687,
+     "total_return": 0.35073660373999993,
+     "turnover_mean": 0.00836981820935998
+    },
+    "parameters": {
+     "epsilon": "0.0001",
+     "fast_span": "5",
+     "horizon_h": "10",
+     "k": "0.5",
+     "slow_span": "40",
+     "vol_half_life": "20",
+     "w_max": "0.45"
+    },
+    "spec_hash": "5e36ad1d349a78850d57a88e744b9c540f32ab910912826f044c636f7e3cdc9d",
+    "trial_id": "FS-20261022-R2-TREND:T00001"
+   },
+   "status": "reproducible",
+   "stress": {
+    "costs_x3": {
+     "description": "all costs tripled",
+     "max_drawdown": 0.09621098531841307,
+     "sharpe_per_period": 0.12243206061551692,
+     "total_return": 0.32795075232000004,
+     "trial_id": "FS-20261022-R2-TREND:T00017"
+    },
+    "impact_y_max": {
+     "description": "largest impact coefficient",
+     "max_drawdown": 0.09103123793585582,
+     "sharpe_per_period": 0.12930960106944586,
+     "total_return": 0.34924343572999983,
+     "trial_id": "FS-20261022-R2-TREND:T00019"
+    },
+    "limit_tight": {
+     "description": "limit offset 10 bps (fewer fills)",
+     "max_drawdown": 0.08947361012350032,
+     "sharpe_per_period": 0.13386082694531773,
+     "total_return": 0.36339741551999993,
+     "trial_id": "FS-20261022-R2-TREND:T00020"
+    },
+    "participation_quarter": {
+     "description": "participation cap at 25% of plan",
+     "max_drawdown": 0.09062517291863141,
+     "sharpe_per_period": 0.12969269934230668,
+     "total_return": 0.35073660373999993,
+     "trial_id": "FS-20261022-R2-TREND:T00018"
+    }
+   },
+   "transitions": [
+    {
+     "approval": null,
+     "artifact_hash": "fec3ee1fd2fe690dff234760bd8ea991246c1d425e53e95dbe009e1f569651c8",
+     "at_ns": 1792683446508447000,
+     "evidence_ids": [
+      "ev:5bfcfab4953518b505cd7e8e"
+     ],
+     "from_status": "proposed",
+     "incumbent_hash": null,
+     "prev_record_hash": "ee624ee2ab6ca1077a55fc2bbe68dbdfdabc52404093a3fad4ae8eef545c12f3",
+     "principal": "research.evaluator",
+     "reason": "fixture study",
+     "record_hash": "6d5f7e22849a87fb4f39be4a6cd545c0cb7ab77c7db16cee21928b7e88bc8be5",
+     "role": "SYSTEM",
+     "slot": null,
+     "to_status": "reproducible"
+    },
+    {
+     "refused": "EvidenceError: missing or failed evidence: ['PAIRED_BOOTSTRAP']",
+     "to_status": "validated"
+    }
+   ],
+   "trial_counts": {
+    "BASELINE": 3,
+    "DEVELOPMENT": 6,
+    "HOLDOUT": 1,
+    "REPLAY": 2,
+    "SENSITIVITY": 7,
+    "STRESS": 4,
+    "WALK_FORWARD": 1
+   },
+   "walk_forward": {
+    "folds": [
+     {
+      "embargoed": [],
+      "index": 0,
+      "purged": [
+       248,
+       249
+      ],
+      "selected_parameters": {
+       "epsilon": "0.0001",
+       "fast_span": "5",
+       "horizon_h": "10",
+       "k": "0.5",
+       "slow_span": "40",
+       "vol_half_life": "20",
+       "w_max": "0.45"
+      },
+      "selected_trial": "FS-20261022-R2-TREND:T00001",
+      "test_n": 60,
+      "test_span": [
+       250,
+       309
+      ],
+      "train_n": 248,
+      "train_span": [
+       0,
+       247
+      ]
+     },
+     {
+      "embargoed": [],
+      "index": 1,
+      "purged": [
+       308,
+       309
+      ],
+      "selected_parameters": {
+       "epsilon": "0.0001",
+       "fast_span": "5",
+       "horizon_h": "10",
+       "k": "0.5",
+       "slow_span": "40",
+       "vol_half_life": "20",
+       "w_max": "0.45"
+      },
+      "selected_trial": "FS-20261022-R2-TREND:T00001",
+      "test_n": 60,
+      "test_span": [
+       310,
+       369
+      ],
+      "train_n": 248,
+      "train_span": [
+       60,
+       307
+      ]
+     },
+     {
+      "embargoed": [],
+      "index": 2,
+      "purged": [
+       368,
+       369
+      ],
+      "selected_parameters": {
+       "epsilon": "0.0001",
+       "fast_span": "5",
+       "horizon_h": "10",
+       "k": "0.5",
+       "slow_span": "40",
+       "vol_half_life": "20",
+       "w_max": "0.45"
+      },
+      "selected_trial": "FS-20261022-R2-TREND:T00001",
+      "test_n": 60,
+      "test_span": [
+       370,
+       429
+      ],
+      "train_n": 248,
+      "train_span": [
+       120,
+       367
+      ]
+     },
+     {
+      "embargoed": [],
+      "index": 3,
+      "purged": [
+       428,
+       429
+      ],
+      "selected_parameters": {
+       "epsilon": "0.0001",
+       "fast_span": "5",
+       "horizon_h": "10",
+       "k": "0.5",
+       "slow_span": "40",
+       "vol_half_life": "20",
+       "w_max": "0.45"
+      },
+      "selected_trial": "FS-20261022-R2-TREND:T00001",
+      "test_n": 60,
+      "test_span": [
+       430,
+       489
+      ],
+      "train_n": 248,
+      "train_span": [
+       180,
+       427
+      ]
+     },
+     {
+      "embargoed": [],
+      "index": 4,
+      "purged": [
+       488,
+       489
+      ],
+      "selected_parameters": {
+       "epsilon": "0.0001",
+       "fast_span": "5",
+       "horizon_h": "10",
+       "k": "0.5",
+       "slow_span": "40",
+       "vol_half_life": "20",
+       "w_max": "0.45"
+      },
+      "selected_trial": "FS-20261022-R2-TREND:T00001",
+      "test_n": 34,
+      "test_span": [
+       490,
+       523
+      ],
+      "train_n": 248,
+      "train_span": [
+       240,
+       487
+      ]
+     }
+    ],
+    "incumbent_oos": {
+     "annualized_return": {
+      "convention": "geometric, 252 sessions per year (labelled assumption)",
+      "value": 0.15384335317090825
+     },
+     "avg_loss": -0.006339035437305712,
+     "avg_win": 0.007352133599346889,
+     "expected_shortfall_5pct": 0.0188077618934665,
+     "exposure_mean": null,
+     "formulas": [
+      "return.simple@1",
+      "sharpe.per_period@1",
+      "maxdd@1",
+      "es@1",
+      "turnover.one_way@1",
+      "eq4.2@1"
+     ],
+     "hit_rate": 0.5072992700729927,
+     "kurtosis_non_excess": 3.531922027836792,
+     "max_drawdown": 0.2789347962279003,
+     "mean": 0.0006064846214341114,
+     "n": 274,
+     "n_eff": {
+      "K": 10,
+      "formula": "eq4.2@1",
+      "gate": 84.14533909306587,
+      "label_horizon": 1,
+      "n": 274,
+      "note": "raw is eq. 4.2 (None if 1 + 2 sum rho <= 0); gate = min(n, n / label_horizon, n / max(1, 1 + 2 sum rho)) per BR-DAT-13",
+      "raw": 84.14533909306587,
+      "rhos": [
+       0.11439177001549967,
+       0.025668936340590833,
+       0.11358214678625296,
+       0.150446795033338,
+       0.15313536157655722,
+       0.11554785402506354,
+       0.10797260533744578,
+       0.03509506384950682,
+       0.0777099841464073,
+       0.23458481963658387
+      ]
+     },
+     "sd": 0.008790456364081753,
+     "sharpe_annualized": {
+      "K": 252,
+      "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+      "value": 1.0952383465707098
+     },
+     "sharpe_per_period": 0.06899353074684929,
+     "skewness": 0.016410211948486297,
+     "time_in_market": null,
+     "total_return": 0.16834840897096504,
+     "turnover_mean": null
+    },
+    "oos": {
+     "annualized_return": {
+      "convention": "geometric, 252 sessions per year (labelled assumption)",
+      "value": 0.3070619638077725
+     },
+     "avg_loss": -0.003509241133395237,
+     "avg_win": 0.005398243590716075,
+     "expected_shortfall_5pct": 0.011341048687081847,
+     "exposure_mean": null,
+     "formulas": [
+      "return.simple@1",
+      "sharpe.per_period@1",
+      "maxdd@1",
+      "es@1",
+      "turnover.one_way@1",
+      "eq4.2@1"
+     ],
+     "hit_rate": 0.5641025641025641,
+     "kurtosis_non_excess": 7.628013062874933,
+     "max_drawdown": 0.09062517291863172,
+     "mean": 0.001078544885548077,
+     "n": 274,
+     "n_eff": {
+      "K": 10,
+      "formula": "eq4.2@1",
+      "gate": 84.1376224630374,
+      "label_horizon": 1,
+      "n": 274,
+      "note": "raw is eq. 4.2 (None if 1 + 2 sum rho <= 0); gate = min(n, n / label_horizon, n / max(1, 1 + 2 sum rho)) per BR-DAT-13",
+      "raw": 84.1376224630374,
+      "rhos": [
+       0.08214561029850932,
+       0.08859975460736264,
+       0.06685275586849532,
+       0.2016304949583834,
+       0.22062409916877646,
+       0.08570148075782669,
+       0.04495448776412317,
+       0.0008669453789934023,
+       0.16798649917547678,
+       0.1689225321951596
+      ]
+     },
+     "sd": 0.005561471007291696,
+     "sharpe_annualized": {
+      "K": 252,
+      "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+      "value": 3.078568466407002
+     },
+     "sharpe_per_period": 0.19393158467139124,
+     "skewness": 0.7007496991318765,
+     "time_in_market": null,
+     "total_return": 0.337978138487268,
+     "turnover_mean": null
+    },
+    "purge_horizon_observations": 2,
+    "purge_rule": "spec validation_plan.walk_forward.purge_sessions (>= label horizon + execution delay, BR-DAT-14)",
+    "selection_metric": "sharpe.per_period@1",
+    "trial_id": "FS-20261022-R2-TREND:T00009"
+   }
+  },
+  {
+   "baselines_development": {
+    "BUY_AND_HOLD": {
+     "metrics": {
+      "annualized_return": {
+       "convention": "geometric, 252 sessions per year (labelled assumption)",
+       "value": 0.010381092375182144
+      },
+      "avg_loss": -0.0064776610096804995,
+      "avg_win": 0.006628295797708326,
+      "costs": {
+       "all_in_costs": "0.000000",
+       "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+       "all_in_pnl": "2170.705000",
+       "commission": "8.725000",
+       "definitions": {
+        "all_in": "net - all_in_cost_per_day x sessions",
+        "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+        "net": "NAV_T - initial cash"
+       },
+       "gross_pnl": "2268.860000",
+       "net_pnl": "2170.705000",
+       "price_cost": "89.430000",
+       "third_party": "0.000000"
+      },
+      "decisions": 525,
+      "event_log_hash": "f96bd210e293e2ff77af4723f5a16d986916d9ed8d1473a303944377e1812c2f",
+      "expected_shortfall_5pct": 0.017174787959432027,
+      "exposure_mean": 0.9543003736318727,
+      "fill_ratio": 1.0,
+      "fills": 2,
+      "final_nav": "102170.705000",
+      "formulas": [
+       "return.simple@1",
+       "sharpe.per_period@1",
+       "maxdd@1",
+       "es@1",
+       "turnover.one_way@1",
+       "eq4.2@1"
+      ],
+      "hit_rate": 0.5,
+      "kurtosis_non_excess": 3.1546599121570513,
+      "max_drawdown": 0.09501237168778316,
+      "mean": 7.531739401391341e-05,
+      "n": 524,
+      "no_trade_decisions": 524,
+      "orders": 2,
+      "rejected_orders": 0,
+      "sd": 0.008294608815923773,
+      "sharpe_annualized": {
+       "K": 252,
+       "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+       "value": 0.14414502121599104
+      },
+      "sharpe_per_period": 0.009080282830134321,
+      "skewness": 0.005603636046744661,
+      "time_in_market": 1.0,
+      "total_return": 0.02170705000000006,
+      "turnover_mean": 0.0009108720419847328
+     },
+     "trial_id": "FS-20261022-R2-MREV:T00007"
+    },
+    "VOL_CAPPED_PASSIVE": {
+     "metrics": {
+      "annualized_return": {
+       "convention": "geometric, 252 sessions per year (labelled assumption)",
+       "value": 0.019959773430404226
+      },
+      "avg_loss": -0.005757485927994359,
+      "avg_win": 0.005633639806952926,
+      "costs": {
+       "all_in_costs": "0.000000",
+       "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+       "all_in_pnl": "4195.096580",
+       "commission": "32.495000",
+       "definitions": {
+        "all_in": "net - all_in_cost_per_day x sessions",
+        "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+        "net": "NAV_T - initial cash"
+       },
+       "gross_pnl": "4442.230000",
+       "net_pnl": "4195.096580",
+       "price_cost": "207.570000",
+       "third_party": "7.068420"
+      },
+      "decisions": 525,
+      "event_log_hash": "3f354b483146bcd857712bd69f1e28846f970261b44bd27da8a46ccf16a75307",
+      "expected_shortfall_5pct": 0.014687771675485097,
+      "exposure_mean": 0.7921947664746546,
+      "fill_ratio": 1.0,
+      "fills": 27,
+      "final_nav": "104195.096580",
+      "formulas": [
+       "return.simple@1",
+       "sharpe.per_period@1",
+       "maxdd@1",
+       "es@1",
+       "turnover.one_way@1",
+       "eq4.2@1"
+      ],
+      "hit_rate": 0.5148514851485149,
+      "kurtosis_non_excess": 3.2186295833418668,
+      "max_drawdown": 0.08149967217293336,
+      "mean": 0.00010336316307088322,
+      "n": 524,
+      "no_trade_decisions": 499,
+      "orders": 27,
+      "rejected_orders": 0,
+      "sd": 0.007068503598397332,
+      "sharpe_annualized": {
+       "K": 252,
+       "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+       "value": 0.23213390534815143
+      },
+      "sharpe_per_period": 0.014623061533747981,
+      "skewness": -0.01215575547563956,
+      "time_in_market": 0.9637404580152672,
+      "total_return": 0.041950965799999906,
+      "turnover_mean": 0.002104513114125125
+     },
+     "trial_id": "FS-20261022-R2-MREV:T00008"
+    }
+   },
+   "budget": 8,
+   "budget_consumption": 0.75,
+   "conclusion": "SYNTHETIC mean_reverting fixture: the candidate reached status 'reproducible'; failing gates: COST_SENSITIVITY, DSR, HOLDOUT, PAIRED_BOOTSTRAP, WALK_FORWARD_OOS. Fixture results validate the research machinery only; they are not evidence of profitability.",
+   "core_replay": {
+    "commissions_checked_against_core_fee_model": 13,
+    "comparable": true,
+    "days_compared": 130,
+    "event_log_hash": "2c2ea3f8deb5699300e518188b4fb41eef5d19745dbed4750b607b3f3277a9af",
+    "fills_compared": 13,
+    "final": {
+     "cash": "78324.520568",
+     "positions": {
+      "FIX-MREV-2": [
+       "317",
+       "19821.090000"
+      ]
+     }
+    },
+    "ledger_problems": [],
+    "mismatches": [],
+    "mode": "core replay: SIMULATED account on a temporary database with the SimulatedBroker fixture",
+    "note": "the selected candidate's orders on a short development window replayed through a temporary core; validates fills, cash and positions accounting, not the candidate's economics",
+    "orders_submitted": 14,
+    "rejections_matched": 0,
+    "rounding": "none observed: prices <= 4 dp and integer quantities are exact at the 6 dp ledger scale; the core's HALF_EVEN notional and lot-cost rounding is mirrored by the engine",
+    "source_trial": "FS-20261022-R2-MREV:T00024"
+   },
+   "cost_sensitivity": {
+    "0.5": {
+     "costs": {
+      "all_in_costs": "0.000000",
+      "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+      "all_in_pnl": "-12677.536687",
+      "commission": "43.077500",
+      "definitions": {
+       "all_in": "net - all_in_cost_per_day x sessions",
+       "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+       "net": "NAV_T - initial cash"
+      },
+      "gross_pnl": "-12356.960000",
+      "net_pnl": "-12677.536687",
+      "price_cost": "267.030000",
+      "third_party": "10.469187"
+     },
+     "net_mean": -0.0002571457691853445,
+     "sharpe_per_period": -0.1470928306780143,
+     "total_return": -0.12677536687000002,
+     "trial_id": "FS-20261022-R2-MREV:T00010"
+    },
+    "1": {
+     "costs": {
+      "all_in_costs": "0.000000",
+      "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+      "all_in_pnl": "-12940.641591",
+      "commission": "86.155000",
+      "definitions": {
+       "all_in": "net - all_in_cost_per_day x sessions",
+       "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+       "net": "NAV_T - initial cash"
+      },
+      "gross_pnl": "-12339.670000",
+      "net_pnl": "-12940.641591",
+      "price_cost": "493.920000",
+      "third_party": "20.896591"
+     },
+     "net_mean": -0.00026290277392042983,
+     "sharpe_per_period": -0.1503763016076044,
+     "total_return": -0.12940641591000002,
+     "trial_id": "FS-20261022-R2-MREV:T00011"
+    },
+    "2": {
+     "costs": {
+      "all_in_costs": "0.000000",
+      "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+      "all_in_pnl": "-13434.570938",
+      "commission": "172.310000",
+      "definitions": {
+       "all_in": "net - all_in_cost_per_day x sessions",
+       "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+       "net": "NAV_T - initial cash"
+      },
+      "gross_pnl": "-12294.970000",
+      "net_pnl": "-13434.570938",
+      "price_cost": "925.610000",
+      "third_party": "41.680938"
+     },
+     "net_mean": -0.00027375339084039673,
+     "sharpe_per_period": -0.1563532319308193,
+     "total_return": -0.13434570938,
+     "trial_id": "FS-20261022-R2-MREV:T00012"
+    },
+    "3": {
+     "costs": {
+      "all_in_costs": "0.000000",
+      "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+      "all_in_pnl": "-13866.355967",
+      "commission": "258.450000",
+      "definitions": {
+       "all_in": "net - all_in_cost_per_day x sessions",
+       "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+       "net": "NAV_T - initial cash"
+      },
+      "gross_pnl": "-12260.800000",
+      "net_pnl": "-13866.355967",
+      "price_cost": "1284.790000",
+      "third_party": "62.315967"
+     },
+     "net_mean": -0.0002832911567918238,
+     "sharpe_per_period": -0.16167691924113875,
+     "total_return": -0.13866355967,
+     "trial_id": "FS-20261022-R2-MREV:T00013"
+    },
+    "impact_y=0.5": {
+     "net_mean": -0.00026258053337082374,
+     "total_return": -0.12925901725,
+     "trial_id": "FS-20261022-R2-MREV:T00014"
+    },
+    "impact_y=1.0": {
+     "net_mean": -0.00026290277392042983,
+     "total_return": -0.12940641591000002,
+     "trial_id": "FS-20261022-R2-MREV:T00015"
+    },
+    "impact_y=2.0": {
+     "net_mean": -0.0002641461921592576,
+     "total_return": -0.12997363545999996,
+     "trial_id": "FS-20261022-R2-MREV:T00016"
+    }
+   },
+   "development": [
+    "2021-01-04",
+    "2023-01-06"
+   ],
+   "dsr": {
+    "M": 6,
+    "M_registry": 6,
+    "M_source": "registry trial_count (all statuses)",
+    "M_with_returns": 6,
+    "T": 524,
+    "dsr": 0.00011650541533323129,
+    "formula": [
+     "dsr@1",
+     "psr@1",
+     "n_hat@1"
+    ],
+    "g3": -1.2154931783157072,
+    "g4": 10.900192148988047,
+    "ill_conditioned": false,
+    "n_hat": 1.6551937037587159,
+    "note": "per-period Sharpe; N-hat from the average off-diagonal correlation (both M and N-hat reported); the paper warns the estimate can be ill-conditioned when T < M(M-1)/2",
+    "psr_zero": 0.00011650541533323129,
+    "rho_bar": 0.8689612592482568,
+    "sr0": 0.0,
+    "sr_selected": -0.1503763016076044,
+    "trial_sharpes": [
+     -0.1992476309094628,
+     -0.18788772605416632,
+     -0.1760762642403003,
+     -0.1747660619328603,
+     -0.16225143200794173,
+     -0.1503763016076044
+    ],
+    "var_sr": 0.00030480911588602177
+   },
+   "evidence": [
+    {
+     "evidence_id": "ev:0d8452401607551e0dd69927",
+     "kind": "REPLAY_EXACT",
+     "passed": true,
+     "reasons": []
+    },
+    {
+     "evidence_id": "ev:6034c09e534d2effeb3f4511",
+     "kind": "WALK_FORWARD_OOS",
+     "passed": false,
+     "reasons": [
+      "OOS Sharpe -0.1607712257920694 < 0"
+     ]
+    },
+    {
+     "evidence_id": "ev:278fb9f010aa7eb66cd9a178",
+     "kind": "PAIRED_BOOTSTRAP",
+     "passed": false,
+     "reasons": [
+      "conservative lower bound -0.0010347713134299598 does not exceed the hurdle 0"
+     ]
+    },
+    {
+     "evidence_id": "ev:6278a6ed62f156d4f0073784",
+     "kind": "HOLDOUT",
+     "passed": false,
+     "reasons": [
+      "holdout paired difference -0.0001509001013929915 <= 0"
+     ]
+    },
+    {
+     "evidence_id": "ev:1b5350e65623ca8362683483",
+     "kind": "COST_SENSITIVITY",
+     "passed": false,
+     "reasons": [
+      "net mean return not positive at 2x costs"
+     ]
+    },
+    {
+     "evidence_id": "ev:52b908e39cb92bc220bdcd01",
+     "kind": "STRESS",
+     "passed": true,
+     "reasons": []
+    },
+    {
+     "evidence_id": "ev:86240c89390085fd8b336f2b",
+     "kind": "DSR",
+     "passed": false,
+     "reasons": [
+      "DSR 0.00011650541533323129 < 0.90 (or not computable)"
+     ]
+    },
+    {
+     "evidence_id": "ev:92c3c73a5789edf01cb7873d",
+     "kind": "PBO",
+     "passed": true,
+     "reasons": []
+    },
+    {
+     "evidence_id": "ev:852b2bc1307b74f9cc2932c9",
+     "kind": "N_EFF",
+     "passed": true,
+     "reasons": []
+    },
+    {
+     "evidence_id": "ev:f0f43997d66e54292b972f3d",
+     "kind": "CORE_REPLAY_MATCH",
+     "passed": true,
+     "reasons": []
+    }
+   ],
+   "experiment_id": "FS-20261022-R2-MREV",
+   "failing_gates": [
+    "COST_SENSITIVITY",
+    "DSR",
+    "HOLDOUT",
+    "PAIRED_BOOTSTRAP",
+    "WALK_FORWARD_OOS"
+   ],
+   "family": [
+    {
+     "event_log_hash": "a29f1d3700cddc9a5b1b08f59c920dd0b3aeee941ed9d6b36e9ef43f3ae80f35",
+     "parameters": {
+      "epsilon": "0.0001",
+      "fast_span": "5",
+      "horizon_h": "10",
+      "k": "0.5",
+      "slow_span": "40",
+      "vol_half_life": "20",
+      "w_max": "0.45"
+     },
+     "sharpe_per_period": -0.1992476309094628,
+     "total_return": -0.2365132889999999,
+     "trial_id": "FS-20261022-R2-MREV:T00001"
+    },
+    {
+     "event_log_hash": "d9b6e5b4d1b2ca5e8d3fe119beb4abeb246963115c03c88b908585f359deb680",
+     "parameters": {
+      "epsilon": "0.0001",
+      "fast_span": "5",
+      "horizon_h": "10",
+      "k": "0.5",
+      "slow_span": "80",
+      "vol_half_life": "20",
+      "w_max": "0.45"
+     },
+     "sharpe_per_period": -0.18788772605416632,
+     "total_return": -0.24497420163999994,
+     "trial_id": "FS-20261022-R2-MREV:T00002"
+    },
+    {
+     "event_log_hash": "4b1024aec09f537c9c04257167553b1c5dfdf52041411e18535d6f9c05cda69b",
+     "parameters": {
+      "epsilon": "0.0001",
+      "fast_span": "10",
+      "horizon_h": "10",
+      "k": "0.5",
+      "slow_span": "40",
+      "vol_half_life": "20",
+      "w_max": "0.45"
+     },
+     "sharpe_per_period": -0.1760762642403003,
+     "total_return": -0.16227285753999998,
+     "trial_id": "FS-20261022-R2-MREV:T00003"
+    },
+    {
+     "event_log_hash": "c3247cd6bf6d9b02530e382af7e8ca12de1a5014f3efae681d303d5f196f62ac",
+     "parameters": {
+      "epsilon": "0.0001",
+      "fast_span": "10",
+      "horizon_h": "10",
+      "k": "0.5",
+      "slow_span": "80",
+      "vol_half_life": "20",
+      "w_max": "0.45"
+     },
+     "sharpe_per_period": -0.1747660619328603,
+     "total_return": -0.19956172382999993,
+     "trial_id": "FS-20261022-R2-MREV:T00004"
+    },
+    {
+     "event_log_hash": "04a47dad84e1b2471172f018963f879286baf597b5d1fa4ad355c8346618fd22",
+     "parameters": {
+      "epsilon": "0.0001",
+      "fast_span": "20",
+      "horizon_h": "10",
+      "k": "0.5",
+      "slow_span": "40",
+      "vol_half_life": "20",
+      "w_max": "0.45"
+     },
+     "sharpe_per_period": -0.16225143200794173,
+     "total_return": -0.07991414306000011,
+     "trial_id": "FS-20261022-R2-MREV:T00005"
+    },
+    {
+     "event_log_hash": "ffe478d0dd83bb098f4b0eb06b2c0c08b7c2be9551db786f0c63b4bb24f73482",
+     "parameters": {
+      "epsilon": "0.0001",
+      "fast_span": "20",
+      "horizon_h": "10",
+      "k": "0.5",
+      "slow_span": "80",
+      "vol_half_life": "20",
+      "w_max": "0.45"
+     },
+     "sharpe_per_period": -0.1503763016076044,
+     "total_return": -0.12940641591000002,
+     "trial_id": "FS-20261022-R2-MREV:T00006"
+    }
+   ],
+   "holdout": {
+    "access_id": "holdout:5",
+    "candidate": {
+     "annualized_return": {
+      "convention": "geometric, 252 sessions per year (labelled assumption)",
+      "value": -0.08277521767861884
+     },
+     "avg_loss": -0.0021933938284221218,
+     "avg_win": 0.0017654394852544006,
+     "expected_shortfall_5pct": 0.0068649578668156614,
+     "exposure_mean": null,
+     "formulas": [
+      "return.simple@1",
+      "sharpe.per_period@1",
+      "maxdd@1",
+      "es@1",
+      "turnover.one_way@1",
+      "eq4.2@1"
+     ],
+     "hit_rate": 0.42857142857142855,
+     "kurtosis_non_excess": 7.860942377898953,
+     "max_drawdown": 0.07918093353452127,
+     "mean": -0.00033999844833047235,
+     "n": 225,
+     "n_eff": {
+      "K": 10,
+      "formula": "eq4.2@1",
+      "gate": 225.0,
+      "label_horizon": 1,
+      "n": 225,
+      "note": "raw is eq. 4.2 (None if 1 + 2 sum rho <= 0); gate = min(n, n / label_horizon, n / max(1, 1 + 2 sum rho)) per BR-DAT-13",
+      "raw": 350.5773556854353,
+      "rhos": [
+       -0.07501293345757197,
+       -0.12959417013412697,
+       0.11014032688451415,
+       -0.09702084399628667,
+       0.04865714194672507,
+       -0.14035785262861689,
+       0.016113410020782776,
+       0.024884219367365908,
+       0.013828889173245098,
+       0.04926103285500762
+      ]
+     },
+     "sd": 0.0023740743185408676,
+     "sharpe_annualized": {
+      "K": 252,
+      "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+      "value": -2.2734368509149654
+     },
+     "sharpe_per_period": -0.14321306021263866,
+     "skewness": -0.9178582792336561,
+     "time_in_market": null,
+     "total_return": -0.07424464595332825,
+     "turnover_mean": null
+    },
+    "consumptions": 1,
+    "incumbent": {
+     "annualized_return": {
+      "convention": "geometric, 252 sessions per year (labelled assumption)",
+      "value": -0.05487542061146233
+     },
+     "avg_loss": -0.006704546204478551,
+     "avg_win": 0.006744772767509896,
+     "expected_shortfall_5pct": 0.016947882451939622,
+     "exposure_mean": null,
+     "formulas": [
+      "return.simple@1",
+      "sharpe.per_period@1",
+      "maxdd@1",
+      "es@1",
+      "turnover.one_way@1",
+      "eq4.2@1"
+     ],
+     "hit_rate": 0.48444444444444446,
+     "kurtosis_non_excess": 3.231628543919104,
+     "max_drawdown": 0.0917592988990029,
+     "mean": -0.00018909834693748084,
+     "n": 225,
+     "n_eff": {
+      "K": 10,
+      "formula": "eq4.2@1",
+      "gate": 225.0,
+      "label_horizon": 1,
+      "n": 225,
+      "note": "raw is eq. 4.2 (None if 1 + 2 sum rho <= 0); gate = min(n, n / label_horizon, n / max(1, 1 + 2 sum rho)) per BR-DAT-13",
+      "raw": 415.1379030675199,
+      "rhos": [
+       -0.04725682701666527,
+       0.008841450805688785,
+       -0.028483899808385983,
+       -0.04872806704993819,
+       0.08179542523044747,
+       -0.1106365484307025,
+       0.02236368620933656,
+       -0.06337254633615141,
+       -0.13607904524459705,
+       0.09255065852424092
+      ]
+     },
+     "sd": 0.00836652397399239,
+     "sharpe_annualized": {
+      "K": 252,
+      "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+      "value": -0.3587921585250036
+     },
+     "sharpe_per_period": -0.022601781519457683,
+     "skewness": 0.0758347250507355,
+     "time_in_market": null,
+     "total_return": -0.04914295149475578,
+     "turnover_mean": null
+    },
+    "incumbent_trial_id": "FS-20261022-R2-MREV:T00023",
+    "paired_bootstrap": {
+     "block_rule": "round(n^(1/3))",
+     "bootstrap_mean": -0.00013159947061345647,
+     "bootstrap_sd": 0.00042645367261956565,
+     "computable": true,
+     "confidence": 0.9,
+     "conservative_lower": -0.0009277801079556288,
+     "conservative_upper": 0.0006259799051696459,
+     "formula": "bootstrap.stationary.paired@1",
+     "gate_rule": "conservative_lower = min(bootstrap percentile lower, flat-top HAC normal lower) > hurdle",
+     "hac": {
+      "bandwidth_M": 1,
+      "fallback_to_variance": false,
+      "formula": "lrv.flat_top@1",
+      "lower": -0.0009277801079556288,
+      "se": 0.0004723095075654156,
+      "upper": 0.0006259799051696459
+     },
+     "hurdle": 0.0,
+     "lower": -0.0008047644000585185,
+     "mean_block": 6,
+     "n": 225,
+     "passes": false,
+     "point": -0.0001509001013929915,
+     "replications": 1000,
+     "seed": 20261022,
+     "statistic": "mean",
+     "upper": 0.0005619628902876271
+    },
+    "trial_id": "FS-20261022-R2-MREV:T00022"
+   },
+   "instruments": [
+    "FIX-MREV-1",
+    "FIX-MREV-2"
+   ],
+   "kind": "mean_reverting",
+   "label": "FIXTURE",
+   "n_eff": {
+    "K": 10,
+    "formula": "eq4.2@1",
+    "gate": 274.0,
+    "label_horizon": 1,
+    "n": 274,
+    "note": "raw is eq. 4.2 (None if 1 + 2 sum rho <= 0); gate = min(n, n / label_horizon, n / max(1, 1 + 2 sum rho)) per BR-DAT-13",
+    "raw": 488.65690644197434,
+    "rhos": [
+     0.024978135677291177,
+     -0.0629765159297946,
+     0.014044356815245641,
+     0.008296808494377016,
+     -0.05044144847938103,
+     -0.043155570977901556,
+     -0.047955748436586246,
+     -0.1803092131144184,
+     0.021556315344209362,
+     0.09632318697718707
+    ],
+    "series": "walk-forward OOS paired differences (candidate - incumbent)"
+   },
+   "n_eff_development": {
+    "K": 10,
+    "formula": "eq4.2@1",
+    "gate": 524.0,
+    "label_horizon": 1,
+    "n": 524,
+    "note": "raw is eq. 4.2 (None if 1 + 2 sum rho <= 0); gate = min(n, n / label_horizon, n / max(1, 1 + 2 sum rho)) per BR-DAT-13",
+    "raw": 1074.7847602239237,
+    "rhos": [
+     0.09969599317527077,
+     -0.035847691437452825,
+     -0.03834355446156044,
+     -0.028191386833368227,
+     -0.0071010423619749866,
+     -0.07982701930369343,
+     -0.0034662826108417537,
+     -0.09866526514311778,
+     -0.07145433652747375,
+     0.006970324056714937
+    ]
+   },
+   "paired_bootstrap_oos": {
+    "block_rule": "round(n^(1/3))",
+    "bootstrap_mean": -0.000307122032951377,
+    "bootstrap_sd": 0.00039368940115733095,
+    "computable": true,
+    "confidence": 0.9,
+    "conservative_lower": -0.0010347713134299598,
+    "conservative_upper": 0.00041048593563536783,
+    "formula": "bootstrap.stationary.paired@1",
+    "gate_rule": "conservative_lower = min(bootstrap percentile lower, flat-top HAC normal lower) > hurdle",
+    "hac": {
+     "bandwidth_M": 1,
+     "fallback_to_variance": false,
+     "formula": "lrv.flat_top@1",
+     "lower": -0.0010347713134299598,
+     "se": 0.0004393270092196378,
+     "upper": 0.00041048593563536783
+    },
+    "hurdle": 0.0,
+    "lower": -0.000959682629122161,
+    "mean_block": 6,
+    "n": 274,
+    "passes": false,
+    "point": -0.00031214268889729593,
+    "replications": 1000,
+    "seed": 20261022,
+    "statistic": "mean",
+    "upper": 0.00030295902618841325
+   },
+   "pbo": {
+    "N": 6,
+    "S": 16,
+    "T": 524,
+    "combinations": 12870,
+    "formula": "pbo.cscv@1",
+    "logit_mean": 0.6748647830766302,
+    "metric": "sharpe",
+    "pbo": 0.3114996114996115,
+    "prob_oos_loss": 1.0,
+    "rows_dropped": 12,
+    "rows_per_block": 32
+   },
+   "prereg_hash": "c7eaf3e790703f0a2e4515e311afd40c1baf8997d329f60926188cfea4206829",
+   "recipes": [
+    {
+     "calendar": "WEEKDAYS@1",
+     "generator": "unknown.research.fixtures.synthetic_bars@v1",
+     "instrument_id": "FIX-MREV-1",
+     "kind": "mean_reverting",
+     "label": "FIXTURE",
+     "mean_volume": 1000000.0,
+     "seed": 21,
+     "sessions": 750,
+     "sigma": null,
+     "start": "2021-01-04",
+     "start_price": 50.0
+    },
+    {
+     "calendar": "WEEKDAYS@1",
+     "generator": "unknown.research.fixtures.synthetic_bars@v1",
+     "instrument_id": "FIX-MREV-2",
+     "kind": "mean_reverting",
+     "label": "FIXTURE",
+     "mean_volume": 1000000.0,
+     "seed": 22,
+     "sessions": 750,
+     "sigma": null,
+     "start": "2021-01-04",
+     "start_price": 60.0
+    }
+   ],
+   "replay": {
+    "event_log_hash": "ffe478d0dd83bb098f4b0eb06b2c0c08b7c2be9551db786f0c63b4bb24f73482",
+    "formula": "replay_exact = 1 iff SHA-256(event log of replay) == stored event-log hash (CAP-RES-11)",
+    "manifest_differences": [],
+    "replay_event_log_hash": "ffe478d0dd83bb098f4b0eb06b2c0c08b7c2be9551db786f0c63b4bb24f73482",
+    "replay_exact": 1
+   },
+   "selected": {
+    "artifact_hash": "b61c9cd70d0be1db8513d41cd42f603b024efb32f34d00076924aa11051b7996",
+    "development": {
+     "annualized_return": {
+      "convention": "geometric, 252 sessions per year (labelled assumption)",
+      "value": -0.06447307553134285
+     },
+     "avg_loss": -0.0017326596073960223,
+     "avg_win": 0.0013875316789647657,
+     "costs": {
+      "all_in_costs": "0.000000",
+      "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+      "all_in_pnl": "-12940.641591",
+      "commission": "86.155000",
+      "definitions": {
+       "all_in": "net - all_in_cost_per_day x sessions",
+       "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+       "net": "NAV_T - initial cash"
+      },
+      "gross_pnl": "-12339.670000",
+      "net_pnl": "-12940.641591",
+      "price_cost": "493.920000",
+      "third_party": "20.896591"
+     },
+     "decisions": 525,
+     "event_log_hash": "ffe478d0dd83bb098f4b0eb06b2c0c08b7c2be9551db786f0c63b4bb24f73482",
+     "expected_shortfall_5pct": 0.005512463498007631,
+     "exposure_mean": 0.1081148891420329,
+     "fill_ratio": 0.9835992413254491,
+     "fills": 86,
+     "final_nav": "87059.358409",
+     "formulas": [
+      "return.simple@1",
+      "sharpe.per_period@1",
+      "maxdd@1",
+      "es@1",
+      "turnover.one_way@1",
+      "eq4.2@1"
+     ],
+     "hit_rate": 0.3992932862190813,
+     "kurtosis_non_excess": 10.900192148988047,
+     "max_drawdown": 0.13176185916227867,
+     "mean": -0.00026290277392042983,
+     "n": 524,
+     "no_trade_decisions": 440,
+     "orders": 87,
+     "rejected_orders": 0,
+     "sd": 0.0017482992407038627,
+     "sharpe_annualized": {
+      "K": 252,
+      "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+      "value": -2.387149782788182
+     },
+     "sharpe_per_period": -0.1503763016076044,
+     "skewness": -1.2154931783157072,
+     "time_in_market": 0.5267175572519084,
+     "total_return": -0.12940641591000002,
+     "turnover_mean": 0.004999154520685989
+    },
+    "parameters": {
+     "epsilon": "0.0001",
+     "fast_span": "20",
+     "horizon_h": "10",
+     "k": "0.5",
+     "slow_span": "80",
+     "vol_half_life": "20",
+     "w_max": "0.45"
+    },
+    "spec_hash": "caa333f55d285465f239c4265bc3b3e979833ac76d9f596c2df75d575ce9c8f7",
+    "trial_id": "FS-20261022-R2-MREV:T00006"
+   },
+   "status": "reproducible",
+   "stress": {
+    "costs_x3": {
+     "description": "all costs tripled",
+     "max_drawdown": 0.14041951069355516,
+     "sharpe_per_period": -0.16167691924113875,
+     "total_return": -0.13866355967,
+     "trial_id": "FS-20261022-R2-MREV:T00017"
+    },
+    "impact_y_max": {
+     "description": "largest impact coefficient",
+     "max_drawdown": 0.13230677577063027,
+     "sharpe_per_period": -0.15108583204014314,
+     "total_return": -0.12997363545999996,
+     "trial_id": "FS-20261022-R2-MREV:T00019"
+    },
+    "limit_tight": {
+     "description": "limit offset 10 bps (fewer fills)",
+     "max_drawdown": 0.12755179545411247,
+     "sharpe_per_period": -0.14479828982626927,
+     "total_return": -0.12518493071999992,
+     "trial_id": "FS-20261022-R2-MREV:T00020"
+    },
+    "participation_quarter": {
+     "description": "participation cap at 25% of plan",
+     "max_drawdown": 0.13176185916227867,
+     "sharpe_per_period": -0.1503763016076044,
+     "total_return": -0.12940641591000002,
+     "trial_id": "FS-20261022-R2-MREV:T00018"
+    }
+   },
+   "transitions": [
+    {
+     "approval": null,
+     "artifact_hash": "b61c9cd70d0be1db8513d41cd42f603b024efb32f34d00076924aa11051b7996",
+     "at_ns": 1792683455673614000,
+     "evidence_ids": [
+      "ev:0d8452401607551e0dd69927"
+     ],
+     "from_status": "proposed",
+     "incumbent_hash": null,
+     "prev_record_hash": "f8a03aab6bca049351dcf5a0cdd756905243269221422d67010e17285d5afd80",
+     "principal": "research.evaluator",
+     "reason": "fixture study",
+     "record_hash": "59a524161774a287a2bd4026b68e9d7e825dae646a133a82a61b6d0c7358a5e8",
+     "role": "SYSTEM",
+     "slot": null,
+     "to_status": "reproducible"
+    },
+    {
+     "refused": "EvidenceError: missing or failed evidence: ['WALK_FORWARD_OOS', 'PAIRED_BOOTSTRAP', 'HOLDOUT', 'COST_SENSITIVITY', 'DSR']",
+     "to_status": "validated"
+    }
+   ],
+   "trial_counts": {
+    "BASELINE": 3,
+    "DEVELOPMENT": 6,
+    "HOLDOUT": 1,
+    "REPLAY": 2,
+    "SENSITIVITY": 7,
+    "STRESS": 4,
+    "WALK_FORWARD": 1
+   },
+   "walk_forward": {
+    "folds": [
+     {
+      "embargoed": [],
+      "index": 0,
+      "purged": [
+       248,
+       249
+      ],
+      "selected_parameters": {
+       "epsilon": "0.0001",
+       "fast_span": "20",
+       "horizon_h": "10",
+       "k": "0.5",
+       "slow_span": "80",
+       "vol_half_life": "20",
+       "w_max": "0.45"
+      },
+      "selected_trial": "FS-20261022-R2-MREV:T00006",
+      "test_n": 60,
+      "test_span": [
+       250,
+       309
+      ],
+      "train_n": 248,
+      "train_span": [
+       0,
+       247
+      ]
+     },
+     {
+      "embargoed": [],
+      "index": 1,
+      "purged": [
+       308,
+       309
+      ],
+      "selected_parameters": {
+       "epsilon": "0.0001",
+       "fast_span": "20",
+       "horizon_h": "10",
+       "k": "0.5",
+       "slow_span": "80",
+       "vol_half_life": "20",
+       "w_max": "0.45"
+      },
+      "selected_trial": "FS-20261022-R2-MREV:T00006",
+      "test_n": 60,
+      "test_span": [
+       310,
+       369
+      ],
+      "train_n": 248,
+      "train_span": [
+       60,
+       307
+      ]
+     },
+     {
+      "embargoed": [],
+      "index": 2,
+      "purged": [
+       368,
+       369
+      ],
+      "selected_parameters": {
+       "epsilon": "0.0001",
+       "fast_span": "20",
+       "horizon_h": "10",
+       "k": "0.5",
+       "slow_span": "40",
+       "vol_half_life": "20",
+       "w_max": "0.45"
+      },
+      "selected_trial": "FS-20261022-R2-MREV:T00005",
+      "test_n": 60,
+      "test_span": [
+       370,
+       429
+      ],
+      "train_n": 248,
+      "train_span": [
+       120,
+       367
+      ]
+     },
+     {
+      "embargoed": [],
+      "index": 3,
+      "purged": [
+       428,
+       429
+      ],
+      "selected_parameters": {
+       "epsilon": "0.0001",
+       "fast_span": "20",
+       "horizon_h": "10",
+       "k": "0.5",
+       "slow_span": "80",
+       "vol_half_life": "20",
+       "w_max": "0.45"
+      },
+      "selected_trial": "FS-20261022-R2-MREV:T00006",
+      "test_n": 60,
+      "test_span": [
+       430,
+       489
+      ],
+      "train_n": 248,
+      "train_span": [
+       180,
+       427
+      ]
+     },
+     {
+      "embargoed": [],
+      "index": 4,
+      "purged": [
+       488,
+       489
+      ],
+      "selected_parameters": {
+       "epsilon": "0.0001",
+       "fast_span": "20",
+       "horizon_h": "10",
+       "k": "0.5",
+       "slow_span": "80",
+       "vol_half_life": "20",
+       "w_max": "0.45"
+      },
+      "selected_trial": "FS-20261022-R2-MREV:T00006",
+      "test_n": 34,
+      "test_span": [
+       490,
+       523
+      ],
+      "train_n": 248,
+      "train_span": [
+       240,
+       487
+      ]
+     }
+    ],
+    "incumbent_oos": {
+     "annualized_return": {
+      "convention": "geometric, 252 sessions per year (labelled assumption)",
+      "value": 0.00836941929427315
+     },
+     "avg_loss": -0.00641010011602153,
+     "avg_win": 0.006446764185583972,
+     "expected_shortfall_5pct": 0.016372149484062366,
+     "exposure_mean": null,
+     "formulas": [
+      "return.simple@1",
+      "sharpe.per_period@1",
+      "maxdd@1",
+      "es@1",
+      "turnover.one_way@1",
+      "eq4.2@1"
+     ],
+     "hit_rate": 0.5036496350364964,
+     "kurtosis_non_excess": 2.812405915530623,
+     "max_drawdown": 0.08338588385022881,
+     "mean": 6.525489719583951e-05,
+     "n": 274,
+     "n_eff": {
+      "K": 10,
+      "formula": "eq4.2@1",
+      "gate": 274.0,
+      "label_horizon": 1,
+      "n": 274,
+      "note": "raw is eq. 4.2 (None if 1 + 2 sum rho <= 0); gate = min(n, n / label_horizon, n / max(1, 1 + 2 sum rho)) per BR-DAT-13",
+      "raw": 527.387634651643,
+      "rhos": [
+       0.04010171428985089,
+       -0.07311538230235824,
+       0.00701830607918494,
+       0.012789268888014705,
+       -0.04423878926246496,
+       -0.039875851280971285,
+       -0.04686397929745138,
+       -0.17308840415431165,
+       -0.007740507137037862,
+       0.08478459907060058
+      ]
+     },
+     "sd": 0.008037290325610933,
+     "sharpe_annualized": {
+      "K": 252,
+      "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+      "value": 0.12888540004020876
+     },
+     "sharpe_per_period": 0.008119017050796823,
+     "skewness": 0.0049397532868646395,
+     "time_in_market": null,
+     "total_return": 0.009103399001639367,
+     "turnover_mean": null
+    },
+    "oos": {
+     "annualized_return": {
+      "convention": "geometric, 252 sessions per year (labelled assumption)",
+      "value": -0.06060567921536908
+     },
+     "avg_loss": -0.0013834616420415273,
+     "avg_win": 0.0010798709617704859,
+     "expected_shortfall_5pct": 0.0046340317548911,
+     "exposure_mean": null,
+     "formulas": [
+      "return.simple@1",
+      "sharpe.per_period@1",
+      "maxdd@1",
+      "es@1",
+      "turnover.one_way@1",
+      "eq4.2@1"
+     ],
+     "hit_rate": 0.41397849462365593,
+     "kurtosis_non_excess": 10.038189576155723,
+     "max_drawdown": 0.06571901165363692,
+     "mean": -0.0002468877917014564,
+     "n": 274,
+     "n_eff": {
+      "K": 10,
+      "formula": "eq4.2@1",
+      "gate": 274.0,
+      "label_horizon": 1,
+      "n": 274,
+      "note": "raw is eq. 4.2 (None if 1 + 2 sum rho <= 0); gate = min(n, n / label_horizon, n / max(1, 1 + 2 sum rho)) per BR-DAT-13",
+      "raw": 1036.1117567003632,
+      "rhos": [
+       0.11389930883710184,
+       -0.12027995732003777,
+       -0.059420908270974106,
+       0.01442874364588928,
+       0.004356897664731868,
+       0.0008880724868769516,
+       0.02795133363216221,
+       -0.09643726061175344,
+       -0.17334395960223858,
+       -0.07981715177736566
+      ]
+     },
+     "sd": 0.0015356466338122242,
+     "sharpe_annualized": {
+      "K": 252,
+      "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+      "value": -2.552164088524974
+     },
+     "sharpe_per_period": -0.1607712257920694,
+     "skewness": -1.1435496849421527,
+     "time_in_market": null,
+     "total_return": -0.06571901165363692,
+     "turnover_mean": null
+    },
+    "purge_horizon_observations": 2,
+    "purge_rule": "spec validation_plan.walk_forward.purge_sessions (>= label horizon + execution delay, BR-DAT-14)",
+    "selection_metric": "sharpe.per_period@1",
+    "trial_id": "FS-20261022-R2-MREV:T00009"
+   }
+  },
+  {
+   "baselines_development": {
+    "BUY_AND_HOLD": {
+     "metrics": {
+      "annualized_return": {
+       "convention": "geometric, 252 sessions per year (labelled assumption)",
+       "value": -0.0961920057395117
+      },
+      "avg_loss": -0.008188656697748103,
+      "avg_win": 0.007982906359943271,
+      "costs": {
+       "all_in_costs": "0.000000",
+       "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+       "all_in_pnl": "-18966.175000",
+       "commission": "8.625000",
+       "definitions": {
+        "all_in": "net - all_in_cost_per_day x sessions",
+        "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+        "net": "NAV_T - initial cash"
+       },
+       "gross_pnl": "-18863.750000",
+       "net_pnl": "-18966.175000",
+       "price_cost": "93.800000",
+       "third_party": "0.000000"
+      },
+      "decisions": 525,
+      "event_log_hash": "8a2c4cf15e82df60126d2b76f7ac6dd30f8306f7e6ee3c3a02a80e240388b008",
+      "expected_shortfall_5pct": 0.020433609272230552,
+      "exposure_mean": 0.9437914723004158,
+      "fill_ratio": 1.0,
+      "fills": 2,
+      "final_nav": "81033.825000",
+      "formulas": [
+       "return.simple@1",
+       "sharpe.per_period@1",
+       "maxdd@1",
+       "es@1",
+       "turnover.one_way@1",
+       "eq4.2@1"
+      ],
+      "hit_rate": 0.4847328244274809,
+      "kurtosis_non_excess": 2.8706211330614306,
+      "max_drawdown": 0.3386914846179113,
+      "mean": -0.0003497692613862532,
+      "n": 524,
+      "no_trade_decisions": 524,
+      "orders": 2,
+      "rejected_orders": 0,
+      "sd": 0.010158330889911216,
+      "sharpe_annualized": {
+       "K": 252,
+       "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+       "value": -0.5465873233969016
+      },
+      "sharpe_per_period": -0.03443176494020566,
+      "skewness": 0.08278806235966268,
+      "time_in_market": 1.0,
+      "total_return": -0.18966175000000007,
+      "turnover_mean": 0.0009085364503816794
+     },
+     "trial_id": "FS-20261022-R2-RWALK:T00007"
+    },
+    "VOL_CAPPED_PASSIVE": {
+     "metrics": {
+      "annualized_return": {
+       "convention": "geometric, 252 sessions per year (labelled assumption)",
+       "value": -0.06374365354463962
+      },
+      "avg_loss": -0.005542375488751381,
+      "avg_win": 0.005553262863658345,
+      "costs": {
+       "all_in_costs": "0.000000",
+       "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+       "all_in_pnl": "-12799.436135",
+       "commission": "22.640000",
+       "definitions": {
+        "all_in": "net - all_in_cost_per_day x sessions",
+        "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+        "net": "NAV_T - initial cash"
+       },
+       "gross_pnl": "-12630.930000",
+       "net_pnl": "-12799.436135",
+       "price_cost": "141.680000",
+       "third_party": "4.186135"
+      },
+      "decisions": 525,
+      "event_log_hash": "78734d9fb4f7da0e256e7582f39a1ba096d10c3ceb2d128c61530c72cb8e2cd6",
+      "expected_shortfall_5pct": 0.013781035374395168,
+      "exposure_mean": 0.6278161559820494,
+      "fill_ratio": 1.0,
+      "fills": 18,
+      "final_nav": "87200.563865",
+      "formulas": [
+       "return.simple@1",
+       "sharpe.per_period@1",
+       "maxdd@1",
+       "es@1",
+       "turnover.one_way@1",
+       "eq4.2@1"
+      ],
+      "hit_rate": 0.4772277227722772,
+      "kurtosis_non_excess": 2.958429545486191,
+      "max_drawdown": 0.2663500000387648,
+      "mean": -0.0002382648452074491,
+      "n": 524,
+      "no_trade_decisions": 508,
+      "orders": 18,
+      "rejected_orders": 0,
+      "sd": 0.006800290515315788,
+      "sharpe_annualized": {
+       "K": 252,
+       "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+       "value": -0.556202290330183
+      },
+      "sharpe_per_period": -0.03503745092519547,
+      "skewness": 0.103072656059168,
+      "time_in_market": 0.9637404580152672,
+      "total_return": -0.12799436134999997,
+      "turnover_mean": 0.0015478639013798902
+     },
+     "trial_id": "FS-20261022-R2-RWALK:T00008"
+    }
+   },
+   "budget": 8,
+   "budget_consumption": 0.75,
+   "conclusion": "SYNTHETIC random_walk fixture: the candidate reached status 'reproducible'; failing gates: COST_SENSITIVITY, DSR, PAIRED_BOOTSTRAP, PBO, WALK_FORWARD_OOS. Fixture results validate the research machinery only; they are not evidence of profitability.",
+   "core_replay": {
+    "commissions_checked_against_core_fee_model": 18,
+    "comparable": true,
+    "days_compared": 130,
+    "event_log_hash": "55cf2c25495aec2f61b0a3d0b26fcb658c4bf3a6bb336f8c9baf8aadc56afb65",
+    "fills_compared": 18,
+    "final": {
+     "cash": "100063.225355",
+     "positions": {}
+    },
+    "ledger_problems": [],
+    "mismatches": [],
+    "mode": "core replay: SIMULATED account on a temporary database with the SimulatedBroker fixture",
+    "note": "the selected candidate's orders on a short development window replayed through a temporary core; validates fills, cash and positions accounting, not the candidate's economics",
+    "orders_submitted": 19,
+    "rejections_matched": 0,
+    "rounding": "none observed: prices <= 4 dp and integer quantities are exact at the 6 dp ledger scale; the core's HALF_EVEN notional and lot-cost rounding is mirrored by the engine",
+    "source_trial": "FS-20261022-R2-RWALK:T00024"
+   },
+   "cost_sensitivity": {
+    "0.5": {
+     "costs": {
+      "all_in_costs": "0.000000",
+      "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+      "all_in_pnl": "-4203.603784",
+      "commission": "32.500000",
+      "definitions": {
+       "all_in": "net - all_in_cost_per_day x sessions",
+       "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+       "net": "NAV_T - initial cash"
+      },
+      "gross_pnl": "-3958.270000",
+      "net_pnl": "-4203.603784",
+      "price_cost": "204.810000",
+      "third_party": "8.023784"
+     },
+     "net_mean": -7.970926261795633e-05,
+     "sharpe_per_period": -0.03759206886609463,
+     "total_return": -0.042036037840000096,
+     "trial_id": "FS-20261022-R2-RWALK:T00010"
+    },
+    "1": {
+     "costs": {
+      "all_in_costs": "0.000000",
+      "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+      "all_in_pnl": "-4403.745034",
+      "commission": "65.000000",
+      "definitions": {
+       "all_in": "net - all_in_cost_per_day x sessions",
+       "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+       "net": "NAV_T - initial cash"
+      },
+      "gross_pnl": "-3952.810000",
+      "net_pnl": "-4403.745034",
+      "price_cost": "369.910000",
+      "third_party": "16.025034"
+     },
+     "net_mean": -8.370261004963927e-05,
+     "sharpe_per_period": -0.039496921151375625,
+     "total_return": -0.04403745034000006,
+     "trial_id": "FS-20261022-R2-RWALK:T00011"
+    },
+    "2": {
+     "costs": {
+      "all_in_costs": "0.000000",
+      "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+      "all_in_pnl": "-4697.111272",
+      "commission": "128.000000",
+      "definitions": {
+       "all_in": "net - all_in_cost_per_day x sessions",
+       "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+       "net": "NAV_T - initial cash"
+      },
+      "gross_pnl": "-3863.360000",
+      "net_pnl": "-4697.111272",
+      "price_cost": "673.780000",
+      "third_party": "31.971272"
+     },
+     "net_mean": -8.958264136985804e-05,
+     "sharpe_per_period": -0.042414732169043144,
+     "total_return": -0.046971112719999986,
+     "trial_id": "FS-20261022-R2-RWALK:T00012"
+    },
+    "3": {
+     "costs": {
+      "all_in_costs": "0.000000",
+      "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+      "all_in_pnl": "-4565.152159",
+      "commission": "189.000000",
+      "definitions": {
+       "all_in": "net - all_in_cost_per_day x sessions",
+       "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+       "net": "NAV_T - initial cash"
+      },
+      "gross_pnl": "-3441.950000",
+      "net_pnl": "-4565.152159",
+      "price_cost": "887.210000",
+      "third_party": "46.992159"
+     },
+     "net_mean": -8.694602004620744e-05,
+     "sharpe_per_period": -0.041199160493051425,
+     "total_return": -0.04565152159000008,
+     "trial_id": "FS-20261022-R2-RWALK:T00013"
+    },
+    "impact_y=0.5": {
+     "net_mean": -8.318401168955425e-05,
+     "total_return": -0.04377736235000007,
+     "trial_id": "FS-20261022-R2-RWALK:T00014"
+    },
+    "impact_y=1.0": {
+     "net_mean": -8.370261004963927e-05,
+     "total_return": -0.04403745034000006,
+     "trial_id": "FS-20261022-R2-RWALK:T00015"
+    },
+    "impact_y=2.0": {
+     "net_mean": -8.458073077835315e-05,
+     "total_return": -0.04447679019999995,
+     "trial_id": "FS-20261022-R2-RWALK:T00016"
+    }
+   },
+   "development": [
+    "2021-01-04",
+    "2023-01-06"
+   ],
+   "dsr": {
+    "M": 6,
+    "M_registry": 6,
+    "M_source": "registry trial_count (all statuses)",
+    "M_with_returns": 6,
+    "T": 524,
+    "dsr": 0.18388462447982604,
+    "formula": [
+     "dsr@1",
+     "psr@1",
+     "n_hat@1"
+    ],
+    "g3": 0.06254922124884435,
+    "g4": 9.507578826245965,
+    "ill_conditioned": false,
+    "n_hat": 1.9549266878779805,
+    "note": "per-period Sharpe; N-hat from the average off-diagonal correlation (both M and N-hat reported); the paper warns the estimate can be ill-conditioned when T < M(M-1)/2",
+    "psr_zero": 0.18388462447982604,
+    "rho_bar": 0.8090146624244039,
+    "sr0": 0.0,
+    "sr_selected": -0.039496921151375625,
+    "trial_sharpes": [
+     -0.059760420487955074,
+     -0.062458262533945916,
+     -0.05107230701481492,
+     -0.05531133804777172,
+     -0.039496921151375625,
+     -0.04555031598010357
+    ],
+    "var_sr": 7.577936981426593e-05
+   },
+   "evidence": [
+    {
+     "evidence_id": "ev:2b169e6eb845970205557d1b",
+     "kind": "REPLAY_EXACT",
+     "passed": true,
+     "reasons": []
+    },
+    {
+     "evidence_id": "ev:d1ba11237a1fb597d8de8534",
+     "kind": "WALK_FORWARD_OOS",
+     "passed": false,
+     "reasons": [
+      "OOS Sharpe -0.04204683954527544 < 0"
+     ]
+    },
+    {
+     "evidence_id": "ev:00648f7fb109a47997b56ae3",
+     "kind": "PAIRED_BOOTSTRAP",
+     "passed": false,
+     "reasons": [
+      "conservative lower bound -0.0010669825447220341 does not exceed the hurdle 0"
+     ]
+    },
+    {
+     "evidence_id": "ev:4ae6e3b0a81bbe3582d4efa8",
+     "kind": "HOLDOUT",
+     "passed": true,
+     "reasons": []
+    },
+    {
+     "evidence_id": "ev:b4223de0997750d9740828b0",
+     "kind": "COST_SENSITIVITY",
+     "passed": false,
+     "reasons": [
+      "net mean return not positive at 2x costs"
+     ]
+    },
+    {
+     "evidence_id": "ev:f2d71225bedf5e64286ce522",
+     "kind": "STRESS",
+     "passed": true,
+     "reasons": []
+    },
+    {
+     "evidence_id": "ev:092a6bab73014aa5f2c8d3c0",
+     "kind": "DSR",
+     "passed": false,
+     "reasons": [
+      "DSR 0.18388462447982604 < 0.90 (or not computable)"
+     ]
+    },
+    {
+     "evidence_id": "ev:0d5d1805e6216ac9246cd30f",
+     "kind": "PBO",
+     "passed": false,
+     "reasons": [
+      "PBO 0.7497280497280497 > 0.5 (or not computable)"
+     ]
+    },
+    {
+     "evidence_id": "ev:94d189a68d04b7e7eaed2e8a",
+     "kind": "N_EFF",
+     "passed": true,
+     "reasons": []
+    },
+    {
+     "evidence_id": "ev:36a6382bdad235957b74e638",
+     "kind": "CORE_REPLAY_MATCH",
+     "passed": true,
+     "reasons": []
+    }
+   ],
+   "experiment_id": "FS-20261022-R2-RWALK",
+   "failing_gates": [
+    "COST_SENSITIVITY",
+    "DSR",
+    "PAIRED_BOOTSTRAP",
+    "PBO",
+    "WALK_FORWARD_OOS"
+   ],
+   "family": [
+    {
+     "event_log_hash": "5582565b6ba589377183a0f856426bd94a38156c1662b32481de44722dc4ed2d",
+     "parameters": {
+      "epsilon": "0.0001",
+      "fast_span": "5",
+      "horizon_h": "10",
+      "k": "0.5",
+      "slow_span": "40",
+      "vol_half_life": "20",
+      "w_max": "0.45"
+     },
+     "sharpe_per_period": -0.059760420487955074,
+     "total_return": -0.10699280780999998,
+     "trial_id": "FS-20261022-R2-RWALK:T00001"
+    },
+    {
+     "event_log_hash": "6039d37456329ceaa4c19715e23bf6fe3524b941a9fdd73f80b95ad4d62d559c",
+     "parameters": {
+      "epsilon": "0.0001",
+      "fast_span": "5",
+      "horizon_h": "10",
+      "k": "0.5",
+      "slow_span": "80",
+      "vol_half_life": "20",
+      "w_max": "0.45"
+     },
+     "sharpe_per_period": -0.062458262533945916,
+     "total_return": -0.11442727769000005,
+     "trial_id": "FS-20261022-R2-RWALK:T00002"
+    },
+    {
+     "event_log_hash": "5cce9aebd4075a442845727e64cf643bcfeca70d28ad284c5edd96690dc033c5",
+     "parameters": {
+      "epsilon": "0.0001",
+      "fast_span": "10",
+      "horizon_h": "10",
+      "k": "0.5",
+      "slow_span": "40",
+      "vol_half_life": "20",
+      "w_max": "0.45"
+     },
+     "sharpe_per_period": -0.05107230701481492,
+     "total_return": -0.08150849774999991,
+     "trial_id": "FS-20261022-R2-RWALK:T00003"
+    },
+    {
+     "event_log_hash": "3bde15b34180853d0488bd19f9c0907beed968daba4265dd2438956101bbb8a1",
+     "parameters": {
+      "epsilon": "0.0001",
+      "fast_span": "10",
+      "horizon_h": "10",
+      "k": "0.5",
+      "slow_span": "80",
+      "vol_half_life": "20",
+      "w_max": "0.45"
+     },
+     "sharpe_per_period": -0.05531133804777172,
+     "total_return": -0.09955773663,
+     "trial_id": "FS-20261022-R2-RWALK:T00004"
+    },
+    {
+     "event_log_hash": "e563d6e637fad7abdf91aeb054b49ab0c0b15c42509e107f002f56e70473d8ff",
+     "parameters": {
+      "epsilon": "0.0001",
+      "fast_span": "20",
+      "horizon_h": "10",
+      "k": "0.5",
+      "slow_span": "40",
+      "vol_half_life": "20",
+      "w_max": "0.45"
+     },
+     "sharpe_per_period": -0.039496921151375625,
+     "total_return": -0.04403745034000006,
+     "trial_id": "FS-20261022-R2-RWALK:T00005"
+    },
+    {
+     "event_log_hash": "16dcf7244d28071a8188ac31a3294bc3183a3f27d87083395fb373a3b2ce70cc",
+     "parameters": {
+      "epsilon": "0.0001",
+      "fast_span": "20",
+      "horizon_h": "10",
+      "k": "0.5",
+      "slow_span": "80",
+      "vol_half_life": "20",
+      "w_max": "0.45"
+     },
+     "sharpe_per_period": -0.04555031598010357,
+     "total_return": -0.07822790603999996,
+     "trial_id": "FS-20261022-R2-RWALK:T00006"
+    }
+   ],
+   "holdout": {
+    "access_id": "holdout:6",
+    "candidate": {
+     "annualized_return": {
+      "convention": "geometric, 252 sessions per year (labelled assumption)",
+      "value": 0.02227766370523332
+     },
+     "avg_loss": -0.0016566428222730622,
+     "avg_win": 0.0021188455864138496,
+     "expected_shortfall_5pct": 0.005512365856517654,
+     "exposure_mean": null,
+     "formulas": [
+      "return.simple@1",
+      "sharpe.per_period@1",
+      "maxdd@1",
+      "es@1",
+      "turnover.one_way@1",
+      "eq4.2@1"
+     ],
+     "hit_rate": 0.4806201550387597,
+     "kurtosis_non_excess": 15.191662165949769,
+     "max_drawdown": 0.03286266995929188,
+     "mean": 9.054825451272662e-05,
+     "n": 225,
+     "n_eff": {
+      "K": 10,
+      "formula": "eq4.2@1",
+      "gate": 157.92420281611382,
+      "label_horizon": 1,
+      "n": 225,
+      "note": "raw is eq. 4.2 (None if 1 + 2 sum rho <= 0); gate = min(n, n / label_horizon, n / max(1, 1 + 2 sum rho)) per BR-DAT-13",
+      "raw": 157.92420281611382,
+      "rhos": [
+       0.06072206965433295,
+       -0.03000949172532986,
+       0.12661075208716105,
+       0.09598267012468226,
+       -0.20367562653709645,
+       0.047232551011547705,
+       0.0741111607445585,
+       -0.006373150806018645,
+       -0.05984039459345387,
+       0.10760651964095218
+      ]
+     },
+     "sd": 0.002503271331135034,
+     "sharpe_annualized": {
+      "K": 252,
+      "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+      "value": 0.5742122160997186
+     },
+     "sharpe_per_period": 0.03617196960893177,
+     "skewness": 1.499525740947767,
+     "time_in_market": null,
+     "total_return": 0.019867225506642994,
+     "turnover_mean": null
+    },
+    "consumptions": 1,
+    "incumbent": {
+     "annualized_return": {
+      "convention": "geometric, 252 sessions per year (labelled assumption)",
+      "value": -0.017353103045124052
+     },
+     "avg_loss": -0.009002878647470791,
+     "avg_win": 0.009572688541985673,
+     "expected_shortfall_5pct": 0.021059254775362062,
+     "exposure_mean": null,
+     "formulas": [
+      "return.simple@1",
+      "sharpe.per_period@1",
+      "maxdd@1",
+      "es@1",
+      "turnover.one_way@1",
+      "eq4.2@1"
+     ],
+     "hit_rate": 0.48444444444444446,
+     "kurtosis_non_excess": 2.7533256497648795,
+     "max_drawdown": 0.228399703677773,
+     "mean": -4.04832013410387e-06,
+     "n": 225,
+     "n_eff": {
+      "K": 10,
+      "formula": "eq4.2@1",
+      "gate": 114.5674800128702,
+      "label_horizon": 1,
+      "n": 225,
+      "note": "raw is eq. 4.2 (None if 1 + 2 sum rho <= 0); gate = min(n, n / label_horizon, n / max(1, 1 + 2 sum rho)) per BR-DAT-13",
+      "raw": 114.5674800128702,
+      "rhos": [
+       0.15600624977465133,
+       0.0704974319843497,
+       -0.022652411974834512,
+       -0.029141171392614202,
+       0.030676587591901838,
+       0.06480654642907949,
+       0.11154615176573916,
+       0.04478812968139623,
+       0.03934072146520214,
+       0.016085805973427805
+      ]
+     },
+     "sd": 0.011473525757134442,
+     "sharpe_annualized": {
+      "K": 252,
+      "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+      "value": -0.005601163162467804
+     },
+     "sharpe_per_period": -0.00035284011382347337,
+     "skewness": 0.2458847867601972,
+     "time_in_market": null,
+     "total_return": -0.01550833864747192,
+     "turnover_mean": null
+    },
+    "incumbent_trial_id": "FS-20261022-R2-RWALK:T00023",
+    "paired_bootstrap": {
+     "block_rule": "round(n^(1/3))",
+     "bootstrap_mean": 9.765051543452811e-05,
+     "bootstrap_sd": 0.0008205792560397022,
+     "computable": true,
+     "confidence": 0.9,
+     "conservative_lower": -0.0012597168103243544,
+     "conservative_upper": 0.001399440237592345,
+     "formula": "bootstrap.stationary.paired@1",
+     "gate_rule": "conservative_lower = min(bootstrap percentile lower, flat-top HAC normal lower) > hurdle",
+     "hac": {
+      "bandwidth_M": 1,
+      "fallback_to_variance": false,
+      "formula": "lrv.flat_top@1",
+      "lower": -0.0010455663754498608,
+      "se": 0.0006931698550039613,
+      "upper": 0.0012347595247435218
+     },
+     "hurdle": 0.0,
+     "lower": -0.0012597168103243544,
+     "mean_block": 6,
+     "n": 225,
+     "passes": false,
+     "point": 9.459657464683049e-05,
+     "replications": 1000,
+     "seed": 20261022,
+     "statistic": "mean",
+     "upper": 0.001399440237592345
+    },
+    "trial_id": "FS-20261022-R2-RWALK:T00022"
+   },
+   "instruments": [
+    "FIX-RWALK-1",
+    "FIX-RWALK-2"
+   ],
+   "kind": "random_walk",
+   "label": "FIXTURE",
+   "n_eff": {
+    "K": 10,
+    "formula": "eq4.2@1",
+    "gate": 274.0,
+    "label_horizon": 1,
+    "n": 274,
+    "note": "raw is eq. 4.2 (None if 1 + 2 sum rho <= 0); gate = min(n, n / label_horizon, n / max(1, 1 + 2 sum rho)) per BR-DAT-13",
+    "raw": 561.458065718055,
+    "rhos": [
+     -0.035668778861494915,
+     -0.10962202793835375,
+     -0.052349896044827295,
+     -0.07435281845799245,
+     0.07468627120575365,
+     0.060484734456041044,
+     -0.028462766892345646,
+     -0.07296512741441162,
+     0.02820047705953896,
+     -0.04594252965710419
+    ],
+    "series": "walk-forward OOS paired differences (candidate - incumbent)"
+   },
+   "n_eff_development": {
+    "K": 10,
+    "formula": "eq4.2@1",
+    "gate": 524.0,
+    "label_horizon": 1,
+    "n": 524,
+    "note": "raw is eq. 4.2 (None if 1 + 2 sum rho <= 0); gate = min(n, n / label_horizon, n / max(1, 1 + 2 sum rho)) per BR-DAT-13",
+    "raw": 1303.7565197925028,
+    "rhos": [
+     0.04993081433931998,
+     0.06783639218715959,
+     0.019202073731622697,
+     -0.011747234816399854,
+     -0.09037367982952813,
+     -0.1530152974927566,
+     0.07100608791523348,
+     -0.0792643384186261,
+     -0.023828262980857745,
+     -0.1487887868138427
+    ]
+   },
+   "paired_bootstrap_oos": {
+    "block_rule": "round(n^(1/3))",
+    "bootstrap_mean": -0.00018524935687359116,
+    "bootstrap_sd": 0.0004344333904760769,
+    "computable": true,
+    "confidence": 0.9,
+    "conservative_lower": -0.0010669825447220341,
+    "conservative_upper": 0.0006345919713669024,
+    "formula": "bootstrap.stationary.paired@1",
+    "gate_rule": "conservative_lower = min(bootstrap percentile lower, flat-top HAC normal lower) > hurdle",
+    "hac": {
+     "bandwidth_M": 1,
+     "fallback_to_variance": false,
+     "formula": "lrv.flat_top@1",
+     "lower": -0.0010669825447220341,
+     "se": 0.000517241926031616,
+     "upper": 0.0006345919713669024
+    },
+    "hurdle": 0.0,
+    "lower": -0.0009448260168295957,
+    "mean_block": 6,
+    "n": 274,
+    "passes": false,
+    "point": -0.00021619528667756583,
+    "replications": 1000,
+    "seed": 20261022,
+    "statistic": "mean",
+    "upper": 0.0005278446052421295
+   },
+   "pbo": {
+    "N": 6,
+    "S": 16,
+    "T": 524,
+    "combinations": 12870,
+    "formula": "pbo.cscv@1",
+    "logit_mean": -0.6878675085514524,
+    "metric": "sharpe",
+    "pbo": 0.7497280497280497,
+    "prob_oos_loss": 0.9897435897435898,
+    "rows_dropped": 12,
+    "rows_per_block": 32
+   },
+   "prereg_hash": "10293bb876e14810f83cb11b3f9d6097760164a5677d5ea89f57cb0cde3ef580",
+   "recipes": [
+    {
+     "calendar": "WEEKDAYS@1",
+     "generator": "unknown.research.fixtures.synthetic_bars@v1",
+     "instrument_id": "FIX-RWALK-1",
+     "kind": "random_walk",
+     "label": "FIXTURE",
+     "mean_volume": 1000000.0,
+     "seed": 31,
+     "sessions": 750,
+     "sigma": null,
+     "start": "2021-01-04",
+     "start_price": 50.0
+    },
+    {
+     "calendar": "WEEKDAYS@1",
+     "generator": "unknown.research.fixtures.synthetic_bars@v1",
+     "instrument_id": "FIX-RWALK-2",
+     "kind": "random_walk",
+     "label": "FIXTURE",
+     "mean_volume": 1000000.0,
+     "seed": 32,
+     "sessions": 750,
+     "sigma": null,
+     "start": "2021-01-04",
+     "start_price": 60.0
+    }
+   ],
+   "replay": {
+    "event_log_hash": "e563d6e637fad7abdf91aeb054b49ab0c0b15c42509e107f002f56e70473d8ff",
+    "formula": "replay_exact = 1 iff SHA-256(event log of replay) == stored event-log hash (CAP-RES-11)",
+    "manifest_differences": [],
+    "replay_event_log_hash": "e563d6e637fad7abdf91aeb054b49ab0c0b15c42509e107f002f56e70473d8ff",
+    "replay_exact": 1
+   },
+   "selected": {
+    "artifact_hash": "2670b70cdaf77901374d42b4607cf6a560456b932ce70bea736c3bd500a64eb3",
+    "development": {
+     "annualized_return": {
+      "convention": "geometric, 252 sessions per year (labelled assumption)",
+      "value": -0.021425926931922357
+     },
+     "avg_loss": -0.002040957850510456,
+     "avg_win": 0.0020329574280681245,
+     "costs": {
+      "all_in_costs": "0.000000",
+      "all_in_note": "NOT CONFIGURED: all-in costs default to 0 and are reported as such",
+      "all_in_pnl": "-4403.745034",
+      "commission": "65.000000",
+      "definitions": {
+       "all_in": "net - all_in_cost_per_day x sessions",
+       "gross": "net + commissions + third-party fees + price costs (spread, slippage, impact)",
+       "net": "NAV_T - initial cash"
+      },
+      "gross_pnl": "-3952.810000",
+      "net_pnl": "-4403.745034",
+      "price_cost": "369.910000",
+      "third_party": "16.025034"
+     },
+     "decisions": 525,
+     "event_log_hash": "e563d6e637fad7abdf91aeb054b49ab0c0b15c42509e107f002f56e70473d8ff",
+     "expected_shortfall_5pct": 0.005602049928186478,
+     "exposure_mean": 0.09764059692028884,
+     "fill_ratio": 0.983256351039261,
+     "fills": 65,
+     "final_nav": "95596.254966",
+     "formulas": [
+      "return.simple@1",
+      "sharpe.per_period@1",
+      "maxdd@1",
+      "es@1",
+      "turnover.one_way@1",
+      "eq4.2@1"
+     ],
+     "hit_rate": 0.4612546125461255,
+     "kurtosis_non_excess": 9.507578826245965,
+     "max_drawdown": 0.07895969918167879,
+     "mean": -8.370261004963927e-05,
+     "n": 524,
+     "no_trade_decisions": 462,
+     "orders": 66,
+     "rejected_orders": 0,
+     "sd": 0.0021192186026055353,
+     "sharpe_annualized": {
+      "K": 252,
+      "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+      "value": -0.6269941855156009
+     },
+     "sharpe_per_period": -0.039496921151375625,
+     "skewness": 0.06254922124884435,
+     "time_in_market": 0.5057251908396947,
+     "total_return": -0.04403745034000006,
+     "turnover_mean": 0.003373755497484093
+    },
+    "parameters": {
+     "epsilon": "0.0001",
+     "fast_span": "20",
+     "horizon_h": "10",
+     "k": "0.5",
+     "slow_span": "40",
+     "vol_half_life": "20",
+     "w_max": "0.45"
+    },
+    "spec_hash": "0f2de3db6fa82df2af9062c7dd92e5a707613f6ef094df0f76abf8f23d4d6c76",
+    "trial_id": "FS-20261022-R2-RWALK:T00005"
+   },
+   "status": "reproducible",
+   "stress": {
+    "costs_x3": {
+     "description": "all costs tripled",
+     "max_drawdown": 0.08124381111206883,
+     "sharpe_per_period": -0.041199160493051425,
+     "total_return": -0.04565152159000008,
+     "trial_id": "FS-20261022-R2-RWALK:T00017"
+    },
+    "impact_y_max": {
+     "description": "largest impact coefficient",
+     "max_drawdown": 0.07926601011754553,
+     "sharpe_per_period": -0.03991970043393162,
+     "total_return": -0.04447679019999995,
+     "trial_id": "FS-20261022-R2-RWALK:T00019"
+    },
+    "limit_tight": {
+     "description": "limit offset 10 bps (fewer fills)",
+     "max_drawdown": 0.07562745608955108,
+     "sharpe_per_period": -0.03414109657365459,
+     "total_return": -0.03824909602999993,
+     "trial_id": "FS-20261022-R2-RWALK:T00020"
+    },
+    "participation_quarter": {
+     "description": "participation cap at 25% of plan",
+     "max_drawdown": 0.07895969918167879,
+     "sharpe_per_period": -0.039496921151375625,
+     "total_return": -0.04403745034000006,
+     "trial_id": "FS-20261022-R2-RWALK:T00018"
+    }
+   },
+   "transitions": [
+    {
+     "approval": null,
+     "artifact_hash": "2670b70cdaf77901374d42b4607cf6a560456b932ce70bea736c3bd500a64eb3",
+     "at_ns": 1792683463809292000,
+     "evidence_ids": [
+      "ev:2b169e6eb845970205557d1b"
+     ],
+     "from_status": "proposed",
+     "incumbent_hash": null,
+     "prev_record_hash": "8f9774e4782f075981a7b8a0dab40af1cf17d94eab78d27146902cba17a1515d",
+     "principal": "research.evaluator",
+     "reason": "fixture study",
+     "record_hash": "c24fffedd56ea544d89dd4a8f67bb4c725000ce4a514267afc13424e8d9d228e",
+     "role": "SYSTEM",
+     "slot": null,
+     "to_status": "reproducible"
+    },
+    {
+     "refused": "EvidenceError: missing or failed evidence: ['WALK_FORWARD_OOS', 'PAIRED_BOOTSTRAP', 'COST_SENSITIVITY', 'DSR', 'PBO']",
+     "to_status": "validated"
+    }
+   ],
+   "trial_counts": {
+    "BASELINE": 3,
+    "DEVELOPMENT": 6,
+    "HOLDOUT": 1,
+    "REPLAY": 2,
+    "SENSITIVITY": 7,
+    "STRESS": 4,
+    "WALK_FORWARD": 1
+   },
+   "walk_forward": {
+    "folds": [
+     {
+      "embargoed": [],
+      "index": 0,
+      "purged": [
+       248,
+       249
+      ],
+      "selected_parameters": {
+       "epsilon": "0.0001",
+       "fast_span": "20",
+       "horizon_h": "10",
+       "k": "0.5",
+       "slow_span": "40",
+       "vol_half_life": "20",
+       "w_max": "0.45"
+      },
+      "selected_trial": "FS-20261022-R2-RWALK:T00005",
+      "test_n": 60,
+      "test_span": [
+       250,
+       309
+      ],
+      "train_n": 248,
+      "train_span": [
+       0,
+       247
+      ]
+     },
+     {
+      "embargoed": [],
+      "index": 1,
+      "purged": [
+       308,
+       309
+      ],
+      "selected_parameters": {
+       "epsilon": "0.0001",
+       "fast_span": "20",
+       "horizon_h": "10",
+       "k": "0.5",
+       "slow_span": "40",
+       "vol_half_life": "20",
+       "w_max": "0.45"
+      },
+      "selected_trial": "FS-20261022-R2-RWALK:T00005",
+      "test_n": 60,
+      "test_span": [
+       310,
+       369
+      ],
+      "train_n": 248,
+      "train_span": [
+       60,
+       307
+      ]
+     },
+     {
+      "embargoed": [],
+      "index": 2,
+      "purged": [
+       368,
+       369
+      ],
+      "selected_parameters": {
+       "epsilon": "0.0001",
+       "fast_span": "20",
+       "horizon_h": "10",
+       "k": "0.5",
+       "slow_span": "80",
+       "vol_half_life": "20",
+       "w_max": "0.45"
+      },
+      "selected_trial": "FS-20261022-R2-RWALK:T00006",
+      "test_n": 60,
+      "test_span": [
+       370,
+       429
+      ],
+      "train_n": 248,
+      "train_span": [
+       120,
+       367
+      ]
+     },
+     {
+      "embargoed": [],
+      "index": 3,
+      "purged": [
+       428,
+       429
+      ],
+      "selected_parameters": {
+       "epsilon": "0.0001",
+       "fast_span": "20",
+       "horizon_h": "10",
+       "k": "0.5",
+       "slow_span": "80",
+       "vol_half_life": "20",
+       "w_max": "0.45"
+      },
+      "selected_trial": "FS-20261022-R2-RWALK:T00006",
+      "test_n": 60,
+      "test_span": [
+       430,
+       489
+      ],
+      "train_n": 248,
+      "train_span": [
+       180,
+       427
+      ]
+     },
+     {
+      "embargoed": [],
+      "index": 4,
+      "purged": [
+       488,
+       489
+      ],
+      "selected_parameters": {
+       "epsilon": "0.0001",
+       "fast_span": "20",
+       "horizon_h": "10",
+       "k": "0.5",
+       "slow_span": "80",
+       "vol_half_life": "20",
+       "w_max": "0.45"
+      },
+      "selected_trial": "FS-20261022-R2-RWALK:T00006",
+      "test_n": 34,
+      "test_span": [
+       490,
+       523
+      ],
+      "train_n": 248,
+      "train_span": [
+       240,
+       487
+      ]
+     }
+    ],
+    "incumbent_oos": {
+     "annualized_return": {
+      "convention": "geometric, 252 sessions per year (labelled assumption)",
+      "value": 0.005230411092518317
+     },
+     "avg_loss": -0.00798892718880931,
+     "avg_win": 0.00789642468017607,
+     "expected_shortfall_5pct": 0.01976576344037714,
+     "exposure_mean": null,
+     "formulas": [
+      "return.simple@1",
+      "sharpe.per_period@1",
+      "maxdd@1",
+      "es@1",
+      "turnover.one_way@1",
+      "eq4.2@1"
+     ],
+     "hit_rate": 0.5072992700729927,
+     "kurtosis_non_excess": 2.654101307415548,
+     "max_drawdown": 0.11447204191565923,
+     "mean": 6.970021917962436e-05,
+     "n": 274,
+     "n_eff": {
+      "K": 10,
+      "formula": "eq4.2@1",
+      "gate": 274.0,
+      "label_horizon": 1,
+      "n": 274,
+      "note": "raw is eq. 4.2 (None if 1 + 2 sum rho <= 0); gate = min(n, n / label_horizon, n / max(1, 1 + 2 sum rho)) per BR-DAT-13",
+      "raw": 563.2844563931187,
+      "rhos": [
+       -0.0369711867417002,
+       -0.06516108170270367,
+       0.011653951328328365,
+       -0.06531366533582024,
+       0.06720937505077938,
+       0.0001257861606866984,
+       -0.014466834205625768,
+       -0.08031942842935026,
+       0.013313194523059804,
+       -0.08685374199929381
+      ]
+     },
+     "sd": 0.00992023269895563,
+     "sharpe_annualized": {
+      "K": 252,
+      "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+      "value": 0.1115353551910498
+     },
+     "sharpe_per_period": 0.0070260669577803525,
+     "skewness": 0.09019482251863738,
+     "time_in_market": null,
+     "total_return": 0.0056883306380357546,
+     "turnover_mean": null
+    },
+    "oos": {
+     "annualized_return": {
+      "convention": "geometric, 252 sessions per year (labelled assumption)",
+      "value": -0.037713856853139105
+     },
+     "avg_loss": -0.0029485314986631627,
+     "avg_win": 0.002521513961488312,
+     "expected_shortfall_5pct": 0.008309140181224821,
+     "exposure_mean": null,
+     "formulas": [
+      "return.simple@1",
+      "sharpe.per_period@1",
+      "maxdd@1",
+      "es@1",
+      "turnover.one_way@1",
+      "eq4.2@1"
+     ],
+     "hit_rate": 0.5,
+     "kurtosis_non_excess": 10.588383692119946,
+     "max_drawdown": 0.07478620320146229,
+     "mean": -0.00014649506749794147,
+     "n": 274,
+     "n_eff": {
+      "K": 10,
+      "formula": "eq4.2@1",
+      "gate": 274.0,
+      "label_horizon": 1,
+      "n": 274,
+      "note": "raw is eq. 4.2 (None if 1 + 2 sum rho <= 0); gate = min(n, n / label_horizon, n / max(1, 1 + 2 sum rho)) per BR-DAT-13",
+      "raw": 503.03615340049754,
+      "rhos": [
+       0.010126301444849231,
+       -0.06773008471299713,
+       0.18013672440263612,
+       0.07707828970557688,
+       -0.06579903756262544,
+       -0.19644111537931946,
+       0.06583925891657744,
+       -0.05124980647759088,
+       0.00043977501801744967,
+       -0.18005407522059547
+      ]
+     },
+     "sd": 0.003484092242894919,
+     "sharpe_annualized": {
+      "K": 252,
+      "convention": "SR_per_period x sqrt(252); assumes serially uncorrelated returns - read with n_eff",
+      "value": -0.6674728851182098
+     },
+     "sharpe_per_period": -0.04204683954527544,
+     "skewness": 0.14099389750431643,
+     "time_in_market": null,
+     "total_return": -0.04093804132169254,
+     "turnover_mean": null
+    },
+    "purge_horizon_observations": 2,
+    "purge_rule": "spec validation_plan.walk_forward.purge_sessions (>= label horizon + execution delay, BR-DAT-14)",
+    "selection_metric": "sharpe.per_period@1",
+    "trial_id": "FS-20261022-R2-RWALK:T00009"
+   }
+  }
+ ],
+ "study_version": "fixture-study@1",
+ "title": "TREND_DAILY_V1 versus baselines on SYNTHETIC fixture series",
+ "warning": "SYNTHETIC FIXTURE generated by unknown.research.fixtures; not market data, not evidence of profitability, live compatibility or legal compliance"
+}

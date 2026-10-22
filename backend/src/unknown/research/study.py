@@ -1,0 +1,439 @@
+"""End-to-end evaluation of TREND_DAILY_V1 against its baselines on SYNTHETIC fixtures (I5 deliverable 6).
+
+For each fixture kind (trend, mean-reverting, random walk) the study runs the
+whole research protocol, with every run recorded as a trial:
+
+1. register the strategy and baseline specs and pre-register the experiment
+   (search space = the spec's parameter grid, budget, rejection criteria,
+   untouched holdout) before any run;
+2. development trials for every grid point on the development view only (the
+   holdout is unreadable without a grant);
+3. baselines (buy-and-hold, volatility-capped passive) on the same view;
+4. walk-forward selection, by the spec's pre-registered selection metric, with
+   the spec's pre-registered ``purge_sessions`` (>= label horizon + execution
+   delay, BR-DAT-14) on the development returns -> out-of-sample path;
+5. paired stationary block bootstrap of candidate minus incumbent
+   (buy-and-hold) on identical OOS dates, under the owner-approved protocol
+   and with the statistic the protocol names (mean or utility.ch20@1);
+6. DSR over the whole development family (M = the registry's trial count, all
+   statuses), PBO by CSCV (S = 16), n_eff (eq. 4.2, BR-DAT-13 gate form) of
+   the paired OOS differences;
+7. cost sensitivity (0.5x/1x/2x/3x) and the spec's stress cases;
+8. reproducibility: re-run the selected candidate and compare event-log hashes;
+9. the single holdout evaluation (candidate and incumbent on identical dates);
+10. optionally, the core replay of the selected candidate on a short window;
+11. evidence filed by the SYSTEM evaluator, gate verdicts recomputed by the
+    promotion service, and the transitions those verdicts allow.
+
+The result is a JSON report labelled FIXTURE throughout. It is evidence about
+the research machinery, not about any market: the series are synthetic.
+
+CLI::
+
+    PYTHONPATH=src python3 -m unknown.research.study --registry PATH --out DIR [--sessions N] [--core-replay-sessions N]
+"""
+from __future__ import annotations
+
+import argparse
+import itertools
+import json
+import time
+from datetime import date, timedelta
+from pathlib import Path
+from typing import Callable, Sequence
+
+from ..domain.fixed import Fixed
+from ..domain.principal import Principal, Role
+from . import stats
+from .bars import BarSeries, DatasetView, fingerprint_until
+from .common import FIXTURE_NOTE, FORMULAS, stable_hash
+from .core_replay import replay_through_core
+from .engine import BacktestConfig, BacktestResult, run_backtest
+from .fixtures import KINDS, fixture_instrument, recipe, synthetic_bars
+from .folds import walk_forward
+from .manifest import build_manifest, compare_replay, git_state
+from .promotion import PromotionService
+from .registry import ResearchRegistry
+from .spec import StrategySpec
+from .strategies import build, buy_and_hold_spec, trend_spec, vol_capped_spec
+
+STUDY_VERSION = "fixture-study@1"
+INITIAL_CASH = Fixed.parse("100000")
+FIXTURE_PROTOCOL = {
+    "confidence": "0.90", "replications": 1000, "mean_block": None, "statistic": "mean", "utility_c_drawdown": "0",
+    "utility_c_es": "0", "hurdle_per_period": "0", "min_n_eff": 100, "min_oos_observations": 120,
+    "min_oos_sharpe_per_period": "0", "max_pbo": "0.5", "min_dsr": "0.90", "cost_multiplier_required": "2",
+    "max_stress_drawdown": "0.35", "holdout_min_difference": "0", "min_paper_days": 10, "seed": 20261022,
+}
+SHORT = {"trend": "TREND", "mean_reverting": "MREV", "random_walk": "RWALK"}
+
+
+def protocol_statistic(protocol: dict) -> tuple[Callable[[Sequence[float]], float], str]:
+    """The paired-comparison statistic the owner's protocol names, with its coefficients (CAP-RES-09: utility
+    coefficients come from the policy snapshot, never from the evaluator)."""
+    if protocol["statistic"] == "mean":
+        return stats.mean, "mean"
+    if protocol["statistic"] == "utility.ch20@1":
+        c1, c2 = float(protocol["utility_c_drawdown"]), float(protocol["utility_c_es"])
+        return (lambda r: stats.utility(r, c1, c2)), "utility.ch20@1"
+    raise ValueError(f"unknown protocol statistic {protocol['statistic']!r}")
+
+
+def selection_score(spec: StrategySpec, protocol: dict, returns: Sequence[float]) -> float:
+    """The spec's pre-registered selection metric (validation_plan.selection_metric); -1e9 when not computable."""
+    metric = spec.walk_forward["selection_metric"]
+    if metric == "sharpe.per_period@1":
+        v = stats.sharpe(returns)
+    elif metric == "utility.ch20@1":
+        v = protocol_statistic({**protocol, "statistic": "utility.ch20@1"})[0](returns) if returns else None
+    else:
+        raise ValueError(f"selection metric {metric!r} has no implementation")
+    return v if v is not None else -1e9
+
+
+def _series(kind: str, sessions: int, seeds: tuple[int, int], start: date) -> tuple[dict[str, BarSeries], list[dict]]:
+    out, recipes = {}, []
+    for n, seed in enumerate(seeds, 1):
+        inst = f"FIX-{SHORT[kind]}-{n}"
+        out[inst] = BarSeries(inst, synthetic_bars(kind, inst, start=start, sessions=sessions, seed=seed, start_price=40.0 + 10 * n))
+        recipes.append(recipe(kind, inst, start=start, sessions=sessions, seed=seed, start_price=40.0 + 10 * n))
+    return out, recipes
+
+
+class _Study:
+    def __init__(self, registry: ResearchRegistry, *, study_id: str, sessions: int, start: date, core_replay_sessions: int,
+                 protocol: dict):
+        self.reg = registry
+        self.promo = PromotionService(registry)
+        self.study_id = study_id
+        self.sessions = sessions
+        self.start = start
+        self.core_replay_sessions = core_replay_sessions
+        self.owner = Principal("owner.fixture-study", Role.OWNER, authenticated_at_ns=registry.now())
+        self.author = Principal("research.author", Role.SYSTEM)
+        self.evaluator = Principal("research.evaluator", Role.SYSTEM)
+        self.protocol = protocol
+        self.protocol_hash = self.promo.approve_protocol(protocol, self.owner)
+
+    # ------------------------------------------------------------ helpers
+    def manifest(self, kind: str, spec: StrategySpec, cfg: BacktestConfig, series: dict, until: date, recipes: list[dict],
+                 run_kind: str, extra: dict | None = None) -> dict:
+        return build_manifest(run_kind=run_kind, strategy_id=spec.strategy_id, spec_hash=spec.spec_hash,
+                              parameters={k: v.to_str() for k, v in spec.parameters.items()}, config=cfg.to_json(),
+                              datasets={f"FIXTURE.{kind}": {"fingerprint": fingerprint_until(series, until),
+                                                            "until": until.isoformat(), "recipes": recipes}},
+                              seeds={"engine": cfg.seed, "fixtures": sum(r["seed"] for r in recipes)}, extra=extra)
+
+    def run(self, exp: str, kind: str, spec: StrategySpec, view: DatasetView, series: dict, recipes: list, *, segment: str,
+            label: str, cfg: BacktestConfig | None = None) -> tuple[BacktestResult, str, dict]:
+        cfg = cfg or BacktestConfig.from_spec(spec, INITIAL_CASH)
+        m = self.manifest(kind, spec, cfg, series, view.until, recipes, segment, {"view": view.label})
+        inst = {i: fixture_instrument(i) for i in view.instrument_ids}
+        with self.reg.run_trial(exp, spec=spec, segment=segment, manifest=m, principal=self.author, label=label) as t:
+            res = run_backtest(build(spec), view, inst, cfg)
+            t.succeed(metrics=_metrics(res), returns=list(zip(res.return_dates(), res.returns)), results_hash=res.event_log_hash)
+        return res, t.trial_id, m
+
+    def evidence(self, art: str, kind: str, payload: dict, refs: list[dict], started: int) -> dict:
+        return self.promo.add_evidence(art, kind, payload, refs=refs, principal=self.evaluator,
+                                       evaluation_started_at_ns=started, protocol_hash=self.protocol_hash)
+
+    # --------------------------------------------------------------- one kind
+    def one(self, kind: str, seeds: tuple[int, int]) -> dict:
+        started = self.reg.now()
+        series, recipes = _series(kind, self.sessions, seeds, self.start)
+        days = sorted(next(iter(series.values())).dates)
+        split = int(len(days) * 0.7)
+        dev, holdout = (days[0], days[split - 1]), (days[split], days[-1])
+        ids = list(series)
+        spec = trend_spec(ids, dev, holdout)
+        bh = buy_and_hold_spec(ids, dev, holdout)
+        vc = vol_capped_spec(ids, dev, holdout)
+        exp = f"{self.study_id}-{SHORT[kind]}"
+        grid_names = sorted(spec.parameter_grid)
+        combos = [dict(zip(grid_names, vals)) for vals in itertools.product(*(spec.parameter_grid[n] for n in grid_names))]
+        prereg = self.reg.preregister(
+            exp, spec, search_space={n: [v.to_str() for v in spec.parameter_grid[n]] for n in grid_names},
+            budget=len(combos) + 2, benchmark="BUY_AND_HOLD (incumbent); VOL_CAPPED_PASSIVE; cash",
+            rejection_criteria=["paired bootstrap lower bound <= hurdle on walk-forward OOS dates",
+                                "holdout paired difference <= protocol minimum", "net mean <= 0 at 2x costs",
+                                "PBO > protocol maximum or DSR < protocol minimum", "stress drawdown beyond protocol maximum",
+                                "any causal or look-ahead error (run fails)"],
+            principal=self.author, fixture=True, notes=FIXTURE_NOTE)
+        dev_view = DatasetView(series, until=dev[1], label=f"{exp}:development", holdout=holdout)
+
+        # 2-3. development family and baselines --------------------------------------
+        family: dict[str, tuple[StrategySpec, BacktestResult, str, dict]] = {}
+        for combo in combos:
+            s = spec.with_parameters(**{k: v.to_str() for k, v in combo.items()})
+            res, tid, m = self.run(exp, kind, s, dev_view, series, recipes, segment="DEVELOPMENT",
+                                   label=",".join(f"{k}={v}" for k, v in sorted(combo.items())))
+            family[tid] = (s, res, tid, m)
+        base = {}
+        for bspec in (bh, vc):
+            res, tid, _ = self.run(exp, kind, bspec, dev_view, series, recipes, segment="BASELINE", label="development")
+            base[bspec.strategy_id] = (res, tid)
+
+        # 4. walk-forward selection ------------------------------------------------------
+        wf = spec.walk_forward
+        first = next(iter(family.values()))[1]
+        n = len(first.returns)
+        # The pre-registered purge (validated >= label horizon + execution delay, BR-DAT-14) is the gap between the
+        # last training observation and the first test observation. Review fix 2026-10-22: the study used
+        # label + delay - 1 = 1, below both the spec's purge_sessions and BR-DAT-14.
+        horizon = wf["purge_sessions"]
+        folds = walk_forward(n, train_size=wf["train_sessions"], test_size=wf["test_sessions"], horizon=horizon,
+                             embargo=wf["embargo_sessions"], expanding=wf["expanding"])
+        oos_c, oos_i, oos_dates, fold_rows = [], [], [], []
+        for f in folds:
+            best = max(family.values(), key=lambda x: (selection_score(spec, self.protocol, [x[1].returns[i] for i in f.train]),
+                                                       x[2]))
+            fold_rows.append({**f.to_json(), "selected_trial": best[2], "selected_parameters": best[1].parameters})
+            oos_c += [best[1].returns[i] for i in f.test]
+            oos_i += [base["BUY_AND_HOLD"][0].returns[i] for i in f.test]
+            oos_dates += [first.return_dates()[i].isoformat() for i in f.test]
+        wf_m = self.manifest(kind, spec, BacktestConfig.from_spec(spec, INITIAL_CASH), series, dev[1], recipes, "WALK_FORWARD",
+                             {"folds": [r for r in fold_rows], "selection_metric": wf["selection_metric"]})
+        with self.reg.run_trial(exp, spec=spec, segment="WALK_FORWARD", manifest=wf_m, principal=self.author,
+                                label="walk-forward selection over the development family") as t:
+            wf_summary = stats.summary(oos_c, stats.path(oos_c)) if len(oos_c) >= 3 else {"n": len(oos_c)}
+            t.succeed(metrics={"oos": wf_summary, "folds": len(folds)}, returns=[(date.fromisoformat(d), r) for d, r in
+                                                                                   zip(oos_dates, oos_c)],
+                      results_hash=stable_hash(oos_c))
+            wf_tid = t.trial_id
+
+        # selected candidate: best development score under the pre-registered selection metric
+        sel_spec, sel_res, sel_tid, sel_m = max(family.values(), key=lambda x: (selection_score(spec, self.protocol, x[1].returns),
+                                                                                x[2]))
+        statistic, statistic_id = protocol_statistic(self.protocol)
+        boot = stats.paired_bootstrap(oos_c, oos_i, replications=self.protocol["replications"],
+                                      mean_block=self.protocol["mean_block"], confidence=float(self.protocol["confidence"]),
+                                      seed=self.protocol["seed"], hurdle=float(self.protocol["hurdle_per_period"]),
+                                      statistic=statistic, statistic_id=statistic_id)
+
+        # 6. selection-bias diagnostics from the registry family ------------------------
+        fam = self.reg.family_matrix(exp)
+        sel_col = fam["columns"][fam["trial_ids"].index(sel_tid)]
+        # M is the registry count (all statuses), so a failed trial can never lower the deflation.
+        dsr = stats.deflated_sharpe(sel_col, fam["columns"], trial_count=self.reg.trial_count(exp))
+        dsr["M_registry"] = self.reg.trial_count(exp)
+        rows = [list(r) for r in zip(*fam["columns"])]
+        pbo = stats.pbo_cscv(rows, 16)
+        pbo.pop("logits", None)
+        # n_eff for the gate is that of the evidence the comparison rests on: the paired OOS differences (BR-DAT-13).
+        neff = stats.n_eff([c - i for c, i in zip(oos_c, oos_i)], label_horizon=wf["label_horizon_sessions"])
+        neff["series"] = "walk-forward OOS paired differences (candidate - incumbent)"
+        neff_dev = stats.n_eff(sel_res.returns, label_horizon=wf["label_horizon_sessions"])
+
+        # 7. cost sensitivity and stress -------------------------------------------------
+        sensitivity = {}
+        for k in spec.cost_multipliers:
+            cfg = BacktestConfig.from_spec(sel_spec, INITIAL_CASH, cost_multiplier=k)
+            res, tid, _ = self.run(exp, kind, sel_spec, dev_view, series, recipes, segment="SENSITIVITY", label=f"costs x{k}", cfg=cfg)
+            s = res.summary()
+            sensitivity[k.to_str()] = {"trial_id": tid, "net_mean": s["mean"], "sharpe_per_period": s["sharpe_per_period"],
+                                       "total_return": s["total_return"], "costs": res.costs}
+        for y in sel_spec.costs["impact_y_values"]:
+            cfg = BacktestConfig.from_spec(sel_spec, INITIAL_CASH, impact_y=y)
+            res, tid, _ = self.run(exp, kind, sel_spec, dev_view, series, recipes, segment="SENSITIVITY", label=f"impact Y={y}", cfg=cfg)
+            sensitivity[f"impact_y={y}"] = {"trial_id": tid, "net_mean": res.summary()["mean"], "total_return": res.summary()["total_return"]}
+        stress = {}
+        for case in sel_spec.stress_plan:
+            cfg = _stress_config(sel_spec, case)
+            res, tid, _ = self.run(exp, kind, sel_spec, dev_view, series, recipes, segment="STRESS", label=case["id"], cfg=cfg)
+            s = res.summary()
+            stress[case["id"]] = {"trial_id": tid, "max_drawdown": s["max_drawdown"], "total_return": s["total_return"],
+                                  "sharpe_per_period": s["sharpe_per_period"], "description": case["description"]}
+
+        # 8. reproducibility --------------------------------------------------------------
+        cfg = BacktestConfig.from_spec(sel_spec, INITIAL_CASH)
+        rep_res, rep_tid, rep_m = self.run(exp, kind, sel_spec, dev_view, series, recipes, segment="REPLAY",
+                                           label=f"replay of {sel_tid}", cfg=cfg)
+        replay = compare_replay(sel_m, sel_res.event_log_hash, rep_m, rep_res.event_log_hash)
+
+        # artifact for the selected candidate --------------------------------------------
+        art = self.promo.register_artifact(
+            sel_spec, self.author, code_hash=sel_m["code"]["sha256"], training_interval=dev,
+            evaluation_manifest_hash=sel_m["manifest_hash"], allowed_markets=["FIXTURE (synthetic; not a market)"],
+            horizon="daily rebalance, next-session execution", capacity_estimate="not estimated on fixtures",
+            expires_on=holdout[1] + timedelta(days=365))
+
+        # 9. the single holdout evaluation -----------------------------------------------
+        ho_cfg = BacktestConfig.from_spec(sel_spec, INITIAL_CASH)
+        ho_m = self.manifest(kind, sel_spec, ho_cfg, series, holdout[1], recipes, "HOLDOUT", {"holdout": [d.isoformat() for d in holdout]})
+        inst = {i: fixture_instrument(i) for i in ids}
+        with self.reg.run_holdout(exp, spec=sel_spec, artifact_hash=art, manifest=ho_m, principal=self.evaluator) as t:
+            ho_view = DatasetView(series, until=holdout[1], label=f"{exp}:holdout", holdout=holdout, grant=t.grant)
+            ho_res = run_backtest(build(sel_spec), ho_view, inst, ho_cfg)
+            hd, hr = ho_res.returns_between(holdout[0], holdout[1])
+            t.succeed(metrics={"holdout": stats.summary(hr, stats.path(hr)), "full_run": _metrics(ho_res)},
+                      returns=list(zip(hd, hr)), results_hash=ho_res.event_log_hash)
+            ho_tid, grant = t.trial_id, t.grant
+        bh_m = self.manifest(kind, bh, BacktestConfig.from_spec(bh, INITIAL_CASH), series, holdout[1], recipes, "BASELINE",
+                             {"holdout_access_id": grant.access_id})
+        with self.reg.run_trial(exp, spec=bh, segment="BASELINE", manifest=bh_m, principal=self.evaluator,
+                                label=f"holdout incumbent under {grant.access_id}") as t:
+            bh_ho = run_backtest(build(bh), DatasetView(series, until=holdout[1], label=f"{exp}:holdout-incumbent",
+                                                        holdout=holdout, grant=grant), inst, BacktestConfig.from_spec(bh, INITIAL_CASH))
+            bd, br = bh_ho.returns_between(holdout[0], holdout[1])
+            t.succeed(metrics={"holdout": stats.summary(br, stats.path(br))}, returns=list(zip(bd, br)),
+                      results_hash=bh_ho.event_log_hash)
+            bh_ho_tid = t.trial_id
+        ho_boot = stats.paired_bootstrap(hr, br, replications=self.protocol["replications"], mean_block=self.protocol["mean_block"],
+                                         confidence=float(self.protocol["confidence"]), seed=self.protocol["seed"],
+                                         hurdle=float(self.protocol["hurdle_per_period"]), statistic=statistic,
+                                         statistic_id=statistic_id)
+
+        # 10. core replay -------------------------------------------------------------------
+        core = None
+        cr_tid = None
+        if self.core_replay_sessions:
+            short_until = days[min(self.core_replay_sessions, split) - 1]
+            cr_view = DatasetView(series, until=short_until, label=f"{exp}:core-replay", holdout=holdout)
+            cr_res, cr_tid, _ = self.run(exp, kind, sel_spec, cr_view, series, recipes, segment="REPLAY",
+                                         label=f"core replay source run: first {self.core_replay_sessions} sessions")
+            core = replay_through_core(cr_res, inst)
+            core["source_trial"] = cr_tid
+            core["note"] = ("the selected candidate's orders on a short development window replayed through a temporary core; "
+                            "validates fills, cash and positions accounting, not the candidate's economics")
+
+        # 11. evidence and gates ------------------------------------------------------------
+        ev = []
+        refs_dev = [{"type": "trial", "id": tid} for tid in family]
+        ev.append(self.evidence(art, "REPLAY_EXACT", replay, [{"type": "trial", "id": sel_tid}, {"type": "trial", "id": rep_tid}], started))
+        ev.append(self.evidence(art, "WALK_FORWARD_OOS", {"n": len(oos_c), "sharpe_per_period": stats.sharpe(oos_c),
+                                                          "folds": len(folds)}, [{"type": "trial", "id": wf_tid}], started))
+        ev.append(self.evidence(art, "PAIRED_BOOTSTRAP", {"bootstrap": boot, "incumbent": "BUY_AND_HOLD", "dates": "walk-forward OOS"},
+                                [{"type": "trial", "id": wf_tid}, {"type": "trial", "id": base["BUY_AND_HOLD"][1]}], started))
+        ev.append(self.evidence(art, "HOLDOUT", {"bootstrap": ho_boot, "holdout_access_id": grant.access_id},
+                                [{"type": "trial", "id": ho_tid}, {"type": "trial", "id": bh_ho_tid},
+                                 {"type": "holdout_access", "id": grant.access_id}], started))
+        ev.append(self.evidence(art, "COST_SENSITIVITY", {"by_multiplier": {k: v for k, v in sensitivity.items() if "impact" not in k}},
+                                [{"type": "trial", "id": v["trial_id"]} for v in sensitivity.values()], started))
+        ev.append(self.evidence(art, "STRESS", {"cases": stress}, [{"type": "trial", "id": v["trial_id"]} for v in stress.values()], started))
+        ev.append(self.evidence(art, "DSR", dsr, refs_dev, started))
+        ev.append(self.evidence(art, "PBO", pbo, refs_dev, started))
+        ev.append(self.evidence(art, "N_EFF", neff, [{"type": "trial", "id": wf_tid}, {"type": "trial", "id": base["BUY_AND_HOLD"][1]}],
+                                started))
+        if core is not None:
+            ev.append(self.evidence(art, "CORE_REPLAY_MATCH", core, [{"type": "trial", "id": cr_tid}], started))
+        transitions = []
+        for to, kinds in (("reproducible", ("REPLAY_EXACT",)), ("validated", None)):
+            ids_ = [e["evidence_id"] for e in ev if kinds is None or e["kind"] in kinds]
+            try:
+                transitions.append(self.promo.transition(art, to, self.evaluator, evidence_ids=ids_, reason="fixture study"))
+            except Exception as exc:
+                transitions.append({"to_status": to, "refused": f"{type(exc).__name__}: {exc}"})
+                break
+        failing = sorted({e["kind"] for e in ev if not e["passed"]})
+        return {
+            "kind": kind, "label": "FIXTURE", "instruments": ids, "recipes": recipes, "experiment_id": exp,
+            "prereg_hash": prereg["prereg_hash"], "development": [d.isoformat() for d in dev],
+            "holdout": [d.isoformat() for d in holdout],
+            "trial_counts": {seg: self.reg.trial_count(exp, seg) for seg in ("DEVELOPMENT", "BASELINE", "WALK_FORWARD",
+                                                                             "SENSITIVITY", "STRESS", "REPLAY", "HOLDOUT")},
+            "budget": self.reg.budget(exp), "budget_consumption": self.reg.budget_consumption(exp),
+            "family": [{"trial_id": tid, "parameters": r.parameters, "sharpe_per_period": r.summary()["sharpe_per_period"],
+                        "total_return": r.summary()["total_return"], "event_log_hash": r.event_log_hash}
+                       for tid, (_, r, _, _) in family.items()],
+            "selected": {"trial_id": sel_tid, "parameters": sel_res.parameters, "spec_hash": sel_spec.spec_hash,
+                         "artifact_hash": art, "development": _metrics(sel_res)},
+            "baselines_development": {k: {"trial_id": t_, "metrics": _metrics(r)} for k, (r, t_) in base.items()},
+            "walk_forward": {"trial_id": wf_tid, "folds": fold_rows, "purge_horizon_observations": horizon,
+                             "purge_rule": "spec validation_plan.walk_forward.purge_sessions (>= label horizon + execution "
+                                           "delay, BR-DAT-14)", "selection_metric": wf["selection_metric"],
+                             "oos": stats.summary(oos_c, stats.path(oos_c)) if len(oos_c) >= 3 else None,
+                             "incumbent_oos": stats.summary(oos_i, stats.path(oos_i)) if len(oos_i) >= 3 else None},
+            "paired_bootstrap_oos": boot, "dsr": dsr, "pbo": pbo, "n_eff": neff, "n_eff_development": neff_dev,
+            "cost_sensitivity": sensitivity,
+            "stress": stress, "replay": replay,
+            "holdout": {"trial_id": ho_tid, "incumbent_trial_id": bh_ho_tid, "access_id": grant.access_id,
+                        "candidate": stats.summary(hr, stats.path(hr)), "incumbent": stats.summary(br, stats.path(br)),
+                        "paired_bootstrap": ho_boot, "consumptions": len([a for a in self.reg.holdout_log(exp) if a["outcome"] == "GRANTED"])},
+            "core_replay": core, "evidence": ev, "transitions": transitions,
+            "status": self.promo.status(art), "failing_gates": failing,
+            "conclusion": (f"SYNTHETIC {kind} fixture: the candidate reached status '{self.promo.status(art)}'; "
+                           + ("all predeclared gates passed. " if not failing else f"failing gates: {', '.join(failing)}. ")
+                           + "Fixture results validate the research machinery only; they are not evidence of profitability."),
+        }
+
+def _stress_config(spec: StrategySpec, case: dict) -> BacktestConfig:
+    """Backtest configuration for one declared stress case (spec ``stress_plan``)."""
+    kind, value = case["kind"], case["value"]
+    if kind == "COST_MULTIPLIER":
+        return BacktestConfig.from_spec(spec, INITIAL_CASH, cost_multiplier=value)
+    if kind == "PARTICIPATION":
+        return BacktestConfig.from_spec(spec, INITIAL_CASH, participation=(spec.execution["participation_cap"] * value).rescale(6))
+    if kind == "IMPACT_Y":
+        return BacktestConfig.from_spec(spec, INITIAL_CASH, impact_y=value)
+    if kind == "LIMIT_OFFSET":
+        if not value.is_multiple_of(Fixed(1)):
+            raise ValueError(f"stress {case['id']}: limit offset must be whole basis points")
+        return BacktestConfig.from_spec(spec, INITIAL_CASH, limit_offset_bps=int(value.rescale(0).mantissa))
+    raise ValueError(f"stress kind {kind} has no engine mapping (REGIME stresses need labelled regimes; not implemented)")
+
+
+def _display_path(p: Path) -> str:
+    """Home-relative path for reports, so a committed artifact carries no local user name."""
+    try:
+        return "~/" + Path(p).resolve().relative_to(Path.home().resolve()).as_posix()
+    except ValueError:
+        return Path(p).name
+
+
+def _metrics(res: BacktestResult) -> dict:
+    s = res.summary()
+    s.pop("n_eff", None)
+    return {**s, "event_log_hash": res.event_log_hash, "final_nav": res.final["nav"]}
+
+
+def run_fixture_study(registry: ResearchRegistry, *, study_id: str | None = None, sessions: int = 750,
+                      start: date = date(2021, 1, 4), core_replay_sessions: int = 130, out_dir: Path | None = None,
+                      kinds: tuple[str, ...] = KINDS, protocol: dict | None = None) -> dict:
+    t0 = time.time()
+    sid = study_id or f"FS{registry.now() // 1_000_000_000}"
+    st = _Study(registry, study_id=sid, sessions=sessions, start=start, core_replay_sessions=core_replay_sessions,
+                protocol=protocol or FIXTURE_PROTOCOL)
+    seeds = {"trend": (11, 12), "mean_reverting": (21, 22), "random_walk": (31, 32)}
+    results = [st.one(k, seeds[k]) for k in kinds]
+    report = {
+        "report_id": f"{sid}-report", "study_version": STUDY_VERSION, "label": "FIXTURE",
+        "title": "TREND_DAILY_V1 versus baselines on SYNTHETIC fixture series",
+        "warning": FIXTURE_NOTE, "candidate": "TREND_DAILY_V1 (book ch. 15 eq. 15.1)",
+        "baselines": ["BUY_AND_HOLD (incumbent)", "VOL_CAPPED_PASSIVE"],
+        "protocol": {"hash": st.protocol_hash, "body": st.protocol,
+                     "note": "approved by the fixture-study owner principal; an illustration, not an owner decision"},
+        "results": results,
+        "provenance": {"generated_at_ns": registry.now(), "registry_path": _display_path(registry.path), "git": git_state(),
+                       "formulas": sorted({f for f in FORMULAS}), "initial_cash_usd": INITIAL_CASH.to_str(),
+                       "elapsed_s": round(time.time() - t0, 3)},
+    }
+    report["report_hash"] = registry.add_report(report["report_id"], report, kind="FIXTURE_STUDY", experiment_id=None, fixture=True)
+    if out_dir is not None:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / f"{report['report_id']}.json").write_text(json.dumps(report, indent=1, sort_keys=True, default=str) + "\n")
+    return report
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(description="Run the SYNTHETIC fixture study for TREND_DAILY_V1 and write a report.")
+    ap.add_argument("--registry", type=Path, default=None, help="research registry SQLite (default ~/.unknown/research/experiments.sqlite)")
+    ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--sessions", type=int, default=750)
+    ap.add_argument("--study-id", default=None)
+    ap.add_argument("--core-replay-sessions", type=int, default=130)
+    a = ap.parse_args(argv)
+    reg = ResearchRegistry(a.registry)
+    try:
+        rep = run_fixture_study(reg, study_id=a.study_id, sessions=a.sessions, core_replay_sessions=a.core_replay_sessions,
+                                out_dir=a.out)
+    finally:
+        reg.close()
+    for r in rep["results"]:
+        print(f"{r['kind']:>15}: status={r['status']} failing={r['failing_gates']}")
+    print(f"report {rep['report_id']} hash {rep['report_hash']} -> {a.out}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
