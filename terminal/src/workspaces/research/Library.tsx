@@ -8,7 +8,7 @@ import { Badge, FixtureBadge, StatusPill } from '../../ui/primitives';
 import { apiPath, useApi } from '../research-common/api';
 import { formatStat } from '../research-common/format';
 import { Hash, JsonTree, KV, Section, StatusTag } from '../research-common/parts';
-import { truthy, type Envelope, type Formula, type ReportDetail, type ReportRow, type StrategyDetail, type StrategyRow } from './model';
+import { studyStatLines, truthy, type Envelope, type StudyStats, type Formula, type ReportDetail, type ReportRow, type StrategyDetail, type StrategyRow } from './model';
 import { EnvelopeView, NsTime, ProvenanceLabel, ProvenanceNote } from './parts';
 import { ResearchFrame, type ResearchCtx } from './ResearchWorkspace';
 
@@ -163,17 +163,13 @@ export function ReportList({ ctx }: { ctx: ResearchCtx }) {
   );
 }
 
-interface StudyResult {
+interface StudyResult extends StudyStats {
   kind?: string;
   experiment_id?: string;
   status?: string;
   failing_gates?: string[];
   conclusion?: string;
   evidence?: { evidence_id: string; kind: string; passed: boolean; reasons: string[] }[];
-  dsr?: { dsr?: number; M?: number; T?: number };
-  pbo?: { pbo?: number; S?: number; N?: number };
-  n_eff?: { gate?: number; n?: number };
-  paired_bootstrap_oos?: { conservative_lower?: number; point?: number; hurdle?: number; passes?: boolean; confidence?: number };
   selected?: { artifact_hash?: string };
 }
 
@@ -225,18 +221,21 @@ export function ReportView({ ctx, id }: { ctx: ResearchCtx; id: string }) {
                       res.experiment_id ? ['Experiment', <a href={`#/research/experiments/${encodeURIComponent(res.experiment_id)}`}>{res.experiment_id}</a>] : null,
                       ['Failing gates', res.failing_gates?.length ? <span className="mono">{res.failing_gates.join(', ')}</span> : <span className="muted">none</span>],
                       res.selected?.artifact_hash ? ['Selected artifact', <a href={`#/research/artifacts/${res.selected.artifact_hash}`}>{res.selected.artifact_hash.slice(0, 16)}…</a>] : null,
-                      res.dsr ? ['DSR (dsr@1)', <span className="num">{`${formatStat(res.dsr.dsr ?? null)} (M = ${res.dsr.M ?? '?'}, T = ${res.dsr.T ?? '?'})`}</span>] : null,
-                      res.pbo ? ['PBO (pbo.cscv@1)', <span className="num">{`${formatStat(res.pbo.pbo ?? null)} (S = ${res.pbo.S ?? '?'}, N = ${res.pbo.N ?? '?'})`}</span>] : null,
-                      res.n_eff ? ['n_eff (eq4.2@1, gate form)', <span className="num">{`${formatStat(res.n_eff.gate ?? null)} of n = ${res.n_eff.n ?? '?'}`}</span>] : null,
-                      res.paired_bootstrap_oos
-                        ? [
-                            'Paired bootstrap (OOS)',
+                      ...studyStatLines(res, formatStat).map(
+                        (l) =>
+                          [
+                            l.label,
                             <span className="num">
-                              {`point ${formatStat(res.paired_bootstrap_oos.point ?? null)}, conservative lower ${formatStat(res.paired_bootstrap_oos.conservative_lower ?? null)} vs hurdle ${formatStat(res.paired_bootstrap_oos.hurdle ?? null)} at ${formatStat(res.paired_bootstrap_oos.confidence ?? null)} confidence`}{' '}
-                              <StatusPill label={res.paired_bootstrap_oos.passes ? 'PASS' : 'FAIL'} tone={res.paired_bootstrap_oos.passes ? 'ok' : 'bad'} compact />
+                              {l.text}
+                              {l.verdict ? (
+                                <>
+                                  {' '}
+                                  <StatusPill label={l.verdict} tone={l.verdict === 'PASS' ? 'ok' : l.verdict === 'FAIL' ? 'bad' : 'warn'} compact />
+                                </>
+                              ) : null}
                             </span>,
-                          ]
-                        : null,
+                          ] as const,
+                      ),
                     ]}
                   />
                   {res.evidence?.length ? (

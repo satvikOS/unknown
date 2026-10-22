@@ -21,7 +21,7 @@ Registered as `research` (`g q`, nav order 130). It reads `GET /api/research` (b
   - the API's re-verification of the whole transition chain (a problem it reports may concern another artifact's records, and the view says so);
   - the artifact body.
 - `#/research/strategies[/<spec_hash>]`: registered specifications, with the hash re-verified. "FIXTURE DATA ALLOWED" is shown when the spec's data requirements allow fixtures.
-- `#/research/reports[/<id>]`: reports. A fixture study shows its warning, the per-kind status, failing gates, conclusion, DSR, PBO, n_eff, the paired bootstrap and the gate verdicts.
+- `#/research/reports[/<id>]`: reports. A fixture study shows its warning, the per-kind status, failing gates, conclusion, DSR, PBO, n_eff, the paired bootstrap and the gate verdicts. A statistic the engine could not compute (too few observations, zero variance) shows the engine's reason, and the bootstrap then says NOT COMPUTABLE, not FAIL.
 - `#/research/formulas`: the formula registry (`formula_id@version`), which is served from code and is available without a registry.
 
 ## Labels and missing data

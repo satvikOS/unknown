@@ -1,3 +1,4 @@
+import { formatStat } from '../research-common/format';
 import { describe, expect, it } from 'vitest';
 import { findWorkspace, WORKSPACES } from '../registry';
 import {
@@ -13,6 +14,7 @@ import {
   statBlocks,
   totalTrials,
   truthy,
+  studyStatLines,
 } from './model';
 
 describe('research registration', () => {
@@ -105,5 +107,40 @@ describe('trial counts and metrics', () => {
     expect(statBlocks({ folds: 5, oos: { n: 274 } }).map((b) => b.key)).toEqual(['oos']);
     expect(statBlocks({ folds: 5 })).toEqual([]);
     expect(statBlocks(null)).toEqual([]);
+  });
+});
+
+describe('study report statistics', () => {
+  it('shows the engine reason for a statistic it could not compute, and never calls that a FAIL', () => {
+    // research/stats.py: deflated_sharpe, pbo_cscv, n_eff and paired_bootstrap return these when the sample is too short.
+    const lines = studyStatLines(
+      {
+        dsr: { dsr: null, M: 6, T: 40, reason: 'not computable: need >= 2 synchronous trials and >= 60 observations' },
+        pbo: { pbo: null, S: 16, N: 1, reason: 'not computable: need >= 2 trials and >= 2 rows per block' },
+        n_eff: { gate: null, n: 2, reason: 'not computable: fewer than 3 observations or zero variance' },
+        paired_bootstrap_oos: { computable: false, reason: 'not computable: fewer than 10 paired observations', n: 7 },
+      },
+      formatStat,
+    );
+    expect(lines).toEqual([
+      { label: 'DSR (dsr@1)', text: 'not computable: need >= 2 synchronous trials and >= 60 observations (M = 6, T = 40)' },
+      { label: 'PBO (pbo.cscv@1)', text: 'not computable: need >= 2 trials and >= 2 rows per block (S = 16, N = 1)' },
+      { label: 'n_eff (eq4.2@1, gate form)', text: 'not computable: fewer than 3 observations or zero variance of n = 2' },
+      { label: 'Paired bootstrap (OOS)', text: 'not computable: fewer than 10 paired observations (n = 7)', verdict: 'NOT COMPUTABLE' },
+    ]);
+  });
+
+  it('shows computed statistics and the bootstrap verdict', () => {
+    const lines = studyStatLines(
+      {
+        dsr: { dsr: 0.912345, M: 6, T: 524 },
+        paired_bootstrap_oos: { computable: true, point: 0.0004, conservative_lower: -0.0001, hurdle: 0, passes: false, confidence: 0.9 },
+      },
+      formatStat,
+    );
+    expect(lines).toEqual([
+      { label: 'DSR (dsr@1)', text: '0.9123 (M = 6, T = 524)' },
+      { label: 'Paired bootstrap (OOS)', text: 'point 0.0004, conservative lower -0.0001 vs hurdle 0 at 0.9 confidence', verdict: 'FAIL' },
+    ]);
   });
 });

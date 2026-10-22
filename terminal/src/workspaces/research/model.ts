@@ -398,3 +398,65 @@ export function gateSummary(evidence: readonly Pick<Evidence, 'kind' | 'passed'>
   const failed = evidence.filter((e) => !e.passed).map((e) => e.kind);
   return { passed: evidence.length - failed.length, failed: [...new Set(failed)].sort() };
 }
+
+// ------------------------------------------------------------------ study reports
+
+/** The statistics a fixture-study result records (research/study.py), each with the reason when it is not computable. */
+export interface StudyStats {
+  dsr?: { dsr?: number | null; M?: number; T?: number; reason?: string } | null;
+  pbo?: { pbo?: number | null; S?: number; N?: number; reason?: string } | null;
+  n_eff?: { gate?: number | null; n?: number; reason?: string } | null;
+  paired_bootstrap_oos?: {
+    computable?: boolean;
+    reason?: string;
+    n?: number;
+    conservative_lower?: number;
+    point?: number;
+    hurdle?: number;
+    passes?: boolean;
+    confidence?: number;
+  } | null;
+}
+
+export interface StatLine {
+  label: string;
+  text: string;
+  /** PASS / FAIL for the gate statistic; NOT COMPUTABLE when the engine could not compute it. */
+  verdict?: 'PASS' | 'FAIL' | 'NOT COMPUTABLE';
+}
+
+/**
+ * One line per recorded statistic. A statistic the engine could not compute (too few observations, zero variance)
+ * shows the engine's reason instead of a blank value, and the bootstrap is NOT COMPUTABLE rather than FAIL.
+ */
+export function studyStatLines(res: StudyStats, fmt: (x: number | null | undefined) => string): StatLine[] {
+  const out: StatLine[] = [];
+  const d = res.dsr;
+  if (d) {
+    const v = typeof d.dsr === 'number' ? fmt(d.dsr) : (d.reason ?? 'not computed (no reason recorded)');
+    out.push({ label: 'DSR (dsr@1)', text: `${v} (M = ${d.M ?? '?'}, T = ${d.T ?? '?'})` });
+  }
+  const p = res.pbo;
+  if (p) {
+    const v = typeof p.pbo === 'number' ? fmt(p.pbo) : (p.reason ?? 'not computed (no reason recorded)');
+    out.push({ label: 'PBO (pbo.cscv@1)', text: `${v} (S = ${p.S ?? '?'}, N = ${p.N ?? '?'})` });
+  }
+  const n = res.n_eff;
+  if (n) {
+    const v = typeof n.gate === 'number' ? fmt(n.gate) : (n.reason ?? 'not computed (no reason recorded)');
+    out.push({ label: 'n_eff (eq4.2@1, gate form)', text: `${v} of n = ${n.n ?? '?'}` });
+  }
+  const b = res.paired_bootstrap_oos;
+  if (b) {
+    if (b.computable === false) {
+      out.push({ label: 'Paired bootstrap (OOS)', text: `${b.reason ?? 'not computable'} (n = ${b.n ?? '?'})`, verdict: 'NOT COMPUTABLE' });
+    } else {
+      out.push({
+        label: 'Paired bootstrap (OOS)',
+        text: `point ${fmt(b.point)}, conservative lower ${fmt(b.conservative_lower)} vs hurdle ${fmt(b.hurdle)} at ${fmt(b.confidence)} confidence`,
+        verdict: b.passes ? 'PASS' : 'FAIL',
+      });
+    }
+  }
+  return out;
+}
