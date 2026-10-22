@@ -294,7 +294,8 @@ class IncrementalVerificationCostTest(unittest.TestCase):
         """PRF-01, review finding 39: on the benchmark's buy-only history, the work of the per-command check
         for a fill is the same after 15 and after 150 fills, while the full check's work grows with the
         ledger. Measured in SQLite VM instructions (load independent), inside the real command."""
-        h = big_policy_harness()
+        with mock.patch.object(db_module, "connect", _connect_without_fsync(db_module.connect)):
+            h = big_policy_harness()  # counts VM instructions, not durability: no per-commit fsync
         samples: dict[str, list[tuple[int, int]]] = {"incremental": [], "full": []}
         real = ledger.verify_touched
 
