@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+import re
 
 from ...domain.errors import Rejected
 from ...domain.fixed import Fixed
+from ...domain.ids import InvalidIdentifier, validate_id
 from ...domain.money import Money
 from ...domain.principal import Role
 from ...policy.model import Mode
@@ -242,11 +244,33 @@ def accept_fee_estimate(ctx: Context, p: dict) -> dict:
 
 
 def submit_research_proposal(ctx: Context, p: dict) -> dict:
-    """Agents' only write path: a typed, non-executable proposal (contracts/research_proposal.schema.json)."""
-    required = {"schema_version", "job_id", "hypothesis", "evidence", "horizon_seconds", "assumptions", "abstain", "reason"}
+    """Agents' only write path: a typed, non-executable proposal (contracts/research_proposal.schema.json).
+
+    Version 1 (free-text evidence) stays accepted unchanged, so a proposal already waiting in a worker's
+    outbox is still recorded. Version 2 is validated strictly (``_validate_proposal_v2``) and recorded with a
+    core-assigned label. Neither version reserves, orders or changes policy: the only change is one
+    ``proposals`` row."""
     body = p.get("proposal")
+    if isinstance(body, dict) and type(body.get("schema_version")) is int and body["schema_version"] == 2:
+        label = _validate_proposal_v2(ctx, body)
+        pid = ctx.new_id("prop-")
+        ctx.emit("ResearchProposalRecorded", {"proposal_id": pid, "author": ctx.principal.id, "schema_version": 2, "label": label,
+                                              "note": "advisory only; cannot reserve, order or change policy"},
+                 {"proposals": [{"proposal_id": pid, "author": ctx.principal.id, "body": body, "recorded_at_ns": ctx.now_ns,
+                                 "schema_version": 2, "label": label}]})
+        return {"proposal_id": pid, "schema_version": 2, "label": label}
+    _validate_proposal_v1(body)
+    pid = ctx.new_id("prop-")
+    ctx.emit("ResearchProposalRecorded", {"proposal_id": pid, "author": ctx.principal.id,
+                                          "note": "advisory only; cannot reserve, order or change policy"},
+             {"proposals": [{"proposal_id": pid, "author": ctx.principal.id, "body": body, "recorded_at_ns": ctx.now_ns}]})
+    return {"proposal_id": pid}
+
+
+def _validate_proposal_v1(body: object) -> None:
+    required = {"schema_version", "job_id", "hypothesis", "evidence", "horizon_seconds", "assumptions", "abstain", "reason"}
     if not isinstance(body, dict) or set(body) != required or body.get("schema_version") != 1:
-        raise Rejected("PROPOSAL_INVALID", "proposal must match research_proposal schema version 1 exactly")
+        raise Rejected("PROPOSAL_INVALID", "proposal must match research_proposal schema version 1 or 2 exactly")
     if not isinstance(body["hypothesis"], str) or len(body["hypothesis"]) > 4000 or not isinstance(body["abstain"], bool):
         raise Rejected("PROPOSAL_INVALID", "hypothesis/abstain invalid")
     if not isinstance(body["evidence"], list) or len(body["evidence"]) > 50 or not all(isinstance(e, str) and len(e) <= 500 for e in body["evidence"]):
@@ -262,8 +286,250 @@ def submit_research_proposal(ctx: Context, p: dict) -> dict:
         raise Rejected("PROPOSAL_INVALID", "assumptions must be <= 30 strings of <= 500 chars")
     if not isinstance(body["reason"], str) or len(body["reason"]) > 2000:
         raise Rejected("PROPOSAL_INVALID", "reason must be a string of <= 2000 chars")
-    pid = ctx.new_id("prop-")
-    ctx.emit("ResearchProposalRecorded", {"proposal_id": pid, "author": ctx.principal.id,
-                                          "note": "advisory only; cannot reserve, order or change policy"},
-             {"proposals": [{"proposal_id": pid, "author": ctx.principal.id, "body": body, "recorded_at_ns": ctx.now_ns}]})
-    return {"proposal_id": pid}
+
+
+# ----------------------------------------------------------------- research proposal v2 (finding BR-DAT-12)
+PROPOSAL_V2_KEYS = frozenset({"schema_version", "job_id", "as_of_ns", "hypothesis", "claims", "evidence", "instrument_ids",
+                              "entity_ids", "observation_window", "horizon_seconds", "assumptions", "forecast", "abstain",
+                              "reason"})
+EVIDENCE_REF_KEYS = frozenset({"span_id", "dataset_id", "ref_type", "ref_id", "content_hash", "observed_at_ns",
+                               "available_at_ns"})
+EVIDENCE_REF_TYPES = frozenset({"observation", "document_span"})
+FORECAST_KEYS = frozenset({"target", "horizon_seconds", "unit", "distribution", "calibration", "uncertainty",
+                           "invalidation_conditions"})
+UNCERTAINTY_KEYS = frozenset({"observation_count", "effective_sample_size", "training_window", "evaluation_window",
+                              "interval_method", "data_version"})
+# Measurable quantities only: a forecast states what may happen to a quantity, never what to do about it.
+FORECAST_QUANTITIES = frozenset({"return", "log_return", "price", "volatility", "fundamental", "probability"})
+MAX_TIME_NS = 2 ** 63 - 1
+MAX_HORIZON_S = 31_536_000
+_HEX64 = re.compile(r"[0-9a-f]{64}")
+_DATASET_ID = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}")
+_SPAN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}")
+_REF_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@/+#=-]{0,199}")
+_UNIT = re.compile(r"fraction|percent|bp|ratio|count|[A-Z]{3}|[A-Z]{3}/share")
+
+
+def _bad(field: str, problem: str) -> Rejected:
+    return Rejected("PROPOSAL_INVALID", f"{field}: {problem}")
+
+
+def _int(value: object, field: str, lo: int, hi: int) -> int:
+    if type(value) is not int or not lo <= value <= hi:
+        raise _bad(field, f"must be an integer in [{lo}, {hi}]")
+    return value
+
+
+def _text(value: object, field: str, max_len: int, *, min_len: int = 0) -> str:
+    if not isinstance(value, str) or not min_len <= len(value) <= max_len:
+        raise _bad(field, f"must be a string of {min_len}..{max_len} characters")
+    if min_len and not value.strip():
+        raise _bad(field, "must not be blank")
+    return value
+
+
+def _optional_text(value: object, field: str, max_len: int) -> str | None:
+    return None if value is None else _text(value, field, max_len, min_len=1)
+
+
+def _texts(value: object, field: str, max_items: int, max_len: int, *, min_items: int = 0, min_len: int = 0) -> list:
+    if not isinstance(value, list) or not min_items <= len(value) <= max_items:
+        raise _bad(field, f"must be a list of {min_items}..{max_items} strings")
+    return [_text(v, f"{field}[{i}]", max_len, min_len=min_len) for i, v in enumerate(value)]
+
+
+def _keys(value: object, field: str, keys: frozenset) -> dict:
+    if not isinstance(value, dict) or set(value) != keys:
+        got = sorted(value) if isinstance(value, dict) else type(value).__name__
+        raise _bad(field, f"must be an object with exactly the keys {sorted(keys)}, got {got}")
+    return value
+
+
+def _ids(value: object, field: str, max_items: int) -> list[str]:
+    if not isinstance(value, list) or len(value) > max_items:
+        raise _bad(field, f"must be a list of at most {max_items} identifiers")
+    for i, v in enumerate(value):
+        try:
+            validate_id(v, field)
+        except InvalidIdentifier as exc:
+            raise _bad(f"{field}[{i}]", str(exc)) from None
+    if len(set(value)) != len(value):
+        raise _bad(field, "identifiers must be unique")
+    return value
+
+
+def _window(value: object, field: str, as_of_ns: int) -> tuple[int, int]:
+    w = _keys(value, field, frozenset({"from_ns", "to_ns"}))
+    lo = _int(w["from_ns"], f"{field}.from_ns", 0, MAX_TIME_NS)
+    hi = _int(w["to_ns"], f"{field}.to_ns", 0, MAX_TIME_NS)
+    if lo > hi:
+        raise _bad(field, "from_ns is after to_ns")
+    if hi > as_of_ns:
+        raise _bad(field, "to_ns is after the job's as_of_ns")
+    return lo, hi
+
+
+def _decimal(value: object, field: str) -> Fixed:
+    if not isinstance(value, str) or not 1 <= len(value) <= 40 or value != value.strip():
+        raise _bad(field, "must be a plain decimal string of 1..40 characters")
+    try:
+        return Fixed.parse(value)
+    except (ValueError, TypeError, ArithmeticError):
+        raise _bad(field, f"not a plain decimal: {value!r}") from None
+
+
+def _validate_forecast(f: object, as_of_ns: int, subjects: set[str]) -> bool:
+    """Validate a forecast block. Returns whether it is a quantified uncertainty record (book Ch. 4 line 54):
+    calibration method and version, and every uncertainty field, present."""
+    f = _keys(f, "forecast", FORECAST_KEYS)
+    t = _keys(f["target"], "forecast.target", frozenset({"subject_id", "quantity", "definition"}))
+    if not isinstance(t["subject_id"], str) or t["subject_id"] not in subjects:
+        raise _bad("forecast.target.subject_id", "must be one of instrument_ids or entity_ids")
+    if not isinstance(t["quantity"], str) or t["quantity"] not in FORECAST_QUANTITIES:
+        raise _bad("forecast.target.quantity",
+                   f"must be one of {sorted(FORECAST_QUANTITIES)}; a forecast is never a trade instruction")
+    _text(t["definition"], "forecast.target.definition", 500, min_len=1)
+    _int(f["horizon_seconds"], "forecast.horizon_seconds", 1, MAX_HORIZON_S)
+    if not isinstance(f["unit"], str) or not _UNIT.fullmatch(f["unit"]):
+        raise _bad("forecast.unit", "must be fraction, percent, bp, ratio, count, an ISO 4217 code or <ISO 4217>/share")
+    d = f["distribution"]
+    kind = d.get("kind") if isinstance(d, dict) else None
+    if kind == "interval":
+        d = _keys(d, "forecast.distribution", frozenset({"kind", "level", "lower", "upper"}))
+        level = _decimal(d["level"], "forecast.distribution.level")
+        if not (level.is_positive() and level < Fixed(1)):
+            raise _bad("forecast.distribution.level", "must be strictly between 0 and 1")
+        if _decimal(d["lower"], "forecast.distribution.lower") > _decimal(d["upper"], "forecast.distribution.upper"):
+            raise _bad("forecast.distribution", "lower is above upper")
+    elif kind == "quantiles":
+        d = _keys(d, "forecast.distribution", frozenset({"kind", "points"}))
+        points = d["points"]
+        if not isinstance(points, list) or not 2 <= len(points) <= 99:
+            raise _bad("forecast.distribution.points", "must be a list of 2..99 points")
+        prev = None
+        for i, pt in enumerate(points):
+            pt = _keys(pt, f"forecast.distribution.points[{i}]", frozenset({"p", "value"}))
+            prob = _decimal(pt["p"], f"forecast.distribution.points[{i}].p")
+            value = _decimal(pt["value"], f"forecast.distribution.points[{i}].value")
+            if not (prob.is_positive() and prob < Fixed(1)):
+                raise _bad(f"forecast.distribution.points[{i}].p", "must be strictly between 0 and 1")
+            if prev is not None and (prob <= prev[0] or value < prev[1]):
+                raise _bad("forecast.distribution.points", "probabilities must increase strictly and values must not decrease")
+            prev = (prob, value)
+    else:
+        raise _bad("forecast.distribution", "kind must be 'interval' or 'quantiles'")
+    c = _keys(f["calibration"], "forecast.calibration", frozenset({"method", "version"}))
+    calibration = (_optional_text(c["method"], "forecast.calibration.method", 200),
+                   _optional_text(c["version"], "forecast.calibration.version", 200))
+    u = _keys(f["uncertainty"], "forecast.uncertainty", UNCERTAINTY_KEYS)
+    if u["observation_count"] is not None:
+        _int(u["observation_count"], "forecast.uncertainty.observation_count", 0, 10 ** 12)
+    if u["effective_sample_size"] is not None and _decimal(
+            u["effective_sample_size"], "forecast.uncertainty.effective_sample_size").is_negative():
+        raise _bad("forecast.uncertainty.effective_sample_size", "must not be negative")
+    for name in ("training_window", "evaluation_window"):
+        if u[name] is not None:
+            _window(u[name], f"forecast.uncertainty.{name}", as_of_ns)
+    _optional_text(u["interval_method"], "forecast.uncertainty.interval_method", 200)
+    _optional_text(u["data_version"], "forecast.uncertainty.data_version", 200)
+    _texts(f["invalidation_conditions"], "forecast.invalidation_conditions", 10, 500, min_items=1, min_len=1)
+    return all(x is not None for x in calibration) and all(u[k] is not None for k in UNCERTAINTY_KEYS)
+
+
+def _validate_evidence_refs(refs: object, as_of: int, window: tuple[int, int] | None) -> list:
+    if not isinstance(refs, list) or len(refs) > 50:
+        raise _bad("evidence", "must be a list of at most 50 evidence references")
+    seen_refs, seen_spans = set(), set()
+    for i, r in enumerate(refs):
+        f = f"evidence[{i}]"
+        r = _keys(r, f, EVIDENCE_REF_KEYS)
+        if not isinstance(r["span_id"], str) or not _SPAN_ID.fullmatch(r["span_id"]):
+            raise _bad(f"{f}.span_id", "invalid span id")
+        if not isinstance(r["dataset_id"], str) or not _DATASET_ID.fullmatch(r["dataset_id"]):
+            raise _bad(f"{f}.dataset_id", "invalid dataset id")
+        if not isinstance(r["ref_type"], str) or r["ref_type"] not in EVIDENCE_REF_TYPES:
+            raise _bad(f"{f}.ref_type", f"must be one of {sorted(EVIDENCE_REF_TYPES)}")
+        if not isinstance(r["ref_id"], str) or not _REF_ID.fullmatch(r["ref_id"]):
+            raise _bad(f"{f}.ref_id", "invalid record or span id")
+        if not isinstance(r["content_hash"], str) or not _HEX64.fullmatch(r["content_hash"]):
+            raise _bad(f"{f}.content_hash", "must be 64 lowercase hexadecimal characters")
+        available = _int(r["available_at_ns"], f"{f}.available_at_ns", 0, MAX_TIME_NS)
+        if available > as_of:
+            raise _bad(f"{f}.available_at_ns", "is after the job's as_of_ns (look-ahead)")
+        observed = r["observed_at_ns"]
+        if observed is not None and _int(observed, f"{f}.observed_at_ns", 0, MAX_TIME_NS) > as_of:
+            raise _bad(f"{f}.observed_at_ns", "is after the job's as_of_ns")
+        at = available if observed is None else observed
+        if window is not None and not window[0] <= at <= window[1]:
+            raise _bad(f"{f}.observed_at_ns", "lies outside observation_window")
+        key = (r["dataset_id"], r["ref_type"], r["ref_id"])
+        if key in seen_refs or r["span_id"] in seen_spans:
+            raise _bad(f, "duplicate evidence reference")
+        seen_refs.add(key)
+        seen_spans.add(r["span_id"])
+    return refs
+
+
+def _validate_claims(claims: object, n_refs: int) -> list:
+    if not isinstance(claims, list) or len(claims) > 20:
+        raise _bad("claims", "must be a list of at most 20 claims")
+    for i, c in enumerate(claims):
+        f = f"claims[{i}]"
+        c = _keys(c, f, frozenset({"text", "quote", "evidence_indexes"}))
+        _text(c["text"], f"{f}.text", 1000, min_len=1)
+        _optional_text(c["quote"], f"{f}.quote", 1000)
+        idx = c["evidence_indexes"]
+        if not isinstance(idx, list) or not 1 <= len(idx) <= 10:
+            raise _bad(f"{f}.evidence_indexes", "must be a list of 1..10 indexes")
+        for j, k in enumerate(idx):
+            _int(k, f"{f}.evidence_indexes[{j}]", 0, n_refs - 1)
+        if len(set(idx)) != len(idx):
+            raise _bad(f"{f}.evidence_indexes", "indexes must be distinct")
+    return claims
+
+
+def _validate_proposal_v2(ctx: Context, body: dict) -> str:
+    """Strict validation of research_proposal v2 (finding BR-DAT-12; book Ch. 19 line 13: cited evidence,
+    instrument identity and timestamps are checked separately from the shape). Returns the core-assigned label:
+    ABSTENTION, QUALITATIVE (no forecast block, so it cannot feed a strategy feature), FORECAST_UNCALIBRATED or
+    FORECAST_QUANTIFIED."""
+    _keys(body, "proposal", PROPOSAL_V2_KEYS)
+    _text(body["job_id"], "job_id", 160, min_len=1)
+    as_of = _int(body["as_of_ns"], "as_of_ns", 0, MAX_TIME_NS)
+    if as_of > ctx.now_ns:
+        raise _bad("as_of_ns", "is in the future")
+    _text(body["hypothesis"], "hypothesis", 4000)
+    if not isinstance(body["abstain"], bool):
+        raise _bad("abstain", "must be a boolean")
+    _text(body["reason"], "reason", 2000)
+    _texts(body["assumptions"], "assumptions", 30, 500)
+    instruments = _ids(body["instrument_ids"], "instrument_ids", 20)
+    for i, iid in enumerate(instruments):
+        if state.instrument(ctx.tx, iid) is None:
+            raise _bad(f"instrument_ids[{i}]", f"{iid} is not in the instrument master")
+    entities = _ids(body["entity_ids"], "entity_ids", 20)
+    if body["horizon_seconds"] is not None:
+        _int(body["horizon_seconds"], "horizon_seconds", 1, MAX_HORIZON_S)
+    window = None if body["observation_window"] is None else _window(body["observation_window"], "observation_window", as_of)
+    refs = _validate_evidence_refs(body["evidence"], as_of, window)
+    claims = _validate_claims(body["claims"], len(refs))
+    if body["abstain"]:
+        if not body["reason"].strip():
+            raise _bad("reason", "an abstention needs a reason")
+        if body["forecast"] is not None:
+            raise _bad("forecast", "an abstention carries no forecast")
+        return "ABSTENTION"
+    if not body["hypothesis"].strip():
+        raise _bad("hypothesis", "required unless the proposal abstains")
+    if not refs:
+        raise _bad("evidence", "at least one evidence reference is required unless the proposal abstains")
+    if not claims:
+        raise _bad("claims", "at least one claim is required unless the proposal abstains")
+    if window is None:
+        raise _bad("observation_window", "required unless the proposal abstains")
+    if body["horizon_seconds"] is None:
+        raise _bad("horizon_seconds", "required unless the proposal abstains")
+    if body["forecast"] is None:
+        return "QUALITATIVE"
+    quantified = _validate_forecast(body["forecast"], as_of, set(instruments) | set(entities))
+    return "FORECAST_QUANTIFIED" if quantified else "FORECAST_UNCALIBRATED"
