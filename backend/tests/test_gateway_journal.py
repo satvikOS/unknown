@@ -19,6 +19,9 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
+import tempfile
+import threading
+import time
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
@@ -26,14 +29,21 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from support import ACCOUNT, Harness  # noqa: E402
+from support import ACCOUNT, T0, Harness  # noqa: E402
 from test_replay_randomized import Scenario  # noqa: E402
 
+from unknown.broker.simulated import SimulatedBroker  # noqa: E402
 from unknown.core.replay import replay_and_compare, table_dump  # noqa: E402
+from unknown.domain.calendar import WEEKDAYS_ONLY  # noqa: E402
+from unknown.domain.clock import ManualClock  # noqa: E402
 from unknown.domain.fixed import Fixed  # noqa: E402
 from unknown.gateway import runner as runner_module  # noqa: E402
 from unknown.gateway.journal import EventJournal, JournalCorrupt, JournalUnavailable, event_json  # noqa: E402
-from unknown.gateway.runner import JOURNAL_STOP_REASON, attach_journal, detach_journal, event_backlog  # noqa: E402
+from unknown.gateway.runner import (JOURNAL_STOP_REASON, attach_journal, detach_journal, event_backlog,  # noqa: E402
+                                    journal_of)
+from unknown.service import core as core_module  # noqa: E402
+from unknown.service.core import CoreService, Intervals  # noqa: E402
+from unknown.service.paths import Paths  # noqa: E402
 from unknown.store.schema import PROJECTION_TABLES  # noqa: E402
 
 F = Fixed.parse
@@ -47,7 +57,7 @@ class Crash(BaseException):
 
 def quiet(test: unittest.TestCase) -> None:
     """The journal failures below are logged CRITICAL by design."""
-    for logger in (runner_module.log,):
+    for logger in (runner_module.log, core_module.log):
         patcher = mock.patch.object(logger, "disabled", True)
         patcher.start()
         test.addCleanup(patcher.stop)
@@ -837,6 +847,84 @@ class RandomizedJournalTest(unittest.TestCase):
         for key in ("crashed_before_apply", "crashed_before_mark", "crash_replayed", "journal_full_failed",
                     "fill_full", "recon_CLEAN", "recon_INCOMPLETE", "restart", "start_granted"):
             self.assertGreater(totals.get(key, 0), 0, f"randomized runs never exercised {key}: {totals}")
+
+
+class ServiceWiringTest(unittest.TestCase):
+    """The core service journals at <UNKNOWN_HOME>/data/<account>.events and, at start, applies what an earlier
+    process journaled but did not apply before any new event, request or connectivity sync."""
+
+    def wait_for(self, predicate, what: str, timeout_s: float = 20.0) -> None:
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            if predicate():
+                return
+            time.sleep(0.01)
+        self.fail(f"timed out waiting for {what}")
+
+    def test_service_replays_the_journal_before_new_events(self):
+        quiet(self)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        paths = Paths(Path(tmp.name) / "home")
+        paths.ensure()
+        clock = ManualClock(T0)
+        broker = SimulatedBroker(clock, initial_settled_cash=F("300.00"), calendar=WEEKDAYS_ONLY, settlement_days=1)
+        path = paths.data / f"{ACCOUNT}.events"
+        # An earlier process: it journaled the first fill's events and died before applying them.
+        h = Harness(db_path=paths.db(ACCOUNT), clock=clock, broker=broker)
+        journal = EventJournal(path, ACCOUNT, clock.now_ns)
+        attach_journal(broker, journal)
+        running_session(h)
+        self.assertTrue(h.intent("B1", "BUY", "5", "10.00", "A").accepted)
+        h.pump()
+        broker.fill("B1", F("2"), F("10.00"), commission=F("1.00"))
+        self.assertEqual(h.runner.journal_broker_events(), 3)
+        journal_id = journal.journal_id
+        detach_journal(broker)
+        journal.close()
+        h.desk.store.release_lease()
+        h.close()
+        # Events that reach the new process's adapter after it starts.
+        broker.fill("B1", F("3"), F("10.00"), commission=F("1.00"))
+        svc = CoreService(paths=paths, account_key=ACCOUNT, deployment_id="mac-dev", broker=broker, clock=clock,
+                          intervals=Intervals(loop_s=0.005, valuation_s=3600.0, reconcile_s=3600.0,
+                                              reconcile_retry_s=3600.0, heartbeat_s=0.0))
+        thread = threading.Thread(target=svc.run, name="core-under-test", daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (svc.shutdown(), thread.join(10)))
+        self.assertTrue(svc.ready.wait(20))
+        self.assertIs(journal_of(broker), svc.journal)
+        db = paths.db(ACCOUNT)
+
+        def read(sql: str, args: tuple = ()) -> list:
+            conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
+            conn.row_factory = sqlite3.Row
+            try:
+                return conn.execute(sql, args).fetchall()
+            finally:
+                conn.close()
+
+        self.wait_for(lambda: read("SELECT COUNT(*) AS n FROM executions")[0]["n"] == 2, "both fills applied")
+        health = svc._enqueue({"op": "query", "name": "health"}, frozenset({"OWNER"}))
+        self.assertEqual((health["event_journal"]["unapplied"], health["event_journal"]["failure"]), (0, None))
+        svc.shutdown()
+        thread.join(20)
+        self.assertFalse(thread.is_alive())
+        commands = [(r["command_id"], r["kind"]) for r in read("SELECT command_id, kind FROM commands ORDER BY rowid")]
+        start = max(i for i, (cid, _) in enumerate(commands) if cid.startswith("process."))
+        after_start = commands[start + 1:]
+        seqs = [int(cid.rsplit(".", 1)[1]) for cid, _ in after_start if cid.startswith(f"sys.bev.{journal_id}.")]
+        first_other = next(i for i, (cid, _) in enumerate(after_start) if not cid.startswith("sys.bev."))
+        replayed = [cid for cid, _ in after_start[:first_other]]
+        self.assertEqual(len(replayed), 3, f"the earlier process's 3 entries come first after the start: {after_start}")
+        self.assertEqual(seqs, sorted(seqs))
+        reopened = EventJournal(path, ACCOUNT, clock.now_ns)
+        self.addCleanup(reopened.close)
+        self.assertEqual(reopened.unapplied_count(), 0)
+        self.assertEqual(reopened.verify(), [])
+        self.assertEqual(reopened.journal_id, journal_id)
+        self.assertEqual(len(list(reopened.entries())), 1 + 3 + 3)   # acknowledgement, first fill, second fill
+        self.assertEqual(replay_and_compare(db, Path(tmp.name) / "replay.sqlite"), [])
 
 
 if __name__ == "__main__":
