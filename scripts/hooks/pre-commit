@@ -1,0 +1,21 @@
+#!/bin/sh
+# Refuse commits that contain broker account identifiers or secret material (repository is public).
+# Install: ln -sf ../../scripts/hooks/pre-commit .git/hooks/pre-commit
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+fail=0
+# IBKR account numbers: live U + 7-8 digits, paper DU/DUx + 6-8 digits. Word-bounded to avoid hashes.
+if git diff --cached -U0 -- $staged | grep -E '^\+' | grep -E -n '(^|[^A-Za-z0-9])(U[0-9]{7,8}|DU[A-Z]?[0-9]{6,8})([^A-Za-z0-9]|$)' >/dev/null; then
+  echo "pre-commit: staged changes contain what looks like an IBKR account number. Keep it in ~/.unknown/, not git." >&2
+  fail=1
+fi
+if git diff --cached -U0 -- $staged | grep -E '^\+' | grep -E -n '(sk-ant-[A-Za-z0-9_-]{10,}|sk-[A-Za-z0-9]{20,}|xai-[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)' >/dev/null; then
+  echo "pre-commit: staged changes contain what looks like an API key or private key." >&2
+  fail=1
+fi
+for f in $staged; do
+  case "$f" in
+    *ibkr.json|*owner.json|*_token|*anthropic_api_key|*.sqlite|*.sqlite-wal|*.sqlite-shm) echo "pre-commit: refusing to commit $f" >&2; fail=1;;
+  esac
+done
+exit $fail
