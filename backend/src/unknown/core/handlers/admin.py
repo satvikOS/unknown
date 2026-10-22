@@ -83,24 +83,43 @@ def activate_policy(ctx: Context, p: dict) -> dict:
 
 
 def register_instrument(ctx: Context, p: dict) -> dict:
+    """Register or update an instrument and/or add provider mappings (e.g. an IBKR conId) to it.
+
+    An unchanged instrument record with new mappings records only the mappings; a mapping identical to the current
+    one for that provider id is skipped; a provider id currently mapped elsewhere gets a new version (remap)."""
     try:
         inst = Instrument.from_json(p["instrument"])
     except (KeyError, ValueError, TypeError) as exc:
         raise Rejected("INSTRUMENT_INVALID", str(exc)) from None
     existing = state.instrument(ctx.tx, inst.instrument_id)
-    if existing is not None and existing.metadata_version >= inst.metadata_version:
-        if existing.to_json() == inst.to_json():
-            return {"instrument_id": inst.instrument_id, "unchanged": True}
+    unchanged = existing is not None and existing.to_json() == inst.to_json()
+    if existing is not None and not unchanged and existing.metadata_version >= inst.metadata_version:
         raise Rejected("INSTRUMENT_VERSION", "a changed record needs a higher metadata_version")
     mappings = []
-    for m in p.get("mappings", []):
+    raw = p.get("mappings", [])
+    if not isinstance(raw, list):
+        raise Rejected("INVALID_FIELD", "mappings must be a list")
+    for m in raw:
+        if not isinstance(m, dict):
+            raise Rejected("INVALID_FIELD", "each mapping must be an object")
         provider = validate_id(m.get("provider"), "provider")
-        external = str(m.get("external_id"))
-        prev = ctx.tx.one("SELECT MAX(version) AS v FROM provider_mappings WHERE provider=? AND external_id=?", (provider, external))
-        version = (prev["v"] or 0) + 1
-        mappings.append({"provider": provider, "external_id": external, "version": version,
+        external = m.get("external_id")
+        if not isinstance(external, str) or not 1 <= len(external) <= 128:
+            raise Rejected("INVALID_FIELD", "external_id must be a string of 1..128 characters")
+        current = ctx.tx.one("SELECT instrument_id, version FROM provider_mappings WHERE provider=? AND external_id=? "
+                             "ORDER BY version DESC LIMIT 1", (provider, external))
+        if current is not None and current["instrument_id"] == inst.instrument_id:
+            continue
+        mappings.append({"provider": provider, "external_id": external, "version": (current["version"] if current else 0) + 1,
                          "instrument_id": inst.instrument_id, "verified_at_ns": m.get("verified_at_ns"),
                          "details": m.get("details", {})})
+    if unchanged:
+        if not mappings:
+            return {"instrument_id": inst.instrument_id, "unchanged": True}
+        ctx.emit("ProviderMappingsAdded", {"instrument_id": inst.instrument_id,
+                                           "mappings": [(m["provider"], m["external_id"]) for m in mappings]},
+                 {"mappings": mappings}, instrument_id=inst.instrument_id)
+        return {"instrument_id": inst.instrument_id, "mappings_added": len(mappings)}
     ctx.emit("InstrumentRegistered", {"instrument_id": inst.instrument_id, "metadata_version": inst.metadata_version},
              {"instruments": [inst.to_json()], "mappings": mappings}, instrument_id=inst.instrument_id)
     return {"instrument_id": inst.instrument_id}

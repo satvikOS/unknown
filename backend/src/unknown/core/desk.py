@@ -133,7 +133,7 @@ class Desk:
         self.clock = clock
         self.ids = ids
         self.deployment_id = validate_id(deployment_id, "deployment id")
-        self.quotes = quotes or QuoteBook()
+        self.quotes = quotes if quotes is not None else QuoteBook()
         self.health = health or (lambda: HealthSnapshot(False, False, None, 0, "no health source configured"))
         self.calendars = {"WEEKDAYS": WEEKDAYS_ONLY, **(calendars or {})}
         self.verify_each_command = verify_each_command

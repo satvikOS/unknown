@@ -52,8 +52,10 @@ class Intervals:
 
 class CoreService:
     def __init__(self, *, paths: Paths, account_key: str, deployment_id: str, broker: BrokerPort,
-                 clock: Clock | None = None, intervals: Intervals | None = None, fixture_market=None):
+                 clock: Clock | None = None, intervals: Intervals | None = None, fixture_market=None,
+                 quotes: QuoteBook | None = None):
         self.paths = paths
+        self.quotes = quotes   # a market-data adapter publishing into the desk's book (None: the desk makes one)
         self.account_key = account_key
         self.deployment_id = deployment_id
         self.broker = broker
@@ -68,6 +70,7 @@ class CoreService:
         self.cycle_errors = 0
         self.broker_mapping_provider: str | None = None   # set for adapters that resolve provider ids (IBKR conId)
         self.instrument_map: dict[str, str] = {}
+        self.instrument_details: dict[str, tuple[str, str]] = {}
 
     # ---------------------------------------------------------------- socket
     def _enqueue(self, req: dict, roles: frozenset[str]) -> dict:
@@ -204,9 +207,12 @@ class CoreService:
 
     def refresh_instrument_map(self, provider: str) -> None:
         """Copy provider mappings into a dict the adapter's message thread can read without SQLite."""
-        rows = self.desk.store.query("SELECT external_id, instrument_id, version FROM provider_mappings WHERE provider=? "
-                                     "ORDER BY version", (provider,))
+        rows = self.desk.store.query("SELECT m.external_id, m.instrument_id, m.version, i.body FROM provider_mappings m "
+                                     "JOIN instruments i ON i.instrument_id = m.instrument_id WHERE m.provider=? "
+                                     "ORDER BY m.version", (provider,))
         self.instrument_map = {r["external_id"]: r["instrument_id"] for r in rows}
+        # For market-data subscriptions: {external id: (instrument id, trading currency)}.
+        self.instrument_details = {r["external_id"]: (r["instrument_id"], json.loads(r["body"])["currency"]) for r in rows}
 
     def _sync_connectivity(self) -> None:
         """Record broker connectivity only when it changes (a change forces reconciliation)."""
@@ -224,7 +230,7 @@ class CoreService:
         self.paths.ensure()
         ids = IdGenerator(lambda: self.clock.now_ns() // 1_000_000)
         self.desk = open_desk(self.paths.db(self.account_key), self.clock, ids, deployment_id=self.deployment_id,
-                              health=self.health, calendars={"WEEKDAYS": WEEKDAYS_ONLY})
+                              health=self.health, calendars={"WEEKDAYS": WEEKDAYS_ONLY}, quotes=self.quotes)
         if self.fixture_market is not None:
             self.fixture_market.quotes = self.desk.quotes
         tokens = {self.paths.token(name, create=True): roles for name, roles in SOCKET_ROLES.items()}

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import importlib
 
-MODULES: list[str] = []
+MODULES: list[str] = ["company", "marketdata", "portfolio", "research"]
 
 
 def load():

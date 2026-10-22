@@ -125,6 +125,9 @@ def evaluate(i: PretradeInput) -> Decision:
     fresh = q is not None and q.age_ns(i.now_ns) <= i.quote_max_age_ms * 1_000_000
     check("QUOTE_FRESH", fresh, "no quote" if q is None else f"age {q.age_ns(i.now_ns) // 1_000_000} ms, source {q.source}")
     check("QUOTE_NOT_DELAYED", q is None or not q.delayed, "delayed quote cannot validate an order")
+    # An explicit non-live type (frozen, delayed) never validates an order, even if a source forgot the flag.
+    check("QUOTE_LIVE", q is None or q.market_data_type in ("live", "unreported"),
+          f"{q.market_data_type if q else 'no'} market data cannot validate an order")
     # A non-consolidated or unlabelled feed may validate SIMULATED/PAPER orders (labelled in the decision record);
     # LIVE requires the national best bid/offer (owner decision 2026-10-22, CAP-DATA-10).
     check("QUOTE_CONSOLIDATED", q is None or q.consolidation == "consolidated",
