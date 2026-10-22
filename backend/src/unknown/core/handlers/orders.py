@@ -266,6 +266,12 @@ def outbox_begin(ctx: Context, p: dict) -> dict:
         return {"send": False, "reason": "RECONCILIATION_REQUIRED"}
     mult = multiplier_of(ctx, order["instrument_id"])
     if row["action"] == "SUBMIT":
+        acct = state.account(ctx.tx, key)
+        mode = ctx.desk.health().broker_account_mode
+        if mode is None or mode != acct["mode"] or mode == "LIVE":
+            # Checked at transmission, not only at green start: a reconnect may reach a different account
+            # (review finding 21). The order stays RESERVED and is retried once the connection checks out.
+            return {"send": False, "reason": f"BROKER_ACCOUNT_MODE:{mode}"}
         if order["state"] != "RESERVED":
             ctx.emit("OutboxSkipped", {"reason": f"order state {order['state']}"}, {"outbox": [{**row, "state": "SKIPPED"}]},
                      account_key=key, order_id=order["order_id"])

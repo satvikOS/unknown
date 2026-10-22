@@ -282,11 +282,12 @@ def open_desk(path: str | Path, clock: Clock, ids: IdGenerator, *, deployment_id
               takeover: bool = False, **kwargs: Any) -> Desk:
     """Open the store, detect a restored database, and record the process start.
 
-    Restore detection (book-review resolution): the highest writer epoch ever
-    granted is also written to ``<db>.epoch``. If the database's epoch is lower
-    than that file, the database was restored from an older copy, so its stop
-    latch, outbox and dedup history may be stale; the start command then
-    latches the stop and marks in-flight orders for lookup (ADR-0010)."""
+    Restore detection (book-review resolution, review findings 4 and 20): ``<db>.epoch`` records the highest
+    writer epoch and the last committed event (sequence and chain hash), refreshed after every commit. A
+    database whose epoch is not above it, that ends before that event or diverges from it, that carries a
+    backup marker, or that is non-empty without a marker, was restored from an older copy: its stop latch,
+    outbox and dedup history may be stale, so the start command latches the stop and marks in-flight orders
+    for lookup (ADR-0010)."""
     store = Store(path, clock, holder=holder or f"{deployment_id}:{os.getpid()}", takeover=takeover)
     desk = Desk(store, clock, ids, deployment_id=deployment_id, **kwargs)
     evidence: list[str] = []
@@ -301,12 +302,21 @@ def open_desk(path: str | Path, clock: Clock, ids: IdGenerator, *, deployment_id
     if marker is not None:
         if marker.exists():
             try:
-                if int(marker.read_text().strip()) >= store.epoch:
+                text = marker.read_text().strip()
+                data = json.loads(text) if text.startswith("{") else {"epoch": int(text)}
+                if int(data["epoch"]) >= store.epoch:
                     evidence.append("writer epoch not above the last recorded start")
-            except ValueError:
+                if data.get("max_seq") is not None:
+                    seq, chain = store.head()
+                    if seq < int(data["max_seq"]):
+                        evidence.append(f"database ends at event {seq}, before the last committed event {data['max_seq']}")
+                    elif seq == int(data["max_seq"]) and chain != data.get("chain_head"):
+                        evidence.append("database history diverges from the last committed chain head")
+            except (ValueError, KeyError, TypeError):
                 evidence.append("epoch marker unreadable")
         elif store.event_count() > 0:
             evidence.append("non-empty database without its epoch marker (moved or restored)")
+        store.marker_path = marker   # from here every commit advances the high-water mark
     restored = bool(evidence)
     result = desk.run_system("process_started", {"epoch": store.epoch, "restored_from_backup": restored,
                                                  "restore_evidence": evidence},
@@ -316,10 +326,5 @@ def open_desk(path: str | Path, clock: Clock, ids: IdGenerator, *, deployment_id
     if origin is not None:
         store.clear_backup_origin()  # the restore is now an event; later restarts are ordinary
     if marker is not None:
-        tmp = marker.with_suffix(".epoch.tmp")
-        with open(tmp, "w") as fh:
-            fh.write(str(store.epoch))
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, marker)
+        store.write_marker(fsync=True)
     return desk

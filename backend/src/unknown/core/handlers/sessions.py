@@ -218,7 +218,9 @@ def resume_session(ctx: Context, p: dict) -> dict:
 
 def end_session(ctx: Context, p: dict) -> dict:
     s = state.session(ctx.tx, p.get("session_id", ""))
-    if s["state"] not in ("RUNNING", "SUSPENDED"):
+    # FAILED_REVIEW may be ended too: its risk-reducing sells are permitted, and otherwise the owner could only
+    # wait for the review to clear before liquidating (review 2026-10-22).
+    if s["state"] not in ("RUNNING", "SUSPENDED", "FAILED_REVIEW"):
         raise Rejected("INVALID_STATE", f"session is {s['state']}")
     begin_wind_down(ctx, s, "OWNER_ENDED", {"by": ctx.principal.id})
     return {"session_id": s["session_id"], "state": state.session(ctx.tx, s["session_id"])["state"]}

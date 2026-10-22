@@ -291,9 +291,8 @@ class CancelTransmissionTests(_Base):
         self.assertEqual(order(h, "B1")["state"], "CANCELED")
         self.assertSound(h)
 
-    @unittest.expectedFailure
     def test_f18_acked_cancel_that_never_took_effect_is_resent(self):
-        """STILL WRONG (finding 18; also 2/14): a cancel the broker ACKNOWLEDGED but that did not take effect
+        """FIXED 2026-10-22, was (finding 18; also 2/14): a cancel the broker ACKNOWLEDGED but that did not take effect
         (IBKR: PendingCancel reverting to Submitted when the venue refuses the cancel) is never sent again.
 
         Reconciliation records CANCEL_NOT_EFFECTIVE for cancel_state ACKED (recon.py:78-83) and calls
@@ -342,9 +341,8 @@ class CancelTransmissionTests(_Base):
         self.assertEqual(cases(h, "UNKNOWN_ORDER"), [])
         self.assertSound(h)
 
-    @unittest.expectedFailure
     def test_f35_green_start_is_refused_while_a_buy_cancel_outcome_is_unknown(self):
-        """STILL WRONG (finding 35, partial fix): the only thing that blocks a green start after a cancel
+        """FIXED 2026-10-22, was (finding 35, partial fix): the only thing that blocks a green start after a cancel
         timeout is the UNKNOWN_ORDER case, and apply_status resolves that case on ANY broker status for the
         order (broker.py:115), including a working ACKNOWLEDGED report that says nothing about the cancel
         (the cancel timed out before reaching the broker, so the broker truly still works B1). Preflight
@@ -621,9 +619,8 @@ class RestoreDetectionTests(_Base):
         self.assertEqual(order(h, "B1")["state"], "CANCELED", rec.body)
         self.assertSound(h)
 
-    @unittest.expectedFailure
     def test_f04_restore_in_place_of_an_online_backup_made_without_store_backup_to(self):
-        """STILL WRONG (finding 4, residual): detection relies on a marker that only Store.backup_to writes
+        """FIXED 2026-10-22, was (finding 4, residual): detection relies on a marker that only Store.backup_to writes
         (db.py:171-183) plus the lease epoch (desk.py:262-266). A copy made with the SQLite online backup
         API by another tool (ADR-0003 #6 names that API, not Store.backup_to; the sqlite3 shell's .backup
         uses it) or a file-system snapshot, taken in the current epoch and restored in place, is opened as
@@ -765,9 +762,8 @@ class AuthorityTests(_Base):
         self.assertIn("BROKER_REPORTS_LIVE_ACCOUNT", blockers)
         self.assertIn("BROKER_ACCOUNT_MODE_MISMATCH:LIVE", blockers)
 
-    @unittest.expectedFailure
     def test_f21_submit_is_refused_when_the_broker_mode_changes_after_green_start(self):
-        """STILL WRONG (finding 21): the broker-reported mode is checked only at green start (control.py:99-104).
+        """FIXED 2026-10-22, was (finding 21): the broker-reported mode is checked only at green start (control.py:99-104).
         Pretrade compares the REGISTERED mode (orders.py:104) and outbox_begin (orders.py:247-301) and the
         gateway (runner.py:56-66) never look at the connection's mode, so after a start in SIMULATED a gateway
         that reconnects to a LIVE account transmits the next buy. The finding asked outbox_begin or the
@@ -798,9 +794,8 @@ class AuthorityTests(_Base):
         self.assertTrue(r.accepted, r.body)
         self.assertTrue(h.row("control", "account_key", "PAPER-1")["needs_reconciliation"])
 
-    @unittest.expectedFailure
     def test_f22_release_certificate_content_is_validated(self):
-        """STILL WRONG (finding 22, partial fix): admin.py:121-123 accepts ANY dict that has the three keys,
+        """FIXED 2026-10-22, was (finding 22, partial fix): admin.py:121-123 accepts ANY dict that has the three keys,
         whatever their values. A certificate with non-string ids, a non-integer epoch and no reconciliation
         run grants HELD ownership. The finding asked for a verified certificate (naming the releasing
         deployment, its epoch and its final reconciliation)."""
@@ -1001,9 +996,8 @@ class ExecutionLedgerTests(_Base):
         self.assertEqual(rec.body["status"], "CLEAN", rec.body)
         self.assertSound(h)
 
-    @unittest.expectedFailure
     def test_f26_external_commission_that_arrives_before_its_execution_is_booked(self):
-        """STILL WRONG (finding 26 edge; also 7/17): a commission that arrives before its execution is deferred
+        """FIXED 2026-10-22, was (finding 26 edge; also 7/17): a commission that arrives before its execution is deferred
         (broker.py:689-693), but only apply_order_execution applies deferred commissions (broker.py:421-423).
         _external_execution (broker.py:496-548), and therefore every manual trade and every correction booked
         through it, never looks at pending_commissions. When the manual buy arrives, EXTERNAL is not charged
@@ -1095,9 +1089,8 @@ class ExecutionLedgerTests(_Base):
         self.assertFixed(code_total(h, "FEE_ESTIMATE"), "0")
         self.assertSound(h)
 
-    @unittest.expectedFailure
     def test_f15_redelivered_commission_of_a_corrected_execution_is_a_duplicate(self):
-        """STILL WRONG (finding 15 edge): B1's commission (1.00) was booked on B1 before the correction. The
+        """FIXED 2026-10-22, was (finding 15 edge): B1's commission (1.00) was booked on B1 before the correction. The
         replacement is re-reported with 1.20 (the corrected quantity costs more). A redelivery of B1's own
         1.00 report (the Reconciler re-ingests every commission since the last clean watermark) is compared
         only with the ACTIVE revision (broker.py:699-710), never with what B1 itself already booked
@@ -1198,9 +1191,8 @@ class SettlementAndFeeTests(_Base):
         self.assertFixed(h.balance("CASH", "session:A"), "97.91")   # 100 - 99.10 + 98.01 - 1.00 (sim default)
         self.assertSound(h)
 
-    @unittest.expectedFailure
     def test_f25_sell_whose_fees_exceed_its_proceeds_never_overstates_available_cash(self):
-        """STILL WRONG (finding 25/37 edge; pre-existing, not introduced by c41a505, which extended the same
+        """FIXED 2026-10-22 (finding 25/37 edge; pre-existing, not introduced by c41a505, which extended the same
         pattern to sell estimates): a 1-share sale at 0.50 with a 1.00 commission nets -0.50. Sell fees post
         against RECEIVABLE (broker.py:321 estimate, broker.py:722 final), so the excess fee becomes a NEGATIVE
         receivable, which available_cash ignores (ledger.py:158-166 counts CASH, PAYABLE and FEES_ACCRUED only).
@@ -1219,11 +1211,13 @@ class SettlementAndFeeTests(_Base):
         h.broker.fill("S1", F("1"), F("0.50"), commission=F("1.00"))
         h.pump()
         self.assertFixed(h.balance("RECEIVABLE", "session:A"), "-0.50")
-        self.assertFixed(h.available("session:A"), "98.50")   # true spendable cash is 100 - 1.50 - 0.50 = 98.00
+        # Fixed: the sale's net payment of 0.50 is committed cash, so available is the true 100 - 1.50 - 0.50.
+        self.assertFixed(h.available("session:A"), "98.00")
         h.quote("0.49", "0.51")
-        self.assertTrue(h.intent("B2", "BUY", "194", "0.5015", "A").accepted)   # 97.291 + 1.20 envelope <= 98.50
+        self.assertEqual(h.intent("B2", "BUY", "194", "0.5015", "A").rejected_code, "CASH")   # needs 98.491
+        self.assertTrue(h.intent("B3", "BUY", "190", "0.5015", "A").accepted)
         h.pump()
-        h.broker.fill("B2", F("194"), F("0.5015"), commission=F("1.00"))
+        h.broker.fill("B3", F("190"), F("0.5015"), commission=F("1.00"))
         h.pump()
         self.assertEqual(h.verify(), [])
         h.clock.advance(DAY)

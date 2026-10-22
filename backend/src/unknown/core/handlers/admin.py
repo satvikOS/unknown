@@ -141,7 +141,16 @@ def acquire_execution_ownership(ctx: Context, p: dict) -> dict:
         # Another deployment may trade this broker account from its own database. Hand-over needs either
         # the previous holder's release certificate or the owner's explicit attestation (ADR-0011).
         cert = p.get("release_certificate")
-        if isinstance(cert, dict) and {"deployment_id", "epoch", "reconciliation_run"} <= set(cert):
+        if cert is not None:
+            if not (isinstance(cert, dict) and isinstance(cert.get("deployment_id"), str)
+                    and isinstance(cert.get("reconciliation_run"), str) and type(cert.get("epoch")) is int
+                    and cert["epoch"] >= 1):
+                raise Rejected("RELEASE_CERTIFICATE_INVALID",
+                               "a certificate names the releasing deployment, its epoch (int >= 1) and its final reconciliation run")
+            validate_id(cert["deployment_id"], "releasing deployment id")
+            validate_id(cert["reconciliation_run"], "reconciliation run id")
+            if cert["deployment_id"] == deployment:
+                raise Rejected("RELEASE_CERTIFICATE_INVALID", "a deployment cannot certify its own release to itself")
             provenance = {"release_certificate": cert}
         elif p.get("attest_no_other_deployment") is True:
             provenance = {"owner_attestation": "no other deployment trades this broker account"}

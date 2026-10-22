@@ -80,7 +80,9 @@ def reconciliation_result(ctx: Context, p: dict) -> dict:
             # Our cancel did not take effect at the broker (lost in a crash or a timeout): send it again.
             differences.append({"kind": "CANCEL_NOT_EFFECTIVE", "blocking": False,
                                 "detail": {"order_id": after["order_id"], "cancel_state": after["cancel_state"]}})
-            cancel_order(ctx, after, "reconciliation: earlier cancel not effective at the broker")
+            # The broker shows the order working with no cancel pending, whatever we last heard (SENT, ACKED or
+            # UNKNOWN): the earlier cancel did not take effect, so a new one is queued (a cancel is idempotent).
+            cancel_order(ctx, {**after, "cancel_state": "UNKNOWN"}, "reconciliation: earlier cancel not effective at the broker")
         local = Fixed.parse(state.order(ctx.tx, order["order_id"])["cum_qty"])
         if Fixed.parse(row["filled_quantity"]) > local:
             differences.append({"kind": "EXECUTIONS_MISSING", "blocking": True,
@@ -274,6 +276,10 @@ def _confirm(ctx: Context, key: str, rows: list[dict]) -> list[dict]:
     ctx.emit("SettlementConfirmed", {"items": [r["settlement_id"] for r in rows],
                                      "note": "settlement changes availability, not P&L"},
              {"journal": journal, "settlements": out}, account_key=key)
+    from .broker import check_overcommit
+    for owner, ccy in sorted({(r["owner"], r["currency"]) for r in rows}):
+        session_id = owner.split(":", 1)[1] if owner.startswith(("session:", "protected:")) else None
+        check_overcommit(ctx, key, owner, ccy, "settlement", session_id)
     return out
 
 

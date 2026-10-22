@@ -145,6 +145,24 @@ class FailedReviewTest(unittest.TestCase):
         self.assertEqual(h.available(f"exception:{case['case_id']}"), F("-0.70"))
         self.assertEqual(h.verify(), [])
 
+    def test_owner_can_end_a_session_in_failed_review(self):
+        """Review 2026-10-22 (open item from finding 8): end_session accepted only RUNNING and SUSPENDED, so a
+        FAILED_REVIEW session could not be liquidated by the owner until its cases cleared. Ending it starts the
+        wind-down, whose sells are permitted; buys stay refused and the overcommitment stays quarantined."""
+        h = _harness(self)
+        h.bootstrap()
+        case = _overcommitted_review(h)
+        h.quote("8.99", "9.01")
+        r = h.owner_cmd("end_session", session_id="A")
+        self.assertTrue(r.accepted, r.body)
+        self.assertEqual(h.session_state("A"), "WINDING_DOWN")
+        sells = [o for o in h.desk.store.query("SELECT row FROM orders")
+                 if '"purpose": "WIND_DOWN"' in o["row"] or '"purpose":"WIND_DOWN"' in o["row"]]
+        self.assertTrue(sells, "the wind-down places its reduction")
+        self.assertFalse(h.intent("B9", "BUY", "1", "8.99", "A").accepted)
+        self.assertEqual(h.available(f"exception:{case['case_id']}"), F("-0.70"))
+        self.assertEqual(h.verify(), [])
+
     def test_entering_failed_review_cancels_the_sessions_working_buys(self):
         """Finding 33, ADR-0008: a session frozen for review must not keep adding inventory.
 

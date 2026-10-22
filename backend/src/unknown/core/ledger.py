@@ -156,14 +156,30 @@ def liquid_value(tx: Tx, account_key: str, owner: str, ccy: str) -> Fixed:
 
 
 def available_cash(tx: Tx, account_key: str, owner: str, ccy: str) -> Fixed:
-    """Spendable settled cash for an owner: CASH + PAYABLE + FEES_ACCRUED - active cash holds.
+    """Spendable settled cash for an owner: CASH + PAYABLE + FEES_ACCRUED - active cash holds - net payments due
+    on sales.
 
     Receivables are excluded (LED-03). Payables and accrued fees are commitments
-    against settled cash and are subtracted (they carry credit balances)."""
+    against settled cash and are subtracted (they carry credit balances). A sale
+    whose fees exceed its proceeds settles as a payment out of the owner's cash
+    (an EXPECTED settlement row that relieves RECEIVABLE with direction PAY); that
+    amount is committed too, so it can never be spent first (review finding 25)."""
     return (balance(tx, account_key, CASH, owner, ccy)
             + balance(tx, account_key, PAYABLE, owner, ccy)
             + balance(tx, account_key, FEES_ACCRUED, owner, ccy)
-            - active_cash_holds(tx, account_key, owner, ccy))
+            - active_cash_holds(tx, account_key, owner, ccy)
+            - sale_payments_due(tx, account_key, owner, ccy))
+
+
+def sale_payments_due(tx: Tx, account_key: str, owner: str, ccy: str) -> Fixed:
+    total = Fixed(0)
+    # The literal predicates match the partial index settlements_sale_payments (schema migration 2).
+    for r in tx.all("SELECT json_extract(row, '$.amount') AS amount, json_extract(row, '$.currency') AS ccy FROM settlements "
+                    "WHERE account_key=? AND owner=? AND status = 'EXPECTED' AND json_extract(row, '$.direction') = 'PAY' "
+                    "AND json_extract(row, '$.relieves') = 'RECEIVABLE'", (account_key, owner)):
+        if r["ccy"] == ccy:
+            total = total + Fixed.parse(r["amount"])
+    return total
 
 
 def owner_lots(tx: Tx, account_key: str, owner: str, instrument_id: str | None = None) -> list[dict]:
@@ -328,7 +344,7 @@ class Touched:
     when the row did not exist), so ``verify_touched`` can check the command's own effects without
     re-reading the history of the keys it touched (review finding 39)."""
 
-    __slots__ = ("entries", "balances", "lots", "holds", "cases", "full")
+    __slots__ = ("entries", "balances", "lots", "holds", "cases", "settlements", "full")
 
     def __init__(self) -> None:
         self.entries: list[str] = []                                 # journal entry ids, in emission order
@@ -336,6 +352,7 @@ class Touched:
         self.lots: dict[str, tuple | None] = {}                      # lot id -> (inventory key, open_cost) before
         self.holds: set[tuple[str, str, str, str]] = set()           # (account, owner, kind, unit), before and after
         self.cases: set[tuple[str, str]] = set()                     # (account, owner_hint) of cases written
+        self.settlements: set[tuple[str, str, str]] = set()          # (account, owner, currency), before and after
         self.full = False   # a LEDGER_INVARIANT case was written: clearing one needs the whole ledger clean
 
     def before(self, tx: Tx, section: str, item: dict) -> None:
@@ -356,6 +373,12 @@ class Touched:
             if r is not None:
                 self.holds.add((r["account_key"], r["owner"], r["kind"], r["unit"]))
             self.holds.add((item["account_key"], item["owner"], item["kind"], item["unit"]))
+        elif section == "settlements":
+            r = tx.one("SELECT account_key, owner, json_extract(row,'$.currency') AS currency FROM settlements "
+                       "WHERE settlement_id=?", (item["settlement_id"],))
+            if r is not None:
+                self.settlements.add((r["account_key"], r["owner"], r["currency"]))
+            self.settlements.add((item["account_key"], item["owner"], item["currency"]))
         elif section == "exceptions":
             r = tx.one("SELECT account_key, kind, json_extract(row,'$.owner_hint') AS owner_hint FROM exceptions "
                        "WHERE case_id=?", (item["case_id"],))
@@ -456,6 +479,8 @@ def verify_touched(tx: Tx, touched: Touched) -> list[str]:
     quantity_keys = dict.fromkeys(lot_owners)
     for account_key, owner, kind, unit in sorted(touched.holds):
         (cash_keys if kind == "CASH" else quantity_keys)[(account_key, owner, unit)] = None
+    for key in sorted(touched.settlements):
+        cash_keys[key] = None   # a payment due on a sale is committed cash (available_cash)
     for account_key, owner in sorted(touched.cases):
         for r in tx.all("SELECT DISTINCT currency FROM balances WHERE account_key=? AND owner=?", (account_key, owner)):
             cash_keys[(account_key, owner, r["currency"])] = None

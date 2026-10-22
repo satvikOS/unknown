@@ -118,8 +118,12 @@ def preflight(ctx: Context, key: str) -> tuple[list[str], dict]:
     open_blocking = state.open_exceptions(ctx.tx, key, blocking_only=True)
     if open_blocking:
         blockers.append("BLOCKING_EXCEPTIONS:" + ",".join(sorted({e["kind"] for e in open_blocking})))
-    if any(o["state"] == "UNKNOWN" for o in state.orders(ctx.tx, key, open_only=True)):
+    open_orders = state.orders(ctx.tx, key, open_only=True)
+    if any(o["state"] == "UNKNOWN" for o in open_orders):
         blockers.append("UNKNOWN_ORDERS")
+    if any(o["cancel_state"] == "UNKNOWN" for o in open_orders):
+        # The order may still be working at the broker (review finding 35): look it up and re-cancel first.
+        blockers.append("UNRESOLVED_CANCELS")
     r = state.risk_state(ctx.tx, key)
     if r.get("breach"):
         blockers.append(f"LOSS_BUDGET:{r['breach']}")

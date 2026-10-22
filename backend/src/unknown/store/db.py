@@ -2,6 +2,8 @@
 lease with fencing epoch (ADR-0003, ADR-0011)."""
 from __future__ import annotations
 
+import json
+import os
 import socket
 import sqlite3
 import sys
@@ -154,6 +156,27 @@ class Store:
             if self.conn.in_transaction:
                 self.conn.execute("ROLLBACK")
             raise
+        if self.marker_path is not None:
+            self.write_marker()
+
+    # Restore high-water mark (review finding 4): ``<db>.epoch`` holds the writer epoch and the last event
+    # (seq and chain hash) this database ever committed. A database behind it, or diverged from it, is an older
+    # copy whatever tool made it. It is refreshed after every commit once ``open_desk`` has read it.
+    marker_path: Path | None = None
+
+    def head(self) -> tuple[int, str | None]:
+        r = self.conn.execute("SELECT seq, chain_hash FROM events ORDER BY seq DESC LIMIT 1").fetchone()
+        return (r["seq"], r["chain_hash"]) if r else (0, None)
+
+    def write_marker(self, *, fsync: bool = False) -> None:
+        seq, chain = self.head()
+        tmp = self.marker_path.with_suffix(".epoch.tmp")
+        with open(tmp, "w") as fh:
+            fh.write(json.dumps({"epoch": self.epoch, "max_seq": seq, "chain_head": chain}))
+            if fsync:
+                fh.flush()
+                os.fsync(fh.fileno())
+        os.replace(tmp, self.marker_path)
 
     @contextmanager
     def read(self) -> Iterator[Tx]:

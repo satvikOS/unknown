@@ -147,6 +147,9 @@ CREATE TABLE proposals (
   proposal_id TEXT PRIMARY KEY, author TEXT NOT NULL, row TEXT NOT NULL
 );
 """),
+    (2, "index sale payments due (available cash counts them; a partial index keeps the lookup O(due rows))", r"""
+CREATE INDEX settlements_sale_payments ON settlements(account_key, owner) WHERE status = 'EXPECTED' AND json_extract(row, '$.direction') = 'PAY' AND json_extract(row, '$.relieves') = 'RECEIVABLE';
+"""),
 ]
 
 PROJECTION_TABLES = (

@@ -112,7 +112,12 @@ def apply_status(ctx: Context, order: dict, status: str, broker_filled: Fixed, r
     new = {**order}
     if broker_order_id and not order.get("broker_order_id"):
         new["broker_order_id"] = broker_order_id
-    resolved = _resolve_case(ctx, key, f"unknown-order:{order['order_id']}", f"broker reported {status}")
+    # A working report says nothing about a cancel whose outcome is unknown (it may never have reached the broker):
+    # only a terminal or PENDING_CANCEL report resolves that case (review finding 35).
+    if order.get("cancel_state") == "UNKNOWN" and status in ("PENDING_SUBMIT", "ACKNOWLEDGED", "PARTIALLY_FILLED"):
+        resolved = []
+    else:
+        resolved = _resolve_case(ctx, key, f"unknown-order:{order['order_id']}", f"broker reported {status}")
     if status not in WORKING_STATUSES and status != "FILLED" and status not in TERMINAL_MAP:
         case = new_exception(ctx, key, EXECUTION_ANOMALY, blocking=True, severity="medium",
                              detail={"order_id": order["order_id"], "issue": f"unrecognised broker status {status!r}"},
@@ -543,6 +548,9 @@ def _external_execution(ctx: Context, p: dict, foreign: str | None) -> dict:
              instrument_id=p["instrument_id"], event_time_ns=p["exec_time_ns"])
     if is_foreign:
         latch(ctx, key, "FOREIGN_ACTIVITY")
+    pending = ctx.tx.one("SELECT row FROM pending_commissions WHERE exec_key=?", (p["exec_key"],))
+    if pending is not None:
+        _apply_commission(ctx, json.loads(pending["row"]), deferred=True)   # it arrived before its execution
     if owner == ledger.EXTERNAL:
         cover_external(ctx, key, p["currency"], p["exec_key"])
     return {"exec_key": p["exec_key"], "external": True, "foreign": is_foreign}
@@ -696,6 +704,12 @@ def _apply_commission(ctx: Context, p: dict, *, deferred: bool) -> dict:
                  {"pending_commissions": [{"exec_key": exec_key, "account_key": key, "delete": True}]} if deferred else {},
                  account_key=key)
         return {"pre_import": True}
+    if ex.get("status") == "CORRECTED" and ex.get("fee_final") is not None and Fixed.parse(ex["fee_final"]) == \
+            amount_raw.rescale(currency(ex["currency"]).ledger_scale, Rounding.HALF_EVEN):
+        if deferred:
+            ctx.emit("CommissionDuplicate", {"exec_key": exec_key},
+                     {"pending_commissions": [{"exec_key": exec_key, "account_key": key, "delete": True}]}, account_key=key)
+        return {"duplicate": True}   # a redelivery of what the corrected revision itself already booked
     if ex.get("status") == "CORRECTED":
         # A late report for a superseded revision: it belongs to the active replacement, once.
         active = _active_revision(ctx, exec_key)
