@@ -1,38 +1,53 @@
 # Project Unknown — implementation status
 
-Last updated: 2026-10-22, 11:10 local. Branch: `impl/foundation` (from `docs/technical-book-v1` @ 83df445), pushed to origin; `main` is fast-forwarded to it at checkpoints after CI is green (owner instruction 2026-10-22). No live trading, data purchases or cloud resources have been used. Paid inference: one CI smoke run of the agent layer (USD 0.50 per-run cap) under the owner's USD 200 Anthropic authorization.
+Last updated: 2026-10-22, 13:30 local. Branch: `impl/foundation` (from `docs/technical-book-v1` @ 83df445), pushed to origin; `main` is fast-forwarded to it at checkpoints after CI is green (owner instruction 2026-10-22). No live trading, data purchases or cloud resources have been used. Paid inference so far: one CI smoke call of `claude-opus-5-5`, **USD 0.008224**, under the owner's USD 200 Anthropic authorization.
 
 Status words follow ADR-0001. No capability is `paper-verified` or `live-verified`.
 
 ## Repository housekeeping (done)
 
 - **`feat/paper-desk` deleted** on 2026-10-22 after verifying that its tip was `83df44519bdb9107f3276d4e83ffa906ad9779e2`, that it had 0 commits not on `docs/technical-book-v1`, that it had no PR, and that it was created by the owner. The book branch and PR #1 are untouched.
-- CI (`.github/workflows/ci.yml`) runs the book companion, the native example and the backend suites on Python 3.12 and 3.14, plus an identifier guard. `live-anthropic.yml` sends one paid call only on manual dispatch or a commit message containing the trigger tag; it fails when the test is skipped.
+- **CI** (`.github/workflows/ci.yml`) runs:
+  - the book companion and the native example;
+  - the backend suites on Python 3.12 and 3.14;
+  - the terminal's typecheck, unit tests and build;
+  - an identifier guard.
+- **`live-anthropic.yml`** sends one paid call, only on manual dispatch or a commit message containing the trigger tag. A skipped test fails the job.
 
 ## What exists
 
 | Increment | Area | Status | Where / evidence |
 |---|---|---|---|
-| — | Architecture decisions | ADR-0001..0016 accepted | `docs/adr/` |
+| — | Architecture decisions | ADR-0001..0016 accepted; ADR-0017 (strategy artifacts, promotion, runtime) proposed | `docs/adr/` |
 | — | Requirement register, dependency graph | written | `docs/requirements/` |
-| — | Capability register | **217 capabilities, 16 areas**, primary-source and independently verified (929 URLs re-fetched); 21 capabilities above `proposed` (CAP-AGT-01 and CAP-AGT-02 `implemented` with evidence, 2026-10-22) | `docs/capabilities/register.json`, `README.md` |
-| — | Book review | **134 verified findings**; per-item dispositions pending | `docs/design/book-resolutions.md` |
-| I1 | Core: exact arithmetic, event store, journal with owner dimension, holds, lots, policy and mandates, session machine, orders and outbox, pretrade, stop/start/restart/restore, reconciliation, valuation, replay | implemented and tested offline: 258-test fault-matrix suite plus earlier suites, all passing on 3.12 and 3.14; 61 adversarial-review findings, 58 confirmed, about 40 fixed in `c41a505`; the rest in progress (session machine, incremental verification, heartbeat, drain) | `backend/src/unknown/{domain,store,core,risk,policy}` |
+| — | Capability register | **217 capabilities, 16 areas**, primary-source and independently verified (929 URLs re-fetched). Statuses are being updated as increments land. | `docs/capabilities/register.json`, `README.md` |
+| — | Book review | **134 findings, each with a checked disposition**: 77 resolved in code (each with a test), 6 by ADR, 4 accepted limitations, 47 open with owners. `scripts/book_review/build_resolutions.py --check` validates every citation. | `docs/design/book-resolutions.md` |
+| — | Threat model | 15 threats mapped to enforcing code and tests; accepted risks listed | `docs/security/threat-model.md` |
+| I1 | Core: exact arithmetic, event store, journal with owner dimension, holds, lots, policy and mandates, session machine, orders and outbox, pretrade, stop/start/restart/restore, reconciliation, valuation, replay | Implemented and tested offline. All confirmed review findings are fixed, each with regression tests: 58 from the first review, 19 from the second, and 8 residuals found by an adversarial verifier. Per-command ledger verification is now incremental, with full checks at start, at every reconciliation and at green start. | `backend/src/unknown/{domain,store,core,risk,policy}`; `tests/test_review_fixes.py`, `test_sessions_review.py`, `test_durability_review.py` |
 | I1 | Simulated broker with fault injection | tested | `broker/simulated.py` |
-| I3 | Core service process, authenticated command socket, terminal API (scrypt login, CSRF, step-up, SSE), owner CLI, FIXTURE market | implemented; exercised end to end over HTTP | `service/`, `api/`, `cli.py` |
-| I3 | Browser terminal | in progress (workflow `terminal-build`) | `terminal/` |
-| I2 | IBKR paper adapter (TWS API 10.51.01, GPL, ADR-0014) | implemented and tested offline (82 tests with a fake host); host clock measurement; service entry point `python -m unknown.broker.ibkr.serve` with reconnect supervision. **Never connected to IBKR** | `broker/ibkr/` |
-| I4 | Point-in-time research store, provider registry, polite fetcher, SEC EDGAR companyfacts ingestion | tested with fixtures; **live SEC run done** (Apple, Microsoft: 57,846 observations, 0 conflicts) | `backend/src/unknown/data/` |
-| I4 | XNYS trading calendar 2026–2028 (NYSE page, retrieved 2026-10-22) | implemented | `config/calendars/XNYS.json` |
-| I5 | Research engine, company research, portfolio analytics, IBKR market data | in progress (workflow wave B) | `research/`, `analytics/`, `data/fundamentals/`, `broker/ibkr/marketdata.py` |
-| I6 | Bounded agents: envelopes, spend ledger, tariffs, provider adapters, data-use gate | implemented and tested offline (127 tests). Anthropic via the official SDK (`anthropic==1.12.1`); `claude-opus-5-5` tariff approved under the owner's authorization; other providers build only verified request fragments | `backend/src/unknown/agents/`, `docs/agents/README.md`, ADR-0016 |
-| I6 | Research jobs end to end: model worker (`python -m unknown.agents.worker`), durable job store, hash-chained agent audit trail, PIT evidence spans, terminal API routes `/api/research/jobs` (owner session + CSRF) | implemented and tested offline (branch `feat/agent-worker`): fake SDK client behind the real Anthropic adapter; the real core service over its socket with the AGENT token (crash after acceptance and core restart record one proposal); terminal API → worker → core → API. **No live job has run yet**: `approved.json` is still empty and no key is on this Mac. Single model-budget source: `~/.unknown/config/agents.json` (`paid_model_daily_budget_cents` removed from `config/paper_defaults.json`) | `agents/{worker,jobstore,audit,pit_evidence,submission}.py`, `api/routes/research_jobs.py`, `docs/agents/README.md` "Running research jobs on this Mac" |
-| ops | Runbooks RB-01..RB-11 | written | `docs/runbooks/README.md` |
-| perf | Core latency benchmark | v0 measured under heavy machine load; incremental verification in progress | `backend/benchmarks/bench_core.py` |
+| I3 | Core service, authenticated command socket (per-role tokens; strategy tokens bound to one artifact), terminal API (scrypt login, CSRF, step-up, SSE, plugin routes), owner CLI, FIXTURE market | implemented; exercised end to end over HTTP (route smoke test 2026-10-22) | `service/`, `api/`, `cli.py` |
+| I3 | Browser terminal: STOP/START control plane, Sessions, Orders (ticket, blotter, recorded pretrade decisions), Risk, Policy, Operations (exceptions, cover_shortfall, reconciliation), Audit (event log, journal, verify), Instruments, Capabilities | implemented and tested: 259 unit tests, plus 31 Playwright e2e tests against a real core and API (fixture market) | `terminal/` |
+| I2 | IBKR paper adapter (TWS API 10.51.01, GPL, ADR-0014): orders, executions, commissions, snapshots, host clock, late-handshake verification; service entry point `python -m unknown.broker.ibkr.serve` with reconnect supervision; read-only market-data session (L1, historical bars, contract details) wired to the core's quote book | implemented and tested offline with a fake host and the real SDK objects. **Never connected to IBKR** | `broker/ibkr/` |
+| I4 | Point-in-time research store, provider registry, SEC EDGAR companyfacts; Treasury, ECB, OpenFIGI, SEC tickers; company statements, metrics, DCF, peers; `/api/company`, `/api/macro` | tested with fixtures. Live SEC run done (Apple, Microsoft: 57,846 observations, 0 conflicts). Each new source's live smoke test ran once. | `data/`, `data/fundamentals/`, `data/sources/` |
+| I4 | Markets: US (XNYS), India (XNSE, XBOM, NCL-CM, ICCL-EQ) and EU (XETR, XPAR, XAMS, XBRU, XLIS, XMIL, XMAD, T2S-EUR) calendars with explicit Muhurat sessions and horizons; venue registry; settlement cycles by trade date (US T+1, India T+1, EU T+2 then T+1 from 2027-10-11) | Implemented. Every date was independently re-verified against official sources; the 3 corrections found are applied. | `config/calendars/`, `config/markets/venues.json`, `domain/markets.py`, `docs/markets/README.md` |
+| I5 | Research engine: causal daily-bar backtester, IBKR-like costs, dependence-aware statistics (bootstrap, DSR/PSR, PBO), walk-forward/CPCV, pre-registered trial registry with holdout grants, TREND_DAILY_V1 and baselines, artifact registry and promotion lifecycle, replay through the real core; `/api/research` | tested on synthetic fixtures (175 tests). No market history has been evaluated yet. | `research/`, `docs/research/README.md` |
+| I5 | Portfolio analytics: holdings, P&L, TWR/IRR, exposure, VaR with backtests, stress, what-if sandbox, allocation proposals, snapshots; `/api/portfolio` | tested (116 tests). Benchmarks, attribution and factor models are not built (they need licensed data). | `analytics/`, `docs/research/portfolio.md` |
+| I5 | Strategy runtime (ADR-0017): decision records (`record_strategy_decision`), per-artifact strategy tokens | core part implemented and tested; the strategy runner process is next | `core/handlers/strategy.py` |
+| I6 | Bounded agents: envelopes, spend ledger, tariffs, provider adapters, data-use gate; model worker, durable job store, hash-chained audit trail, PIT evidence, `/api/research/jobs` | Implemented and tested offline. One live Anthropic call ran in CI (USD 0.008224). No live job has run on this Mac: the model is not approved in `approved.json` and no key is on the Mac. | `agents/`, `docs/agents/README.md` |
+| ops | Online backups, restore drill and restore (`unknown.cli backup`, `restore-drill`, `restore`); launchd renderer; Mac and AWS deployment docs; runbooks RB-01..RB-11 | Implemented and tested. The AWS path is specified only; nothing is provisioned. | `ops/backup.py`, `scripts/deploy/macos/`, `docs/deploy/`, `docs/runbooks/` |
+| perf | Core latency benchmark | Incremental verification: fill CPU per command 6.1 → 2.9 ms (p50), outbox claim 4.2 → 0.6 ms. Wall time is dominated by fsync on a loaded machine. | `backend/benchmarks/bench_core.py` |
 
-## Fixed in `c41a505` (adversarial review and fault matrix)
+## Owner decisions needed (raised by today's work)
 
-Authorization runs before command-id dedup. Every system latch goes through the cancel-all-buys path. Cancels are always transmitted and stay re-issuable after a crash or timeout. Restore detection uses an in-database backup marker and fails closed. Each settlement row records the owner and the account code it relieves. Overcommitment moves to `exception:<case>`, with an owner `cover_shortfall`. Corrections, pre-import executions and external commissions are booked, never parked. Preflight fails closed on an unknown broker account mode or clock. The hash chain covers every event column. Details are in the commit message.
+- **Research gate:** on highly autocorrelated candidates, the paired-bootstrap gate interval covers 92.7% instead of the 93–97% target. Choose a higher confidence level, or a minimum effective sample size, for such candidates.
+- **Enterprise value:** filers usually omit preferred stock and minority interest when they have none, so EV is INCOMPLETE for most filers. Keep that, or treat an omission as none, with a flag.
+- **Daily loss window:** it starts at the first valuation of each risk day, so an overnight gap counts only against the cumulative allowance. Confirm or change.
+- **Stale quotes on sells:** a stale quote also refuses risk-reducing exits (QUOTE_FRESH applies to sells). Confirm against ADR-0010.
+- **Unverified data:**
+  - third-party sell fees are assumed at 1 bp;
+  - the reuse terms of the Treasury feed are unreviewed;
+  - whether the EU T+1 switch applies to trades or to settlements dated from 2027-10-11 is unconfirmed.
+- **IBKR eligibility:** whether the account has EU trading permissions. NSE needs an IB India account (Indian residents or NRIs); BSE is not offered by IBKR.
 
 ## Owner decisions recorded (2026-10-22)
 
@@ -46,7 +61,7 @@ Authorization runs before command-id dedup. Every system latch goes through the 
   - US equities come from **"US Real-Time Non Consolidated Streaming Quotes"** (fee waived). IBKR's pricing page says this free feed is Cboe One + IEX and **non-consolidated** (record CAP-DATA-10): it is real time, but it is not the national best bid/offer. No Network A/B/C subscription is present.
   - The subscriber status shows **"Non-Commercial Professional"**. IBKR classifies users as Professional by default and tells individuals to update their status if they qualify as Non-Professional (CAP-IBKR-12). The owner should review this, because it changes exchange fees, for example under the CTA schedule in CAP-MKT-11.
   - Open question: whether exchange *non-display* (automated-use) fees apply to this account's algorithmic consumption of consolidated data (CAP-MKT-11 lists CTA non-display fees). Confirm with IBKR before subscribing for automated use.
-  - Engineering follow-up: tag quotes `consolidated`/`non_consolidated`. Allow non-consolidated real-time quotes for PAPER validation only, labelled in the terminal. LIVE requires consolidated data unless the owner decides otherwise.
+  - Done: quotes carry `consolidation` and `market_data_type`. Non-consolidated real-time quotes validate SIMULATED and PAPER orders; LIVE requires consolidated (pretrade `QUOTE_CONSOLIDATED`). `~/.unknown/config/ibkr_marketdata.json` labels the STK:USD feed non-consolidated.
 
 ## External blockers
 
