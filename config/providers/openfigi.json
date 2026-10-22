@@ -1,0 +1,33 @@
+{
+  "provider_id": "openfigi",
+  "name": "OpenFIGI API (Bloomberg-operated FIGI mapping)",
+  "access": "HTTPS POST to api.openfigi.com/v3/mapping (JSON jobs); API key optional (X-OPENFIGI-APIKEY header, from ~/.unknown/config/data.json openfigi_api_key)",
+  "cost_model": "Free; an optional free API key raises limits",
+  "budget": "none required",
+  "rate_limit": {"max_requests": 25, "per_seconds": 60.0,
+                 "source": "https://www.openfigi.com/api/documentation (CAP-DATA-04): mapping 25 requests per 60 s and 10 jobs per request without a key; 250 per 60 s and 100 jobs with a key; search/filter 5 or 20 per 60 s. Enforced with a strict sliding window; 429 waits for retry-after; 413 splits the batch."},
+  "requires_local_config": ["data_user_agent or sec_user_agent (declared contact User-Agent)", "openfigi_api_key (optional)"],
+  "failure_behavior": "429: wait the retry-after seconds, then retry (bounded). 413: split the batch. Other errors: the run fails; existing mappings stay; new inputs remain unmapped (never guessed). Inputs failing check-digit or format validation are rejected before any request; CUSIP/SEDOL inputs are refused without a recorded licence (CAP-INS-03).",
+  "sources": [
+    "https://www.openfigi.com/api/documentation",
+    "https://www.openfigi.com/docs/terms-of-service"
+  ],
+  "verified_on": "2026-10-22",
+  "datasets": [
+    {
+      "dataset_id": "openfigi.mapping",
+      "description": "Per-job FIGI mapping outcomes (figi, compositeFIGI, shareClassFIGI, name, ticker, exchCode, marketSector, securityType), including 'no match' outcomes",
+      "endpoint": "https://api.openfigi.com/v3/mapping",
+      "coverage": "Instruments known to OpenFIGI; listed equities by default (includeUnlistedEquities adds unlisted and delisted)",
+      "history_depth": "Current mappings only; no historical ticker endpoint found (CAP-DATA-04)",
+      "update_frequency": "On demand",
+      "availability_rule": "Available at receipt time of the response that carried it; an identical later response writes nothing; a different outcome is a new publication at its own receipt time.",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_local", "model_processing_cloud"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "https://www.openfigi.com/docs/terms-of-service: FIGI identifiers dedicated to the public domain, 'freely reproduced, distributed, transmitted, used, modified, built upon'; descriptions provided AS IS; FIGI/OPENFIGI marks only for fair use. Redistribution not asserted here (not needed).",
+      "rights_status": "recorded from the capability register (CAP-DATA-04, CAP-INS-02)",
+      "rights_verified_on": "2026-10-22"
+    }
+  ]
+}

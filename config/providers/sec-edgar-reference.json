@@ -1,0 +1,35 @@
+{
+  "provider_id": "sec-edgar-reference",
+  "name": "U.S. Securities and Exchange Commission — EDGAR reference files (www.sec.gov/files)",
+  "access": "HTTPS GET to www.sec.gov/files; no API key; declared User-Agent required",
+  "cost_model": "Free",
+  "budget": "none required",
+  "rate_limit": {"max_requests": 10, "per_seconds": 1.0,
+                 "source": "https://www.sec.gov/os/accessing-edgar-data ('Current max request rate: 10 requests/second'). This budget is shared with provider sec-edgar (same host and policy); ingestion makes one request per run."},
+  "requires_local_config": ["sec_user_agent"],
+  "failure_behavior": "429/403 or connection errors: bounded exponential backoff, then the run fails; the last snapshot stays in use and searches show its retrieval time.",
+  "sources": [
+    "https://www.sec.gov/files/company_tickers_exchange.json",
+    "https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data",
+    "https://www.sec.gov/os/webmaster-faq",
+    "https://www.sec.gov/privacy"
+  ],
+  "verified_on": "2026-10-22",
+  "datasets": [
+    {
+      "dataset_id": "sec.company_tickers_exchange",
+      "description": "Current CIK, company name, ticker and exchange for SEC-registered companies with exchange tickers",
+      "endpoint": "https://www.sec.gov/files/company_tickers_exchange.json",
+      "coverage": "SEC-registered companies with exchange tickers (US)",
+      "history_depth": "Current snapshot only; history exists only from this system's first snapshot (CAP-INS-06)",
+      "update_frequency": "Periodic; SEC 'does not guarantee accuracy or scope'",
+      "availability_rule": "Each snapshot is available at its receipt time; no validity dates are inferred before the first snapshot.",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_cloud", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "https://www.sec.gov/privacy (public information; cite SEC; do not use SEC seal or logos); redistribution not asserted here",
+      "rights_status": "recorded from the capability register (CAP-INS-01, CAP-DATA-04); belongs with provider sec-edgar once that file is edited",
+      "rights_verified_on": "2026-10-22"
+    }
+  ]
+}

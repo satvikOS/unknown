@@ -1,0 +1,29 @@
+{
+  "provider_id": "owner-research-input",
+  "name": "Owner-supplied research inputs (typed values with a declared source and time)",
+  "access": "Entered by the owner through research tools; no network access",
+  "cost_model": "Free",
+  "budget": "none required",
+  "rate_limit": {"max_requests": 1, "per_seconds": 1.0, "source": "not applicable (no network); placeholder required by the registry schema"},
+  "requires_local_config": [],
+  "failure_behavior": "A value without a source string and observation time is refused; an observation time after the decision time is refused as look-ahead.",
+  "sources": ["docs/research/company.md"],
+  "verified_on": "2026-10-22",
+  "datasets": [
+    {
+      "dataset_id": "owner.price_input",
+      "description": "A price per share supplied by the owner for valuation multiples, with its stated source (e.g. a broker quote) and observation time",
+      "endpoint": "local",
+      "coverage": "Whatever the owner enters",
+      "history_depth": "From first entry",
+      "update_frequency": "On demand",
+      "availability_rule": "Available at the stated observation time; the receipt (entry) time is recorded separately.",
+      "allowed_uses": ["display", "storage", "derived_storage", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "The value's upstream rights are those of the source the owner names (for example IBKR market data under its display/non-display terms); this entry grants no rights beyond them, so cloud-model processing and redistribution are not allowed.",
+      "rights_status": "owner responsibility per named source",
+      "rights_verified_on": "2026-10-22"
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "provider_id": "us-treasury",
+  "name": "U.S. Department of the Treasury — daily interest rate XML feed",
+  "access": "HTTPS GET to home.treasury.gov (Atom/XML); no API key described",
+  "cost_model": "Free (no fee or key stated on the feed documentation page)",
+  "budget": "none required",
+  "rate_limit": {"max_requests": 1, "per_seconds": 2.0,
+                 "source": "No published rate limit found (CAP-DATA-06). Self-imposed polite pacing: one request every 2 s; ingestion fetches one month or one year per request."},
+  "requires_local_config": ["data_user_agent or sec_user_agent (declared contact User-Agent)"],
+  "failure_behavior": "Connection errors, 429 or 5xx: bounded exponential backoff, then the run fails and is reported; stored curves keep their availability times. A date with no curve (holiday, not yet published) is never filled or interpolated; readers fall back to the previous curve date with a label.",
+  "sources": [
+    "https://home.treasury.gov/treasury-daily-interest-rate-xml-feed",
+    "https://home.treasury.gov/policy-issues/financing-the-government/interest-rate-statistics/treasury-yield-curve-methodology",
+    "https://fiscaldata.treasury.gov/api-documentation/"
+  ],
+  "verified_on": "2026-10-22",
+  "datasets": [
+    {
+      "dataset_id": "ust.par_yield_curve",
+      "description": "Daily Treasury par yield curve rates (nominal), tenors 1M, 1.5M, 2M, 3M, 4M, 6M, 1Y, 2Y, 3Y, 5Y, 7Y, 10Y, 20Y, 30Y, percent as published",
+      "endpoint": "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value_month=YYYYMM (or field_tdr_date_value=YYYY)",
+      "coverage": "US Treasury nominal par curve (indicative bid-side quotations at or near 3:30 PM; monotone convex method since 2021-12-06)",
+      "history_depth": "1990 to present via year pages (CAP-DATA-06)",
+      "update_frequency": "Each trading day; 'usually available ... by 6:00 PM Eastern Time' (Treasury methodology page, CAP-MAC-07)",
+      "availability_rule": "Live capture (fetched on or before 23:59:59 America/New_York of the curve date): available at first-seen receipt time. Backfill (fetched later): available at 23:59:59 America/New_York on the curve date, flagged availability_estimated_backfill. A changed value on re-fetch is a new publication available at its own receipt time, flagged revised_after_first_seen.",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "Feed documentation page states no licence text (CAP-DATA-06: 'US government source; verify'); Fiscal Data API states data is free without restriction for commercial or non-commercial use. Cloud-model processing and redistribution withheld until the feed's site policies are reviewed.",
+      "rights_status": "provisional — feed-specific terms not yet reviewed (open question in CAP-DATA-06)",
+      "rights_verified_on": "2026-10-22"
+    }
+  ]
+}
