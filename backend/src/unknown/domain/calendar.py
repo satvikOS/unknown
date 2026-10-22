@@ -253,3 +253,16 @@ def load_calendar(path) -> BusinessCalendar:
     if cal.kind not in ("trading", "settlement"):
         raise ValueError(f"{path}: unknown calendar kind {cal.kind!r}")
     return cal
+
+
+def load_calendars(directory) -> dict[str, BusinessCalendar]:
+    """Every sourced calendar in ``directory`` (config/calendars), keyed by calendar_id, plus WEEKDAYS.
+
+    A policy naming a calendar that is not loaded falls back to WEEKDAYS in the core, which ignores exchange
+    holidays; the service therefore loads them all at start (a malformed file fails the start loudly)."""
+    from pathlib import Path
+    out: dict[str, BusinessCalendar] = {"WEEKDAYS": WEEKDAYS_ONLY}
+    for f in sorted(Path(directory).glob("*.json")):
+        cal = load_calendar(f)
+        out[cal.calendar_id] = cal
+    return out

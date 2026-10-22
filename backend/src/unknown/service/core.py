@@ -23,7 +23,7 @@ from pathlib import Path
 from ..broker.port import BrokerPort
 from ..core.desk import Command, Context, Desk, HealthSnapshot, open_desk
 from ..core.handlers import control as control_handlers
-from ..domain.calendar import WEEKDAYS_ONLY
+from ..domain.calendar import WEEKDAYS_ONLY, load_calendars
 from ..domain.clock import Clock, SystemClock, NS_PER_S
 from ..domain.errors import LeaseLost
 from ..domain.ids import IdGenerator
@@ -38,6 +38,8 @@ log = logging.getLogger("unknown.core")
 # Each token may assert only these roles. Strategy runners (ADR-0017) get one token per artifact, created by the
 # owner (``unknown.cli strategy-token``) and bound to that artifact id: see ``Paths.strategy_tokens``.
 SOCKET_ROLES = {"api": frozenset({"OWNER"}), "agent": frozenset({"AGENT"})}
+# Sourced exchange and settlement calendars (config/calendars); policies name them (e.g. settlement_calendar XNYS).
+CALENDAR_DIR = Path(__file__).resolve().parents[4] / "config" / "calendars"
 RECONNECT_MIN_S = 5.0
 RECONNECT_MAX_S = 300.0
 
@@ -253,7 +255,7 @@ class CoreService:
         self.paths.ensure()
         ids = IdGenerator(lambda: self.clock.now_ns() // 1_000_000)
         self.desk = open_desk(self.paths.db(self.account_key), self.clock, ids, deployment_id=self.deployment_id,
-                              health=self.health, calendars={"WEEKDAYS": WEEKDAYS_ONLY}, quotes=self.quotes)
+                              health=self.health, calendars=load_calendars(CALENDAR_DIR), quotes=self.quotes)
         if self.fixture_market is not None:
             self.fixture_market.quotes = self.desk.quotes
         tokens = {self.paths.token(name, create=True): roles for name, roles in SOCKET_ROLES.items()}
