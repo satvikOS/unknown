@@ -124,3 +124,25 @@ class PublicationIdentityTests(unittest.TestCase):
         self.assertEqual(len(s.conflicts("I", "UTB")), 1)
         self.assertEqual(s.latest_as_of("I", "UTB", t)["publication_id"], "0001193125-13-170623")  # deterministic tie-break
         s.close()
+
+
+class ReadOnlyOpenTests(unittest.TestCase):
+    """Research consumers (agent worker, terminal API) open the store read-only and never create it."""
+
+    def test_reads_but_never_writes_or_creates(self):
+        import sqlite3
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "research.sqlite"
+            with self.assertRaises(FileNotFoundError):
+                ResearchStore.open_readonly(path)
+            self.assertFalse(path.exists())
+            rw = ResearchStore(path)
+            rw.record(obs("100", FILED_10K), INGESTED)
+            rw.close()
+            ro = ResearchStore.open_readonly(path)
+            self.assertEqual(ro.latest_as_of("ISSUER-1", "Revenues", FILED_10K)["value"], "100")
+            with self.assertRaises(sqlite3.OperationalError):
+                ro.record(obs("101", FILED_10KA), INGESTED)
+            ro.close()

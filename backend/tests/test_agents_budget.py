@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from test_agents_fixtures import DELETE, SECOND, TempDirCase, owner, owner_doc, write_private  # noqa: E402
 from unknown.agents.budget import (BudgetError, BudgetRefused, PaidCallsDisabled, ReservationStateError,  # noqa: E402
-                                   SpendLedger)
+                                   SpendLedger, read_job_spend)
 from unknown.agents.config import (OwnerPolicyError, load_owner_policy, parse_owner_policy,  # noqa: E402
                                    resolve_api_key)
 from unknown.domain.fixed import Fixed  # noqa: E402
@@ -222,6 +222,32 @@ class LedgerTest(TempDirCase, unittest.TestCase):
         self.addCleanup(final.close)
         self.assertEqual(violations, [])
         self.assertLessEqual(final.consumed(), Fixed.parse("5.00"))
+
+
+class LedgerReportingTest(TempDirCase, unittest.TestCase):
+    """Per-job listing (worker crash recovery) and the read-only report the terminal API uses."""
+
+    def test_reservations_and_read_only_report_follow_the_consumption_rule(self):
+        path = self.tmp / "ledger.sqlite"
+        led = SpendLedger(owner(), path, clock_ns=self.clock.now_ns)
+        self.addCleanup(led.close)
+        a = led.reserve(job_id="j1", role="research", provider="anthropic", model_id="m", amount=usd("0.50"))
+        led.settle(a, usd("0.12"), evidence="req_1")
+        b = led.reserve(job_id="j1", role="research", provider="anthropic", model_id="m", amount=usd("0.40"))
+        led.mark_unconfirmed(b, note="timeout")
+        c = led.reserve(job_id="j1", role="research", provider="anthropic", model_id="m", amount=usd("0.30"))
+        led.release(c)
+        led.reserve(job_id="j2", role="research", provider="anthropic", model_id="m", amount=usd("0.20"))
+        rows = led.reservations("j1")
+        self.assertEqual([r["state"] for r in rows], ["SETTLED", "UNCONFIRMED", "RELEASED"])
+        self.assertEqual(rows[0]["actual"], "0.12")
+        report = read_job_spend(path, "j1")
+        self.assertEqual((report["consumed"], report["currency"]), ("0.52", "USD"))   # 0.12 settled + 0.40 unconfirmed
+        self.assertEqual(Fixed.parse(report["consumed"]), led.consumed(job_id="j1"))
+        self.assertEqual(read_job_spend(path, "nope")["reservations"], [])
+        missing = self.tmp / "absent.sqlite"
+        self.assertEqual(read_job_spend(missing, "j1")["ledger"], "absent")
+        self.assertFalse(missing.exists())
 
 
 if __name__ == "__main__":

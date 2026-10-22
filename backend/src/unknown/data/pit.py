@@ -110,6 +110,21 @@ class ResearchStore:
         self.conn.executescript(SCHEMA)
         self.raw_dir = Path(raw_dir) if raw_dir else (Path(self.path).parent / "raw" if self.path != ":memory:" else None)
 
+    @classmethod
+    def open_readonly(cls, path: str | Path) -> "ResearchStore":
+        """Open an existing store for reading only (research consumers such as the agent worker and the
+        terminal API): no schema creation, no journal-mode change, and any write raises. A missing file
+        raises ``FileNotFoundError`` instead of creating an empty store."""
+        target = Path(path)
+        if not target.is_file():
+            raise FileNotFoundError(f"research store {target} does not exist")
+        store = cls.__new__(cls)
+        store.path = str(target)
+        store.conn = sqlite3.connect(f"file:{target}?mode=ro", uri=True, isolation_level=None)
+        store.conn.row_factory = sqlite3.Row
+        store.raw_dir = None
+        return store
+
     # ------------------------------------------------------------ raw layer
     def put_raw(self, data: bytes, *, provider: str, dataset: str, request: dict, receipt_time_ns: int,
                 media_type: str, retention_until_ns: int | None = None) -> str:
