@@ -14,6 +14,7 @@
  */
 import { auditWorkspace } from './audit';
 import { capabilitiesWorkspace } from './capabilities';
+import { companyWorkspace } from './company';
 import { instrumentsWorkspace } from './instruments';
 import { operationsWorkspace } from './operations';
 import { ordersWorkspace } from './orders';
@@ -33,6 +34,7 @@ export const WORKSPACES: readonly WorkspaceDefinition[] = validateRegistry([
   operationsWorkspace,
   auditWorkspace,
   instrumentsWorkspace,
+  companyWorkspace,
 ]);
 
 export function findWorkspace(id: string): WorkspaceDefinition | undefined {
