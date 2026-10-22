@@ -44,6 +44,12 @@ Status words follow ADR-0001. No capability is `paper-verified` or `live-verifie
 - **Claude API:** the owner authorized **USD 200 total** Anthropic spend. Proposed caps are 15.00/day and 2.00/job. The default model is `claude-opus-5-5`; other providers stay disabled. The API key is not yet on this machine. It goes in `~/.unknown/secrets/anthropic_api_key` (mode 600) or `ANTHROPIC_API_KEY`.
 - **IBKR:** the owner has an IBKR account. The paper account still needs to be identified locally and IB Gateway installed and logged in.
 - **Market data:** the owner chose a **real-time US equity subscription** in IBKR Client Portal, shared with the paper account. Delayed data stays forbidden for order validation in every mode.
+- **Market data observed on the owner's account (screenshot, 2026-10-22).** No account identifiers are recorded here.
+  - The Market Data API Acknowledgement is signed (2026-10-22) and API access is enabled.
+  - US equities come from **"US Real-Time Non Consolidated Streaming Quotes"** (fee waived). IBKR's pricing page says this free feed is Cboe One + IEX and **non-consolidated** (record CAP-DATA-10): it is real time, but it is not the national best bid/offer. No Network A/B/C subscription is present.
+  - The subscriber status shows **"Non-Commercial Professional"**. IBKR classifies users as Professional by default and tells individuals to update their status if they qualify as Non-Professional (CAP-IBKR-12). The owner should review this, because it changes exchange fees, for example under the CTA schedule in CAP-MKT-11.
+  - Open question: whether exchange *non-display* (automated-use) fees apply to this account's algorithmic consumption of consolidated data (CAP-MKT-11 lists CTA non-display fees). Confirm with IBKR before subscribing for automated use.
+  - Engineering follow-up: tag quotes `consolidated`/`non_consolidated`. Allow non-consolidated real-time quotes for PAPER validation only, labelled in the terminal. LIVE requires consolidated data unless the owner decides otherwise.
 
 ## External blockers
 
