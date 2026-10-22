@@ -70,9 +70,15 @@ def cash_hold_amount(order: dict, multiplier: Fixed) -> Fixed:
     return (commitment + remaining_fee).rescale(scale)
 
 
+def order_owner(order: dict) -> str:
+    """The ledger owner an order reserves for: its session's owner, or the owner fixed at acceptance for an owner
+    disposal of residual inventory (protected:<id> or unallocated; ADR-0008, BR-LED-03)."""
+    return order.get("owner") or ledger.session_owner(order["session_id"])
+
+
 def hold_rows(order: dict, multiplier: Fixed, *, release: bool) -> list[dict]:
     """Recompute the order's hold from its current state (holds are a function of the order)."""
-    owner = ledger.session_owner(order["session_id"])
+    owner = order_owner(order)
     if order["side"] == "BUY":
         amount = Fixed(0, currency(order["currency"]).ledger_scale) if release else cash_hold_amount(order, multiplier)
         return [{"hold_id": f"{order['order_id']}:cash", "order_id": order["order_id"], "account_key": order["account_key"],

@@ -28,7 +28,7 @@ from ...risk import fees as fee_model
 from .. import ledger, state
 from ..desk import Context
 from .common import (EXECUTION_ANOMALY, FOREIGN_ACTIVITY, OVERCOMMITTED, POST_COMPLETION_ADJUSTMENT, UNKNOWN_ORDER,
-                     hold_rows, multiplier_of, new_exception)
+                     hold_rows, multiplier_of, new_exception, order_owner)
 
 TERMINAL_MAP = {"CANCELED": "CANCELED", "EXPIRED": "EXPIRED", "REJECTED": "REJECTED"}
 WORKING_STATUSES = ("PENDING_SUBMIT", "ACKNOWLEDGED", "PARTIALLY_FILLED", "PENDING_CANCEL")
@@ -401,7 +401,8 @@ def apply_order_execution(ctx: Context, order: dict, p: dict, *, allowance: Fixe
     inst = state.instrument(ctx.tx, order["instrument_id"])
     mult = inst.multiplier if inst else Fixed(1)
     settlement_days = inst.settlement_days if inst else 1
-    owner = economic_owner(ctx.tx, order["session_id"])
+    # A disposal books to the owner it was accepted for; any other order to whoever holds its session's balances now.
+    owner = order.get("owner") or economic_owner(ctx.tx, order["session_id"])
     ccy = order["currency"]
     scale = currency(ccy).ledger_scale
     policy = state.active_policy(ctx.tx, key)
@@ -464,8 +465,11 @@ def apply_order_execution(ctx: Context, order: dict, p: dict, *, allowance: Fixe
     pending = ctx.tx.one("SELECT row FROM pending_commissions WHERE exec_key=?", (p["exec_key"],))
     if pending is not None:
         _apply_commission(ctx, json.loads(pending["row"]), deferred=True)
-    if owner.startswith("protected:"):
-        _post_completion_notice(ctx, key, order["session_id"], f"execution {p['exec_key']} after completion", blocking=True)
+    if _after_session_end(ctx, order) and order.get("purpose") != "DISPOSAL":
+        # A late fill or a correction for an ended session: booked to protected:<id> or unallocated (above), and a
+        # blocking case for the owner (ADR-0008). An owner disposal's own fills are expected activity, not a case.
+        _post_completion_notice(ctx, key, order["session_id"], f"execution {p['exec_key']} after the session ended",
+                                blocking=True, ref=p["exec_key"])
     s = state.session(ctx.tx, order["session_id"]) if order["session_id"] else None
     if s is not None and s["state"] == "RECONCILING":
         _late_activity_notice(ctx, key, s, f"execution {p['exec_key']} while reconciling")
@@ -497,13 +501,33 @@ def check_overcommit(ctx: Context, key: str, owner: str, ccy: str, ref: str, ses
              {"exceptions": [case], "journal": [e]}, account_key=key, session_id=session_id)
 
 
-def _post_completion_notice(ctx: Context, key: str, session_id: str, what: str, *, blocking: bool) -> None:
+def _after_session_end(ctx: Context, order: dict | None) -> bool:
+    """Whether the order's session has ended (COMPLETED_*, CLOSED or CANCELLED): its balances live elsewhere now."""
+    sid = (order or {}).get("session_id")
+    return bool(sid) and economic_owner(ctx.tx, sid) != ledger.session_owner(sid)
+
+
+def _post_completion_notice(ctx: Context, key: str, session_id: str, what: str, *, blocking: bool, ref: str) -> None:
+    """One case per execution with a late effect on an ended session (``ref``: its execution key), naming the owner
+    that bore it: protected:<id> after completion, unallocated after close (ADR-0008). Later effects of the same
+    execution (its commission, an adjustment) join the open case, escalating it to blocking when they must block.
+    The session's state, outcome and successor never change."""
+    s = state.session(ctx.tx, session_id)
+    holder = economic_owner(ctx.tx, session_id)
+    case_key = f"post-completion:{session_id}:{ref}"
+    existing = state.exception_by_key(ctx.tx, key, case_key)
+    if existing is not None:
+        if blocking and not existing["blocking"]:
+            ctx.emit("PostCompletionAdjustment", {"session_id": session_id, "what": what, "booked_to": holder, "escalated": True},
+                     {"exceptions": [{**existing, "blocking": True, "detail": {**existing["detail"], "escalated_by": what}}]},
+                     account_key=key, session_id=session_id)
+        return
     case = new_exception(ctx, key, POST_COMPLETION_ADJUSTMENT, blocking=blocking, severity="medium",
-                         detail={"session_id": session_id, "what": what}, key=f"post-completion:{session_id}:{ctx.payload_hash[:12]}",
-                         session_id=session_id, owner_hint=ledger.protected_owner(session_id))
-    if case:
-        ctx.emit("PostCompletionAdjustment", {"session_id": session_id, "what": what}, {"exceptions": [case]},
-                 account_key=key, session_id=session_id)
+                         detail={"session_id": session_id, "what": what, "session_state": s["state"], "booked_to": holder,
+                                 "resolution": "review the effect; dispose of any inventory it left with a DISPOSAL intent"},
+                         key=case_key, session_id=session_id, owner_hint=holder)
+    ctx.emit("PostCompletionAdjustment", {"session_id": session_id, "what": what, "booked_to": holder},
+             {"exceptions": [case]}, account_key=key, session_id=session_id)
 
 
 def _late_activity_notice(ctx: Context, key: str, session: dict, what: str) -> None:
@@ -614,6 +638,15 @@ def _apply_correction(ctx: Context, p: dict) -> dict:
                                      "correction_of": p["correction_of"]}, key=f"orphan-correction:{p['exec_key']}")
         ctx.emit("OrphanCorrectionRecorded", {"exec_key": p["exec_key"]}, {"exceptions": [case] if case else []}, account_key=key)
         order, foreign = _find_order(ctx, key, p.get("client_order_id"), p.get("order_ref"), p.get("broker_order_id"))
+        if _fx(p["quantity"]).is_zero():
+            # A bust of an execution never ingested: nothing to reverse or book; recorded under the open case.
+            row = _bust_row(p, owner=current_owner(ctx.tx, order_owner(order)) if order else ledger.EXTERNAL,
+                            order_id=order["order_id"] if order else None, session_id=order["session_id"] if order else None,
+                            instrument_id=p.get("instrument_id") or (order or {}).get("instrument_id"), side=p.get("side"),
+                            ccy=p.get("currency") or (order or {}).get("currency"))
+            ctx.emit("OrphanBustRecorded", {"exec_key": p["exec_key"], "correction_of": p["correction_of"]},
+                     {"executions": [row]}, account_key=key, order_id=row["order_id"], session_id=row["session_id"])
+            return {"exec_key": p["exec_key"], "duplicate": False, "bust": True, "orphan": True}
         plain = {**p, "correction_of": None}
         return apply_order_execution(ctx, order, plain) if order else _external_execution(ctx, plain, foreign)
     scale = currency(orig["currency"]).ledger_scale
@@ -648,7 +681,7 @@ def _apply_correction(ctx: Context, p: dict) -> dict:
         case = new_exception(ctx, key, EXECUTION_ANOMALY, blocking=True, severity="critical",
                              detail={"exec_key": p["exec_key"], "issue": "correction reduces a buy below the quantity already sold",
                                      "disposed": disposed.to_str(), "corrected_qty": p["quantity"]},
-                             key=f"correction-below-disposed:{p['exec_key']}", owner_hint=orig["owner"])
+                             key=f"correction-below-disposed:{p['exec_key']}", owner_hint=current_owner(ctx.tx, orig["owner"]))
         changes["exceptions"].append(case) if case else None
     # 3. Settlement: cancel unsettled rows; compensate rows already settled (cash moved at the broker).
     for sid in orig.get("settlement_ids") or ([orig["settlement_id"]] if orig.get("settlement_id") else []):
@@ -675,7 +708,11 @@ def _apply_correction(ctx: Context, p: dict) -> dict:
     ctx.emit("ExecutionCorrectionReversed", {"original": orig["exec_key"], "correction": p["exec_key"]}, changes,
              account_key=key, order_id=orig["order_id"], session_id=orig.get("session_id"), instrument_id=orig["instrument_id"])
     p2 = {**p, "instrument_id": p.get("instrument_id") or orig["instrument_id"], "currency": p.get("currency") or ccy}
-    if order is not None:
+    if _fx(p2["quantity"]).is_zero():
+        # A bust: the broker says the execution did not happen. The reversal above is the whole economic effect;
+        # there is no replacement to book (a zero-quantity booking would be an empty journal entry).
+        result = _record_bust(ctx, orig, p2, order)
+    elif order is not None:
         current = state.order(ctx.tx, order["order_id"])
         allowance = Fixed.parse(orig["quantity"]) if current["state"] in state.TERMINAL_ORDER_STATES else None
         result = apply_order_execution(ctx, current, p2, allowance=allowance)
@@ -686,14 +723,84 @@ def _apply_correction(ctx: Context, p: dict) -> dict:
     return {**result, "corrected": orig["exec_key"]}
 
 
+def _bust_row(p: dict, *, owner: str, order_id: str | None, session_id: str | None, instrument_id: str | None,
+              side: str | None, ccy: str | None) -> dict:
+    """The execution row of a bust (a correction to quantity zero): recorded, with no economic effect of its own."""
+    zero = Fixed(0, currency(ccy).ledger_scale).to_str() if ccy else "0"
+    return {"exec_key": p["exec_key"], "account_key": p["account_key"], "order_id": order_id, "session_id": session_id,
+            "owner": owner, "instrument_id": instrument_id, "side": side, "quantity": "0", "price": p.get("price"),
+            "currency": ccy, "notional": zero, "raw_notional": "0", "exec_time_ns": p.get("exec_time_ns"),
+            "provider_exec_id": p.get("provider_exec_id"), "correction_of": p.get("correction_of"), "corrected_by": None,
+            "status": "BUST", "fee_estimate": zero, "fee_estimate_code": None, "fee_final": None, "fee_status": "BUST",
+            "effects": {"entries": [], "lots_opened": [], "lots_consumed": []}, "settlement_id": None,
+            "settlement_ids": [], "raw_economic": p.get("_raw_economic") or {k: p.get(k) for k in ECONOMIC_FIELDS},
+            "raw": p.get("raw", {})}
+
+
+def _record_bust(ctx: Context, orig: dict, p: dict, order: dict | None) -> dict:
+    """Record a bust after its original was reversed (BR-LED-03, BR-SES-02).
+
+    The reversal already moved every effect to whoever holds the balances now: after completion the shares a busted
+    sell had delivered come back to protected:<id> with their cost, after close to unallocated (ADR-0008); a busted
+    buy's payable and inventory leave the same way. Here the bust itself is recorded, the order's holds are
+    recomputed (a working order keeps its reservation for the quantity the broker may still fill), and cases open:
+    a blocking POST_COMPLETION_ADJUSTMENT for an ended session (dispose of returned inventory with a DISPOSAL intent),
+    a late-activity case for a session already flat, and an EXECUTION_ANOMALY when the order is still working, since
+    the broker's view of its remaining quantity must then be confirmed."""
+    key = p["account_key"]
+    owner = current_owner(ctx.tx, orig["owner"])
+    row = _bust_row(p, owner=owner, order_id=orig.get("order_id"), session_id=orig.get("session_id"),
+                    instrument_id=orig["instrument_id"], side=orig["side"], ccy=orig["currency"])
+    changes: dict = {"executions": [row], "exceptions": []}
+    current = state.order(ctx.tx, order["order_id"]) if order is not None else None
+    if current is not None:
+        working = current["state"] not in state.TERMINAL_ORDER_STATES
+        changes["holds"] = hold_rows(current, multiplier_of(ctx, current["instrument_id"]), release=not working)
+        if working:
+            case = new_exception(ctx, key, EXECUTION_ANOMALY, blocking=True, severity="high",
+                                 detail={"exec_key": p["exec_key"], "busted": orig["exec_key"], "order_id": current["order_id"],
+                                         "issue": "execution busted while the order is working: confirm its remaining quantity"},
+                                 key=f"bust-working:{p['exec_key']}", session_id=current["session_id"],
+                                 order_id=current["order_id"], owner_hint=owner)
+            if case:
+                changes["exceptions"].append(case)
+    ctx.emit("ExecutionBusted", {"exec_key": p["exec_key"], "busted": orig["exec_key"], "owner": owner,
+                                 "quantity_returned": orig["quantity"] if orig["side"] == "SELL" else None,
+                                 "note": "reversal is the whole economic effect; no replacement is booked"},
+             changes, account_key=key, session_id=orig.get("session_id"), order_id=orig.get("order_id"),
+             instrument_id=orig["instrument_id"], event_time_ns=p.get("exec_time_ns"))
+    sid = orig.get("session_id")
+    if sid and _after_session_end(ctx, current or {"session_id": sid}) and (current or {}).get("purpose") != "DISPOSAL":
+        _post_completion_notice(ctx, key, sid, f"bust {p['exec_key']} of {orig['exec_key']} after the session ended",
+                                blocking=True, ref=p["exec_key"])
+    elif sid:
+        s = state.session(ctx.tx, sid)
+        if s["state"] == "RECONCILING":
+            _late_activity_notice(ctx, key, s, f"bust {p['exec_key']} while reconciling")
+    check_overcommit(ctx, key, owner, orig["currency"], p["exec_key"], sid)
+    return {"exec_key": p["exec_key"], "duplicate": False, "bust": True, "owner": owner}
+
+
 def _reattribute_disposed(ctx: Context, key: str, orig: dict, p: dict, disposed: Fixed, old_cost: Fixed, scale: int) -> None:
     """Shares of a corrected buy that were already sold: remove them from the replacement lot at the
-    corrected price and restate the realized result of those sales by the cost difference."""
+    corrected price and restate the realized result of those sales by the cost difference. After a bust there is
+    no replacement lot: the sold shares' whole old cost is restated (the correction-below-disposed case records
+    that they were never owned)."""
     new = state.execution(ctx.tx, p["exec_key"])
-    lot_id = (new or {}).get("effects", {}).get("lots_opened", [None])[0]
-    if not lot_id:
+    opened = ((new or {}).get("effects") or {}).get("lots_opened") or []
+    if not opened:
+        if (new or {}).get("status") != "BUST" or old_cost.is_zero():
+            return
+        owner = current_owner(ctx.tx, orig["owner"])
+        lines = [ledger.Line(ledger.INVENTORY, owner, orig["currency"], old_cost, orig["instrument_id"]),
+                 ledger.Line(ledger.REALIZED, owner, orig["currency"], -old_cost)]
+        ctx.emit("CorrectionDisposalRestated", {"disposed": "0", "old_cost": old_cost.to_str(), "new_cost": "0",
+                                                "note": f"bust {p['exec_key']}: {disposed} shares sold were never bought"},
+                 {"journal": [ledger.entry(ctx.new_id("je-"), key, "CORRECTION_RESTATEMENT",
+                                           f"restate cost of {disposed} shares sold before bust {p['exec_key']}", lines)]},
+                 account_key=key, instrument_id=orig["instrument_id"])
         return
-    lot = json.loads(ctx.tx.one("SELECT row FROM lots WHERE lot_id=?", (lot_id,))["row"])
+    lot = json.loads(ctx.tx.one("SELECT row FROM lots WHERE lot_id=?", (opened[0],))["row"])
     open_qty, open_cost = Fixed.parse(lot["open_qty"]), Fixed.parse(lot["open_cost"])
     take = disposed if disposed < open_qty else open_qty
     new_cost = open_cost if take == open_qty else (open_cost * take).div(open_qty, scale, Rounding.HALF_EVEN)
@@ -816,9 +923,10 @@ def _apply_commission(ctx: Context, p: dict, *, deferred: bool) -> dict:
             changes["holds"] = hold_rows(new, mult, release=new["state"] in state.TERMINAL_ORDER_STATES)
     ctx.emit(kind, {"exec_key": exec_key, **info, "owner": owner}, changes, account_key=key,
              order_id=ex.get("order_id"), session_id=ex.get("session_id"))
-    if owner.startswith("protected:") and ex.get("session_id"):
+    ex_order = state.order(ctx.tx, ex["order_id"]) if ex.get("order_id") else None
+    if ex.get("session_id") and owner != ledger.session_owner(ex["session_id"]) and (ex_order or {}).get("purpose") != "DISPOSAL":
         _post_completion_notice(ctx, key, ex["session_id"], f"{kind} for {exec_key}",
-                                blocking=ledger.available_cash(ctx.tx, key, owner, ccy).is_negative())
+                                blocking=ledger.available_cash(ctx.tx, key, owner, ccy).is_negative(), ref=exec_key)
     if owner == ledger.EXTERNAL:
         cover_external(ctx, key, ccy, f"{exec_key}:commission")
     check_overcommit(ctx, key, owner, ccy, exec_key, ex.get("session_id"))
