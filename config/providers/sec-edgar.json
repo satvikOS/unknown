@@ -1,0 +1,48 @@
+{
+  "provider_id": "sec-edgar",
+  "name": "U.S. Securities and Exchange Commission — EDGAR APIs",
+  "access": "HTTPS GET to data.sec.gov / www.sec.gov; no API key; server-side only (no CORS)",
+  "cost_model": "Free",
+  "budget": "none required",
+  "rate_limit": {"max_requests": 10, "per_seconds": 1.0,
+                 "source": "https://www.sec.gov/os/accessing-edgar-data ('Current max request rate: 10 requests/second'; SEC may limit further)"},
+  "requires_local_config": ["sec_user_agent"],
+  "failure_behavior": "429/403 or connection errors: back off exponentially, stop the run after bounded retries, record the run as FAILED; never exceed the declared rate; data already stored remains with its availability times.",
+  "sources": [
+    "https://www.sec.gov/search-filings/edgar-application-programming-interfaces",
+    "https://www.sec.gov/os/accessing-edgar-data",
+    "https://www.sec.gov/privacy",
+    "https://www.sec.gov/about/developer-resources"
+  ],
+  "verified_on": "2026-10-22",
+  "datasets": [
+    {
+      "dataset_id": "sec.submissions",
+      "description": "Filing history per registrant (forms, accession numbers, filing dates, acceptance timestamps, former names)",
+      "endpoint": "https://data.sec.gov/submissions/CIK##########.json (+ additional files for older filings)",
+      "coverage": "SEC registrants",
+      "history_depth": "recent filings in the main file; older filings in additional submissions files",
+      "update_frequency": "real-time as filings are disseminated",
+      "availability_rule": "a filing is available at its EDGAR acceptance timestamp (acceptanceDateTime), never earlier",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_cloud", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "https://www.sec.gov/privacy (public information; cite SEC; do not use SEC seal or logos); redistribution not asserted here",
+      "rights_verified_on": "2026-10-22"
+    },
+    {
+      "dataset_id": "sec.companyfacts",
+      "description": "XBRL financial data per company, every reported value with accession number, form, fiscal period and filing date",
+      "endpoint": "https://data.sec.gov/api/xbrl/companyfacts/CIK##########.json",
+      "coverage": "filers submitting XBRL financial statements",
+      "history_depth": "as far back as XBRL filings exist for the registrant",
+      "update_frequency": "as filings are processed",
+      "availability_rule": "each reported value is available at the acceptance timestamp of its accession (joined from sec.submissions); if unknown, at 23:59:59 America/New_York on the 'filed' date (conservative)",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_cloud", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": true,
+      "rights_source": "https://www.sec.gov/privacy",
+      "rights_verified_on": "2026-10-22"
+    }
+  ]
+}
