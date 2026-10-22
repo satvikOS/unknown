@@ -17,6 +17,7 @@ import {
   auditSummary,
   cancelAvailability,
   deliveryTone,
+  horizonText,
   needsPolling,
   parseCancelResponse,
   parseDetail,
@@ -77,7 +78,7 @@ export function ModelOutput({ p, context }: { p: Proposal; context: string }) {
           None stated.
         </p>
       )}
-      {p.horizon_seconds !== null ? <p className="rj-hint" style={{ margin: 0 }}>Horizon: {Math.round(p.horizon_seconds / 86_400)} days ({p.horizon_seconds.toLocaleString('en-US')} s).</p> : null}
+      {p.horizon_seconds !== null ? <p className="rj-hint" style={{ margin: 0 }}>Horizon: {horizonText(p.horizon_seconds)}.</p> : null}
     </div>
   );
 }
@@ -345,7 +346,7 @@ export function JobDetailView({ jobId }: { jobId: string }) {
                     <dt>Reason</dt>
                     <dd>
                       {d.job.reason ? <span className="rj-text">{d.job.reason}</span> : <span className="muted">—</span>}
-                      {d.job.reason ? <span className="rj-hint"> ({reasonSource(d.job)})</span> : null}
+                      {d.job.reason ? <span className="rj-hint"> ({reasonSource(d.job, d.events)})</span> : null}
                     </dd>
                     <dt>Submitted</dt>
                     <dd>

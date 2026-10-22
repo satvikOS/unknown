@@ -425,20 +425,41 @@ export function stateExplanation(j: Pick<JobSummary, 'state' | 'cancel_requested
 }
 
 /**
- * Who wrote a job's `reason`. It is never model text: an owner cancel stores the owner's own reason
- * (jobstore.JobStore.cancel), and every other outcome stores the worker's or runner's reason.
+ * Who wrote a job's `reason` (jobstore.JobStore.cancel and finish, worker.py, runner.py).
+ *
+ * - Only a cancel of a QUEUED job stores the owner's own text; the job store then records a
+ *   `cancelled` event. A cancel of a RUNNING job keeps no owner text: when the run stops, the job
+ *   store or the worker writes the reason ("cancelled while running; ... output discarded").
+ * - A `schema_invalid` reason lists the schema errors of the model's rejected output, which can
+ *   include property names the model chose, so it can quote model text.
+ * - Every other reason is written by the worker or the runner.
+ *
+ * `events` are the job-store events of the detail view; without them a cancel's author is not known.
  */
-export function reasonSource(j: Pick<JobSummary, 'outcome'>): string {
-  return j.outcome === 'cancelled_by_owner' ? "the owner's cancel reason, not model text" : 'recorded by the worker or runner, not model text';
+export function reasonSource(j: Pick<JobSummary, 'outcome'>, events?: readonly Pick<JobEvent, 'kind'>[]): string {
+  if (j.outcome === 'cancelled_by_owner') {
+    if (!events) return "the owner's cancel reason or the job store's note, not model text";
+    return events.some((e) => e.kind === 'cancelled')
+      ? "the owner's cancel reason, not model text"
+      : "written by the job store or worker when the owner's cancel stopped the run (the owner's text is not kept for a running job), not model text";
+  }
+  if (j.outcome === 'schema_invalid') return "written by the runner; it lists schema errors and can quote parts of the model's rejected output";
+  return 'recorded by the worker or runner, not model text';
 }
 
-/** QUEUED cancels at once; RUNNING records a cancel request (jobstore.JobStore.cancel). */
+/**
+ * QUEUED cancels at once and keeps the owner's reason; RUNNING records a cancel request and the job
+ * store keeps no reason text for it (jobstore.JobStore.cancel).
+ */
 export function cancelAvailability(j: Pick<JobSummary, 'state' | 'cancel_requested'>): { allowed: boolean; why: string } {
-  if (j.state === 'QUEUED') return { allowed: true, why: 'A queued job is cancelled at once.' };
+  if (j.state === 'QUEUED') return { allowed: true, why: 'A queued job is cancelled at once, and your reason is recorded as the job reason.' };
   if (j.state === 'RUNNING') {
     return j.cancel_requested
       ? { allowed: false, why: 'A cancel is already requested; the worker stops at the next turn boundary.' }
-      : { allowed: true, why: 'A running job stops at the next turn boundary and its output is discarded.' };
+      : {
+          allowed: true,
+          why: 'A running job stops at the next turn boundary and its output is discarded. The API records the cancel request but not your reason text for a running job.',
+        };
   }
   return { allowed: false, why: `A ${j.state.toLowerCase()} job has finished; there is nothing to cancel.` };
 }
@@ -485,6 +506,17 @@ export function spendUse(spend: Spend, cap: MoneyAmount | null): SpendUse | null
 /** One line on what a proposal is; the text inside it is model output, never advice. */
 export function proposalHeadline(p: Proposal): string {
   return p.abstain ? 'The model abstained: it did not find enough evidence to answer.' : 'The model stated a hypothesis with cited evidence.';
+}
+
+/** A proposal horizon in words plus exact seconds; a horizon under a day is never shown as "0 days". */
+export function horizonText(seconds: number): string {
+  const exact = `${seconds.toLocaleString('en-US')} s`;
+  if (seconds >= 86_400) {
+    const days = seconds % 86_400 === 0 ? String(seconds / 86_400) : (seconds / 86_400).toFixed(1);
+    return `${days} ${days === '1' ? 'day' : 'days'} (${exact})`;
+  }
+  if (seconds >= 3600) return `${(seconds / 3600).toFixed(1)} hours (${exact})`;
+  return exact;
 }
 
 export function shortQuestion(q: string | null, max = 90): string {

@@ -6,6 +6,7 @@ import {
   auditSummary,
   buildSubmit,
   cancelAvailability,
+  horizonText,
   issuerForInstrument,
   needsPolling,
   parseCancelResponse,
@@ -132,9 +133,34 @@ describe('states, cancel and polling', () => {
     expect(stateExplanation({ state: 'QUEUED', cancel_requested: false, start_attempts: 2 })).toMatch(/2 start attempt/);
   });
 
-  it('attributes a job reason to whoever wrote it, never to the model', () => {
-    expect(reasonSource({ outcome: 'cancelled_by_owner' })).toBe("the owner's cancel reason, not model text");
+  it('attributes a job reason to whoever wrote it', () => {
+    // A QUEUED cancel stores the owner's text and a `cancelled` event (jobstore.JobStore.cancel).
+    const queuedCancel = [{ kind: 'queued' }, { kind: 'cancelled' }];
+    expect(reasonSource({ outcome: 'cancelled_by_owner' }, queuedCancel)).toBe("the owner's cancel reason, not model text");
+    // A RUNNING cancel keeps no owner text: finish() writes "cancelled while running; ... output discarded".
+    const runningCancel = [{ kind: 'queued' }, { kind: 'claimed' }, { kind: 'cancel_requested' }, { kind: 'finished' }];
+    const running = reasonSource({ outcome: 'cancelled_by_owner' }, runningCancel);
+    expect(running).not.toMatch(/^the owner's cancel reason/);
+    expect(running).toMatch(/written by the job store or worker/);
+    expect(reasonSource({ outcome: 'cancelled_by_owner' })).toMatch(/or the job store's note/);
     expect(reasonSource({ outcome: 'denied_by_policy' })).toBe('recorded by the worker or runner, not model text');
+    // Schema errors can name properties the model invented ("unexpected properties [...]").
+    const schema = reasonSource({ outcome: 'schema_invalid' });
+    expect(schema).not.toMatch(/not model text/);
+    expect(schema).toMatch(/can quote parts of the model's rejected output/);
+  });
+
+  it('says that a running job keeps no cancel reason text', () => {
+    expect(cancelAvailability({ state: 'RUNNING', cancel_requested: false }).why).toMatch(/not your reason text/);
+    expect(cancelAvailability({ state: 'QUEUED', cancel_requested: false }).why).toMatch(/your reason is recorded/);
+  });
+
+  it('states a proposal horizon without rounding a short one to zero days', () => {
+    expect(horizonText(7_776_000)).toBe('90 days (7,776,000 s)');
+    expect(horizonText(86_400)).toBe('1 day (86,400 s)');
+    expect(horizonText(3600)).toBe('1.0 hours (3,600 s)');
+    expect(horizonText(129_600)).toBe('1.5 days (129,600 s)');
+    expect(horizonText(45)).toBe('45 s');
   });
 
   it('allows cancel only where the job store does', () => {
