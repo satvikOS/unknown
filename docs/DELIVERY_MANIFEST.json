@@ -1,0 +1,18 @@
+{
+  "edition": "1.0",
+  "research_date": "2026-10-22",
+  "chapter_files": 34,
+  "source_words": 24752,
+  "pdf": "Project_Unknown_Technical_Book_v1.pdf",
+  "pages": 115,
+  "chapters": 29,
+  "appendices": 4,
+  "primary_sources": 43,
+  "python_tests_passed": 19,
+  "native_assertions_passed": 11,
+  "pdf_sha256": "3fd51b54042a2ccd52b3a657e98b36ab874997788f54ee43518231b68d5a1728",
+  "python_version": "3.12.14",
+  "sqlite_version": "3.53.1",
+  "visual_qa": "Reviewed cover, contents, mathematics, diagrams, code, source register and index; no overfull boxes, missing glyphs or undefined references in final TeX build.",
+  "scope": "Specification and offline reference; no live broker, terminal, cloud model calls or validated trading profitability."
+}

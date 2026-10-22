@@ -6,7 +6,7 @@ The instrument model anticipates many markets, but each asset class introduces d
 
 For a European call under the Black-Scholes assumptions of lognormal diffusion, constant volatility/rates and continuous dividend yield $q_d$,
 
-$$C=Se^{-q_dT}N(d_1)-Ke^{-rT}N(d_2),\quad d_1=\frac{\log(S/K)+(r-q_d+\sigma^2/2)T}{\sigma\sqrt T},\quad d_2=d_1-\sigma\sqrt T. \tag{21.1}$$
+$$\begin{aligned}C&=Se^{-q_dT}N(d_1)-Ke^{-rT}N(d_2),\\ d_1&=\frac{\log(S/K)+(r-q_d+\sigma^2/2)T}{\sigma\sqrt T},\\ d_2&=d_1-\sigma\sqrt T.\end{aligned} \tag{21.1}$$
 
 Put-call parity is $C-P=Se^{-q_dT}-Ke^{-rT}$ under compatible European assumptions. American exercise, discrete dividends, borrow constraints and market frictions require additional treatment. Implied volatility solves the pricing equation numerically; verify price bounds, monotonicity and convergence rather than returning a number for an impossible quote.
 

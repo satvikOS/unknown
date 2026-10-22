@@ -1,0 +1,2 @@
+# Optional document-build dependency; the offline engine uses only the standard library.
+matplotlib==3.10.8

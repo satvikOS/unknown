@@ -1,4 +1,4 @@
-# Institutional capability track and long-term roadmap {#roadmap}
+# Institutional capabilities and roadmap {#roadmap}
 
 HRT, Jane Street and Citadel publish descriptions of quantitative research, machine learning and engineering work, but their private signals, inventories, execution systems and decision rules are not publicly reproducible in full. [S37, S38, S39] The useful goal is to adopt rigorous research, reliable infrastructure and explicit risk control, while measuring the capabilities this project actually achieves.
 

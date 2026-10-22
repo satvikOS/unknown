@@ -1,4 +1,4 @@
-# Reading guide and evidence contract {#reading-guide}
+# Reading guide and evidence contract {#reading-guide .unnumbered}
 
 Project Unknown is a personal, multi-market financial desk with a research terminal, quantitative strategy evaluation, cloud AI workers, deterministic execution controls and session accounting. Stocks have first implementation priority. The long-term instrument model includes ETFs, options, futures, foreign exchange, bonds and crypto. Trading access depends on the owner's actual account, residence, broker and permissions; a universal software model does not create universal market access.
 

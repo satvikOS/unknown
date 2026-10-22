@@ -6,7 +6,7 @@ Market making seeks compensation for supplying liquidity while bearing inventory
 
 In a stylized model, the midprice follows a Brownian process with volatility $\sigma$, inventory is $q$, risk aversion is $\gamma$ and remaining horizon is $\tau$. Exponential utility and exponential order-arrival intensity $\lambda(\delta)=A e^{-k\delta}$ lead to a widely used approximate reservation price and spread form:
 
-$$r=s-q\gamma\sigma^2\tau,\qquad \Delta=\gamma\sigma^2\tau+\frac{2}{\gamma}\log(1+\gamma/k). \tag{18.1}$$
+$$\begin{aligned}r&=s-q\gamma\sigma^2\tau,\\ \Delta&=\gamma\sigma^2\tau+\frac{2}{\gamma}\log(1+\gamma/k).\end{aligned} \tag{18.1}$$
 
 Approximate bid and ask are $r-\Delta/2$ and $r+\Delta/2$. This is a public academic model, not a reconstruction of a named firm's strategy. [S22] Price, inventory-unit and time conventions must make the exponents dimensionless. Contract size cannot be changed without adjusting the parameter interpretation.
 
