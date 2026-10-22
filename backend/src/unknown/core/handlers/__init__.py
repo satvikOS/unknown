@@ -1,5 +1,5 @@
 """Command kind -> handler. Permissions per kind live in domain/principal.py."""
-from . import admin, broker, control, orders, recon, sessions, valuation
+from . import admin, broker, control, orders, recon, sessions, strategy, valuation
 
 HANDLERS = {
     # owner administration
@@ -39,6 +39,7 @@ HANDLERS = {
     "resolve_exception": control.resolve_exception,
     "accept_fee_estimate": control.accept_fee_estimate,
     "submit_research_proposal": control.submit_research_proposal,
+    "record_strategy_decision": strategy.record_strategy_decision,
     # process lifecycle
     "process_started": admin.process_started,
 }

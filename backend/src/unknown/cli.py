@@ -72,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "init":
         paths.ensure()
-        for name in ("api", "agent"):
+        for name in ("api", "agent", "strategy"):
             paths.token(name, create=True)
         print(f"initialized {paths.root} (tokens created with mode 600)")
         return 0

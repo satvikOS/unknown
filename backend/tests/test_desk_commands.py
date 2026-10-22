@@ -41,14 +41,14 @@ OWNER_KINDS = frozenset({
     "acquire_execution_ownership", "release_execution_ownership", "authorize_capital", "deauthorize_capital",
     "create_session", "amend_session_request", "cancel_session", "start_session", "suspend_session",
     "resume_session", "end_session", "submit_intent", "request_cancel", "stop", "start", "resolve_exception",
-    "accept_fee_estimate", "submit_research_proposal", "broker_admin_action",
+    "accept_fee_estimate", "submit_research_proposal", "broker_admin_action", "record_strategy_decision",
 })
 SYSTEM_KINDS = frozenset({
     "process_started", "outbox_begin", "outbox_result", "broker_order_status", "broker_execution",
     "broker_commission", "broker_connectivity", "reconciliation_result", "valuation", "session_tick",
     "stop", "start_session", "request_cancel",
 })  # SYSTEM never submits intents; wind-down sells go through create_order directly (review finding 40)
-STRATEGY_KINDS = frozenset({"submit_intent", "request_cancel"})
+STRATEGY_KINDS = frozenset({"submit_intent", "request_cancel", "record_strategy_decision"})
 AGENT_KINDS = frozenset({"submit_research_proposal"})
 EXPECTED = {Role.OWNER: OWNER_KINDS, Role.SYSTEM: SYSTEM_KINDS, Role.STRATEGY: STRATEGY_KINDS, Role.AGENT: AGENT_KINDS}
 

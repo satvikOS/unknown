@@ -34,7 +34,9 @@ from .paths import Paths
 
 log = logging.getLogger("unknown.core")
 
-SOCKET_ROLES = {"api": frozenset({"OWNER"}), "agent": frozenset({"AGENT"})}
+# Each token may assert only these roles. The strategy token belongs to strategy runners (ADR-0017): research-side
+# processes without broker credentials that submit intents and decision records as their artifact id.
+SOCKET_ROLES = {"api": frozenset({"OWNER"}), "agent": frozenset({"AGENT"}), "strategy": frozenset({"STRATEGY"})}
 RECONNECT_MIN_S = 5.0
 RECONNECT_MAX_S = 300.0
 
