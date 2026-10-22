@@ -1,0 +1,42 @@
+# Offline test suites. No secrets, no network beyond package installation, no paid services.
+name: ci
+on:
+  push:
+    branches: [main, impl/foundation]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Book companion (offline reference)
+        run: python -m unittest discover -s tests -v
+      - name: Book native pretrade example
+        run: |
+          mkdir -p build
+          c++ -std=c++20 -O2 -Wall -Wextra -Werror -pedantic reference/risk_kernel.cpp -o build/risk_kernel
+          ./build/risk_kernel
+      - name: Core and research suites
+        working-directory: backend
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -v
+      - name: Guard against committed account identifiers and keys
+        run: |
+          if git grep -n -E '(^|[^A-Za-z0-9])(U[0-9]{7,8}|DU[A-Z]?[0-9]{6,8})([^A-Za-z0-9]|$)|sk-ant-[A-Za-z0-9_-]{10,}' -- . ':!.github/workflows/ci.yml' ':!scripts/hooks/pre-commit'; then
+            echo "account identifier or key pattern found"; exit 1
+          fi
