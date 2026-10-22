@@ -43,6 +43,7 @@ Status words follow ADR-0001. No capability is `paper-verified` or `live-verifie
 - **SEC contact:** the owner authorized their email for the SEC-required User-Agent. It is stored only in `~/.unknown/config/data.json`. Live ingestion is verified: Apple and Microsoft, 57,846 observations.
 - **Claude API:** the owner authorized **USD 200 total** Anthropic spend. Proposed caps are 15.00/day and 2.00/job. The default model is `claude-opus-5-5`; other providers stay disabled. The API key is not yet on this machine. It goes in `~/.unknown/secrets/anthropic_api_key` (mode 600) or `ANTHROPIC_API_KEY`.
 - **IBKR:** the owner has an IBKR account. The paper account still needs to be identified locally and IB Gateway installed and logged in.
+- **Market data:** the owner chose a **real-time US equity subscription** in IBKR Client Portal, shared with the paper account. Delayed data stays forbidden for order validation in every mode.
 
 ## External blockers
 
