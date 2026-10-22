@@ -40,3 +40,21 @@ jobs:
           if git grep -n -E '(^|[^A-Za-z0-9])(U[0-9]{7,8}|DU[A-Z]?[0-9]{6,8})([^A-Za-z0-9]|$)|sk-ant-[A-Za-z0-9_-]{10,}' -- . ':!.github/workflows/ci.yml' ':!scripts/hooks/pre-commit'; then
             echo "account identifier or key pattern found"; exit 1
           fi
+  terminal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: terminal
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Install the locked dependency tree
+        run: npm ci --ignore-scripts
+      - name: Typecheck, unit tests, build
+        run: |
+          npm run typecheck
+          npm test
+          npm run build
