@@ -3,7 +3,8 @@ socket, a real SQLite database, a temporary runtime home and a free TCP port):
 
 1. a reused command id with another payload or principal is HTTP 409 COMMAND_ID_CONFLICT, never 503;
 2. GET /api/commands/<id> returns the owner's stored command result, so an unknown outcome is resolved
-   without resending (and a lost reply is HTTP 504 COMMAND_OUTCOME_UNKNOWN, never "not executed");
+   without resending (and a lost reply is HTTP 504 COMMAND_OUTCOME_UNKNOWN, never "not executed"; a failure
+   after the core recorded the command returns the stored result with ``post_commit_error``);
 3. the step-up window is the active policy's reauth_max_age_s, as the core checks it (15 minutes only
    without a policy);
 4. every *_ns integer also comes as an exact *_ns_str decimal string;
@@ -26,6 +27,7 @@ import secrets
 import select
 import shutil
 import socket
+import sqlite3
 import tempfile
 import threading
 import time
@@ -436,6 +438,87 @@ class StepUpWindowTests(LiveCase):
         self.age_session(cookie, 61 * MINUTE)
         status, err, _ = self.command(cookie, csrf, "publish_policy", self.new_policy())
         self.assertEqual((status, err["step_up"]["max_age_s"], err["step_up"]["basis"]), (428, 3600, "policy"))
+
+
+class PostCommitFailureTests(LiveCase):
+    """A failure after the core committed a command (the restore marker is written after every commit) is not
+    "not executed": the API returns the stored result. A failure before the commit stays NOT_EXECUTED, and a
+    core that cannot tell is OUTCOME_UNKNOWN."""
+
+    def fail_after_commit_of(self, cid: str, exc: Exception, *, unreadable: bool = False) -> None:
+        store = self.stack.core.desk.store
+        marker, query = store.write_marker, store.query
+        armed = {"marker": True, "query": False}
+
+        def failing_marker(*a, **kw):
+            if armed["marker"] and store.conn.execute("SELECT 1 FROM commands WHERE command_id=?", (cid,)).fetchone():
+                armed["marker"], armed["query"] = False, unreadable
+                raise exc
+            return marker(*a, **kw)
+
+        def failing_query(*a, **kw):
+            if armed["query"]:
+                armed["query"] = False
+                raise sqlite3.OperationalError("disk I/O error")
+            return query(*a, **kw)
+        store.write_marker, store.query = failing_marker, failing_query
+        self.addCleanup(setattr, store, "write_marker", marker)
+        self.addCleanup(setattr, store, "query", query)
+
+    def test_a_failure_after_the_commit_returns_the_stored_result(self):
+        cookie, csrf = self.login()
+        for exc in (PermissionError(13, "Permission denied"), OSError(28, "No space left on device")):
+            cid = f"ui.test.postcommit.{_hex()}"
+            self.fail_after_commit_of(cid, exc)
+            with self.assertLogs("unknown", logging.ERROR) as logs:
+                status, got, _ = self.command(cookie, csrf, "publish_policy", {"body": _policy(1400, f"pc-{_hex()}")}, cid)
+            self.assertEqual(status, 200, got)
+            self.assertTrue(any(cid in m and "was recorded" in m for m in logs.output), logs.output)
+            self.assertEqual((got["command_id"], got["accepted"], got["duplicate"]), (cid, True, False))
+            self.assertIn(type(exc).__name__, got["post_commit_error"])
+            status, stored, _ = self.call("GET", f"/api/commands/{cid}", cookie=cookie)
+            self.assertEqual((status, stored["status"], stored["body"]), (200, "ACCEPTED", got["body"]))
+            self.assertEqual(stored["events"], got["events"])
+            self.assertTrue(got["events"])
+
+    def test_a_failure_after_a_duplicate_is_still_the_duplicate(self):
+        cookie, csrf = self.login()
+        cid = f"ui.test.postcommit-dup.{_hex()}"
+        payload = {"body": _policy(1450, f"pcd-{_hex()}")}
+        status, first, _ = self.command(cookie, csrf, "publish_policy", payload, cid)
+        self.assertEqual(status, 200, first)
+        self.fail_after_commit_of(cid, OSError(28, "No space left on device"))
+        with self.assertLogs("unknown", logging.ERROR):
+            status, again, _ = self.command(cookie, csrf, "publish_policy", payload, cid)
+        self.assertEqual(status, 200, again)
+        self.assertEqual((again["duplicate"], again["body"], again["events"]), (True, first["body"], []))
+
+    def test_a_failure_before_the_commit_is_not_executed(self):
+        cookie, csrf = self.login()
+        handlers = self.stack.core.desk._handlers
+        original = handlers["publish_policy"]
+
+        def broken(ctx, p):
+            original(ctx, p)
+            raise RuntimeError("handler bug after its writes")
+        handlers["publish_policy"] = broken
+        self.addCleanup(handlers.__setitem__, "publish_policy", original)
+        cid = f"ui.test.prefault.{_hex()}"
+        with self.assertLogs("unknown.api", logging.WARNING):
+            status, err, _ = self.command(cookie, csrf, "publish_policy", {"body": _policy(1500, f"pf-{_hex()}")}, cid)
+        self.assertEqual((status, err["code"], err["outcome"]), (500, "CORE_FAULT", "NOT_EXECUTED"))
+        status, got, _ = self.call("GET", f"/api/commands/{cid}", cookie=cookie)
+        self.assertEqual((status, got["definitive"]), (404, True))
+
+    def test_a_core_that_cannot_read_its_store_after_the_failure_reports_outcome_unknown(self):
+        cookie, csrf = self.login()
+        cid = f"ui.test.postcommit-unknown.{_hex()}"
+        self.fail_after_commit_of(cid, OSError(5, "Input/output error"), unreadable=True)
+        with self.assertLogs("unknown.core", logging.ERROR):
+            status, err, _ = self.command(cookie, csrf, "publish_policy", {"body": _policy(1550, f"pu-{_hex()}")}, cid)
+        self.assertEqual((status, err["code"], err["outcome"]), (504, "COMMAND_OUTCOME_UNKNOWN", "UNKNOWN"))
+        status, got, _ = self.call("GET", f"/api/commands/{cid}", cookie=cookie)
+        self.assertEqual((status, got["status"]), (200, "ACCEPTED"))
 
 
 # ---------------------------------------------------------------------------------------------- 4

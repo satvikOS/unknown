@@ -796,6 +796,11 @@ export interface CommandResponse {
   body: Record<string, unknown>;
   /** Sequence numbers of the events this execution recorded (absent or empty on duplicates). */
   events?: number[];
+  /**
+   * Set when the core recorded the command and then failed (e.g. writing its restore marker): the result
+   * above stands, and the core needs the owner's attention ("<ExceptionType>: <message>").
+   */
+  post_commit_error?: string;
 }
 
 /** GET /api/commands/<command_id> (200): the owner's stored result for a command id. */

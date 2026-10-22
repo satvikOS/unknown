@@ -11,8 +11,10 @@ Wire conventions (every JSON response):
   ``NOT_FOUND``, ``COMMAND_NOT_FOUND``, ``CONFLICT``, ``COMMAND_ID_CONFLICT``, ``REAUTH_REQUIRED``,
   ``RATE_LIMITED``, ``COMMAND_INVALID``, ``CORE_REFUSED``, ``CORE_UNAVAILABLE``, ``CORE_BUSY``,
   ``CORE_DATABASE_UNAVAILABLE``, ``CORE_FAULT``, ``COMMAND_OUTCOME_UNKNOWN``, ``CAPABILITIES_INVALID``,
-  ``INTERNAL_ERROR``. Errors of POST /api/commands also carry ``command_id`` and ``outcome``:
-  ``NOT_EXECUTED`` or ``UNKNOWN`` (then query GET /api/commands/<id>; resend only with the same id).
+  ``INTERNAL_ERROR``. Errors of POST /api/commands about the command itself (every error after the
+  session, CSRF and JSON-body checks) also carry ``command_id`` and ``outcome``: ``NOT_EXECUTED`` or
+  ``UNKNOWN`` (then query GET /api/commands/<id>; resend only with the same id). A 200 may carry
+  ``post_commit_error``: the command was recorded and the core failed afterwards.
 - Every ``*_ns`` key holding an integer or null also comes as ``*_ns_str``, a decimal string (or null),
   because nanosecond timestamps exceed 2**53 (``queries.with_ns_strings``).
 - Path segments are percent-decoded after the path is split on ``/``, so ``%2F`` addresses an id that
@@ -564,6 +566,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._core_refusal(exc, not_executed)
         except OSError as exc:   # a connect-level failure from a client without typed errors
             return self._error(503, f"core unavailable; command not executed: {exc}", **not_executed)
+        if result.get("post_commit_error"):
+            # Recorded, then the core failed (e.g. writing its restore marker): the result stands; the fault is logged.
+            log.error("command %s was recorded, then the core failed: %s", command_id, result["post_commit_error"])
         return self._send(200, {"command_id": command_id, **result})
 
     def _core_refusal(self, exc: CoreError, not_executed: dict) -> None:

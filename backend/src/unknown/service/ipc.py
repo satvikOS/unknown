@@ -16,7 +16,9 @@ the message. The client raises one of three exceptions, each saying what happene
   each id once).
 - ``CoreError``: the core answered with an error; ``error_type`` names it. A command that fails this
   way was not stored: the core rolls back everything except a deterministic rejection, and that is a
-  normal result, not an error.
+  normal result, not an error. A command that was stored and THEN failed (e.g. the restore marker
+  written after each commit) is answered with its stored result and ``post_commit_error``; when the
+  core cannot read its store to tell, it answers ``OutcomeUnknown``.
 
 The token, not the request, decides which roles a client may assert, so a
 compromised research worker holding the agent token cannot act as the owner."""
