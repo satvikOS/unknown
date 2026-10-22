@@ -116,7 +116,7 @@ test('exposure and VaR state their basis; the backtest says it has no day yet', 
 test('stress: a hypothetical overnight gap computed on a private copy of the core', async () => {
   await page.goto(`${baseUrl()}/#/portfolio/stress`);
   await main().getByLabel(/^Gap/).fill('-1');
-  await expect(main().getByText('A shock must be strictly between -1 and 1.')).toBeVisible();
+  await expect(main().getByText('A shock must be greater than -1 (a fall of less than 100%).')).toBeVisible();
   await expect(main().getByRole('button', { name: 'Run scenario' })).toBeDisabled();
   await main().getByLabel(/^Gap/).fill('-0.10');
   await main().getByRole('button', { name: 'Run scenario' }).click();

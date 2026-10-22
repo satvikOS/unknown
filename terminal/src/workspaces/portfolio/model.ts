@@ -390,6 +390,19 @@ export const STRESS_SCENARIOS = [
 ] as const;
 export type StressScenario = (typeof STRESS_SCENARIOS)[number]['id'];
 
+/**
+ * The scalar parameters a stress result was computed with, as "name value" pairs (strings and numbers:
+ * stale_quote's delay_s and order budget are integers). Nested parameters (per-instrument gaps, betas,
+ * fee models) are shown by the scenario's own panel.
+ */
+export function scenarioParams(body: Rec): string {
+  if (!isRec(body.parameters)) return '';
+  return Object.entries(body.parameters)
+    .filter(([, v]) => typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v)))
+    .map(([k, v]) => `${k} ${String(v)}`)
+    .join(', ');
+}
+
 const SIGNED_DECIMAL = /^-?\d+(\.\d+)?$/;
 const PLAIN_DECIMAL = /^\d+(\.\d+)?$/;
 
@@ -400,9 +413,9 @@ export function stressParamError(scenario: StressScenario, value: string): strin
   switch (scenario) {
     case 'overnight_gap':
     case 'correlated_selloff': {
+      // analytics/stress.py refuses a gap (or beta 1 x market shock) at or below -100%; a gap up of any size is valid.
       if (!SIGNED_DECIMAL.test(v)) return 'Enter a decimal fraction such as -0.10.';
-      const abs = v.startsWith('-') ? v.slice(1) : v;
-      if (compareDecimal(abs, '1') >= 0) return 'A shock must be strictly between -1 and 1.';
+      if (v.startsWith('-') && compareDecimal(v.slice(1), '1') >= 0) return 'A shock must be greater than -1 (a fall of less than 100%).';
       return null;
     }
     case 'stale_quote': {

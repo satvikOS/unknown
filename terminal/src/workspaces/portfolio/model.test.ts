@@ -242,7 +242,12 @@ describe('stress, what-if and allocation inputs', () => {
   it('validates scenario parameters as the backend parses them', () => {
     expect(stressParamError('overnight_gap', '')).toBeNull();
     expect(stressParamError('overnight_gap', '-0.10')).toBeNull();
-    expect(stressParamError('overnight_gap', '-1')).toMatch(/strictly between/);
+    expect(stressParamError('overnight_gap', '-1')).toMatch(/greater than -1/);
+    expect(stressParamError('overnight_gap', '-1.5')).toMatch(/greater than -1/);
+    expect(stressParamError('overnight_gap', '-0.999')).toBeNull();
+    // The backend accepts any gap up (stress.overnight_gap refuses only g <= -1).
+    expect(stressParamError('overnight_gap', '1.5')).toBeNull();
+    expect(stressParamError('correlated_selloff', '1')).toBeNull();
     expect(stressParamError('correlated_selloff', '20%')).toMatch(/decimal fraction/);
     expect(stressParamError('stale_quote', '0')).toMatch(/Between 1/);
     expect(stressParamError('stale_quote', '600')).toBeNull();
