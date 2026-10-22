@@ -200,6 +200,11 @@ export function ScenarioDetails({ body, scenario, instrumentCurrency = () => nul
             </dl>
           ) : null}
           {conservative.length ? (
+            <h3 className="pf-hint" style={{ margin: '8px 0 2px' }}>
+              Stale positions at their last mark and after the haircut
+            </h3>
+          ) : null}
+          {conservative.length ? (
             <ul className="pf-list">
               {conservative.map((v, i) => {
                 const ccy = instrumentCurrency(str(v.instrument_id) ?? '');
@@ -211,6 +216,11 @@ export function ScenarioDetails({ body, scenario, instrumentCurrency = () => nul
                 );
               })}
             </ul>
+          ) : null}
+          {gate.length ? (
+            <h3 className="pf-hint" style={{ margin: '8px 0 2px' }}>
+              The pretrade gate at the later instant
+            </h3>
           ) : null}
           <ul className="pf-list">
             {gate.map((g, i) => (
@@ -279,11 +289,21 @@ export function ScenarioDetails({ body, scenario, instrumentCurrency = () => nul
             </div>
           ) : null}
         </div>
-        <div className="panel-body flush">
-          <DataTable caption="Pending fee estimates finalised at the revised fee" columns={pCols} rows={pending} rowKey={(p) => str(p.exec_key) ?? '?'} emptyText="No pending fee estimates to finalise." maxHeight="260px" />
+        <div className="panel-body" style={{ paddingBottom: 4 }}>
+          <h3 className="pf-hint" style={{ margin: 0 }}>
+            Pending fee estimates finalised at the revised fee
+          </h3>
         </div>
         <div className="panel-body flush">
-          <DataTable caption="Open buy orders: fee envelope against the revised fee (order currency)" columns={eCols} rows={envelopes} rowKey={(e) => str(e.order_id) ?? '?'} emptyText="No open buy envelopes to recompute." maxHeight="260px" />
+          <DataTable caption="Pending fee estimates finalised at the revised fee" captionHidden columns={pCols} rows={pending} rowKey={(p) => str(p.exec_key) ?? '?'} emptyText="No pending fee estimates to finalise." maxHeight="260px" />
+        </div>
+        <div className="panel-body" style={{ paddingBottom: 4 }}>
+          <h3 className="pf-hint" style={{ margin: 0 }}>
+            Open buy orders: fee envelope left against the revised fee (in the order's currency, which the response does not report)
+          </h3>
+        </div>
+        <div className="panel-body flush">
+          <DataTable caption="Open buy orders: fee envelope against the revised fee" captionHidden columns={eCols} rows={envelopes} rowKey={(e) => str(e.order_id) ?? '?'} emptyText="No open buy envelopes to recompute." maxHeight="260px" />
         </div>
         <div className="panel-body">
           {exits.length ? (
