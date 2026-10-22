@@ -10,7 +10,7 @@ import { QueryError, WorkspaceLink } from '../../ui/WorkspaceFrame';
 import { Segmented } from '../operations/parts';
 import type { QueryResult } from '../../state/react';
 import { BarList } from './charts';
-import { dec, exactShares, isRec, num, ofKind, ownerLabel, recs, shortOwnerLabel, str, weightPct, type Rec, type ScopeOption } from './model';
+import { dec, exactShares, isRec, num, ofKind, ownerLabel, recs, shortOwnerLabel, str, valuationTone, weightPct, type Rec, type ScopeOption } from './model';
 import { PortfolioFrame, FixtureNote, Lineage, OwnerName, QuoteSnapshotNote, ScopeSelect, Toolbar, type FormulaDef } from './parts';
 
 type Basis = 'bid' | 'mid' | 'last';
@@ -20,11 +20,58 @@ const BASES: readonly { value: Basis; label: string }[] = [
   { value: 'last', label: 'Last' },
 ];
 
-function statusTone(s: string | null): 'ok' | 'warn' | 'bad' | 'neutral' {
-  if (s === 'complete' || s === 'fresh') return 'ok';
-  if (s === 'stale_marks' || s === 'stale') return 'warn';
-  if (s === 'unpriced' || s === 'incomplete') return 'bad';
-  return 'neutral';
+const statusTone = valuationTone;
+
+/**
+ * The cash ladder (analytics/holdings.py `account_cash_ladder`). The API builds it over every owner in
+ * the account whatever the scope selected, so it is labelled as account-wide.
+ */
+export function CashLadder({ ladder, scope }: { ladder: readonly Rec[]; scope: string | null }) {
+  const scoped = scope !== null && scope !== 'account';
+  return (
+    <section className="panel" aria-labelledby="pf-ladder-h">
+      <header>
+        <h2 id="pf-ladder-h">Cash ladder, whole account</h2>
+        <span className="pf-hint">{scoped ? `every owner, not only scope ${scope}` : 'every owner'}</span>
+      </header>
+      <div className="panel-body">
+        {ladder.map((c) => {
+          const ccy = str(c.currency) ?? '';
+          return (
+            <dl className="kv" key={ccy}>
+              <dt>Ledger settled cash</dt>
+              <dd>
+                <Money amount={dec(c.ledger_settled_cash)} currency={ccy} kind="settled" />
+              </dd>
+              <dt>Receivable (unsettled)</dt>
+              <dd>
+                <Money amount={dec(c.receivable_unsettled)} currency={ccy} kind="unsettled" />
+              </dd>
+              <dt>Payable (unsettled)</dt>
+              <dd>
+                <Money amount={dec(c.payable_unsettled)} currency={ccy} kind="unsettled" />
+              </dd>
+              <dt>Fees accrued</dt>
+              <dd>
+                <Money amount={dec(c.fees_accrued)} currency={ccy} kind="estimated" />
+              </dd>
+              <dt>Reserved (holds)</dt>
+              <dd>
+                <Money amount={dec(c.reserved_cash_holds)} currency={ccy} kind="held" />
+              </dd>
+              <dt>Unallocated available</dt>
+              <dd>
+                <Money amount={dec(c.unallocated_available)} currency={ccy} kind="available" />
+              </dd>
+              <dt>Broker settled cash</dt>
+              <dd>{dec(c.broker_settled_cash) ? <Money amount={dec(c.broker_settled_cash)} currency={ccy} /> : <span className="pf-hint">{str(c.broker_settled_cash_reason) ?? '—'}</span>}</dd>
+            </dl>
+          );
+        })}
+        {!ladder.length ? <p className="muted">No cash in the account.</p> : null}
+      </div>
+    </section>
+  );
 }
 
 export interface HoldingsProps {
@@ -177,7 +224,7 @@ export function HoldingsTab({ bar, q, scope, setScope, basis, setBasis, options,
                 <div className="v">
                   <Money amount={dec(body.authorized_total)} currency={str(body.base_currency) ?? ''} kind="authorized" />
                 </div>
-                <div className="s">scope {str(body.scope)}</div>
+                <div className="s">the account's authorized total, whatever the scope</div>
               </div>
             ) : null}
           </div>
@@ -192,47 +239,7 @@ export function HoldingsTab({ bar, q, scope, setScope, basis, setBasis, options,
                 {shareItems.length ? <BarList items={shareItems} label="Marked NAV by owner" /> : <p className="muted" style={{ margin: 0 }}>No owner has a positive marked NAV in this scope.</p>}
               </div>
             </section>
-            <section className="panel" aria-labelledby="pf-ladder-h">
-              <header>
-                <h2 id="pf-ladder-h">Cash ladder</h2>
-              </header>
-              <div className="panel-body">
-                {ladder.map((c) => {
-                  const ccy = str(c.currency) ?? '';
-                  return (
-                    <dl className="kv" key={ccy}>
-                      <dt>Ledger settled cash</dt>
-                      <dd>
-                        <Money amount={dec(c.ledger_settled_cash)} currency={ccy} kind="settled" />
-                      </dd>
-                      <dt>Receivable (unsettled)</dt>
-                      <dd>
-                        <Money amount={dec(c.receivable_unsettled)} currency={ccy} kind="unsettled" />
-                      </dd>
-                      <dt>Payable (unsettled)</dt>
-                      <dd>
-                        <Money amount={dec(c.payable_unsettled)} currency={ccy} kind="unsettled" />
-                      </dd>
-                      <dt>Fees accrued</dt>
-                      <dd>
-                        <Money amount={dec(c.fees_accrued)} currency={ccy} kind="estimated" />
-                      </dd>
-                      <dt>Reserved (holds)</dt>
-                      <dd>
-                        <Money amount={dec(c.reserved_cash_holds)} currency={ccy} kind="held" />
-                      </dd>
-                      <dt>Unallocated available</dt>
-                      <dd>
-                        <Money amount={dec(c.unallocated_available)} currency={ccy} kind="available" />
-                      </dd>
-                      <dt>Broker settled cash</dt>
-                      <dd>{dec(c.broker_settled_cash) ? <Money amount={dec(c.broker_settled_cash)} currency={ccy} /> : <span className="pf-hint">{str(c.broker_settled_cash_reason) ?? '—'}</span>}</dd>
-                    </dl>
-                  );
-                })}
-                {!ladder.length ? <p className="muted">No cash in this scope.</p> : null}
-              </div>
-            </section>
+            <CashLadder ladder={ladder} scope={str(body.scope)} />
           </div>
 
           <section className="panel pf-section" aria-labelledby="pf-owners-h">

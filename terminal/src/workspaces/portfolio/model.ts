@@ -96,6 +96,29 @@ export function sessionOfScope(scope: string): string | null {
   return scope.startsWith('owner:session:') ? scope.slice('owner:session:'.length) : null;
 }
 
+// ------------------------------------------------------------------ valuation status
+
+/**
+ * Tone of a valuation or mark status (analytics/holdings.py `owner_summary` and `scope_totals`:
+ * complete | stale_marks | unpriced_positions; analytics/marks.py: fresh | stale | unpriced). An
+ * unpriced position leaves NAV unavailable, so it is bad; an unknown status is neutral, never ok.
+ */
+export function valuationTone(s: string | null): Tone {
+  switch (s) {
+    case 'complete':
+    case 'fresh':
+      return 'ok';
+    case 'stale_marks':
+    case 'stale':
+      return 'warn';
+    case 'unpriced_positions':
+    case 'unpriced':
+      return 'bad';
+    default:
+      return 'neutral';
+  }
+}
+
 // ------------------------------------------------------------------ statistical formatting
 
 /** A statistical fraction as a percentage ("0.0081" -> "+0.81%"). Display only. */
