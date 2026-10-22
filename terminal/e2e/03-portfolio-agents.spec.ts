@@ -119,7 +119,12 @@ test('stress: a hypothetical overnight gap computed on a private copy of the cor
   await expect(main().getByText('A shock must be greater than -1 (a fall of less than 100%).')).toBeVisible();
   await expect(main().getByRole('button', { name: 'Run scenario' })).toBeDisabled();
   await main().getByLabel(/^Gap/).fill('-0.10');
+  // Compare the table with the response the page itself received: FIXTURE quotes move every step, so a
+  // second request would value the positions at other prices and could cross a threshold differently.
+  const shown = page.waitForResponse((r) => r.url().includes('/api/portfolio/stress/overnight_gap') && r.request().method() === 'GET');
   await main().getByRole('button', { name: 'Run scenario' }).click();
+  const response = await shown;
+  expect(response.status()).toBe(200);
   await expect(main().getByText('HYPOTHETICAL', { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(main().getByText(/computed on a private copy/i).first()).toBeVisible();
   await expect(main().getByText(/on core seq \d+/).first()).toBeVisible();
@@ -127,7 +132,8 @@ test('stress: a hypothetical overnight gap computed on a private copy of the cor
   if (h.positions.length) await expect(main().getByText(/^Scenario P&L, USD$/)).toBeVisible();
   // Every loss threshold shows its level with its currency and the backend's crossed decision, never a guess.
   type Threshold = { threshold: string; owner?: string; level: string; crossed: boolean | null };
-  const s = await api<{ thresholds: Threshold[] }>('/api/portfolio/stress/overnight_gap?scope=account&gap=-0.10');
+  const s = (await response.json()) as { thresholds: Threshold[]; parameters: { gap: string } };
+  expect(s.parameters.gap).toBe('-0.10');
   const table = main().getByRole('table', { name: 'Loss thresholds under the scenario' });
   if (s.thresholds.length) await expect(table.locator('tbody tr')).toHaveCount(s.thresholds.length);
   for (const t of s.thresholds) {
