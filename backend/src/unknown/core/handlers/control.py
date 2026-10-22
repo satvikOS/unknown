@@ -179,14 +179,18 @@ def resolve_exception(ctx: Context, p: dict) -> dict:
                            "withdrawal larger than unauthorized cash: deauthorize capital first or record a loss of authorized capital")
     elif action == "cover_shortfall":
         changes["journal"] = [_cover_shortfall(ctx, case, p)]
+    elif action == "close_unknown_order":
+        extra = _close_unknown_order(ctx, case, p, note)
     elif action != "acknowledge":
         raise Rejected("INVALID_ACTION", action)
     elif case["kind"] == "OVERCOMMITTED" and _shortfall(ctx, case)[1].is_positive():
         raise Rejected("SHORTFALL_UNCOVERED", "an overcommitment is resolved by cover_shortfall, not by acknowledgement")
     changes["exceptions"] = [{**case, "status": "RESOLVED",
-                              "resolution": {"by": ctx.principal.id, "at_ns": ctx.now_ns, "action": action, "note": note}}]
+                              "resolution": {"by": ctx.principal.id, "at_ns": ctx.now_ns, "action": action, "note": note,
+                                             **(extra if action == "close_unknown_order" else {})}}]
     c = state.control(ctx.tx, key)
-    if action == "record_external_cash_flow":
+    if action in ("record_external_cash_flow", "close_unknown_order"):
+        # The account's position must be confirmed against the broker again before new exposure.
         changes["control"] = [{**c, "needs_reconciliation": True}]
     ctx.emit("ExceptionResolved", {"case_id": case["case_id"], "kind": case["kind"], "action": action, "note": note}, changes,
              account_key=key, session_id=case.get("session_id"))
@@ -197,6 +201,9 @@ def resolve_exception(ctx: Context, p: dict) -> dict:
     for session_id in sessions_of_case(case):
         if ctx.tx.one("SELECT 1 FROM sessions WHERE session_id=?", (session_id,)):
             exit_review_if_clear(ctx, state.session(ctx.tx, session_id))
+    if action == "close_unknown_order":
+        return {"case_id": case["case_id"], "status": "RESOLVED",
+                "closed": {"order_id": extra["order_id"], "state": extra["order_state"]}}
     return {"case_id": case["case_id"], "status": "RESOLVED"}
 
 
@@ -227,6 +234,118 @@ def _cover_shortfall(ctx: Context, case: dict, p: dict) -> dict:
         raise Rejected("INSUFFICIENT_FUNDS", f"{source} has less than {need} {ccy} available")
     return ledger.entry(ctx.new_id("je-"), key, "OWNER_TRANSFER", f"cover shortfall of {case['case_id']} from {source}",
                         ledger.transfer(ledger.CASH, ccy, need, source, target))
+
+
+CLOSE_EVIDENCE_KINDS = ("BROKER_STATEMENT", "BROKER_CONFIRM", "SUPPORT_REFERENCE")
+# Reconciliation differences that a stuck UNKNOWN order itself causes (and that therefore cannot be required absent
+# to close it): the broker cannot find it, or finds no trace of an order that had fills.
+_UNKNOWN_ORDER_DIFFERENCES = ("ORDER_UNRESOLVED", "ORDER_MISSING_AT_BROKER")
+_NS = 1_000_000_000
+
+
+def _close_unknown_order(ctx: Context, case: dict, p: dict, note: str) -> dict:
+    """Close a stuck UNKNOWN order on attached broker evidence (BR-ORD-03; ADR-0009 unknown outcomes).
+
+    The owner's exit for an order whose outcome the broker cannot report (e.g. an IBKR order transmitted with no trace
+    in open orders, completed orders or executions, so every lookup answers "cannot determine"). It never releases a
+    hold the broker may still be working: the account's latest reconciliation must be complete, recorded in this
+    process, younger than ``max_reconciliation_age_s`` and include the order's last material change (state, filled
+    quantity, broker id); the broker's open orders in it must not include the order and its lookup must not have
+    found it; and its only blocking differences may be those of unresolved UNKNOWN orders (an UNKNOWN order the
+    broker cannot find always leaves the run
+    DIFFERENCES, so a literally clean run never contains one, and matching positions and cash in that run are what
+    show no fill is missing). Fresh owner authentication and evidence (a statement, confirm or support reference)
+    are required. The order ends REJECTED (no fills) or CANCELED (fills: the remainder is not working), every hold
+    is released, the related cases are resolved with the evidence and the account must reconcile again."""
+    from .broker import finalize
+    key = case["account_key"]
+    if case["kind"] not in ("UNKNOWN_ORDER", "RECONCILIATION_DIFFERENCE"):
+        raise Rejected("INVALID_ACTION", "close_unknown_order resolves an UNKNOWN_ORDER case, or the reconciliation "
+                                         "difference that names the order")
+    order_id = case.get("order_id") or (case.get("detail") or {}).get("order_id")
+    order = state.order(ctx.tx, order_id) if isinstance(order_id, str) else None
+    if order is None or order["account_key"] != key:
+        raise Rejected("INVALID_ACTION", "the case names no order of this account")
+    if order["state"] != "UNKNOWN":
+        raise Rejected("ORDER_NOT_UNKNOWN", f"order {order_id} is {order['state']}: only an UNKNOWN order is closed on evidence")
+    policy = state.active_policy(ctx.tx, key)
+    auth = ctx.principal.authenticated_at_ns
+    if auth is None or ctx.now_ns - auth > policy.limits.reauth_max_age_s * _NS:
+        raise Rejected("OWNER_REAUTHENTICATION_REQUIRED", "re-authenticate before closing an order on evidence")
+    evidence = p.get("evidence")
+    reference = evidence.get("reference") if isinstance(evidence, dict) else None
+    if not isinstance(evidence, dict) or evidence.get("kind") not in CLOSE_EVIDENCE_KINDS \
+            or not isinstance(reference, str) or not reference.strip() or len(reference) > 200:
+        raise Rejected("EVIDENCE_REQUIRED", "attach broker evidence: {kind: " + " | ".join(CLOSE_EVIDENCE_KINDS)
+                       + ", reference: the statement, confirm or support reference (1..200 characters)}")
+    evidence = {"kind": evidence["kind"], "reference": reference.strip()}
+    rec = state.latest_reconciliation(ctx.tx, key)
+    lookup = (rec or {}).get("lookups", {}).get(order_id)
+    problems: list[str] = []
+    if rec is None:
+        problems.append("NO_RECONCILIATION")
+    else:
+        last_change = _last_material_change(ctx, order_id)
+        if rec["status"] == "INCOMPLETE":
+            problems.append("RECONCILIATION_INCOMPLETE")
+        if rec.get("epoch") != ctx.epoch:
+            problems.append("RECONCILIATION_NOT_IN_THIS_PROCESS")
+        if ctx.now_ns - rec["completed_at_ns"] > policy.limits.max_reconciliation_age_s * _NS:
+            problems.append("RECONCILIATION_STALE")
+        if rec.get("event_seq_at_completion", rec.get("event_seq_at_start", 0)) < last_change:
+            problems.append("RECONCILIATION_PREDATES_THE_ORDERS_LAST_CHANGE")
+        if "open_order_ids" not in rec:
+            problems.append("RECONCILIATION_WITHOUT_ORDER_EVIDENCE")
+        elif order_id in rec["open_order_ids"]:
+            problems.append("BROKER_LISTS_THE_ORDER_AS_OPEN")
+        if lookup is None:
+            problems.append("ORDER_NOT_LOOKED_UP")
+        elif lookup.get("found") is True:
+            problems.append(f"BROKER_LOOKUP_FINDS_THE_ORDER:{lookup.get('status')}")
+        others = sorted({d["kind"] for d in rec.get("differences", []) if d.get("blocking") and not (
+            d["kind"] in _UNKNOWN_ORDER_DIFFERENCES and _is_unknown(ctx, (d.get("detail") or {}).get("order_id")))})
+        if others:
+            problems.append("RECONCILIATION_DIFFERENCES:" + ",".join(others))
+    if problems:
+        raise Rejected("CLOSE_NOT_PROVEN", "; ".join(problems), problems=problems,
+                       reconciliation=rec["run_id"] if rec else None)
+    target = "REJECTED" if Fixed.parse(order["cum_qty"]).is_zero() else "CANCELED"
+    reason = f"closed by the owner on broker evidence ({evidence['kind']} {evidence['reference']})"
+    resolution = {"by": ctx.principal.id, "at_ns": ctx.now_ns, "action": "close_unknown_order", "note": note,
+                  "evidence": evidence, "reconciliation": rec["run_id"]}
+    related = []
+    for k in (f"unknown-order:{order_id}",) + tuple(f"recon:{kind}:{order_id}" for kind in _UNKNOWN_ORDER_DIFFERENCES):
+        other = state.exception_by_key(ctx.tx, key, k)
+        if other is not None and other["case_id"] != case["case_id"]:
+            related.append({**other, "status": "RESOLVED", "resolution": resolution})
+    finalize(ctx, order, target, reason, extra_exceptions=related, via="owner_evidence")
+    out = [{**b, "state": "DONE", "result": {"status": "OWNER_CLOSED", "evidence": evidence, "at_ns": ctx.now_ns}}
+           for b in state.outbox_for_order(ctx.tx, order_id) if b["state"] not in ("DONE", "SKIPPED")]
+    ctx.emit("UnknownOrderClosedByOwner", {"order_id": order_id, "state": target, "evidence": evidence, "note": note,
+                                           "reconciliation": rec["run_id"], "lookup": lookup,
+                                           "rule": "absent from the broker's open orders and lookups in a complete, fresh "
+                                                   "reconciliation that includes the order's last material change"},
+             {"outbox": out}, account_key=key, session_id=order["session_id"], order_id=order_id)
+    return {"evidence": evidence, "reconciliation": rec["run_id"], "order_id": order_id, "order_state": target}
+
+
+def _last_material_change(ctx: Context, order_id: str) -> int:
+    """Sequence of the last event that changed what the broker could report about the order: its state, filled
+    quantity or broker id. Cancel bookkeeping (a cancel queued, sent or refused) does not count: a reconciliation
+    that fails re-queues a cancel for every open buy, which would otherwise make every run look stale."""
+    last, seen = 0, None
+    for r in ctx.tx.all("SELECT seq, payload FROM events WHERE order_id=? ORDER BY seq", (order_id,)):
+        for row in json.loads(r["payload"])["changes"].get("orders", []):
+            if row.get("order_id") == order_id:
+                material = (row.get("state"), row.get("cum_qty"), row.get("broker_order_id"))
+                if material != seen:
+                    last, seen = r["seq"], material
+    return last
+
+
+def _is_unknown(ctx: Context, order_id: object) -> bool:
+    o = state.order(ctx.tx, order_id) if isinstance(order_id, str) else None
+    return o is not None and o["state"] == "UNKNOWN"
 
 
 def accept_fee_estimate(ctx: Context, p: dict) -> dict:

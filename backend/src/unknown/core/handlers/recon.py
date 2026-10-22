@@ -45,7 +45,7 @@ def reconciliation_result(ctx: Context, p: dict) -> dict:
                              key=f"recon-incomplete:{ctx.epoch}")
         # An incomplete run proves nothing: entries stay blocked until a complete clean run (REC-01).
         ctx.emit("ReconciliationIncomplete", {"run_id": run_id, "note": "partial broker data never proves absence"},
-                 {"reconciliations": [_run_row(ctx, key, run_id, "INCOMPLETE", [], [], p, seq_at_start)],
+                 {"reconciliations": [_run_row(ctx, key, run_id, "INCOMPLETE", [], [], p, seq_at_start, [], seq_at_start)],
                   "exceptions": [case] if case else [],
                   "control": [control_update(ctx, key, needs_reconciliation=True)]}, account_key=key)
         return {"run_id": run_id, "status": "INCOMPLETE"}
@@ -222,9 +222,11 @@ def reconciliation_result(ctx: Context, p: dict) -> dict:
         if case:
             resolved.append({**case, "status": "RESOLVED", "resolution": {"by": ctx.principal.id, "at_ns": ctx.now_ns,
                                                                            "note": f"clean reconciliation {run_id}"}})
+    seq_at_completion = ctx.tx.one("SELECT MAX(seq) AS s FROM events")["s"] or 0
     ctx.emit("ReconciliationCompleted", {"run_id": run_id, "status": status, "differences": differences,
                                          "settlements_confirmed": [r["settlement_id"] for r in settled_rows]},
-             {"reconciliations": [_run_row(ctx, key, run_id, status, differences, settled_rows, p, seq_at_start)],
+             {"reconciliations": [_run_row(ctx, key, run_id, status, differences, settled_rows, p, seq_at_start,
+                                           sorted(broker_open), seq_at_completion)],
               "exceptions": exceptions + resolved, "control": [new_ctl]}, account_key=key)
     if status != "CLEAN":
         # Unexplained differences need an owner green start, not just an acknowledgement (ADR-0010).
@@ -339,11 +341,16 @@ def _import_opening(ctx: Context, key: str, acct: dict, snap: dict) -> None:
              changes, account_key=key)
 
 
-def _run_row(ctx: Context, key: str, run_id: str, status: str, differences: list, settled: list, p: dict, seq_at_start: int) -> dict:
+def _run_row(ctx: Context, key: str, run_id: str, status: str, differences: list, settled: list, p: dict, seq_at_start: int,
+             open_order_ids: list[str], seq_at_completion: int) -> dict:
+    """The run's record. ``open_order_ids`` (our orders the broker listed as open), ``lookups`` (what the broker said
+    of every other open order) and ``event_seq_at_completion`` (the last event the run's view includes) are the
+    evidence an owner's close_unknown_order relies on (BR-ORD-03)."""
     return {"run_id": run_id, "account_key": key, "status": status, "epoch": ctx.epoch, "completed_at_ns": ctx.now_ns,
             "snapshot_as_of_ns": p["snapshot"].get("as_of_ns"), "watermark": p.get("watermark"),
             "differences": differences, "settlements_confirmed": [r["settlement_id"] for r in settled],
-            "event_seq_at_start": seq_at_start}
+            "event_seq_at_start": seq_at_start, "event_seq_at_completion": seq_at_completion,
+            "open_order_ids": open_order_ids, "lookups": p.get("lookups") or {}}
 
 
 _HALF_EVEN = Rounding.HALF_EVEN
