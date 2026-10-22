@@ -2,20 +2,40 @@
 
 The runner holds no state of its own: every decision is a core command. It is
 driven explicitly (``pump``) by tests and by the supervised service loop.
-Observation commands get fresh command ids; economic deduplication is done by
-the handlers on scoped broker keys (ADR-0005 #5), so a re-delivered execution
-with different transport metadata is a duplicate, never a conflict.
+Economic deduplication is done by the handlers on scoped broker keys (ADR-0005
+#5), so a re-delivered execution with different transport metadata is a
+duplicate, never a conflict.
 
 Broker events are popped from the broker (``BrokerPort.drain_events``). Popped
 events that have not been applied yet are kept in a backlog that belongs to the
 broker object, so the service's runner, the reconciler's runner and any other
-runner on the same broker apply them once and in order. An event whose command
-raises stays at the head of the backlog with everything after it, and the next
-drain retries it first (review finding 58). The backlog lives in memory: after a
-crash, reconciliation's execution query is what recovers executions."""
+runner on the same broker take them once and in order. An event whose command
+raises stays at the head with everything after it, and the next drain retries
+it first (review finding 58).
+
+With an event journal attached to the broker (``attach_journal``; the core
+service always attaches one), the backlog holds only events not yet journaled
+(book-review finding BR-ORD-20). Each drain appends them to the journal in one
+fsync'd transaction before anything is applied, then applies unapplied journal
+entries in order, each under the deterministic command id of its entry, and
+marks it. A crash at any point loses nothing that was journaled, and a
+re-application is a duplicate. The bound on the in-memory hand-off: if the
+journal cannot be written, the runner stops taking events from the broker (at
+most ``limit`` popped events wait in memory, the rest stay in the adapter),
+latches the stop through the system ``stop`` command, records an INCOMPLETE
+reconciliation (so reconciliation is required before a green start) and raises
+``JournalUnavailable``; journaled entries are still applied. The first
+successful append ends the failure; the stop stays latched for the owner.
+
+The hand-off stays a pop (``drain_events``) and is not peek/ack: the adapter
+and the runner share one process, so an event waiting in the adapter's deque
+and one waiting in this backlog are lost alike by a crash, and the IBKR API
+does not redeliver callbacks. The journal is the first durable point. Events
+the process held in memory at a crash are recovered only by reconciliation."""
 from __future__ import annotations
 
 import json
+import logging
 import weakref
 from collections import deque
 from dataclasses import dataclass
@@ -23,8 +43,13 @@ from typing import Callable
 
 from ..broker.port import (BrokerOrder, BrokerPort, CommissionEvent, CommissionRow, ConnectivityEvent, ExecutionEvent,
                            ExecutionRow, OrderStatusEvent, SubmitStatus)
-from ..core.desk import Desk
+from ..core.desk import Desk, Result
 from ..domain.fixed import Fixed
+from .journal import EventJournal, JournalEntry, JournalUnavailable
+
+log = logging.getLogger("unknown.gateway")
+
+JOURNAL_STOP_REASON = "EVENT_JOURNAL_UNWRITABLE"
 
 
 def execution_payload(account_key: str, e: ExecutionRow) -> dict:
@@ -45,12 +70,28 @@ def status_payload(account_key: str, s: OrderStatusEvent) -> dict:
             "remaining_quantity": s.remaining_quantity.to_str(), "reason": s.reason}
 
 
+def event_command(account_key: str, ev) -> tuple[str, dict]:
+    """The core command (kind, payload) a broker event is applied as."""
+    if isinstance(ev, ExecutionEvent):
+        return "broker_execution", execution_payload(account_key, ev.execution)
+    if isinstance(ev, CommissionEvent):
+        return "broker_commission", commission_payload(account_key, ev.commission)
+    if isinstance(ev, OrderStatusEvent):
+        return "broker_order_status", status_payload(account_key, ev)
+    if isinstance(ev, ConnectivityEvent):
+        return "broker_connectivity", {"account_key": account_key, "connected": ev.connected,
+                                       "authenticated": ev.authenticated, "detail": ev.detail}
+    raise TypeError(f"unknown broker event {type(ev).__name__}")
+
+
 _BACKLOGS: "weakref.WeakKeyDictionary[object, deque]" = weakref.WeakKeyDictionary()
 _PINNED_BACKLOGS: dict[int, tuple[object, deque]] = {}   # brokers that cannot be weakly referenced (kept alive)
+_JOURNALS: "weakref.WeakKeyDictionary[object, EventJournal]" = weakref.WeakKeyDictionary()
+_PINNED_JOURNALS: dict[int, tuple[object, EventJournal]] = {}
 
 
 def event_backlog(broker: BrokerPort) -> deque:
-    """Events taken from ``broker`` but not yet applied to the core, oldest first."""
+    """Events taken from ``broker`` but not yet applied (no journal) or not yet journaled, oldest first."""
     try:
         backlog = _BACKLOGS.get(broker)
         if backlog is None:
@@ -63,6 +104,35 @@ def event_backlog(broker: BrokerPort) -> deque:
         return pinned[1]
 
 
+def attach_journal(broker: BrokerPort, journal: EventJournal) -> None:
+    """Route every runner on ``broker`` (the service's, the reconciler's, any other) through ``journal``."""
+    try:
+        _JOURNALS[broker] = journal
+    except TypeError:
+        _PINNED_JOURNALS[id(broker)] = (broker, journal)
+
+
+def detach_journal(broker: BrokerPort) -> None:
+    try:
+        _JOURNALS.pop(broker, None)
+    except TypeError:
+        _PINNED_JOURNALS.pop(id(broker), None)
+
+
+def journal_of(broker: BrokerPort) -> EventJournal | None:
+    try:
+        return _JOURNALS.get(broker)
+    except TypeError:
+        pinned = _PINNED_JOURNALS.get(id(broker))
+        return pinned[1] if pinned is not None and pinned[0] is broker else None
+
+
+def _outcome(result: Result) -> str:
+    if result.duplicate:
+        return "duplicate"
+    return "applied" if result.accepted else "rejected"
+
+
 @dataclass
 class PumpStats:
     sent: int = 0
@@ -72,12 +142,18 @@ class PumpStats:
 
 class GatewayRunner:
     def __init__(self, desk: Desk, broker: BrokerPort, account_key: str, *,
-                 heartbeat: Callable[[], None] | None = None):
+                 heartbeat: Callable[[], None] | None = None, journal: EventJournal | None = None):
         self.desk = desk
         self.broker = broker
         self.account_key = account_key
         # Called between commands of a long pump so the writer lease stays fresh (review finding 57).
         self.heartbeat = heartbeat
+        self._journal = journal
+
+    @property
+    def journal(self) -> EventJournal | None:
+        """This runner's journal, else the one attached to its broker, else None (in-memory backlog only)."""
+        return self._journal if self._journal is not None else journal_of(self.broker)
 
     def _beat(self) -> None:
         if self.heartbeat is not None:
@@ -119,10 +195,36 @@ class GatewayRunner:
     def drain_events(self, limit: int = 1000) -> int:
         """Apply up to ``limit`` broker events in order and return how many were applied.
 
-        Events are taken from the broker only to fill the backlog up to ``limit``. If an event's
-        command raises, that event and every later one stay in the backlog, in order, and the
-        exception propagates (the service counts a failed cycle; a reconciliation records an
-        INCOMPLETE run). Nothing taken from the broker is dropped (review finding 58)."""
+        Without a journal, events are taken from the broker only to fill the in-memory backlog up to
+        ``limit``. If an event's command raises, that event and every later one stay in the backlog, in
+        order, and the exception propagates (the service counts a failed cycle; a reconciliation records
+        an INCOMPLETE run). Nothing taken from the broker is dropped (review finding 58).
+
+        With a journal, see the module docstring: journal first, then apply journal entries in order."""
+        journal = self.journal
+        if journal is None:
+            return self._drain_backlog(limit)
+        intake_error: JournalUnavailable | None = None
+        try:
+            self.journal_broker_events(limit)
+        except JournalUnavailable as exc:
+            intake_error = exc
+        try:
+            applied = self._apply_journal(journal, limit)
+        except JournalUnavailable as exc:
+            self._fail_closed(journal, intake_error or exc)
+            raise
+        except Exception:
+            if intake_error is not None:
+                self._fail_closed(journal, intake_error)
+            raise
+        if intake_error is not None:
+            self._fail_closed(journal, intake_error)
+            raise intake_error
+        journal.reported_failure = None   # a drain without a journal error ends a failure episode
+        return applied
+
+    def _drain_backlog(self, limit: int) -> int:
         backlog = event_backlog(self.broker)
         if len(backlog) < limit:
             backlog.extend(self.broker.drain_events(limit - len(backlog)))
@@ -134,21 +236,94 @@ class GatewayRunner:
             self._beat()
         return n
 
+    def journal_broker_events(self, limit: int = 1000) -> int:
+        """Append events taken from the broker to the journal (one fsync'd transaction) and return how many.
+
+        Events that could not be appended stay in the in-memory backlog, in order, and are appended first
+        next time; while the journal is failing, no further events are taken from the broker until those
+        are journaled. Raises ``JournalUnavailable``."""
+        journal = self.journal
+        if journal is None:
+            return 0
+        backlog = event_backlog(self.broker)
+        if not (journal.failure and backlog) and len(backlog) < limit:
+            backlog.extend(self.broker.drain_events(limit - len(backlog)))
+        if not backlog:
+            return 0
+        batch = list(backlog)
+        journal.append([(ev, *event_command(self.account_key, ev)) for ev in batch])
+        for _ in batch:
+            backlog.popleft()
+        return len(batch)
+
+    def _apply_journal(self, journal: EventJournal, limit: int | None) -> int:
+        n = 0
+        for entry in journal.unapplied(limit):
+            result = self.apply_entry(entry)
+            journal.mark_applied(entry, _outcome(result))
+            n += 1
+            self._beat()
+        return n
+
+    def apply_entry(self, entry: JournalEntry) -> Result:
+        """Apply one journal entry. Its command id is the entry's own, so a re-application returns the
+        stored result (a duplicate with no new event)."""
+        return self.desk.run_system(entry.command_kind, entry.command_payload, command_id=entry.command_id)
+
+    def replay_journal(self, batch: int = 1000) -> int:
+        """Apply every unapplied journal entry in order without taking new events (process start)."""
+        journal = self.journal
+        if journal is None:
+            return 0
+        total = 0
+        try:
+            while True:
+                n = self._apply_journal(journal, batch)
+                total += n
+                if n < batch:
+                    return total
+        except JournalUnavailable as exc:
+            self._fail_closed(journal, exc)
+            raise
+
+    def _fail_closed(self, journal: EventJournal, exc: JournalUnavailable) -> None:
+        """BR-ORD-20: broker events cannot be made durable, so the desk must not trade on a partial view.
+
+        Latches the stop through the system ``stop`` command (which also cancels open buys) with the reason
+        ``EVENT_JOURNAL_UNWRITABLE: <error>`` -- a StopLatched or, if the stop was already latched for
+        another reason, a StopReasserted event is the durable report -- and records an INCOMPLETE
+        reconciliation, which sets ``needs_reconciliation``: a green start then needs a clean
+        reconciliation after the journal works again. A failure is recorded once per episode (until a
+        drain completes without a journal error), again if its cause changes, and the stop or the
+        reconciliation requirement is re-asserted if the owner cleared it while the journal still fails."""
+        detail = f"{type(exc).__name__}: {exc}"
+        log.critical("broker events cannot be journaled; not taking events from the broker: %s", detail)
+        rows = self.desk.store.query("SELECT row FROM control WHERE account_key=?", (self.account_key,))
+        if not rows:
+            return   # no registered account: nothing to stop
+        ctl = json.loads(rows[0]["row"])
+        new_failure = journal.reported_failure != detail
+        if new_failure or not ctl["stop_latched"]:
+            self.desk.run_system("stop", {"account_key": self.account_key,
+                                          "reason": f"{JOURNAL_STOP_REASON}: {detail}"[:400]})
+        if new_failure or not ctl["needs_reconciliation"]:
+            from ..reconcile.reconciler import record_incomplete   # the reconciler imports this module
+            record_incomplete(self.desk, self.account_key, f"broker events could not be journaled: {detail}")
+        journal.reported_failure = detail
+
     def apply_event(self, ev) -> None:
-        key = self.account_key
-        if isinstance(ev, ExecutionEvent):
-            self.desk.run_system("broker_execution", execution_payload(key, ev.execution))
-        elif isinstance(ev, CommissionEvent):
-            self.desk.run_system("broker_commission", commission_payload(key, ev.commission))
-        elif isinstance(ev, OrderStatusEvent):
-            self.desk.run_system("broker_order_status", status_payload(key, ev))
-        elif isinstance(ev, ConnectivityEvent):
-            self.desk.run_system("broker_connectivity", {"account_key": key, "connected": ev.connected,
-                                                         "authenticated": ev.authenticated, "detail": ev.detail})
-        else:
-            raise TypeError(f"unknown broker event {type(ev).__name__}")
+        """Apply one event directly (fresh command id, no journal): tests and the in-memory path."""
+        kind, payload = event_command(self.account_key, ev)
+        self.desk.run_system(kind, payload)
 
     def pump(self) -> PumpStats:
+        if self.journal is not None:
+            # Make what the broker has already sent durable before the (possibly slow) outbox pass.
+            try:
+                self.journal_broker_events()
+            except Exception:
+                pass   # raised again by drain_events below (journal failures fail closed there), after the
+                       # outbox pass: a failing intake must never hold back cancels
         stats = self.pump_outbox()
         stats.events = self.drain_events()
         return stats

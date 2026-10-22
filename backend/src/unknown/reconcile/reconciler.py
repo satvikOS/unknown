@@ -11,8 +11,9 @@ Algorithm (book Ch. 9, with the review's resolutions):
 6. send one ``reconciliation_result``. Any broker read failure produces an
    INCOMPLETE run: absence in partial data never proves anything. So does any
    other failure before the result (for example a broker event whose command
-   raises while queued events are drained): the run is recorded as INCOMPLETE,
-   and the unapplied events stay queued (review finding 58).
+   raises while queued events are drained, or broker events that cannot be
+   written to the event journal): the run is recorded as INCOMPLETE, and the
+   unapplied events stay queued (review finding 58, BR-ORD-20).
 """
 from __future__ import annotations
 
@@ -21,6 +22,21 @@ from typing import Callable
 from ..broker.port import BrokerPort
 from ..core.desk import Desk, Result
 from ..gateway.runner import GatewayRunner, commission_payload, execution_payload
+
+
+def incomplete_payload(desk: Desk, account_key: str, run_id: str, error: str) -> dict:
+    """A ``reconciliation_result`` that proves nothing: the core records it INCOMPLETE and sets
+    ``needs_reconciliation``, so new exposure stays blocked until a complete clean run (REC-01)."""
+    return {"account_key": account_key, "run_id": run_id, "executions_complete": False, "watermark": None,
+            "snapshot": {"as_of_ns": desk.clock.now_ns(), "complete": False, "cash": [], "positions": [], "error": error},
+            "open_orders": {"complete": False, "rows": []}, "lookups": {}}
+
+
+def record_incomplete(desk: Desk, account_key: str, error: str) -> Result:
+    """Record a run that could not complete for ``error`` (for example, broker events that cannot be journaled)."""
+    run_id = desk.ids.new("rec-")
+    return desk.run_system("reconciliation_result", incomplete_payload(desk, account_key, run_id, error),
+                           command_id=run_id.replace("rec-", "recon.", 1))
 
 
 class Reconciler:
@@ -95,9 +111,6 @@ class Reconciler:
                     "filled_quantity": o.filled_quantity.to_str(), "remaining_quantity": o.remaining_quantity.to_str()} for o in open_rows]},
                 "lookups": lookups,
             }
-        except Exception as exc:  # broker read failure, or an event or ingest command that raised
-            payload = {"account_key": key, "run_id": run_id, "executions_complete": False, "watermark": None,
-                       "snapshot": {"as_of_ns": self.desk.clock.now_ns(), "complete": False, "cash": [], "positions": [],
-                                    "error": f"{type(exc).__name__}: {exc}"},
-                       "open_orders": {"complete": False, "rows": []}, "lookups": {}}
+        except Exception as exc:  # broker read failure, an event or ingest command that raised, or an unwritable journal
+            payload = incomplete_payload(self.desk, key, run_id, f"{type(exc).__name__}: {exc}")
         return self.desk.run_system("reconciliation_result", payload, command_id=run_id.replace("rec-", "recon.", 1))
