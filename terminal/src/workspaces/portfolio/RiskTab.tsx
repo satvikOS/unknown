@@ -175,7 +175,7 @@ function VarPanel({ body, formulas }: { body: Rec; formulas: Map<string, Formula
   );
 }
 
-function BacktestPanel({ body, formulas }: { body: Rec; formulas: Map<string, FormulaDef> }) {
+export function BacktestPanel({ body, formulas }: { body: Rec; formulas: Map<string, FormulaDef> }) {
   const ccy = str(body.currency) ?? '';
   const days = backtestDays(body);
   const verdict = kupiecVerdict(body.kupiec);
