@@ -1,0 +1,9 @@
+[project]
+name = "unknown-desk"
+version = "0.1.0"
+description = "Project Unknown core: single-writer economic journal, sessions, orders, risk, control and reconciliation"
+requires-python = ">=3.12"
+dependencies = []  # the money path is standard-library only (ADR-0002)
+
+[tool.setuptools.packages.find]
+where = ["src"]

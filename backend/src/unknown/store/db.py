@@ -1,0 +1,175 @@
+"""SQLite store: durability settings, migrations, transactions and the writer
+lease with fencing epoch (ADR-0003, ADR-0011)."""
+from __future__ import annotations
+
+import socket
+import sqlite3
+import sys
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Iterator
+
+from ..domain.clock import Clock, NS_PER_S
+from ..domain.errors import LeaseLost
+from .schema import MIGRATIONS
+
+
+class LeaseHeld(RuntimeError):
+    """Another live writer holds the lease; refuse to start (ADR-0011)."""
+
+
+class Tx:
+    """Thin wrapper over a connection inside an open transaction."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        self.conn = conn
+
+    def one(self, sql: str, params: tuple | dict = ()) -> sqlite3.Row | None:
+        return self.conn.execute(sql, params).fetchone()
+
+    def all(self, sql: str, params: tuple | dict = ()) -> list[sqlite3.Row]:
+        return self.conn.execute(sql, params).fetchall()
+
+    def run(self, sql: str, params: tuple | dict = ()) -> sqlite3.Cursor:
+        return self.conn.execute(sql, params)
+
+
+def connect(path: str | Path, *, readonly: bool = False) -> sqlite3.Connection:
+    target = str(path)
+    if readonly:
+        conn = sqlite3.connect(f"file:{target}?mode=ro", uri=True, isolation_level=None, timeout=5)
+    else:
+        conn = sqlite3.connect(target, isolation_level=None, timeout=5)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=5000")
+    if not readonly and target != ":memory:":
+        mode = conn.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+        if mode.lower() != "wal":
+            raise RuntimeError(f"could not enable WAL (got {mode})")
+    conn.execute("PRAGMA synchronous=FULL")
+    if sys.platform == "darwin":
+        # macOS fsync does not flush the drive cache; F_FULLFSYNC does.
+        conn.execute("PRAGMA fullfsync=ON")
+        conn.execute("PRAGMA checkpoint_fullfsync=ON")
+    return conn
+
+
+def migrate(conn: sqlite3.Connection, now_ns: int) -> int:
+    conn.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, "
+                 "applied_at_ns INTEGER NOT NULL, description TEXT NOT NULL)")
+    applied = {r[0] for r in conn.execute("SELECT version FROM schema_migrations")}
+    for version, description, ddl in MIGRATIONS:
+        if version in applied:
+            continue
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            for statement in _statements(ddl):
+                conn.execute(statement)
+            conn.execute("INSERT INTO schema_migrations VALUES (?,?,?)", (version, now_ns, description))
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+    return max([v for v, _, _ in MIGRATIONS], default=0)
+
+
+def _statements(ddl: str) -> list[str]:
+    out, buf = [], []
+    for line in ddl.splitlines():
+        if line.strip().startswith("--"):
+            continue
+        buf.append(line)
+        if line.rstrip().endswith(";"):
+            stmt = "\n".join(buf).strip()
+            if stmt:
+                out.append(stmt)
+            buf = []
+    tail = "\n".join(buf).strip()
+    if tail:
+        out.append(tail)
+    return out
+
+
+class Store:
+    """Owns the single read-write connection and the writer lease."""
+
+    LEASE_STALE_AFTER_NS = 30 * NS_PER_S
+
+    def __init__(self, path: str | Path, clock: Clock, *, holder: str, takeover: bool = False):
+        self.path = str(path)
+        self.clock = clock
+        self.holder = holder
+        self.host = socket.gethostname()
+        self.conn = connect(self.path)
+        migrate(self.conn, clock.now_ns())
+        self.epoch = self._acquire_lease(takeover)
+
+    # ------------------------------------------------------------------ lease
+    def _acquire_lease(self, takeover: bool) -> int:
+        now = self.clock.now_ns()
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = self.conn.execute("SELECT holder, host, epoch, heartbeat_at_ns FROM writer_lease WHERE id=1").fetchone()
+            if row is None:
+                epoch = 1
+                self.conn.execute("INSERT INTO writer_lease VALUES (1,?,?,?,?,?)", (self.holder, self.host, epoch, now, now))
+            else:
+                alive = now - row["heartbeat_at_ns"] < self.LEASE_STALE_AFTER_NS
+                if row["holder"] != self.holder and alive and not takeover:
+                    raise LeaseHeld(f"writer lease held by {row['holder']}@{row['host']} (epoch {row['epoch']})")
+                epoch = row["epoch"] + 1
+                self.conn.execute("UPDATE writer_lease SET holder=?, host=?, epoch=?, acquired_at_ns=?, heartbeat_at_ns=? WHERE id=1",
+                                  (self.holder, self.host, epoch, now, now))
+            self.conn.execute("COMMIT")
+            return epoch
+        except Exception:
+            self.conn.execute("ROLLBACK")
+            raise
+
+    def heartbeat(self) -> None:
+        with self.write() as tx:
+            tx.run("UPDATE writer_lease SET heartbeat_at_ns=? WHERE id=1", (self.clock.now_ns(),))
+
+    def _check_lease(self) -> None:
+        row = self.conn.execute("SELECT epoch, holder FROM writer_lease WHERE id=1").fetchone()
+        if row is None or row["epoch"] != self.epoch or row["holder"] != self.holder:
+            raise LeaseLost(f"writer lease epoch {self.epoch} is no longer current")
+
+    # ----------------------------------------------------------- transactions
+    @contextmanager
+    def write(self) -> Iterator[Tx]:
+        """BEGIN IMMEDIATE + fencing check; commit on success, roll back on any error."""
+        self.conn.execute("BEGIN IMMEDIATE")
+        try:
+            self._check_lease()
+            yield Tx(self.conn)
+            self.conn.execute("COMMIT")
+        except BaseException:
+            if self.conn.in_transaction:
+                self.conn.execute("ROLLBACK")
+            raise
+
+    @contextmanager
+    def read(self) -> Iterator[Tx]:
+        """Consistent snapshot read on the writer connection."""
+        self.conn.execute("BEGIN")
+        try:
+            yield Tx(self.conn)
+        finally:
+            if self.conn.in_transaction:
+                self.conn.execute("COMMIT")
+
+    def query(self, sql: str, params: Any = ()) -> list[sqlite3.Row]:
+        return self.conn.execute(sql, params).fetchall()
+
+    def backup_to(self, target: str | Path) -> None:
+        """Database-consistent online backup (ADR-0003 #6)."""
+        dest = sqlite3.connect(str(target))
+        try:
+            self.conn.backup(dest)
+        finally:
+            dest.close()
+
+    def close(self) -> None:
+        self.conn.close()

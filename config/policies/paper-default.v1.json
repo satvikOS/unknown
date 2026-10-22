@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "name": "paper-default-v1",
+  "mode": "PAPER",
+  "currency": "USD",
+  "eligibility": {
+    "asset_classes": [
+      "EQUITY",
+      "ETF"
+    ],
+    "venues": [
+      "XNAS",
+      "XNYS",
+      "ARCX",
+      "BATS",
+      "XASE"
+    ],
+    "order_types": [
+      "LIMIT"
+    ],
+    "time_in_force": [
+      "DAY"
+    ],
+    "outside_regular_hours": false,
+    "allow_short": false,
+    "allow_margin": false,
+    "allow_derivatives": false,
+    "allow_leveraged_or_inverse": false,
+    "allow_fractional": false,
+    "allow_fx_conversion": false,
+    "allow_transfers": false
+  },
+  "account_limits": {
+    "authorized_capital": "300.00",
+    "operational_buffer": "5.00",
+    "max_order_notional": "100.00",
+    "max_position_bps_of_session_equity": 10000,
+    "max_gross_exposure": "300.00",
+    "max_orders_per_minute": 10,
+    "price_collar_bps": 100,
+    "quote_max_age_ms": 5000,
+    "daily_loss_trigger": "3.00",
+    "cumulative_loss_allowance": "15.00",
+    "risk_day_timezone": "America/New_York",
+    "max_reconciliation_age_s": 300,
+    "reauth_max_age_s": 900,
+    "max_clock_skew_ms": 2000,
+    "min_free_disk_mb": 1024,
+    "max_participation_bps_of_adv": 100,
+    "require_liquidity_data": false
+  },
+  "session_template": {
+    "seed": "100.00",
+    "target_terminal_equity": "105.00",
+    "strategy_eligibility": [
+      "owner-manual"
+    ],
+    "session_drawdown_trigger_bps": 200,
+    "session_max_loss": "5.00",
+    "auto_start": true,
+    "expires_after_s": null,
+    "below_target_after_target_observed": "CLOSE",
+    "max_resumes": 0
+  },
+  "successor": {
+    "create_on_success": true,
+    "mandate_source": "ACTIVE_TEMPLATE_AT_CREATION",
+    "reinvest_protected_proceeds": false
+  },
+  "wind_down": {
+    "order_style": "LIMIT_AT_BID_MINUS_COLLAR",
+    "collar_bps": 50,
+    "reprice_after_s": 300,
+    "max_attempts": 5
+  },
+  "on_stop_liquidation": "NONE",
+  "auto_resume_after_clean_reconciliation": false,
+  "fees": {
+    "model": "PER_SHARE",
+    "per_share": "0.005",
+    "minimum": "1.00",
+    "maximum_bps_of_notional": 100,
+    "estimate_margin_bps": 2000,
+    "source": "https://www.interactivebrokers.com/en/pricing/commissions-stocks.php",
+    "verified_on": "UNVERIFIED: shape assumed for reservation envelopes only; confirm against the IBKR capability record"
+  },
+  "settlement_calendar": "XNYS"
+}
