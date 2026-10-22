@@ -49,7 +49,8 @@ The largest workspace chunk is Portfolio, 90.26 kB. `vite.config.ts` fails the b
 ```
 src/
   api/types.ts          wire types mirroring backend/src/unknown/api/queries.py (decimals are strings)
-  api/client.ts         typed client: every GET, auth, CSRF, 401 -> login, 428 -> step-up -> same-id retry
+  api/client.ts         typed client: every GET, auth, CSRF, 401 -> login, 428 -> step-up -> same-id retry,
+                        GET /api/commands/<id> (stored result), 409 COMMAND_ID_CONFLICT
   format/decimal.ts     exact decimal-string formatting and comparison (no floats)
   format/exact.ts       exact decimal arithmetic on BigInt (add, sub, mul, sums, ratios in bps)
   format/time.ts        ns timestamps, ages, clock
@@ -124,10 +125,16 @@ useQuery<E extends Endpoint>(endpoint: E | null, params?: ParamsOf<E>, options?:
 const send = useSendCommand();
 send<K extends CommandKind>(kind: K, payload: CommandPayload<K>, opts: { label: string; commandId?: string })
   : Promise<TrackedCommand>   // { commandId, status: 'sending'|'pending'|'applied'|'rejected'|'failed'|'cancelled',
-                              //   rejection?: {code,message,details}, awaitSeq, error, outcomeUnknown }
+                              //   rejection?: {code,message,details}, awaitSeq, error, outcomeUnknown,
+                              //   lookup: null | {state: 'querying'|'found'|'not_recorded'|'failed', ...} }
 useTrackedCommand(commandId) // live record for one command;  <CommandStatus commandId=... /> renders it
 // Step-up kinds (start, publish/activate policy, (de)authorize capital, ownership, resolve_exception)
 // prompt for the passphrase automatically on HTTP 428 and retry with the same command id.
+// Unknown outcome (network failure, 5xx): the tracker asks GET /api/commands/<id> for the stored result
+// before anything offers a retry. A stored result is adopted (pending/applied, or rejected), never resent;
+// "not recorded" is definitive (not executed) or provisional (still unknown). commands.retry(id) queries
+// again before it resends with the same id and payload; commands.recheck(id) queries without resending.
+// HTTP 409 COMMAND_ID_CONFLICT is a definitive refusal: status 'rejected' with the API's code and message.
 
 <DataTable<T>
   caption: string; captionHidden?: boolean;

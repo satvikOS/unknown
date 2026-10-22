@@ -5,7 +5,7 @@
  */
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react';
 import { withoutNsStrings } from '../../api/nsStrings';
-import type { TrackedCommand } from '../../state/commands';
+import { canRetry, failedText, lookupNote, type TrackedCommand } from '../../state/commands';
 import { useRuntime, useTrackedCommand } from '../../state/react';
 import { Money, Qty, ShortId, StatusPill, Timestamp, type Tone } from '../../ui/primitives';
 import { WorkspaceLink } from '../../ui/WorkspaceFrame';
@@ -161,22 +161,26 @@ export function commandText(t: TrackedCommand): string {
     case 'rejected':
       return `rejected: ${t.rejection?.code ?? 'unknown code'}`;
     case 'failed':
-      return t.outcomeUnknown ? 'outcome unknown' : 'refused by the API';
+      return failedText(t);
     case 'cancelled':
       return 'cancelled (not sent)';
   }
 }
 
-/** One-line command status for table cells: pill, durable command id, same-id retry when unknown. */
+/**
+ * One-line command status for table cells: pill, durable command id, and once the stored-result lookup of an
+ * unknown outcome has answered, a same-id retry (the pill's detail carries the lookup's note).
+ */
 export function InlineCommandStatus({ commandId }: { commandId: string | null | undefined }) {
   const { commands } = useRuntime();
   const t = useTrackedCommand(commandId);
   if (!commandId || !t) return null;
+  const detail = [t.error, lookupNote(t)].filter(Boolean).join(' ');
   return (
     <span className="ops-cmd" aria-live="polite">
-      <StatusPill label={commandText(t)} tone={commandTone(t.status)} detail={t.error ?? undefined} compact />
+      <StatusPill label={commandText(t)} tone={commandTone(t.status)} detail={detail || undefined} compact />
       <ShortId value={t.commandId} head={18} />
-      {t.status === 'failed' && t.outcomeUnknown ? (
+      {canRetry(t) ? (
         <button type="button" className="btn small" onClick={() => void commands.retry(t.commandId)}>
           Retry same id
         </button>

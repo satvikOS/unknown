@@ -126,6 +126,7 @@ const PRE_PRETRADE: Record<string, string> = {
   UNAUTHORIZED: 'This principal may not issue the command.',
   DEADLINE_EXPIRED: 'The command deadline passed before the core executed it.',
   UNKNOWN_ORDER: 'The order id is not known to the core.',
+  COMMAND_ID_CONFLICT: 'The command id already names a different command (HTTP 409), which keeps its own result.',
 };
 
 export function explainRejectionCode(code: string): string | null {

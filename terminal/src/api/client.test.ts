@@ -4,6 +4,7 @@ import {
   ApiError,
   buildQuery,
   CommandTransportError,
+  commandNotFound,
   defaultCommandId,
   encodePathSegment,
   InvalidPassphraseError,
@@ -98,6 +99,23 @@ describe('ApiClient reads', () => {
     const r = await client.commandResult('ui.start/1');
     expect(calls[0]?.url).toBe('/api/commands/ui.start%2F1');
     expect(r.status).toBe('ACCEPTED');
+  });
+
+  it('reads a 404 COMMAND_NOT_FOUND as "not recorded", definitive only when the API says so', async () => {
+    const answer = (definitive: boolean) => ({
+      status: 404,
+      body: { error: `no command x is recorded (${definitive ? 'core' : 'database'})`, code: 'COMMAND_NOT_FOUND', command_id: 'x', source: definitive ? 'core' : 'database', definitive },
+    });
+    const { impl } = fakeFetch([answer(true), answer(false), { status: 404, body: { error: 'unknown endpoint', code: 'NOT_FOUND' } }, { status: 503, body: { error: 'core database unavailable' } }]);
+    const client = new ApiClient({ fetchImpl: impl });
+    const errs: unknown[] = [];
+    for (let i = 0; i < 4; i++) errs.push(await client.commandResult('x').catch((e: unknown) => e));
+    expect(commandNotFound(errs[0])).toEqual({ definitive: true, message: 'no command x is recorded (core)' });
+    expect(commandNotFound(errs[1])).toEqual({ definitive: false, message: 'no command x is recorded (database)' });
+    // Any other failure is not an answer about the command.
+    expect(commandNotFound(errs[2])).toBeNull();
+    expect(commandNotFound(errs[3])).toBeNull();
+    expect(commandNotFound(new Error('x'))).toBeNull();
   });
 });
 
@@ -278,6 +296,23 @@ describe('ApiClient commands: outcomes', () => {
     expect(err.outcomeUnknown).toBe(false);
     expect(err.message).toContain('refused by the core; not executed');
     expect(err.message).not.toContain('before reaching the core');
+    // A definitive refusal that carries the API's code and message (the tracker records it as rejected).
+    expect(err.conflict).toBe(true);
+    expect(err.code).toBe('COMMAND_ID_CONFLICT');
+    expect(err.serverMessage).toBe(body.error);
+    expect(err.status).toBe(409);
+  });
+
+  it('only a 409 is a conflict; other refusals keep their own code', async () => {
+    const { impl } = fakeFetch([
+      { status: 400, body: { error: 'the core refused the command as invalid: bad field', code: 'COMMAND_INVALID', outcome: 'NOT_EXECUTED' } },
+      { status: 504, body: { error: 'no answer from the core', code: 'COMMAND_OUTCOME_UNKNOWN', outcome: 'UNKNOWN' } },
+    ]);
+    const client = new ApiClient({ fetchImpl: impl });
+    const invalid = (await client.sendCommand('stop', { account_key: 'SIM-1' }).catch((e: unknown) => e)) as CommandTransportError;
+    expect(invalid).toMatchObject({ conflict: false, code: 'COMMAND_INVALID', outcomeUnknown: false });
+    const unknown = (await client.sendCommand('stop', { account_key: 'SIM-1' }).catch((e: unknown) => e)) as CommandTransportError;
+    expect(unknown).toMatchObject({ conflict: false, code: 'COMMAND_OUTCOME_UNKNOWN', outcomeUnknown: true });
   });
 
   it('a 401 on a command logs out', async () => {

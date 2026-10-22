@@ -3,7 +3,7 @@
  * non-modal control drawer that shows stop progress and start blockers from /api/preflight.
  */
 import { useEffect, useRef } from 'react';
-import type { TrackedCommand } from '../state/commands';
+import { canRecheck, canRetry, failedText, lookupNote, type TrackedCommand } from '../state/commands';
 import { useAuth, useQuery, useRuntime, useTrackedCommand } from '../state/react';
 import { Icon } from '../ui/Icon';
 import { Age, Badge, Qty, ShortId, StatusPill, Timestamp, type Tone } from '../ui/primitives';
@@ -82,17 +82,23 @@ function statusText(t: TrackedCommand): string {
     case 'rejected':
       return `rejected: ${t.rejection?.code ?? 'unknown code'}`;
     case 'failed':
-      return t.outcomeUnknown ? 'outcome unknown' : 'refused by the API';
+      return failedText(t);
     case 'cancelled':
       return 'cancelled (not sent)';
   }
 }
 
-/** Durable command id + live status, shared by both sections. */
+/**
+ * Durable command id + live status, shared by both sections. After an unknown outcome the tracker asks
+ * GET /api/commands/<id> for the stored result first; a same-id retry is offered only once that has answered.
+ */
 export function CommandStatus({ commandId }: { commandId: string | null }) {
   const { commands } = useRuntime();
   const t = useTrackedCommand(commandId);
   if (!commandId || !t) return null;
+  const note = lookupNote(t);
+  const recheck = canRecheck(t);
+  const retry = canRetry(t);
   return (
     <div className="callout" style={{ ['--tone' as string]: `var(--${statusTone(t.status)})` }} aria-live="polite">
       <div className="progress-row">
@@ -101,10 +107,24 @@ export function CommandStatus({ commandId }: { commandId: string | null }) {
       </div>
       <div className="cmd-id">{t.commandId}</div>
       {t.error ? <div className="muted" style={{ marginTop: 4 }}>{t.error}</div> : null}
-      {t.status === 'failed' && t.outcomeUnknown ? (
-        <button type="button" className="btn small" style={{ marginTop: 6 }} onClick={() => void commands.retry(t.commandId)}>
-          Retry with the same id
-        </button>
+      {note ? (
+        <div className="muted cmd-lookup" style={{ marginTop: 4 }}>
+          {note}
+        </div>
+      ) : null}
+      {recheck || retry ? (
+        <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {recheck ? (
+            <button type="button" className="btn small" onClick={() => void commands.recheck(t.commandId)}>
+              Check the stored result again
+            </button>
+          ) : null}
+          {retry ? (
+            <button type="button" className="btn small" onClick={() => void commands.retry(t.commandId)}>
+              Retry with the same id
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

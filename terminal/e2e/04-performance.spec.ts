@@ -3,9 +3,12 @@
  *
  * 1. Code splitting: a first visit loads the shell and the opened workspace's chunk only; another workspace's
  *    chunk loads when it is opened, and focus then moves to its title.
+ * 2. Unknown outcomes and conflicts: a STOP whose response is lost on the way back is recovered from
+ *    GET /api/commands/<id> (never sent twice); a command id that already names another command is refused
+ *    with 409 COMMAND_ID_CONFLICT and shown as that refusal.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { baseUrl, goKeys, login, watchProblems } from './support/app';
+import { baseUrl, drawer, goKeys, header, login, watchProblems } from './support/app';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -42,4 +45,82 @@ test('a first visit loads the shell and the opened workspace only; others load w
   await expect(page.locator('h1#ws-title')).toBeFocused();
   expect(chunksOf(scripts, 'PortfolioWorkspace')).toHaveLength(1);
   expect(problems).toEqual([]);
+});
+
+/** GET /api/commands/<id> requests the page made (the tracker's stored-result lookups), by command id. */
+function watchLookups(page: Page): string[] {
+  const ids: string[] = [];
+  page.on('request', (r) => {
+    const path = new URL(r.url()).pathname;
+    if (r.method() === 'GET' && path.startsWith('/api/commands/')) ids.push(decodeURIComponent(path.slice('/api/commands/'.length)));
+  });
+  return ids;
+}
+
+/** The expected network noise of these scenarios: the reset connection and the 409 answer. */
+const expectedNoise = (p: string) => /Failed to load resource: (net::ERR_CONNECTION_RESET|the server responded with a status of 409)/.test(p);
+
+test('a STOP whose response is lost is recovered from its stored result, not sent twice', async ({ page }) => {
+  const problems = watchProblems(page);
+  await login(page);
+  const lookups = watchLookups(page);
+  const posted: string[] = [];
+  await page.route(
+    '**/api/commands',
+    async (route) => {
+      posted.push((route.request().postDataJSON() as { command_id: string }).command_id);
+      const answered = await route.fetch(); // the API and the core execute the command...
+      expect(answered.status()).toBe(200);
+      await route.abort('connectionreset'); // ...and the browser never sees the answer
+    },
+    { times: 1 },
+  );
+  await header(page).getByRole('button', { name: 'STOP', exact: true }).click();
+  const status = drawer(page).locator('.callout').filter({ hasText: 'STOP command' });
+  await expect(status.getByText(/^applied/)).toBeVisible({ timeout: 20_000 });
+  await expect(status.locator('.cmd-lookup')).toHaveText(
+    'Outcome recovered from the stored result (GET /api/commands/<id>, answered by the core); nothing was resent.',
+  );
+  await expect(status.getByRole('button', { name: 'Retry with the same id' })).toHaveCount(0);
+  const id = (await status.locator('.cmd-id').innerText()).trim();
+  expect(posted).toEqual([id]);
+  expect(lookups).toEqual([id]);
+  const stored = await page.request.get(`${baseUrl()}/api/commands/${encodeURIComponent(id)}`);
+  expect(await stored.json()).toMatchObject({ command_id: id, kind: 'stop', accepted: true });
+  expect(problems.filter((p) => !expectedNoise(p))).toEqual([]);
+});
+
+test('a command id that already names another command is refused with 409 COMMAND_ID_CONFLICT, shown as that refusal', async ({ page }) => {
+  const problems = watchProblems(page);
+  await login(page);
+  const lookups = watchLookups(page);
+  const answers: number[] = [];
+  page.on('response', (r) => {
+    if (new URL(r.url()).pathname === '/api/commands') answers.push(r.status());
+  });
+  let earlier = '';
+  await page.route(
+    '**/api/commands',
+    async (route) => {
+      const body = route.request().postDataJSON() as { kind: string; command_id: string; payload: Record<string, unknown> };
+      // Another command takes this id first: the same kind with a different payload.
+      const first = await route.fetch({ postData: JSON.stringify({ ...body, payload: { ...body.payload, reason: 'E2E_EARLIER_COMMAND' } }) });
+      expect(first.status()).toBe(200);
+      earlier = body.command_id;
+      await route.continue(); // the terminal's own request now reuses that id with its own payload
+    },
+    { times: 1 },
+  );
+  await header(page).getByRole('button', { name: 'STOP', exact: true }).click();
+  const status = drawer(page).locator('.callout').filter({ hasText: 'STOP command' });
+  await expect(status.getByText('rejected: COMMAND_ID_CONFLICT')).toBeVisible({ timeout: 20_000 });
+  await expect(status).toContainText('the original command keeps its result and this request was not executed');
+  await expect(status.getByRole('button', { name: /Retry|Check the stored result/ })).toHaveCount(0);
+  expect((await status.locator('.cmd-id').innerText()).trim()).toBe(earlier);
+  expect(answers).toEqual([409]);
+  expect(lookups).toEqual([]); // a definitive refusal is not looked up
+  await expect(page.locator('.notices .notice', { hasText: 'STOP: rejected' })).toBeVisible();
+  const stored = await page.request.get(`${baseUrl()}/api/commands/${encodeURIComponent(earlier)}`);
+  expect(await stored.json()).toMatchObject({ command_id: earlier, kind: 'stop', accepted: true });
+  expect(problems.filter((p) => !expectedNoise(p))).toEqual([]);
 });

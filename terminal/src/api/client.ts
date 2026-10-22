@@ -102,8 +102,9 @@ export class NetworkError extends Error {
 
 /**
  * Command-path failure that carries the durable command id so the UI can show it and retry safely.
- * `outcomeUnknown` is true when the command may have reached the core (network failure, 5xx): a retry
- * must reuse the same id so the core returns the recorded result instead of acting twice. It is false
+ * `outcomeUnknown` is true when the command may have reached the core (network failure, 5xx): the
+ * command tracker then asks GET /api/commands/<id> for the stored result before it offers a retry, and a
+ * retry reuses the same id so the core returns the recorded result instead of acting twice. It is false
  * for a 4xx: the API refused the request before forwarding it, or the core refused it (a command id
  * conflict, an invalid command), so it was not executed.
  */
@@ -112,6 +113,12 @@ export class CommandTransportError extends Error {
   readonly kind: CommandKind;
   readonly outcomeUnknown: boolean;
   readonly status: number | null;
+  /** The API's stable error code (`COMMAND_ID_CONFLICT`, `CORE_REFUSED`, ...), when it sent one. */
+  readonly code: string | null;
+  /** The server's own message, when it sent one. */
+  readonly serverMessage: string | null;
+  /** 409 COMMAND_ID_CONFLICT: this id already names a command with another payload; this request was not executed. */
+  readonly conflict: boolean;
   override readonly cause: unknown;
   constructor(kind: CommandKind, commandId: string, cause: unknown) {
     const status = cause instanceof ApiError ? cause.status : null;
@@ -132,8 +139,25 @@ export class CommandTransportError extends Error {
     this.commandId = commandId;
     this.outcomeUnknown = outcomeUnknown;
     this.status = status;
+    this.code = code;
+    this.serverMessage = cause instanceof ApiError ? cause.serverMessage : null;
+    this.conflict = status === 409;
     this.cause = cause;
   }
+}
+
+/** 404 COMMAND_NOT_FOUND from GET /api/commands/<id>: nothing is stored for that id (server.py `_command_result`). */
+export interface CommandNotFound {
+  /** True when the core answered after finishing every request it had received: the command was not executed. */
+  definitive: boolean;
+  message: string;
+}
+
+/** The not-found answer of a stored-result lookup, or null when `err` is any other failure. */
+export function commandNotFound(err: unknown): CommandNotFound | null {
+  if (!(err instanceof ApiError) || err.status !== 404 || errorCode(err.body) !== 'COMMAND_NOT_FOUND') return null;
+  const definitive = (err.body as { definitive?: unknown }).definitive === true;
+  return { definitive, message: err.serverMessage ?? 'no result is stored for this command id' };
 }
 
 export interface StepUpRequest {
@@ -205,7 +229,7 @@ async function readBody(res: Response): Promise<unknown> {
   }
 }
 
-function errorCode(body: unknown): string | null {
+export function errorCode(body: unknown): string | null {
   if (body && typeof body === 'object' && typeof (body as { code?: unknown }).code === 'string') {
     return (body as { code: string }).code;
   }
