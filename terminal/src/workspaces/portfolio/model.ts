@@ -6,7 +6,7 @@
  * weights from the optimiser and test statistics are statistical floats computed by the backend
  * from exact inputs; they are displayed as such and never used as money.
  */
-import { compareDecimal, isDecimal } from '../../format/decimal';
+import { compareDecimal, formatDecimal, formatMoney, isDecimal } from '../../format/decimal';
 import { addDecimal, ratioBps } from '../../format/exact';
 import type { Tone } from '../../ui/primitives';
 
@@ -80,6 +80,16 @@ export function ownerLabel(owner: string): string {
   if (owner.startsWith('protected:')) return `Protected proceeds ${owner.slice('protected:'.length)}`;
   if (owner.startsWith('exception:')) return `Exception ${owner.slice('exception:'.length)}`;
   return owner.charAt(0).toUpperCase() + owner.slice(1);
+}
+
+/** A session id cut for narrow places (bars, cards); the full id goes in a title. */
+export function shortSessionId(id: string, head = 12): string {
+  return id.length > head + 2 ? `${id.slice(0, head)}…` : id;
+}
+
+/** `ownerLabel` with a shortened session id, for bar labels and other narrow places. */
+export function shortOwnerLabel(owner: string): string {
+  return owner.startsWith('session:') ? `Session ${shortSessionId(owner.slice('session:'.length))}` : ownerLabel(owner);
 }
 
 export function sessionOfScope(scope: string): string | null {
@@ -275,31 +285,78 @@ export function backtestDays(bt: Rec): BacktestDay[] {
 
 export interface ThresholdRow {
   threshold: string;
-  /** What `before` and `after` measure: a session's equity, or the system P&L (losses negative). */
-  measure: 'equity' | 'system P&L' | 'loss';
+  /**
+   * What the level is compared with. `equity`: a session's equity after the scenario, crossed at or
+   * below the level. `loss`: an account loss (from the risk day's start, or from the P&L high-water
+   * mark), crossed at or above the level.
+   */
+  measure: 'equity' | 'loss';
   owner: string | null;
+  /** The currency of the row's amounts when it is known exactly; null when the response does not say. */
+  currency: string | null;
   level: string | null;
-  crossed: boolean;
+  /** null when the backend could not decide (for example an unpriced position); `reason` says why. */
+  crossed: boolean | null;
+  reason: string | null;
+  /** Session rows: equity before and after. Account rows: system P&L before and after (losses negative). */
   before: string | null;
   after: string | null;
+  /** Account rows: the loss the level is compared with. */
+  loss: string | null;
   beyond: string | null;
   consequence: string | null;
   caveat: string | null;
+  /** The backend's further facts for the row: where the daily window starts, another window, stale marks. */
+  notes: string[];
 }
 
-export function thresholdRows(body: Rec): ThresholdRow[] {
-  return recs(body.thresholds).map((t) => ({
-    threshold: str(t.threshold) ?? '?',
-    measure: (dec(t.equity_before) ?? dec(t.equity_after)) !== null ? 'equity' : (dec(t.system_pnl_before) ?? dec(t.system_pnl_after)) !== null ? 'system P&L' : 'loss',
-    owner: str(t.owner),
-    level: dec(t.level),
-    crossed: t.crossed === true,
-    before: dec(t.equity_before) ?? dec(t.system_pnl_before),
-    after: dec(t.equity_after) ?? dec(t.system_pnl_after) ?? dec(t.loss_after),
-    beyond: dec(t.loss_beyond_threshold),
-    consequence: str(t.consequence),
-    caveat: str(t.caveat),
-  }));
+/**
+ * Loss-threshold rows of a stress result (analytics/stress.py `_thresholds`). Session rows are keyed by
+ * the same (owner, currency) pairs as `pnl_by_owner`, so their currency is that owner's single currency
+ * there. Account rows are in the account's base currency, which the caller passes (the threshold rows
+ * themselves carry no currency).
+ */
+export function thresholdRows(body: Rec, baseCurrency: string | null = null): ThresholdRow[] {
+  const ownerCurrencies = new Map<string, Set<string>>();
+  for (const p of recs(body.pnl_by_owner)) {
+    const o = str(p.owner);
+    const c = str(p.currency);
+    if (o && c) ownerCurrencies.set(o, (ownerCurrencies.get(o) ?? new Set<string>()).add(c));
+  }
+  return recs(body.thresholds).map((t) => {
+    const owner = str(t.owner);
+    const ccys = owner ? ownerCurrencies.get(owner) : undefined;
+    const currency = owner ? (ccys && ccys.size === 1 ? ([...ccys][0] ?? null) : null) : baseCurrency;
+    const notes: string[] = [];
+    const amount = (v: string | null) => (v === null ? '?' : currency ? formatMoney(v, currency) : `${formatDecimal(v, { minFraction: 2 })} (currency not reported)`);
+    if (dec(t.day_start_pnl) !== null) notes.push(`Risk day ${str(t.risk_day) ?? '?'} starts at system P&L ${amount(dec(t.day_start_pnl))}: ${str(t.day_start_source) ?? 'source not given'}`);
+    if (dec(t.loss_since_last_core_valuation) !== null) {
+      const alt = t.crossed_if_window_started_at_last_core_valuation;
+      notes.push(
+        `Measured from the last core valuation instead, the loss would be ${amount(dec(t.loss_since_last_core_valuation))}` +
+          (typeof alt === 'boolean' ? `, which ${alt ? 'would cross' : 'would not cross'} the level` : '') +
+          ' (that window is an owner decision, not the core rule)',
+      );
+    }
+    if (dec(t.pnl_high_water) !== null) notes.push(`System P&L high-water mark ${amount(dec(t.pnl_high_water))}`);
+    if (str(t.marks_note)) notes.push(str(t.marks_note) ?? '');
+    return {
+      threshold: str(t.threshold) ?? '?',
+      measure: owner !== null ? 'equity' : 'loss',
+      owner,
+      currency,
+      level: dec(t.level),
+      crossed: typeof t.crossed === 'boolean' ? t.crossed : null,
+      reason: str(t.reason),
+      before: dec(t.equity_before) ?? dec(t.system_pnl_before),
+      after: dec(t.equity_after) ?? dec(t.system_pnl_after),
+      loss: dec(t.loss_after),
+      beyond: dec(t.loss_beyond_threshold),
+      consequence: str(t.consequence),
+      caveat: str(t.caveat),
+      notes,
+    };
+  });
 }
 
 export const STRESS_SCENARIOS = [

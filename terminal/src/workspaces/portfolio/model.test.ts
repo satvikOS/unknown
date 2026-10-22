@@ -17,6 +17,8 @@ import {
   sentence,
   sentences,
   sessionOfScope,
+  shortOwnerLabel,
+  shortSessionId,
   stressParamError,
   thresholdRows,
   twrStatus,
@@ -48,6 +50,15 @@ describe('routes and scopes', () => {
     expect(opts.find((o) => o.value === 'owner:session:S1')?.label).toBe('Session S1');
     expect(sessionOfScope('owner:session:S1')).toBe('S1');
     expect(sessionOfScope('system')).toBeNull();
+  });
+
+  it('shortens long session ids for narrow labels only', () => {
+    const id = 'ses-01a164fe-c610-752e-b019-255e2ff6c578';
+    expect(shortOwnerLabel(`session:${id}`)).toBe('Session ses-01a164fe…');
+    expect(shortOwnerLabel('session:S1')).toBe('Session S1');
+    expect(shortOwnerLabel('unallocated')).toBe('Unallocated');
+    expect(shortSessionId('ses-01a164fe-c6')).toBe('ses-01a164fe…');
+    expect(shortSessionId('ses-01a164fe-c')).toBe('ses-01a164fe-c'); // cutting two characters would not save space
   });
 
   it('reads kinds and the no-history answer', () => {
@@ -163,14 +174,69 @@ describe('exact chart geometry', () => {
 
 describe('stress, what-if and allocation inputs', () => {
   it('reads threshold rows from either equity or system P&L forms', () => {
-    const rows = thresholdRows({
-      thresholds: [
-        { threshold: 'session_drawdown_trigger', owner: 'session:S1', level: '98.00', crossed: true, equity_before: '99.800000', equity_after: '95.220000', loss_beyond_threshold: '2.780000' },
-        { threshold: 'cumulative_loss_allowance', level: '15.00', crossed: false, system_pnl_after: '-4.780000', loss_after: '4.780000' },
-      ],
+    const rows = thresholdRows(
+      {
+        pnl_by_owner: [{ owner: 'session:S1', currency: 'USD', pnl: '-4.580000' }],
+        thresholds: [
+          { threshold: 'session_drawdown_trigger', owner: 'session:S1', level: '98.00', crossed: true, equity_before: '99.800000', equity_after: '95.220000', loss_beyond_threshold: '2.780000' },
+          { threshold: 'cumulative_loss_allowance', level: '15.00', crossed: false, system_pnl_after: '-4.780000', loss_after: '4.780000', pnl_high_water: '0' },
+        ],
+      },
+      'USD',
+    );
+    expect(rows[0]).toMatchObject({ crossed: true, measure: 'equity', currency: 'USD', before: '99.800000', after: '95.220000', loss: null, beyond: '2.780000' });
+    // The level of an account row is compared with the loss, not with the P&L after.
+    expect(rows[1]).toMatchObject({ crossed: false, measure: 'loss', currency: 'USD', before: null, after: '-4.780000', loss: '4.780000', owner: null });
+    expect(rows[1]?.notes).toEqual(['System P&L high-water mark 0.00 USD']);
+  });
+
+  it('never shows an undecided threshold as not crossed, and never guesses a currency', () => {
+    const [unpriced] = thresholdRows({
+      thresholds: [{ threshold: 'daily_loss_trigger', level: '3.00', crossed: null, reason: 'system value unavailable: unpriced FIX-EQ-9' }],
     });
-    expect(rows[0]).toMatchObject({ crossed: true, measure: 'equity', before: '99.800000', after: '95.220000', beyond: '2.780000' });
-    expect(rows[1]).toMatchObject({ crossed: false, measure: 'system P&L', before: null, after: '-4.780000', owner: null });
+    expect(unpriced).toMatchObject({ crossed: null, reason: 'system value unavailable: unpriced FIX-EQ-9', currency: null, measure: 'loss' });
+    // A session owner with P&L in two currencies: the row's currency is ambiguous, so none is shown.
+    const [two] = thresholdRows(
+      {
+        pnl_by_owner: [
+          { owner: 'session:S2', currency: 'USD', pnl: '-1' },
+          { owner: 'session:S2', currency: 'EUR', pnl: '-1' },
+        ],
+        thresholds: [{ threshold: 'session_max_loss', owner: 'session:S2', level: '95.00', crossed: false, equity_after: '97.92' }],
+      },
+      'USD',
+    );
+    expect(two?.currency).toBeNull();
+  });
+
+  it('keeps the daily window facts the backend computed', () => {
+    const [daily] = thresholdRows(
+      {
+        thresholds: [
+          {
+            threshold: 'daily_loss_trigger',
+            level: '3.00',
+            crossed: false,
+            system_pnl_before: '-1.090000',
+            system_pnl_after: '-2.080000',
+            risk_day: '2026-10-22',
+            day_start_pnl: '-2.080000',
+            day_start_source: 'none yet on this risk day: the scenario valuation would be the first and sets the day start',
+            loss_after: '0.000000',
+            loss_since_last_core_valuation: '3.500000',
+            crossed_if_window_started_at_last_core_valuation: true,
+            marks_note: 'includes stale last marks for FIX-EQ-2',
+          },
+        ],
+      },
+      'USD',
+    );
+    expect(daily?.loss).toBe('0.000000');
+    expect(daily?.notes).toEqual([
+      'Risk day 2026-10-22 starts at system P&L −2.08 USD: none yet on this risk day: the scenario valuation would be the first and sets the day start',
+      'Measured from the last core valuation instead, the loss would be 3.50 USD, which would cross the level (that window is an owner decision, not the core rule)',
+      'includes stale last marks for FIX-EQ-2',
+    ]);
   });
 
   it('validates scenario parameters as the backend parses them', () => {

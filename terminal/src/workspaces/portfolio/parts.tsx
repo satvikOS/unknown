@@ -1,8 +1,8 @@
 /** Shared pieces of the Portfolio workspace: lineage, fixture and quote notes, labels, scope select. */
 import type { ReactNode } from 'react';
 import { useStream, type QueryResult } from '../../state/react';
-import { WorkspaceFrame } from '../../ui/WorkspaceFrame';
-import { Badge, FixtureBadge, StatusPill, Timestamp } from '../../ui/primitives';
+import { WorkspaceFrame, WorkspaceLink } from '../../ui/WorkspaceFrame';
+import { Badge, FixtureBadge, ShortId, StatusPill, Timestamp } from '../../ui/primitives';
 import { usePluginQuery } from '../plugin-api/hooks';
 import { arr, isRec, num, recs, str, whatIfStale, type Rec, type ScopeOption } from './model';
 
@@ -41,6 +41,21 @@ export function RichReason({ text }: { text: string }) {
         ),
       )}
     </>
+  );
+}
+
+/** An owner id; a session owner links to the session and shows a shortened id (full id in its title). */
+export function OwnerName({ owner }: { owner: string }) {
+  const session = owner.startsWith('session:') ? owner.slice('session:'.length) : null;
+  return session ? (
+    <WorkspaceLink to="sessions" rest={[session]}>
+      <span className="cmd-id" title={owner}>
+        session:
+      </span>
+      <ShortId value={session} head={12} />
+    </WorkspaceLink>
+  ) : (
+    <span className="cmd-id">{owner}</span>
   );
 }
 

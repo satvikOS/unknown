@@ -38,6 +38,8 @@ function useChartWidth(fallback = 640): [RefCallback<HTMLElement>, number] {
 export interface BarItem {
   key: string;
   label: string;
+  /** Full text for the label's tooltip when the label is shortened. */
+  title?: string;
   value: string | null;
   currency: string;
   /** Extra text after the amount (e.g. a percentage). */
@@ -54,7 +56,9 @@ export function BarList({ items, label }: { items: readonly BarItem[]; label: st
         const pct = b ? b.bps / 100 : 0;
         return (
           <li key={i.key}>
-            <span className="pf-bar-label">{i.label}</span>
+            <span className="pf-bar-label" title={i.title}>
+              {i.label}
+            </span>
             <svg className="pf-bar-track" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false">
               <rect x="0" y="0" width="100" height="10" className="pf-track-bg" />
               {b ? <rect x="0" y="1" width={pct} height="8" rx="1" className={b.negative ? 'pf-fill-neg' : 'pf-fill'} /> : null}

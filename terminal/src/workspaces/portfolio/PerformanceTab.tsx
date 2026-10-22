@@ -12,7 +12,7 @@ import { QueryError } from '../../ui/WorkspaceFrame';
 import { Segmented } from '../operations/parts';
 import { usePluginQuery } from '../plugin-api/hooks';
 import { LineChart, SignedBarChart } from './charts';
-import { sentences, arr, dec, fmtNum, fmtPct, irrStatus, isRec, num, ofKind, recs, str, twrStatus, unavailableReason, type Rec, type ScopeOption } from './model';
+import { sentence, sentences, arr, dec, fmtNum, fmtPct, irrStatus, isRec, num, ofKind, recs, str, twrStatus, unavailableReason, type Rec, type ScopeOption } from './model';
 import { PortfolioFrame, AsOf, FixtureNote, Lineage, ScopeSelect, Toolbar, Unavailable, type FormulaDef } from './parts';
 
 type Convention = 'start_of_day' | 'end_of_day';
@@ -27,7 +27,7 @@ function Kpi({ k, v, s }: { k: string; v: string; s?: string | null }) {
   );
 }
 
-function PerformancePanel({ body, formulas }: { body: Rec; formulas: Map<string, FormulaDef> }) {
+export function PerformancePanel({ body, formulas }: { body: Rec; formulas: Map<string, FormulaDef> }) {
   const t = twrStatus(body);
   const irr = irrStatus(body.money_weighted);
   const stats = isRec(body.statistics) ? body.statistics : {};
@@ -101,7 +101,7 @@ function PerformancePanel({ body, formulas }: { body: Rec; formulas: Map<string,
           <dt>Sharpe</dt>
           <dd>
             <span className="num">{fmtNum(num(stats.sharpe), 2)}</span>
-            {se ? <span className="pf-hint"> ± {fmtNum(num(se.n_eff), 2)} (1 s.e., n_eff {neff !== null ? fmtNum(neff, 1) : '?'}). {str(se.note)}.</span> : null}
+            {se ? <span className="pf-hint"> ± {fmtNum(num(se.n_eff), 2)} (1 s.e., n_eff {neff !== null ? fmtNum(neff, 1) : '?'}). {sentence(str(se.note))}</span> : null}
           </dd>
           <dt>Sortino</dt>
           <dd className="num">{fmtNum(num(stats.sortino), 2)}</dd>

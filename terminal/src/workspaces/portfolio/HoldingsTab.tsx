@@ -10,8 +10,8 @@ import { QueryError, WorkspaceLink } from '../../ui/WorkspaceFrame';
 import { Segmented } from '../operations/parts';
 import type { QueryResult } from '../../state/react';
 import { BarList } from './charts';
-import { dec, exactShares, isRec, num, ofKind, ownerLabel, recs, str, weightPct, type Rec, type ScopeOption } from './model';
-import { PortfolioFrame, FixtureNote, Lineage, QuoteSnapshotNote, ScopeSelect, Toolbar, type FormulaDef } from './parts';
+import { dec, exactShares, isRec, num, ofKind, ownerLabel, recs, shortOwnerLabel, str, weightPct, type Rec, type ScopeOption } from './model';
+import { PortfolioFrame, FixtureNote, Lineage, OwnerName, QuoteSnapshotNote, ScopeSelect, Toolbar, type FormulaDef } from './parts';
 
 type Basis = 'bid' | 'mid' | 'last';
 const BASES: readonly { value: Basis; label: string }[] = [
@@ -25,17 +25,6 @@ function statusTone(s: string | null): 'ok' | 'warn' | 'bad' | 'neutral' {
   if (s === 'stale_marks' || s === 'stale') return 'warn';
   if (s === 'unpriced' || s === 'incomplete') return 'bad';
   return 'neutral';
-}
-
-function OwnerName({ owner }: { owner: string }) {
-  const session = owner.startsWith('session:') ? owner.slice('session:'.length) : null;
-  return session ? (
-    <WorkspaceLink to="sessions" rest={[session]}>
-      <span className="cmd-id">{owner}</span>
-    </WorkspaceLink>
-  ) : (
-    <span className="cmd-id">{owner}</span>
-  );
 }
 
 export interface HoldingsProps {
@@ -127,7 +116,7 @@ export function HoldingsTab({ bar, q, scope, setScope, basis, setBasis, options,
   const shareItems = totals.flatMap((t) => {
     const ccy = str(t.currency) ?? '';
     const parts = exactShares(owners.filter((o) => str(o.currency) === ccy).map((o) => ({ key: str(o.owner) ?? '?', value: dec(o.nav_marked) })));
-    return parts.parts.map((p) => ({ key: `${ccy}:${p.key}`, label: ownerLabel(p.key), value: p.value, currency: ccy, note: `${(p.bps / 100).toFixed(2)}% of positive NAV` }));
+    return parts.parts.map((p) => ({ key: `${ccy}:${p.key}`, label: shortOwnerLabel(p.key), title: ownerLabel(p.key), value: p.value, currency: ccy, note: `${(p.bps / 100).toFixed(2)}% of positive NAV` }));
   });
 
   return (

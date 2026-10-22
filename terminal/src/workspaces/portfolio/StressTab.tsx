@@ -5,12 +5,14 @@
  * A scenario runs only when the owner presses Run (it copies the core database on the server).
  */
 import { useState, type FormEvent, type ReactNode } from 'react';
+import { formatDecimal } from '../../format/decimal';
+import { useQuery } from '../../state/react';
 import { DataTable, type Column } from '../../ui/DataTable';
 import { Money, StatusPill } from '../../ui/primitives';
 import { QueryError } from '../../ui/WorkspaceFrame';
 import { usePluginGetOnce, type OneShot } from '../plugin-api/hooks';
 import { sentence, dec, isRec, num, ofKind, recs, str, STRESS_SCENARIOS, stressParamError, thresholdRows, type Rec, type ScopeOption, type StressScenario, type ThresholdRow } from './model';
-import { PortfolioFrame, AsOf, FixtureNote, Lineage, QuoteSnapshotNote, ResultLabel, ScopeSelect, SnapshotStale, type FormulaDef } from './parts';
+import { PortfolioFrame, AsOf, FixtureNote, Lineage, OwnerName, QuoteSnapshotNote, ResultLabel, ScopeSelect, SnapshotStale, type FormulaDef } from './parts';
 
 interface Run {
   scenario: StressScenario;
@@ -36,7 +38,9 @@ function PnlSummary({ body }: { body: Rec }) {
       ))}
       {byOwner.map((o, i) => (
         <div className="pf-kpi" key={i}>
-          <div className="k">{str(o.owner)}</div>
+          <div className="k">
+            <OwnerName owner={str(o.owner) ?? '?'} />
+          </div>
           <div className="v">
             <Money amount={dec(o.pnl)} currency={str(o.currency) ?? ''} signed />
           </div>
@@ -159,23 +163,47 @@ function ScenarioDetails({ body, scenario }: { body: Rec; scenario: StressScenar
   ) : null;
 }
 
+/** A threshold amount with its currency, or the exact decimal marked as unlabelled when the currency is not known. */
+function ThresholdAmount({ v, currency }: { v: string | null; currency: string | null }) {
+  if (v === null) return <span className="muted">—</span>;
+  if (currency) return <Money amount={v} currency={currency} />;
+  return (
+    <span className="num" title="The response does not say which currency this amount is in">
+      {formatDecimal(v, { minFraction: 2 })} <span className="muted">(currency not reported)</span>
+    </span>
+  );
+}
+
+function CrossedCell({ t }: { t: ThresholdRow }) {
+  if (t.crossed === null) return <StatusPill label="unknown" tone="warn" compact detail={t.reason ?? 'the backend could not decide'} />;
+  return t.crossed ? <StatusPill label="crossed" tone="bad" compact detail={t.consequence ?? undefined} /> : <span className="muted">no</span>;
+}
+
 function StressResult({ run, q, rerun, formulas }: { run: Run; q: OneShot<unknown>; rerun: () => void; formulas: Map<string, FormulaDef> }) {
   const body = ofKind(q.data, 'stress');
-  const thresholds = body ? thresholdRows(body) : [];
+  // Account thresholds are in the account's base currency; the rows do not carry it, the account record does.
+  const overview = useQuery('/api/overview');
+  const thresholds = body ? thresholdRows(body, overview.data?.account?.base_currency ?? null) : [];
   const positions = body ? recs(body.positions) : [];
   const tCols: Column<ThresholdRow>[] = [
     { id: 't', header: 'Threshold', cell: (t) => t.threshold },
-    { id: 'o', header: 'Owner', cell: (t) => t.owner ?? <span className="muted">system</span> },
-    { id: 'm', header: 'Measure', description: 'What Before and After measure: a session equity or the system P&L (losses negative)', cell: (t) => t.measure },
-    { id: 'l', header: 'Level', numeric: true, cell: (t) => t.level ?? '—' },
-    { id: 'b', header: 'Before', numeric: true, cell: (t) => t.before ?? '—' },
-    { id: 'a', header: 'After', numeric: true, cell: (t) => t.after ?? '—' },
-    { id: 'c', header: 'Crossed', cell: (t) => (t.crossed ? <StatusPill label="crossed" tone="bad" compact detail={t.consequence ?? undefined} /> : <span className="muted">no</span>) },
-    { id: 'x', header: 'Loss beyond', numeric: true, cell: (t) => t.beyond ?? '—' },
+    { id: 'o', header: 'Owner', cell: (t) => (t.owner ? <OwnerName owner={t.owner} /> : <span className="muted">system</span>) },
+    {
+      id: 'm',
+      header: 'Compared with',
+      description: 'Session rows: equity after the scenario, crossed at or below the level. Account rows: the loss, crossed at or above the level.',
+      cell: (t) => (t.measure === 'equity' ? 'equity after (at or below)' : 'loss (at or above)'),
+    },
+    { id: 'l', header: 'Level', numeric: true, cell: (t) => <ThresholdAmount v={t.level} currency={t.currency} /> },
+    { id: 'b', header: 'Before', numeric: true, description: 'Session equity, or system P&L for account rows (losses negative)', cell: (t) => <ThresholdAmount v={t.before} currency={t.currency} /> },
+    { id: 'a', header: 'After', numeric: true, description: 'Session equity, or system P&L for account rows (losses negative)', cell: (t) => <ThresholdAmount v={t.after} currency={t.currency} /> },
+    { id: 'loss', header: 'Loss', numeric: true, description: 'Account rows: the loss compared with the level', cell: (t) => <ThresholdAmount v={t.loss} currency={t.currency} /> },
+    { id: 'c', header: 'Crossed', cell: (t) => <CrossedCell t={t} /> },
+    { id: 'x', header: 'Loss beyond', numeric: true, cell: (t) => <ThresholdAmount v={t.beyond} currency={t.currency} /> },
   ];
   const pCols: Column<Rec>[] = [
     { id: 'i', header: 'Instrument', cell: (p) => <span className="cmd-id">{str(p.instrument_id)}</span> },
-    { id: 'o', header: 'Owner', cell: (p) => str(p.owner) ?? '—' },
+    { id: 'o', header: 'Owner', cell: (p) => (str(p.owner) ? <OwnerName owner={str(p.owner) ?? ''} /> : '—') },
     { id: 'q', header: 'Quantity', numeric: true, cell: (p) => str(p.quantity) ?? '—' },
     { id: 's', header: 'Shock', numeric: true, cell: (p) => str(p.shock) ?? '—' },
     { id: 'pb', header: 'Price before / after', numeric: true, cell: (p) => `${str(p.price_before) ?? '—'} → ${str(p.price_after) ?? '—'}` },
@@ -226,6 +254,19 @@ function StressResult({ run, q, rerun, formulas }: { run: Run; q: OneShot<unknow
               <div className="panel-body flush">
                 <DataTable caption="Loss thresholds under the scenario" captionHidden columns={tCols} rows={thresholds} rowKey={(t) => `${t.threshold}|${t.owner ?? ''}`} />
               </div>
+              {thresholds.some((t) => t.notes.length || t.reason) ? (
+                <div className="panel-note">
+                  <ul className="pf-list">
+                    {thresholds.flatMap((t) =>
+                      [...(t.reason ? [`unknown: ${t.reason}`] : []), ...t.notes].map((n, i) => (
+                        <li key={`${t.threshold}|${t.owner ?? ''}|${i}`}>
+                          <span className="cmd-id">{t.threshold}</span>: {sentence(n)}
+                        </li>
+                      )),
+                    )}
+                  </ul>
+                </div>
+              ) : null}
               {thresholds.some((t) => t.caveat) ? <div className="panel-note">{sentence(thresholds.find((t) => t.caveat)?.caveat)}</div> : null}
             </section>
           ) : null}

@@ -125,6 +125,18 @@ test('stress: a hypothetical overnight gap computed on a private copy of the cor
   await expect(main().getByText(/on core seq \d+/).first()).toBeVisible();
   const h = await api<{ positions: unknown[] }>('/api/portfolio/holdings?scope=account');
   if (h.positions.length) await expect(main().getByText(/^Scenario P&L, USD$/)).toBeVisible();
+  // Every loss threshold shows its level with its currency and the backend's crossed decision, never a guess.
+  type Threshold = { threshold: string; owner?: string; level: string; crossed: boolean | null };
+  const s = await api<{ thresholds: Threshold[] }>('/api/portfolio/stress/overnight_gap?scope=account&gap=-0.10');
+  const table = main().getByRole('table', { name: 'Loss thresholds under the scenario' });
+  if (s.thresholds.length) await expect(table.locator('tbody tr')).toHaveCount(s.thresholds.length);
+  for (const t of s.thresholds) {
+    const row = table.locator('tbody tr').filter({ hasText: t.threshold }).filter({ hasText: t.owner ? 'session:' : 'system' });
+    await expect(row.locator('td').nth(3), `${t.threshold} level`).toHaveText(`${money2(t.level)}USD`);
+    const crossed = row.locator('td').nth(7);
+    if (t.crossed === false) await expect(crossed, `${t.threshold} crossed`).toHaveText('no');
+    else await expect(crossed.locator('.pill-text'), `${t.threshold} crossed`).toHaveText(t.crossed ? 'crossed' : 'unknown');
+  }
 });
 
 test('what-if evaluates an intent through the real gate and creates no order', async () => {
