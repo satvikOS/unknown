@@ -125,7 +125,7 @@
       "trading_calendar": "XBOM", "settlement_calendar": "ICCL-EQ",
       "settlement_cycles": [
         {"from_trade_date": "2023-01-27", "business_days": 1, "sources": ["SEBI-CIR-2024-20", "SEBI-CIR-2021-628", "ICCL-SETTLEMENT-HOLIDAYS-2026"],
-         "statement": "T+1 rolling settlement for all scrips, fully implemented with effect from January 27, 2023 (SEBI, binding on all stock exchanges and clearing corporations). Counted on ICCL settlement business days; earlier trade dates are refused."}
+         "statement": "T+1 rolling settlement for all scrips, fully implemented with effect from January 27, 2023 (SEBI circular 2024/20: the exchanges and clearing corporations jointly moved all scrips to T+1; circular 2021/628 had made T+1 optional per exchange). Counted on ICCL settlement business days; earlier trade dates are refused."}
       ],
       "lot": null, "tick": null,
       "provider_codes": {},

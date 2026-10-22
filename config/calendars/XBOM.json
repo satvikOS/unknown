@@ -8,7 +8,8 @@
   "statement": "BSE notice 20251212-8 (12 Dec 2025), 'Trading Holidays for the Calendar Year 2026 for Equity and Equity Derivatives Segments', amended by BSE notice 20260112-8 (12 Jan 2026) closing the Equity Segment on 15 January 2026. 'The Exchange may alter / change any of the above holidays, for which a separate circular shall be issued in advance.' No BSE 2027 list was found, so the horizon ends on 2026-12-31.",
   "sources": [
     {"url": "https://www.bseindia.com/markets/MarketInfo/DispNewNoticesCirculars.aspx?page=20251212-8", "retrieved_on": "2026-10-22", "covers": "2026 trading holidays (15 weekday holidays and 4 holidays on Saturday/Sunday); '*Muhurat Trading will be conducted on Sunday, November 08, 2026. Timings of Muhurat Trading shall be notified subsequently.'"},
-    {"url": "https://www.bseindia.com/markets/MarketInfo/DispNewNoticesCirculars.aspx?page=20260112-8", "retrieved_on": "2026-10-22", "covers": "'on account of Municipal Corporation Election scheduled to be held on January 15, 2026, the following trading segments will remain closed on January 15, 2026. Equity Segment ...'"}
+    {"url": "https://www.bseindia.com/markets/MarketInfo/DispNewNoticesCirculars.aspx?page=20260112-8", "retrieved_on": "2026-10-22", "covers": "'on account of Municipal Corporation Election scheduled to be held on January 15, 2026, the following trading segments will remain closed on January 15, 2026. Equity Segment ...'"},
+    {"url": "https://www.bseindia.com/downloads/UploadDocs/Notices/20261019-9/20261019-9.pdf", "retrieved_on": "2026-10-22", "covers": "Muhurat Trading Session timings for the Equity Segment on Sunday, November 08, 2026"}
   ],
   "valid_from": "2026-01-01",
   "valid_through": "2026-12-31",
@@ -25,9 +26,9 @@
   "special_sessions": [
     {
       "date": "2026-11-08", "kind": "muhurat", "label": "Diwali Muhurat Trading session (Diwali Laxmi Pujan)",
-      "open": null, "close": null, "settles": null,
-      "source": "https://www.bseindia.com/markets/MarketInfo/DispNewNoticesCirculars.aspx?page=20251212-8",
-      "notes": "BSE announced the session (notice 20251212-8) but its timing notice could not be retrieved from bseindia.com on 2026-10-22, so the times and the settlement statement are recorded as unknown. session() raises SessionTimeUnknown for this date. ICCL settles trades of this date on the ICCL-EQ calendar."
+      "open": "14:20", "close": "15:30", "settles": null,
+      "source": "https://www.bseindia.com/downloads/UploadDocs/Notices/20261019-9/20261019-9.pdf",
+      "notes": "BSE notice 20261019-9 (19 Oct 2026, Trading Operations), 'Muhurat Trading Session for Equity Segment on account of Diwali Laxmi Pujan', Sunday 2026-11-08: continuous trading 02:20 pm - 03:30 pm; pre-open order entry 02:05 - 02:15 pm, matching 02:15 - 02:17 pm, buffer 02:17 - 02:20 pm; block deal window 01:50 - 02:05 pm; closing auction order entry 03:20 - 03:30 pm, matching 03:30 - 03:35 pm. Retrieved 2026-10-22 in the independent verification pass (the first pass could not reach it). The notice does not state settlement obligations, so settles stays unknown; BSE Clearing settles trades of this date on the ICCL-EQ calendar."
     }
   ],
   "notes": [

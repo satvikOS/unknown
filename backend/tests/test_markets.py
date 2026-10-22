@@ -218,14 +218,14 @@ class MuhuratTests(unittest.TestCase):
         self.assertEqual(nse.add_business_days(date(2026, 11, 6), 1), date(2026, 11, 9))
         self.assertIsNone(nse.special_session(date(2026, 11, 9)))
 
-    def test_bse_muhurat_times_unknown_not_assumed(self):
+    def test_bse_muhurat_times_from_its_notice_and_settlement_not_assumed(self):
+        """BSE notice 20261019-9 publishes the session times; it says nothing about settlement obligations."""
         bse = self.cals["XBOM"]
         self.assertTrue(bse.is_trading_day(self.muhurat))
         special = bse.special_session(self.muhurat)
-        self.assertFalse(special.times_known)
+        self.assertTrue(special.times_known)
         self.assertIsNone(special.settles)
-        with self.assertRaises(SessionTimeUnknown):
-            bse.session(self.muhurat)
+        self.assertEqual(self.cals["XNSE"].session(self.muhurat), bse.session(self.muhurat))   # both 14:20-15:30 IST
 
     def test_only_india_declares_special_sessions(self):
         for cal_id, cal in self.cals.items():

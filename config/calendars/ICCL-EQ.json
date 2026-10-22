@@ -5,7 +5,7 @@
   "timezone": "Asia/Kolkata",
   "source": "https://www.bseindia.com/markets/MarketInfo/DispNewNoticesCirculars.aspx?page=20251224-1",
   "retrieved_on": "2026-10-22",
-  "statement": "BSE notice 20251224-1 (24 Dec 2025, category Settlement/RMS), 'Settlement Holidays for the Calendar Year 2026': 'Members and Custodians are hereby informed that the ICCL shall observe following Settlement Holidays during the Calendar Year 2026.' Issued for Indian Clearing Corporation Ltd. 15 January 2026 is added from ICCL notice 20260109-67. No 2027 list was found, so the horizon ends on 2026-12-31.",
+  "statement": "BSE notice 20251224-1 (24 Dec 2025, category Settlement/RMS), 'Settlement Holidays for the Calendar Year 2026': 'Members and Custodians are hereby informed that the ICCL shall observe following Settlement Holidays during the Calendar Year 2026.' Issued for Indian Clearing Corporation Ltd, which BSE notices from October 2026 sign as BSE Clearing Limited (BSECL). 15 January 2026 is added from ICCL notice 20260109-67. No 2027 list was found, so the horizon ends on 2026-12-31.",
   "sources": [
     {"url": "https://www.bseindia.com/markets/MarketInfo/DispNewNoticesCirculars.aspx?page=20251224-1", "retrieved_on": "2026-10-22", "covers": "ICCL settlement holidays 2026 (19 weekday holidays and 4 on Saturday/Sunday)"},
     {"url": "https://www.bseindia.com/markets/MarketInfo/DispNewNoticesCirculars.aspx?page=20260109-67", "retrieved_on": "2026-10-22", "covers": "ICCL notice (EGR segment): 'With Reference to Circular of Reserve Bank of India (RBI) dated 08 January,2026 regarding Settlement holiday on account of Election of Municipal Corporations in Maharashtra on January 15, 2026'; trades of 14-01-2026 pay in on 16-01-2026"}
