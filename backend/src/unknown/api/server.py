@@ -45,6 +45,17 @@ SECURITY_HEADERS = {
 }
 
 
+_PLUGINS = None
+
+
+def _plugin_routes():
+    global _PLUGINS
+    if _PLUGINS is None:
+        from .routes import load
+        _PLUGINS = load()
+    return _PLUGINS
+
+
 class ApiContext:
     def __init__(self, paths: Paths, account_key: str, static_dir: Path | None, capabilities_path: Path | None,
                  secure_cookie: bool):
@@ -195,6 +206,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, self.ctx.core.query("preflight", authenticated_at_ns=s.authenticated_at_ns))
             except (IpcError, OSError) as exc:
                 return self._error(503, f"core unreachable: {exc}")
+        for prefix, handler in _plugin_routes():
+            if parts[:len(prefix)] == list(prefix):
+                try:
+                    return self._send(200, handler(self.ctx, parts, q, acct, conn))
+                except LookupError as exc:
+                    return self._error(404, str(exc))
         if parts == ["capabilities"]:
             p = self.ctx.capabilities_path
             if p and p.exists():
