@@ -7,7 +7,8 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { scenarioParams, type Rec } from './model';
-import { CoreReaction, PnlSummary, ScenarioDetails } from './StressTab';
+import { CoreReaction, PnlSummary, ScenarioDetails, bodyScenario } from './StressTab';
+import { intentText } from './WhatIfTab';
 
 const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
@@ -127,5 +128,21 @@ describe('shock scenarios: positions left out of the scenario P&L', () => {
   it('shows nested parameters only in their own panel', () => {
     expect(scenarioParams({ parameters: { gap: '-0.10', per_instrument: {} } })).toBe('gap -0.10');
     expect(scenarioParams({})).toBe('');
+  });
+});
+
+describe('a result is read against what it was computed for, not the form', () => {
+  it('lays out a stress body by its own scenario while a different run loads', () => {
+    // The page keeps the previous body while the next run loads; the form may already say fee_revision.
+    expect(bodyScenario({ kind: 'stress', scenario: 'overnight_gap' })).toBe('overnight_gap');
+    expect(bodyScenario({ kind: 'stress', scenario: 'fee_revision' })).toBe('fee_revision');
+    expect(bodyScenario({ kind: 'stress', scenario: 'something_else' })).toBeNull();
+    expect(bodyScenario(null)).toBeNull();
+  });
+
+  it('states the what-if intent the API evaluated', () => {
+    const intent = { account_key: 'SIM-1', session_id: 'ses-1', order_id: 'whatif-intent-1', instrument_id: 'FIX-EQ-1', side: 'BUY', quantity: '1', limit_price: '10.05' };
+    expect(intentText(intent)).toBe('BUY 1 FIX-EQ-1 at limit 10.05 for session ses-1');
+    expect(intentText(undefined)).toBe('not reported by the API');
   });
 });

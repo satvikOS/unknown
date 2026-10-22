@@ -17,6 +17,15 @@ import { PortfolioFrame, AsOf, FixtureNote, Lineage, QuoteSnapshotNote, ResultLa
 
 const EMPTY: WhatIfInput = { session: '', instrument: '', side: 'BUY', quantity: '', limit: '' };
 
+/**
+ * The intent a what-if result was computed for (whatif.dry_run echoes the payload it ran), so a result is
+ * never read against the form after the owner has edited it.
+ */
+export function intentText(intent: unknown): string {
+  if (!isRec(intent)) return 'not reported by the API';
+  return `${str(intent.side) ?? '?'} ${str(intent.quantity) ?? '?'} ${str(intent.instrument_id) ?? '?'} at limit ${str(intent.limit_price) ?? '?'} for session ${str(intent.session_id) ?? '?'}`;
+}
+
 export function Impact({ body }: { body: Rec }) {
   const imp = isRec(body.impact) ? body.impact : {};
   if (str(imp.reason)) return <p className="pf-hint">Impact not computed: {str(imp.reason)}</p>;
@@ -234,6 +243,9 @@ export function WhatIfTab({ bar, formulas }: { bar: ReactNode; formulas: Map<str
         <>
           <ResultLabel kind="hypothetical" text={str(body.label)} />
           <SnapshotStale seq={num(body.snapshot_seq)} onRerun={() => asked && runWith(asked)} busy={once.status === 'loading'} />
+          <p className="pf-hint" style={{ margin: '4px 0' }}>
+            Evaluated intent: <strong>{intentText(body.intent)}</strong>
+          </p>
           <div className="pf-note">
             <StatusPill label={body.approved === true ? 'would be approved' : `would be refused: ${str(body.code) ?? '?'}`} tone={body.approved === true ? 'ok' : 'bad'} />
             {str(body.message) ? <span>{str(body.message)}</span> : null}

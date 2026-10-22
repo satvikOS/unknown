@@ -356,8 +356,16 @@ function CrossedCell({ t }: { t: ThresholdRow }) {
   return t.crossed ? <StatusPill label="crossed" tone="bad" compact detail={t.consequence ?? undefined} /> : <span className="muted">no</span>;
 }
 
+/** The scenario a stress body was computed for (its own `scenario` field), never the form's current choice. */
+export function bodyScenario(body: Rec | null): StressScenario | null {
+  const s = body ? str(body.scenario) : null;
+  return STRESS_SCENARIOS.find((x) => x.id === s)?.id ?? null;
+}
+
 function StressResult({ run, q, rerun, formulas }: { run: Run; q: OneShot<unknown>; rerun: () => void; formulas: Map<string, FormulaDef> }) {
   const body = ofKind(q.data, 'stress');
+  // While a new run loads, q.data still holds the previous result: label and lay it out by its own scenario.
+  const scenario = bodyScenario(body) ?? run.scenario;
   // Account thresholds are in the account's base currency; the rows do not carry it, the account record does.
   const overview = useQuery('/api/overview');
   // Exit costs and stale-quote values carry no currency; a position is in its instrument's currency.
@@ -404,7 +412,7 @@ function StressResult({ run, q, rerun, formulas }: { run: Run; q: OneShot<unknow
           <ResultLabel kind="hypothetical" text={str(body.label)} />
           <SnapshotStale seq={num(body.core_seq)} onRerun={rerun} busy={q.status === 'loading'} />
           <div className="pf-note">
-            <strong>{STRESS_SCENARIOS.find((s) => s.id === run.scenario)?.label}</strong>
+            <strong>{STRESS_SCENARIOS.find((s) => s.id === scenario)?.label}</strong>
             <span>
               scope {str(body.scope) ?? run.scope}
               {scenarioParams(body) ? ` · ${scenarioParams(body)}` : ''}
@@ -413,7 +421,7 @@ function StressResult({ run, q, rerun, formulas }: { run: Run; q: OneShot<unknow
           </div>
           <QuoteSnapshotNote body={body} />
           <FixtureNote body={body} />
-          {str(body.note) && run.scenario !== 'fee_revision' ? <p className="pf-hint">{str(body.note)}</p> : null}
+          {str(body.note) && scenario !== 'fee_revision' ? <p className="pf-hint">{str(body.note)}</p> : null}
           <PnlSummary body={body} />
           {positions.length ? (
             <section className="panel pf-section" aria-labelledby="pf-sp-h">
@@ -450,7 +458,7 @@ function StressResult({ run, q, rerun, formulas }: { run: Run; q: OneShot<unknow
               {thresholds.some((t) => t.caveat) ? <div className="panel-note">{sentence(thresholds.find((t) => t.caveat)?.caveat)}</div> : null}
             </section>
           ) : null}
-          <ScenarioDetails body={body} scenario={run.scenario} instrumentCurrency={instrumentCurrency} />
+          <ScenarioDetails body={body} scenario={scenario} instrumentCurrency={instrumentCurrency} />
           <CoreReaction body={body} />
           <Lineage body={body} formulas={formulas} />
         </>
