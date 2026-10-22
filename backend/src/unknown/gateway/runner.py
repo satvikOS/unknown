@@ -19,6 +19,7 @@ import json
 import weakref
 from collections import deque
 from dataclasses import dataclass
+from typing import Callable
 
 from ..broker.port import (BrokerOrder, BrokerPort, CommissionEvent, CommissionRow, ConnectivityEvent, ExecutionEvent,
                            ExecutionRow, OrderStatusEvent, SubmitStatus)
@@ -70,10 +71,17 @@ class PumpStats:
 
 
 class GatewayRunner:
-    def __init__(self, desk: Desk, broker: BrokerPort, account_key: str):
+    def __init__(self, desk: Desk, broker: BrokerPort, account_key: str, *,
+                 heartbeat: Callable[[], None] | None = None):
         self.desk = desk
         self.broker = broker
         self.account_key = account_key
+        # Called between commands of a long pump so the writer lease stays fresh (review finding 57).
+        self.heartbeat = heartbeat
+
+    def _beat(self) -> None:
+        if self.heartbeat is not None:
+            self.heartbeat()
 
     # ---------------------------------------------------------------- outbox
     def pending_outbox(self) -> list[str]:
@@ -104,6 +112,7 @@ class GatewayRunner:
             self.desk.run_system("outbox_result", {"outbox_id": outbox_id, "status": status,
                                                    "broker_order_id": broker_id, "reason": reason})
             stats.sent += 1
+            self._beat()
         return stats
 
     # ---------------------------------------------------------------- events
@@ -122,6 +131,7 @@ class GatewayRunner:
             self.apply_event(backlog[0])
             backlog.popleft()
             n += 1
+            self._beat()
         return n
 
     def apply_event(self, ev) -> None:

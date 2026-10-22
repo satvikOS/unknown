@@ -12,6 +12,8 @@ Findings covered (numbers from the review's confirmed list):
 * 51 - the latest reconciliation is the last one recorded, not the one with the
   largest wall-clock time;
 * 53 - only an OPEN *blocking* case in the *same account* excuses an owner;
+* 57 - the writer lease heartbeat no longer depends on a successful cycle, and a
+  fenced service stops instead of running as a zombie;
 * 58 - broker events popped from the broker but not applied are kept, in order,
   and applied on the next drain; a reconciliation records INCOMPLETE instead of
   losing the run.
@@ -22,8 +24,13 @@ from __future__ import annotations
 
 import json
 import random
+import sqlite3
 import sys
+import tempfile
+import threading
+import time
 import unittest
+import warnings
 from collections import Counter
 from pathlib import Path
 from unittest import mock
@@ -33,13 +40,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from support import ACCOUNT, T0, Harness, load_policy  # noqa: E402
 from test_replay_randomized import Scenario  # noqa: E402
 
+from unknown.broker.simulated import SimulatedBroker  # noqa: E402
 from unknown.core import desk as desk_module  # noqa: E402
 from unknown.core import ledger, state  # noqa: E402
+from unknown.domain.calendar import WEEKDAYS_ONLY  # noqa: E402
 from unknown.domain.clock import ManualClock  # noqa: E402
 from unknown.domain.errors import InvariantViolation  # noqa: E402
 from unknown.domain.fixed import Fixed  # noqa: E402
 from unknown.gateway.runner import event_backlog  # noqa: E402
+from unknown.service import core as core_module  # noqa: E402
+from unknown.service.core import CoreService, Intervals  # noqa: E402
+from unknown.service.paths import Paths  # noqa: E402
 from unknown.store import db as db_module  # noqa: E402
+from unknown.store.db import LeaseHeld, Store  # noqa: E402
 
 F = Fixed.parse
 NS = 1_000_000_000
@@ -617,6 +630,80 @@ class EventBacklogTest(unittest.TestCase):
         self.assertEqual(len(event_backlog(h.broker)), 0)
         self.assertEqual(h.row("orders", "order_id", "B1")["state"], "FILLED")
         self.assertEqual(h.verify(), [])
+
+
+# ============================================================ finding 57
+class FailingFeedBroker(SimulatedBroker):
+    """A broker whose event feed always fails, so every service cycle fails at the pump."""
+
+    def drain_events(self, limit: int = 1000):
+        raise RuntimeError("event feed broken (fixture)")
+
+
+class ServiceHeartbeatTest(unittest.TestCase):
+    """Review finding 57: the lease heartbeat does not depend on a successful cycle; a fenced core stops."""
+
+    def wait_for(self, predicate, what: str, timeout_s: float = 20.0) -> None:
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            if predicate():
+                return
+            time.sleep(0.01)
+        self.fail(f"timed out waiting for {what}")
+
+    def lease(self, path) -> dict:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+        conn.row_factory = sqlite3.Row
+        try:
+            return dict(conn.execute("SELECT holder, epoch, heartbeat_at_ns FROM writer_lease WHERE id=1").fetchone())
+        finally:
+            conn.close()
+
+    def test_failing_cycles_keep_the_lease_and_a_takeover_stops_the_old_core(self):
+        """ADR-0011 #1 and #4, RB-11, review finding 57. Every cycle of the core fails (its broker feed
+        raises). The heartbeat still runs each cycle, so 50 s after start (lease staleness is 30 s) a second
+        instance WITHOUT --takeover is refused (LeaseHeld). With --takeover the lease moves to the new
+        writer; the old core's next heartbeat is fenced (LeaseLost) and it stops instead of running on
+        as a zombie, without disturbing the new holder's lease."""
+        quiet = mock.patch.object(core_module.log, "disabled", True)  # the failing cycles are logged by design
+        quiet.start()
+        self.addCleanup(quiet.stop)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        paths = Paths(Path(tmp.name) / "home")
+        paths.ensure()
+        clock = ManualClock(T0)
+        broker = FailingFeedBroker(clock, initial_settled_cash=F("300.00"), calendar=WEEKDAYS_ONLY, settlement_days=1)
+        h = Harness(db_path=paths.db(ACCOUNT), clock=clock, broker=SimulatedBroker(
+            clock, initial_settled_cash=F("300.00"), calendar=WEEKDAYS_ONLY, settlement_days=1))
+        h.bootstrap(start=False)
+        h.desk.store.release_lease()
+        h.close()
+        svc = CoreService(paths=paths, account_key=ACCOUNT, deployment_id="mac-dev", broker=broker, clock=clock,
+                          intervals=Intervals(loop_s=0.005, valuation_s=3600.0, reconcile_s=3600.0,
+                                              reconcile_retry_s=3600.0, heartbeat_s=0.0))
+        thread = threading.Thread(target=svc.run, name="core-under-test", daemon=True)
+        thread.start()
+        self.addCleanup(lambda: (svc.shutdown(), thread.join(10)))
+        self.assertTrue(svc.ready.wait(20))
+        self.wait_for(lambda: svc.cycle_errors >= 3, "failing cycles")
+        db = paths.db(ACCOUNT)
+        epoch = self.lease(db)["epoch"]
+        for _ in range(2):
+            clock.advance(25 * NS)
+            self.wait_for(lambda: self.lease(db)["heartbeat_at_ns"] == clock.now_ns(), "a heartbeat at the new time")
+        self.assertGreaterEqual(svc.cycle_errors, 3)  # still failing, still the live writer
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", ResourceWarning)
+            with self.assertRaises(LeaseHeld):
+                Store(db, clock, holder="standby:1")
+            intruder = Store(db, clock, holder="standby:1", takeover=True)
+        self.addCleanup(intruder.close)
+        self.assertEqual(intruder.epoch, epoch + 1)
+        thread.join(20)
+        self.assertFalse(thread.is_alive(), "the fenced core kept running")
+        self.assertTrue(svc.lease_lost)
+        self.assertEqual((self.lease(db)["holder"], self.lease(db)["epoch"]), ("standby:1", epoch + 1))
 
 
 if __name__ == "__main__":

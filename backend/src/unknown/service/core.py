@@ -25,6 +25,7 @@ from ..core.desk import Command, Context, Desk, HealthSnapshot, open_desk
 from ..core.handlers import control as control_handlers
 from ..domain.calendar import WEEKDAYS_ONLY
 from ..domain.clock import Clock, SystemClock, NS_PER_S
+from ..domain.errors import LeaseLost
 from ..domain.ids import IdGenerator
 from ..domain.principal import Principal, Role
 from ..gateway.runner import GatewayRunner
@@ -62,6 +63,8 @@ class CoreService:
         self.server: CoreSocketServer | None = None
         self.ready = threading.Event()
         self.cycle_errors = 0
+        self.lease_lost = False
+        self._last_heartbeat = float("-inf")
 
     # ---------------------------------------------------------------- socket
     def _enqueue(self, req: dict, roles: frozenset[str]) -> dict:
@@ -112,6 +115,17 @@ class CoreService:
         raise ValueError("op must be command or query")
 
     # ---------------------------------------------------------------- loop
+    def _heartbeat_if_due(self) -> None:
+        """Refresh the writer lease once ``heartbeat_s`` has passed, whatever the cycle is doing.
+
+        A failing or slow cycle is still the live writer, so the heartbeat runs before the cycle's
+        work and between the commands of a long drain, pump or reconciliation, never only after a
+        successful cycle; a second instance therefore cannot take the lease without --takeover
+        (ADR-0011 #1, review finding 57). Raises LeaseLost once another writer holds the lease."""
+        if time.monotonic() - self._last_heartbeat >= self.intervals.heartbeat_s:
+            self.desk.store.heartbeat()
+            self._last_heartbeat = time.monotonic()
+
     def _drain_requests(self, budget: int = 50) -> None:
         for _ in range(budget):
             try:
@@ -122,6 +136,15 @@ class CoreService:
                 fut.set_result(self._handle(req, roles))
             except Exception as exc:
                 fut.set_exception(exc)
+            self._heartbeat_if_due()
+
+    def _fail_pending_requests(self, reason: str) -> None:
+        while True:
+            try:
+                _, _, fut = self.requests.get_nowait()
+            except queue.Empty:
+                return
+            fut.set_exception(RuntimeError(reason))
 
     def _sync_connectivity(self) -> None:
         """Record broker connectivity only when it changes (a change forces reconciliation)."""
@@ -142,15 +165,16 @@ class CoreService:
         tokens = {self.paths.token(name, create=True): roles for name, roles in SOCKET_ROLES.items()}
         self.server = CoreSocketServer(self.paths.socket, tokens, self._enqueue)
         self.server.start()
-        runner = GatewayRunner(self.desk, self.broker, self.account_key)
-        reconciler = Reconciler(self.desk, self.broker, self.account_key)
-        last_val = last_rec = last_hb = 0.0
+        runner = GatewayRunner(self.desk, self.broker, self.account_key, heartbeat=self._heartbeat_if_due)
+        reconciler = Reconciler(self.desk, self.broker, self.account_key, heartbeat=self._heartbeat_if_due)
+        last_val = last_rec = 0.0
         self.ready.set()
         log.info("core started: account=%s deployment=%s epoch=%s", self.account_key, self.deployment_id, self.desk.store.epoch)
         while not self.stop_event.is_set():
             started = time.monotonic()
-            self._drain_requests()
             try:
+                self._heartbeat_if_due()  # before the work: a cycle that fails below still keeps the lease
+                self._drain_requests()
                 registered = bool(self.desk.store.query("SELECT 1 FROM accounts WHERE account_key=?", (self.account_key,)))
                 if registered:
                     self._sync_connectivity()
@@ -167,10 +191,13 @@ class CoreService:
                     if policy_active and now - last_val >= self.intervals.valuation_s:
                         runner.tick()
                         last_val = now
-                if time.monotonic() - last_hb >= self.intervals.heartbeat_s:
-                    self.desk.store.heartbeat()
-                    last_hb = time.monotonic()
                 self.cycle_errors = 0
+            except LeaseLost:
+                # Another process took the lease (--takeover): every write here is fenced. Stop instead of
+                # running on as a zombie that still holds the broker connection (ADR-0011 #1, #4).
+                self.lease_lost = True
+                log.critical("writer lease epoch %s lost to another process; this core stops", self.desk.store.epoch)
+                break
             except Exception:
                 self.cycle_errors += 1
                 log.exception("core cycle failed (%d consecutive)", self.cycle_errors)
@@ -184,7 +211,11 @@ class CoreService:
             self.stop_event.wait(max(0.0, self.intervals.loop_s - elapsed))
         self.server.shutdown()
         self.server.server_close()
-        self.desk.store.release_lease()
+        self._fail_pending_requests("core stopped")
+        try:
+            self.desk.store.release_lease()
+        except LeaseLost:
+            pass  # the lease belongs to another writer now; there is nothing of ours to release
         self.desk.store.close()
 
     def shutdown(self) -> None:

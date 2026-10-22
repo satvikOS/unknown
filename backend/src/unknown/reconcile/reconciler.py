@@ -16,24 +16,34 @@ Algorithm (book Ch. 9, with the review's resolutions):
 """
 from __future__ import annotations
 
+from typing import Callable
+
 from ..broker.port import BrokerPort
 from ..core.desk import Desk, Result
 from ..gateway.runner import GatewayRunner, commission_payload, execution_payload
 
 
 class Reconciler:
-    def __init__(self, desk: Desk, broker: BrokerPort, account_key: str, *, max_rounds: int = 3):
+    def __init__(self, desk: Desk, broker: BrokerPort, account_key: str, *, max_rounds: int = 3,
+                 heartbeat: Callable[[], None] | None = None):
         self.desk = desk
         self.broker = broker
         self.account_key = account_key
-        self.runner = GatewayRunner(desk, broker, account_key)
+        self.runner = GatewayRunner(desk, broker, account_key, heartbeat=heartbeat)
         self.max_rounds = max_rounds
+        self.heartbeat = heartbeat  # keeps the writer lease fresh during a long run (review finding 57)
+
+    def _beat(self) -> None:
+        if self.heartbeat is not None:
+            self.heartbeat()
 
     def _ingest(self, batch) -> int:
         for e in batch.executions:
             self.desk.run_system("broker_execution", execution_payload(self.account_key, e))
+            self._beat()
         for c in batch.commissions:
             self.desk.run_system("broker_commission", commission_payload(self.account_key, c))
+            self._beat()
         return len(batch.executions)
 
     def run(self) -> Result:
@@ -66,6 +76,7 @@ class Reconciler:
                 if r["order_id"] in open_ids:
                     continue
                 lk = self.broker.lookup(r["order_id"])
+                self._beat()
                 lookups[r["order_id"]] = {
                     "found": lk.found, "status": lk.status.value if lk.status else None, "broker_order_id": lk.broker_order_id,
                     "filled_quantity": lk.filled_quantity.to_str() if lk.filled_quantity is not None else None,
