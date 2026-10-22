@@ -201,7 +201,7 @@ def build(spec: StrategySpec):
 def _common(strategy_id: str, family: str, title: str, instrument_ids: list[str], development: tuple[date, date],
             holdout: tuple[date, date], *, author: str, dataset_id: str, fixture: bool) -> dict:
     return {
-        "schema_version": 1, "strategy_id": strategy_id, "version": 1, "family": family, "title": title, "author": author,
+        "schema_version": 2, "strategy_id": strategy_id, "version": 1, "family": family, "title": title, "author": author,
         "data_requirements": [{"dataset_id": dataset_id, "fields": ["open", "high", "low", "close", "volume"],
                                "frequency": "DAILY", "point_in_time": True,
                                "rights_ref": "FIXTURE: synthetic data generated in-repo; no third-party rights" if fixture
@@ -239,10 +239,27 @@ def _common(strategy_id: str, family: str, title: str, instrument_ids: list[str]
 
 
 def _execution(offset_bps: int = 50) -> dict:
+    """BR-DAT-19: decide after the official close; submit in the next regular session between open + 15 and
+    close - 15 minutes (no auctions); at transmission the limit is min(model bound, the quote mid + 50 bps) for a buy
+    (max(model bound, mid - 50 bps) for a sell); the remainder is cancelled at the window's end, never carried over."""
     return {"decision_clock_utc": "21:30", "order_type": "LIMIT", "time_in_force": "DAY", "limit_offset_bps": offset_bps,
-            "price_bound_source": "latest visible close +/- limit_offset_bps (daily bars carry no quote; labelled)",
+            "price_bound_source": "model bound: latest visible close +/- limit_offset_bps; at transmission bounded by a "
+                                  "collar around a fresh quote mid (the backtest uses the session open: daily bars "
+                                  "carry no quote; labelled)",
             "execution_delay_sessions": 1, "participation_cap": "0.10", "same_bar_fill": False,
-            "unfilled_policy": "EXPIRE_END_OF_DAY"}
+            "unfilled_policy": "CANCEL_AT_WINDOW_END",
+            "submission_window": {"open_offset_minutes": 15, "close_offset_minutes": 15, "auctions": False,
+                                  "limit_reference": "TRANSMISSION_QUOTE_MID", "collar_bps": 50}}
+
+
+# BR-DAT-04 risk budgets. TREND_DAILY_V1: a 5% adverse move on a position, fees in and out included, may cost at most
+# 3% of equity (non-binding at the 0.45 per-name cap for ordinary equity: the fees decide only for very small
+# accounts). The passive baselines hold up to 95% and take the whole move: their budget is the whole equity.
+TREND_RISK_BUDGET = {"loss_fraction_of_equity": "0.03", "adverse_move_fraction": "0.05"}
+BASELINE_RISK_BUDGET = {"loss_fraction_of_equity": "1", "adverse_move_fraction": "0.05"}
+# BR-DAT-18: a daily feature value is usable for four days after its newest close became available, which covers a
+# weekend plus a holiday between the decision and the end of the next session's submission window.
+DAILY_VALIDITY_S = 4 * 86400
 
 
 def trend_spec(instrument_ids: list[str], development: tuple[date, date], holdout: tuple[date, date], *,
@@ -277,14 +294,15 @@ def trend_spec(instrument_ids: list[str], development: tuple[date, date], holdou
                         "the denominator is a chosen normalization, not a distributional claim (book ch. 15)"],
         "features": [{"id": "ema_spread_log_price", "version": 1, "formula_id": "ema.span@1", "inputs": ["close"],
                       "unit": "log-price", "availability_basis": "BAR_CLOSE_PLUS_LAG", "freshness_budget_s": 4 * 86400,
-                      "warm_up_observations": 250, "causal": True},  # upper bound: the slow_span domain maximum
+                      "warm_up_observations": 250, "causal": True,  # upper bound: the slow_span domain maximum
+                      "validity_window_s": DAILY_VALIDITY_S},
                      {"id": "ewma_vol", "version": 1, "formula_id": "eq5.2.ewma_var@1", "inputs": ["close"],
                       "unit": "per session", "availability_basis": "BAR_CLOSE_PLUS_LAG", "freshness_budget_s": 4 * 86400,
-                      "warm_up_observations": 2, "causal": True}],
+                      "warm_up_observations": 2, "causal": True, "validity_window_s": DAILY_VALIDITY_S}],
         "rules": {"entry": "target weight w_t > 0 after warm-up",
                   "exit": "target weight 0 (score <= 0) exits fully; drawdown stop flattens and blocks entries",
                   "sizing": {"method": "TARGET_WEIGHT", "max_weight": "0.45", "aggregate_cap": "0.95", "cash_reserve": "0.05",
-                             "no_trade_band": "0.05", "min_order_notional": "100"},
+                             "no_trade_band": "0.05", "min_order_notional": "100", "risk_budget": dict(TREND_RISK_BUDGET)},
                   "holding": {"min_holding_sessions": 0, "max_holding_sessions": None},
                   "execution": _execution()},
         "failure_conditions": ["relies on same-close fills (refused by the engine)",
@@ -322,10 +340,10 @@ def buy_and_hold_spec(instrument_ids: list[str], development: tuple[date, date],
         "assumptions": ["no rebalancing after the initial purchase"],
         "features": [{"id": "close", "version": 1, "formula_id": "nav@1", "inputs": ["close"], "unit": "USD/share",
                       "availability_basis": "BAR_CLOSE_PLUS_LAG", "freshness_budget_s": 4 * 86400,
-                      "warm_up_observations": 1, "causal": True}],
+                      "warm_up_observations": 1, "causal": True, "validity_window_s": DAILY_VALIDITY_S}],
         "rules": {"entry": "first session with visible data", "exit": "none (hold)",
                   "sizing": {"method": "TARGET_WEIGHT", "max_weight": "0.95", "aggregate_cap": "0.95", "cash_reserve": "0.05",
-                             "no_trade_band": "0", "min_order_notional": "0"},
+                             "no_trade_band": "0", "min_order_notional": "0", "risk_budget": dict(BASELINE_RISK_BUDGET)},
                   "holding": {"min_holding_sessions": 0, "max_holding_sessions": None}, "execution": _execution()},
         "failure_conditions": ["not applicable: baseline"],
         "baselines": [{"id": "CASH", "description": "uninvested cash (zero return)"}],
@@ -354,10 +372,10 @@ def vol_capped_spec(instrument_ids: list[str], development: tuple[date, date], h
         "assumptions": ["volatility from the EWMA of squared log returns (zero-mean approximation)"],
         "features": [{"id": "ewma_vol", "version": 1, "formula_id": "eq5.2.ewma_var@1", "inputs": ["close"],
                       "unit": "per session", "availability_basis": "BAR_CLOSE_PLUS_LAG", "freshness_budget_s": 4 * 86400,
-                      "warm_up_observations": 20, "causal": True}],
+                      "warm_up_observations": 20, "causal": True, "validity_window_s": DAILY_VALIDITY_S}],
         "rules": {"entry": "after volatility warm-up", "exit": "weight falls through the band",
                   "sizing": {"method": "TARGET_WEIGHT", "max_weight": "0.95", "aggregate_cap": "0.95", "cash_reserve": "0.05",
-                             "no_trade_band": "0.05", "min_order_notional": "100"},
+                             "no_trade_band": "0.05", "min_order_notional": "100", "risk_budget": dict(BASELINE_RISK_BUDGET)},
                   "holding": {"min_holding_sessions": 0, "max_holding_sessions": None}, "execution": _execution()},
         "failure_conditions": ["not applicable: baseline"],
         "baselines": [{"id": "BUY_AND_HOLD", "description": "unscaled passive"}],

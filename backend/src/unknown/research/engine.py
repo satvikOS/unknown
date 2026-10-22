@@ -53,13 +53,14 @@ from ..domain.calendar import WEEKDAYS_ONLY, BusinessCalendar
 from ..domain.fixed import Fixed, Rounding
 from ..domain.instruments import Instrument
 from .bars import Bar, Cursor, DatasetView
-from .common import NS_PER_S, CausalityError, SpecError, fixed_to_float, float_to_fixed, stable_hash
+from .common import NS_PER_S, CausalityError, SpecError, fixed_to_float, stable_hash
 from .costs import LEDGER_SCALE, CostModel, PriceCost
+from .execution import BACKTEST_REFERENCE, SubmissionWindow, transmission_limit, window_times
+from .sizing import WEIGHT_SCALE, Holding, RiskTerm, plan_orders
 
 SIMULATOR_VERSION = "unknown.research.engine.daily@1"
 ZERO6 = Fixed(0, LEDGER_SCALE)
 ONE = Fixed(1)
-WEIGHT_SCALE = 6
 
 
 # ===================================================================== config
@@ -67,8 +68,11 @@ WEIGHT_SCALE = 6
 class ExecutionModel:
     participation: Fixed = Fixed.parse("0.10")     # max fraction of the execution bar's volume
     limit_offset_bps: int = 50                     # buy limit = ref * (1 + bps), sell limit = ref * (1 - bps)
-    latency_s: int = 60                            # submission = session start + latency
+    latency_s: int = 60                            # legacy (no window): submission = session start + latency
     execution_delay_sessions: int = 1
+    # Schema v2 (BR-DAT-19): submit inside [open + N, close - M], limit tightened at transmission, remainder cancelled
+    # at the window's end (``research.execution``). None: the legacy rule of schema v1 specs.
+    window: SubmissionWindow | None = None
 
     def __post_init__(self) -> None:
         if not (self.participation.is_positive() and self.participation <= ONE):
@@ -77,10 +81,18 @@ class ExecutionModel:
             raise ValueError("daily engine v1 supports execution in the next session only")
 
     def to_json(self) -> dict:
+        if self.window is None:
+            return {"participation": self.participation.to_str(), "limit_offset_bps": self.limit_offset_bps,
+                    "latency_s": self.latency_s, "execution_delay_sessions": self.execution_delay_sessions,
+                    "fill_rule": "trade-through required (buy low<limit, sell high>limit); open-gap execution; "
+                                 "price costs never cross the limit; partial fills capped by participation; DAY expiry"}
         return {"participation": self.participation.to_str(), "limit_offset_bps": self.limit_offset_bps,
-                "latency_s": self.latency_s, "execution_delay_sessions": self.execution_delay_sessions,
-                "fill_rule": "trade-through required (buy low<limit, sell high>limit); open-gap execution; "
-                             "price costs never cross the limit; partial fills capped by participation; DAY expiry"}
+                "execution_delay_sessions": self.execution_delay_sessions, "submission_window": self.window.to_json(),
+                "transmission_reference": BACKTEST_REFERENCE,
+                "fill_rule": "submitted at open + N; limit = min(model bound, collar around the reference) (max for sells); "
+                             "trade-through required (buy low<limit, sell high>limit); open-gap execution; price costs "
+                             "never cross the limit; partial fills capped by participation of the window's share of the "
+                             "bar volume (uniform intraday volume: optimistic, labelled); remainder cancelled at close - M"}
 
 
 @dataclass(frozen=True)
@@ -124,6 +136,9 @@ class BacktestConfig:
     all_in_cost_per_day: Fixed = ZERO6     # infrastructure + data + model cost per session (book ch. 7)
     all_in_cost_note: str = "NOT CONFIGURED: all-in costs default to 0 and are reported as such"
     seed: int = 0
+    # Schema v2 (BR-DAT-04): the risk term of the A15 sizer, entry and exit fees by ``risk.fees.envelope``.
+    # None: the legacy target-weight sizer of schema v1 specs.
+    risk: RiskTerm | None = None
 
     @classmethod
     def from_spec(cls, spec, initial_cash: Fixed, *, cost_multiplier: Fixed = ONE, impact_y: Fixed | None = None,
@@ -136,23 +151,28 @@ class BacktestConfig:
             raise SpecError("rules.holding: daily engine v1 does not implement minimum or maximum holding periods; "
                             "set min_holding_sessions 0 and max_holding_sessions null, or extend the engine")
         hh, mm = (int(v) for v in x["decision_clock_utc"].split(":"))
-        return cls(initial_cash=initial_cash.rescale(LEDGER_SCALE),
-                   cost_model=CostModel.from_spec(spec, multiplier=cost_multiplier, impact_y=impact_y),
+        cost_model = CostModel.from_spec(spec, multiplier=cost_multiplier, impact_y=impact_y)
+        return cls(initial_cash=initial_cash.rescale(LEDGER_SCALE), cost_model=cost_model,
                    execution=ExecutionModel(participation=x["participation_cap"] if participation is None else participation,
                                             limit_offset_bps=x["limit_offset_bps"] if limit_offset_bps is None else limit_offset_bps,
-                                            execution_delay_sessions=x["execution_delay_sessions"]),
+                                            execution_delay_sessions=x["execution_delay_sessions"],
+                                            window=SubmissionWindow.from_spec(spec)),
                    sizing=Sizing.from_spec(spec), decision_clock_utc=time(hh, mm), calendar=calendar,
-                   max_drawdown_stop=Fixed.parse(spec.body["risk_limits"]["max_drawdown_stop"]), seed=seed)
+                   max_drawdown_stop=Fixed.parse(spec.body["risk_limits"]["max_drawdown_stop"]), seed=seed,
+                   risk=RiskTerm.from_spec(spec, cost_model.core_fee_model(), cost_multiplier=cost_multiplier))
 
     def to_json(self) -> dict:
-        return {"initial_cash": self.initial_cash.to_str(), "currency": self.currency, "cost_model": self.cost_model.describe(),
-                "execution": self.execution.to_json(), "sizing": self.sizing.to_json(),
-                "decision_clock_utc": self.decision_clock_utc.strftime("%H:%M"),
-                "calendar": f"{self.calendar.calendar_id}@{self.calendar.version}", "settlement_days": self.settlement_days,
-                "sigma_half_life": self.sigma_half_life, "sigma_default": self.sigma_default,
-                "max_drawdown_stop": self.max_drawdown_stop.to_str() if self.max_drawdown_stop is not None else None,
-                "all_in_cost_per_day": self.all_in_cost_per_day.to_str(), "all_in_cost_note": self.all_in_cost_note,
-                "seed": self.seed, "simulator_version": SIMULATOR_VERSION}
+        out = {"initial_cash": self.initial_cash.to_str(), "currency": self.currency, "cost_model": self.cost_model.describe(),
+               "execution": self.execution.to_json(), "sizing": self.sizing.to_json(),
+               "decision_clock_utc": self.decision_clock_utc.strftime("%H:%M"),
+               "calendar": f"{self.calendar.calendar_id}@{self.calendar.version}", "settlement_days": self.settlement_days,
+               "sigma_half_life": self.sigma_half_life, "sigma_default": self.sigma_default,
+               "max_drawdown_stop": self.max_drawdown_stop.to_str() if self.max_drawdown_stop is not None else None,
+               "all_in_cost_per_day": self.all_in_cost_per_day.to_str(), "all_in_cost_note": self.all_in_cost_note,
+               "seed": self.seed, "simulator_version": SIMULATOR_VERSION}
+        if self.risk is not None:      # absent for a v1 spec, so a legacy run's config (and its hash) is unchanged
+            out["risk_term"] = self.risk.to_json()
+        return out
 
     def config_hash(self) -> str:
         return stable_hash(self.to_json())
@@ -307,14 +327,20 @@ class _Order:
     notional: Fixed = field(default_factory=lambda: ZERO6)
     fees: Fixed = field(default_factory=lambda: ZERO6)
     detail: str = ""
+    # Schema v2 (BR-DAT-19): the decision's model bound; ``limit_price`` becomes the limit set at transmission.
+    model_bound: Fixed | None = None
+    transmission: dict | None = None
 
     def to_json(self) -> dict:
-        return {"order_id": self.order_id, "instrument_id": self.instrument_id, "side": self.side,
-                "quantity": self.quantity.to_str(), "limit_price": self.limit_price.to_str(),
-                "decision_date": self.decision_date.isoformat(), "exec_date": self.exec_date.isoformat(),
-                "ref_price": self.ref_price.to_str(), "sigma": self.sigma, "reason": self.reason, "status": self.status,
-                "filled": self.filled.to_str(), "notional": self.notional.to_str(), "fees": self.fees.to_str(),
-                "detail": self.detail}
+        out = {"order_id": self.order_id, "instrument_id": self.instrument_id, "side": self.side,
+               "quantity": self.quantity.to_str(), "limit_price": self.limit_price.to_str(),
+               "decision_date": self.decision_date.isoformat(), "exec_date": self.exec_date.isoformat(),
+               "ref_price": self.ref_price.to_str(), "sigma": self.sigma, "reason": self.reason, "status": self.status,
+               "filled": self.filled.to_str(), "notional": self.notional.to_str(), "fees": self.fees.to_str(),
+               "detail": self.detail}
+        if self.model_bound is not None:
+            out["model_bound"] = self.model_bound.to_str()
+        return out
 
 
 @dataclass(frozen=True)
@@ -330,11 +356,18 @@ class FillQuote:
 
 
 def simulate_fill(side: str, quantity: Fixed, limit: Fixed, bar: Bar, sigma: float, cost_model: CostModel,
-                  participation: Fixed, instrument: Instrument) -> FillQuote:
-    """Apply the daily-bar fill rules. Pure function of its inputs."""
+                  participation: Fixed, instrument: Instrument, volume_window: tuple[int, int] | None = None) -> FillQuote:
+    """Apply the daily-bar fill rules. Pure function of its inputs.
+
+    ``volume_window`` (window minutes, session minutes): the order may trade only inside its submission window, so the
+    participation cap applies to that share of the bar's volume (uniform intraday volume; BR-DAT-19)."""
     if not bar.volume.is_positive():
         return FillQuote(False, "NO_VOLUME")
-    cap = (participation * bar.volume).rescale(0, Rounding.FLOOR)
+    if volume_window is None:
+        cap = (participation * bar.volume).rescale(0, Rounding.FLOOR)
+    else:
+        w, s = volume_window
+        cap = (participation * bar.volume * w).div(s, 0, Rounding.FLOOR) if s > 0 else Fixed(0)
     qty = quantity if quantity <= cap else cap
     if not qty.is_positive():
         return FillQuote(False, "PARTICIPATION_CAP_ZERO")
@@ -483,9 +516,16 @@ class _Run:
         self.open = [o for o in self.open if o.exec_date > day]
         due.sort(key=lambda o: (0 if o.side == "SELL" else 1, o.instrument_id, o.order_id))
         done = []
+        window = self.cfg.execution.window
         for o in due:
             bar = self.view.series[o.instrument_id].final(day) if o.exec_date == day else None
-            t_sub = (bar.start_ns if bar else _decision_ns(day, time(0, 0))) + self.cfg.execution.latency_s * NS_PER_S
+            wt = None
+            if bar is not None and window is not None:
+                # BR-DAT-19: submission at open + N of this session (calendar hours; FIXTURE convention without them)
+                wt = window_times(window, self.cfg.calendar, day, fixture=bar.fixture)
+                t_sub = wt.start_ns
+            else:
+                t_sub = (bar.start_ns if bar else _decision_ns(day, time(0, 0))) + self.cfg.execution.latency_s * NS_PER_S
             if bar is None:
                 o.status, o.detail = "EXPIRED", ("NO_BAR" if o.exec_date == day else "NO_SESSION")
                 self.emit("ORDER_EXPIRED", day, t_sub, order_id=o.order_id, reason=o.detail, leaves=o.quantity.to_str())
@@ -494,6 +534,23 @@ class _Run:
             if bar.start_ns <= o.decision_ns:
                 raise CausalityError(f"order {o.order_id} decided at {o.decision_ns} cannot execute in a bar starting "
                                      f"at {bar.start_ns}")
+            if wt is not None:
+                if wt.empty:
+                    o.status, o.detail = "EXPIRED", "NO_SUBMISSION_WINDOW"
+                    self.emit("ORDER_EXPIRED", day, t_sub, order_id=o.order_id, reason=o.detail, leaves=o.quantity.to_str(),
+                              window=wt.to_json())
+                    done.append(o)
+                    continue
+                if bar.start_ns >= wt.start_ns:
+                    raise CausalityError(f"order {o.order_id}: the {day} bar opens at {bar.start_ns}, not before the "
+                                         f"submission window ({wt.start_ns}): its open is not known at transmission")
+                # The limit referenced at transmission: the model bound tightened to the collar around the session open,
+                # the last price known when the window opens (daily bars carry no quote; labelled).
+                o.model_bound = o.limit_price
+                o.limit_price = transmission_limit(o.side, o.model_bound, bar.open, window.collar_bps, self.inst[o.instrument_id])
+                o.transmission = {"model_bound": o.model_bound.to_str(), "reference": bar.open.to_str(),
+                                  "reference_source": BACKTEST_REFERENCE, "collar_bps": window.collar_bps,
+                                  "window": wt.to_json()}
             # ---- reservation at submission (cash-account rules)
             if o.side == "BUY":
                 notional_bound = (o.limit_price * o.quantity).rescale(LEDGER_SCALE, Rounding.CEILING)
@@ -513,10 +570,15 @@ class _Run:
                               owned=owned.to_str(), quantity=o.quantity.to_str())
                     done.append(o)
                     continue
-            self.emit("ORDER_SUBMITTED", day, t_sub, order_id=o.order_id, instrument_id=o.instrument_id, side=o.side,
-                      quantity=o.quantity.to_str(), limit_price=o.limit_price.to_str())
+            if o.transmission is None:
+                self.emit("ORDER_SUBMITTED", day, t_sub, order_id=o.order_id, instrument_id=o.instrument_id, side=o.side,
+                          quantity=o.quantity.to_str(), limit_price=o.limit_price.to_str())
+            else:
+                self.emit("ORDER_SUBMITTED", day, t_sub, order_id=o.order_id, instrument_id=o.instrument_id, side=o.side,
+                          quantity=o.quantity.to_str(), limit_price=o.limit_price.to_str(), transmission=o.transmission)
             fq = simulate_fill(o.side, o.quantity, o.limit_price, bar, o.sigma, self.cfg.cost_model,
-                               self.cfg.execution.participation, self.inst[o.instrument_id])
+                               self.cfg.execution.participation, self.inst[o.instrument_id],
+                               volume_window=wt.minutes if wt is not None else None)
             fills: list[tuple[Fixed, Fixed]] = []
             if fq.filled:
                 self.book_fill(o, day, t_sub, fq)
@@ -524,7 +586,7 @@ class _Run:
             leaves = o.quantity - o.filled
             if leaves.is_positive():
                 self.emit("ORDER_EXPIRED", day, t_sub, order_id=o.order_id, reason=fq.reason if not fq.filled else
-                          "END_OF_DAY_REMAINDER", leaves=leaves.to_str(),
+                          ("WINDOW_END_REMAINDER" if wt is not None else "END_OF_DAY_REMAINDER"), leaves=leaves.to_str(),
                           bar={"open": bar.open.to_str(), "high": bar.high.to_str(), "low": bar.low.to_str(),
                                "volume": bar.volume.to_str()})
             o.status = "FILLED" if leaves.is_zero() else ("PARTIALLY_FILLED_EXPIRED" if o.filled.is_positive() else "EXPIRED")
@@ -665,106 +727,44 @@ class _Run:
         return self._new_order(req.instrument_id, req.side, req.quantity, req.limit_price, day, exec_date, t, ref, req.reason)
 
     def plan(self, targets: dict[str, float], ctx: DecisionContext, day: date, exec_date: date, t: int) -> tuple[list[_Order], dict]:
-        """Algorithm A15: map target weights to price-bounded limit orders (BR-DAT-15 aggregate cap)."""
+        """Algorithm A15 through ``research.sizing.plan_orders``, the code path the strategy runner uses (BR-DAT-15
+        aggregate cap; BR-DAT-04 risk term for schema v2 specs). What this ledger supplies: holdings (lots and open
+        orders), the settled-cash projection at the execution date as the budget, the schedule's fee envelope, and
+        the mean visible volume of the last ``adv_window`` bars."""
         sz = self.cfg.sizing
-        equity = self.equity_at_marks()
-        notes: dict[str, Any] = {"equity": equity.to_str()}
-        if not equity.is_positive():
-            return [], {**notes, "skipped": "NON_POSITIVE_EQUITY"}
         unknown = sorted(set(targets) - set(self.view.instrument_ids))
         if unknown:
             raise ValueError(f"targets for instruments outside the view: {unknown}")
-        w: dict[str, Fixed] = {}
-        for i in sorted(targets):
-            x = targets[i]
-            if x is None or not math.isfinite(x):
-                raise ValueError(f"target weight for {i} is not finite")
-            wf = float_to_fixed(max(0.0, x), WEIGHT_SCALE, Rounding.FLOOR)
-            w[i] = wf if wf <= sz.max_weight else sz.max_weight
-        cap_total = sz.aggregate_cap if sz.aggregate_cap <= ONE - sz.cash_reserve else ONE - sz.cash_reserve
-        total = sum(w.values(), Fixed(0))
-        if total > cap_total:
-            w = {i: (v * cap_total).div(total, WEIGHT_SCALE, Rounding.FLOOR) for i, v in w.items()}
-            notes["scaled_to_aggregate_cap"] = cap_total.to_str()
-        notes["weights"] = {i: v.to_str() for i, v in w.items()}
+        equity = self.equity_at_marks()
         settles_by_exec = [p for p in self.pending if p.settle_date <= exec_date]
         later_debits = [p for p in self.pending if p.settle_date > exec_date and p.amount.is_negative()]
         budget = self.settled + sum((p.amount for p in settles_by_exec), ZERO6) + sum((p.amount for p in later_debits), ZERO6)
-        sells, buys = [], []
-        per: dict[str, str] = {}
-        for i in sorted(w):
-            ref = self.mark(i)
-            if ref is None:
-                per[i] = "NO_VISIBLE_DATA"
-                continue
-            inst = self.inst[i]
+        holdings: dict[str, Holding] = {}
+        adv: dict[str, Fixed] = {}
+        for i in targets:
             held = self.position(i)
             pending_buy = sum((o.quantity for o in self.open if o.instrument_id == i and o.side == "BUY"), Fixed(0))
             pending_sell = sum((o.quantity for o in self.open if o.instrument_id == i and o.side == "SELL"), Fixed(0))
-            current = held + pending_buy - pending_sell
-            current_w = (current * ref).div(equity, WEIGHT_SCALE, Rounding.HALF_EVEN)
-            target_w = w[i]
-            full_exit = target_w.is_zero() and current.is_positive()
-            if abs(target_w - current_w) <= sz.no_trade_band and not full_exit:
-                per[i] = f"NO_TRADE_BAND |{target_w}-{current_w}|<={sz.no_trade_band}"
-                continue
-            desired = (target_w * equity).div(ref, 0, Rounding.FLOOR).to_increment(inst.quantity_increment, Rounding.FLOOR)
-            delta = desired - current
-            if delta.is_zero():
-                per[i] = "NO_CHANGE"
-                continue
-            off = Fixed(self.cfg.execution.limit_offset_bps)
-            if delta.is_positive():
-                limit = (ref * (Fixed(10_000) + off)).div(10_000, ref.scale + 4, Rounding.FLOOR)
-                limit = limit.to_increment(inst.tick_for(limit), Rounding.FLOOR)
-                buys.append((i, delta, limit, ref))
-            else:
-                limit = (ref * (Fixed(10_000) - off)).div(10_000, ref.scale + 4, Rounding.CEILING)
-                limit = limit.to_increment(inst.tick_for(limit), Rounding.CEILING)
-                qty = -delta if -delta <= held - pending_sell else held - pending_sell
-                if qty.is_positive():
-                    sells.append((i, qty, limit, ref, "EXIT" if full_exit else "REDUCE"))
+            holdings[i] = Holding(owned=held, unreserved=held - pending_sell, pending_buy=pending_buy, pending_sell=pending_sell)
+            hist = self.cursors[i].history[-sz.adv_window:]          # visible bars only (causal)
+            adv[i] = sum((b.volume for b in hist), Fixed(0)).div(Fixed(len(hist)), 0, Rounding.FLOOR) if hist else Fixed(0)
+        plans, notes = plan_orders(targets, sizing=sz, limit_offset_bps=self.cfg.execution.limit_offset_bps, equity=equity,
+                                   marks={i: self.mark(i) for i in targets}, holdings=holdings, instruments=self.inst,
+                                   budget=budget, fee_envelope=self.cfg.cost_model.fee_envelope, adv=adv,
+                                   ledger_scale=LEDGER_SCALE, risk=self.cfg.risk)
         orders = []
-        for i, qty, limit, ref, why in sells:
-            if (qty * limit) < sz.min_order_notional and not why == "EXIT":
-                per[i] = "BELOW_MIN_ORDER_NOTIONAL"
-                continue
-            orders.append(self._new_order(i, "SELL", qty, limit, day, exec_date, t, ref, why))
-            per[i] = f"SELL {qty} @ {limit}"
-        for i, qty, limit, ref in buys:
-            if sz.min_adv_shares.is_positive():
-                hist = self.cursors[i].history[-sz.adv_window:]      # visible bars only (causal)
-                adv = sum((b.volume for b in hist), Fixed(0)).div(Fixed(len(hist)), 0, Rounding.FLOOR) if hist else Fixed(0)
-                if adv < sz.min_adv_shares:
-                    per[i] = f"BELOW_MIN_ADV {adv.to_str()}<{sz.min_adv_shares.to_str()} over {len(hist)} visible bars"
-                    continue
-            affordable = self._affordable(budget, limit, qty)
-            if affordable < qty:
-                per[i] = f"BUY sized down {qty}->{affordable} by settled-cash projection"
-            qty = affordable
-            if not qty.is_positive() or qty * limit < sz.min_order_notional:
-                per[i] = per.get(i, "") + "; NO_TRADE (unfunded or below minimum notional)"
-                continue
-            budget = budget - (qty * limit).rescale(LEDGER_SCALE, Rounding.CEILING) - \
-                self.cfg.cost_model.fee_envelope("BUY", qty, limit)
-            orders.append(self._new_order(i, "BUY", qty, limit, day, exec_date, t, ref, "ENTRY_OR_ADD"))
-            per[i] = per.get(i, "") + f"; BUY {qty} @ {limit}" if i in per else f"BUY {qty} @ {limit}"
-        notes["instruments"] = per
-        notes["funding_projection"] = budget.to_str()
+        for side in ("SELL", "BUY"):                                  # sells first, then buys, each in instrument order
+            for i in sorted(plans):
+                o = plans[i].order
+                if o is not None and o.side == side:
+                    orders.append(self._new_order(i, o.side, o.quantity, o.limit_price, day, exec_date, t, o.reference_price,
+                                                  o.reason))
+        notes = {k: v for k, v in notes.items() if k != "budget"}
+        notes["instruments"] = {i: p.note for i, p in sorted(plans.items()) if p.note}
+        risk = {i: p.risk for i, p in sorted(plans.items()) if p.risk is not None}
+        if risk:
+            notes["risk"] = risk
         return orders, notes
-
-    def _affordable(self, budget: Fixed, limit: Fixed, want: Fixed) -> Fixed:
-        if not budget.is_positive():
-            return Fixed(0)
-        q0 = budget.div(limit, 0, Rounding.FLOOR)
-        q0 = q0 if q0 < want else want
-        env = self.cfg.cost_model.fee_envelope("BUY", q0, limit) if q0.is_positive() else Fixed(0)
-        q = (budget - env).div(limit, 0, Rounding.FLOOR) if budget > env else Fixed(0)
-        q = q if q < want else want
-        while q.is_positive() and (q * limit).rescale(LEDGER_SCALE, Rounding.CEILING) + \
-                self.cfg.cost_model.fee_envelope("BUY", q, limit) > budget:
-            q = q - 1
-        return q if q.is_positive() else Fixed(0)
 
 
 def run_backtest(strategy: Strategy, view: DatasetView, instruments: dict[str, Instrument],
