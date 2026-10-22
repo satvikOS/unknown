@@ -325,16 +325,13 @@ class SameCodePathAsBacktestTest(unittest.TestCase):
 
     def test_targets_match_the_backtest_decisions(self):
         decisions = [e for e in self.result.events if e["type"] == "DECISION"]
-        stop = next((e["seq"] for e in self.result.events if e["type"] == "RISK_STOP"), None)
-        compared = 0
+        # every decision is compared (docs/strategy/README.md says all 180): no drawdown stop overrides the targets
+        self.assertFalse([e for e in self.result.events if e["type"] == "RISK_STOP"])
         for e in decisions:
-            if stop is not None and e["seq"] > stop:
-                break
             day = date.fromisoformat(e["date"])
             decision, _ = strategy_decision(self.spec, self.series, day, decision_instant(day, CLOCK_UTC))
             self.assertEqual(decision.targets, e["targets"], day)
-            compared += 1
-        self.assertGreater(compared, 150)
+        self.assertEqual(len(decisions), 180)
 
     def test_a15_orders_match_the_backtest_from_a_flat_book(self):
         created = [e for e in self.result.events if e["type"] == "ORDER_CREATED"]
