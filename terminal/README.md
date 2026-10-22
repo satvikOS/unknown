@@ -1,0 +1,172 @@
+# Unknown terminal
+
+This is the browser terminal for Project Unknown (ADR-0013, book Chapter 22). It shows the core's authoritative state and sends authenticated owner commands. It is built with Vite, React and TypeScript in strict mode. `unknown-api` serves the built files from `terminal/dist`.
+
+Status (ADR-0001 words): **implemented** and **tested**. The unit tests (vitest) run offline. The end-to-end suite (`e2e/`, Playwright) runs the built terminal against a real simulated core and API started for the run. It covers login, the overview labels, green START with step-up (HTTP 428), session creation, a filled BUY, red STOP with STOP_LATCH, stop persistence through a core restart, start after reconciliation, audit verification and the palette. It also runs an accessibility pass over every workspace in both themes. The terminal is not paper- or live-verified.
+
+Workspaces registered: Overview, Sessions, Orders, Risk, Instruments, Operations, Audit, Policy and Capabilities (see `src/workspaces/*/README.md`).
+
+## Run it
+
+```bash
+npm ci                      # exact versions from package-lock.json
+npm run typecheck           # tsc --noEmit, strict (app and e2e code)
+npm test                    # vitest
+npm run build               # typecheck + production build into dist/
+npx playwright install chromium   # once per machine
+npm run test:e2e            # Playwright against a fresh core + API (see e2e/README.md)
+```
+
+To develop against a live backend, use your own runtime directory and port:
+
+```bash
+cd backend
+export UNKNOWN_HOME=/tmp/unknown-dev            # any private directory
+PYTHONPATH=src python3 -m unknown.cli init
+PYTHONPATH=src python3 -m unknown.cli set-passphrase
+PYTHONPATH=src python3 -m unknown.service.core --account SIM-1 --deployment mac-dev --fixture-market &
+PYTHONPATH=src python3 -m unknown.cli bootstrap-sim --account SIM-1 --deployment mac-dev
+PYTHONPATH=src python3 -m unknown.api.server --account SIM-1 --port 8765 --static ../terminal/dist &
+cd ../terminal
+UNKNOWN_API=http://127.0.0.1:8765 TERMINAL_PORT=5173 npm run dev   # http://127.0.0.1:5173
+```
+
+Vite proxies `/api` to `UNKNOWN_API`, including the Server-Sent Events stream. In production, `python -m unknown.api.server --static terminal/dist` serves the build. The page loads no third-party origin, so it works under the API's Content-Security-Policy (`default-src 'self'`).
+
+## Layout
+
+```
+src/
+  api/types.ts          wire types mirroring backend/src/unknown/api/queries.py (decimals are strings)
+  api/client.ts         typed client: every GET, auth, CSRF, 401 -> login, 428 -> step-up -> same-id retry
+  format/decimal.ts     exact decimal-string formatting and comparison (no floats)
+  format/exact.ts       exact decimal arithmetic on BigInt (add, sub, mul, sums, ratios in bps)
+  format/time.ts        ns timestamps, ages, clock
+  state/stream.ts       /api/stream subscription: seq, version, gap/reset/reconnect detection
+  state/queries.ts      query cache keyed by endpoint+params; refetch on version bump or poll
+  state/commands.ts     command tracker: sending -> pending (command id) -> applied on stream seq
+  state/auth.ts, stepup.ts, notices.ts, router.ts, runtime.ts, react.tsx (hooks)
+  controls/             red STOP, green START, control drawer, pure control model
+  ui/                   shell, header, nav, palette, DataTable, primitives, modal, theme, styles.css
+  workspaces/registry.ts   the only list of workspaces (nav, palette, shortcuts)
+  workspaces/<id>/         one directory per workspace
+e2e/                    Playwright suite, backend harness and accessibility checks (e2e/README.md)
+```
+
+## Adding a workspace
+
+Register a workspace only when its backend service exists (ADR-0013 "no dead controls"). Capabilities that are not built yet belong on the Capabilities page.
+
+1. Create `src/workspaces/<id>/index.ts`:
+
+```ts
+import type { WorkspaceDefinition } from '../types';
+import { SessionsWorkspace } from './SessionsWorkspace';
+
+export const sessionsWorkspace: WorkspaceDefinition = {
+  id: 'sessions',                 // URL segment: #/sessions, #/sessions/<session_id>
+  title: 'Sessions',
+  icon: 'sessions',               // see src/ui/Icon.tsx IconName
+  shortcut: 'g s',                // must be unique; reserved list in registry.ts
+  order: 20,                      // nav position
+  component: SessionsWorkspace,   // receives { route, navigate }
+  description: 'Seed, goal, P&L, protection, settlement, successor',
+  keywords: ['mandate', 'successor'],
+};
+```
+
+2. Add one import line and one array entry to `src/workspaces/registry.ts`. Array order does not matter, because `order` sets the navigation order:
+
+```ts
+import { sessionsWorkspace } from './sessions';
+// ...
+export const WORKSPACES: readonly WorkspaceDefinition[] = validateRegistry([
+  overviewWorkspace,
+  capabilitiesWorkspace,
+  sessionsWorkspace,
+]);
+```
+
+Reserved shortcuts and order: overview `g o` (10), sessions `g s` (20), orders `g b` (30), risk `g r` (40), instruments `g i` (50), operations `g p` (60), audit `g a` (70), policy `g y` (80), capabilities `g c` (900). `validateRegistry` throws on a duplicate id or shortcut, and `registry.test.ts` fails with it.
+
+Optional fields:
+- `commands`: palette entries that open a view of the workspace. They show under "Go to" and are for navigation only: commands with effects run from their forms. An example is `{ id: 'ticket', label: 'New order ticket', path: ['~new'] }`.
+- `keys`: workspace-local single-key shortcuts, listed in the `?` help. Their handler must return early when `charKeysEnabled()` is false (WCAG 2.1.4).
+
+Route contract: `route.rest[0]` is the entity id. Once a workspace with id `sessions`, `orders` or `instruments` is registered, the command palette lists those records and jumps to `#/<id>/<entity id>` (session_id, order_id, instrument_id). Cross-workspace links use `<WorkspaceLink to="orders" rest={[orderId]}>`, which renders plain text until the target workspace is registered.
+
+## Component and hook API
+
+```ts
+// Data: refetches on every state-stream version bump (new seq, gap, reset, reconnect).
+useQuery<E extends Endpoint>(endpoint: E | null, params?: ParamsOf<E>, options?: { pollMs?: number })
+  : { status: 'idle'|'loading'|'success'|'error'; data?: ResponseOf<E>; error: unknown; fetching: boolean;
+      fetchedAtMs: number | null; seqAtFetch: number | null; key: string | null; refetch(): void }
+// e.g. useQuery('/api/orders', { state: 'open', limit: 200 });  useQuery('/api/preflight', undefined, { pollMs: 3000 })
+// Detail endpoints: useQuery(`/api/sessions/${encodePathSegment(id)}`)
+
+// Commands: never optimistic. Resolves when the core's decision is known; the record then moves
+// pending -> applied once the stream reports the command's event seq.
+const send = useSendCommand();
+send<K extends CommandKind>(kind: K, payload: CommandPayload<K>, opts: { label: string; commandId?: string })
+  : Promise<TrackedCommand>   // { commandId, status: 'sending'|'pending'|'applied'|'rejected'|'failed'|'cancelled',
+                              //   rejection?: {code,message,details}, awaitSeq, error, outcomeUnknown }
+useTrackedCommand(commandId) // live record for one command;  <CommandStatus commandId=... /> renders it
+// Step-up kinds (start, publish/activate policy, (de)authorize capital, ownership, resolve_exception)
+// prompt for the passphrase automatically on HTTP 428 and retry with the same command id.
+
+<DataTable<T>
+  caption: string; captionHidden?: boolean;
+  columns: Column<T>[];   // { id, header, description?, cell(row), sortValue?(row), sortKind?: 'text'|'number'|'decimal',
+                          //   align?, numeric?: boolean (right-aligned monospace), wrap?, width? }
+  rows: T[]; rowKey(row): string;
+  initialSort?: { columnId; direction: 'ascending'|'descending' };
+  onRowActivate?(row); activateLabel?: string;     // Enter/Space/double-click
+  emptyText?; virtualizeAbove?: number (500); rowHeight?: number (28); maxHeight?: string ('min(70vh, 640px)') />
+
+<Money amount={decimalString|null} currency="USD" kind?: 'realized'|'unrealized'|'settled'|'unsettled'|'protected'
+       |'available'|'held'|'authorized'|'estimated'|'cost'|'marked' showKind? signed? unavailable?="no quote" />
+<Qty value={decimalString} unit? />
+<Timestamp ns={epochNs} | ms={epochMs} zone?: 'utc'|'local' withMs? never?="never" />
+<Age sinceNs? | ageMs + observedAtMs? clockOffsetMs? staleAfterMs? />   // live-ticking; appends "(stale)"
+<StatusPill label="RUNNING" tone: 'ok'|'warn'|'bad'|'info'|'neutral' detail? compact? />  // text + glyph + colour
+<Badge tone?>FIXTURE</Badge>  <FixtureBadge />  <ModeBadge mode="SIMULATED" />  <ShortId value=… />  <YesNo … />
+<WorkspaceFrame title description? queries?={[q1, q2]} actions?>…</WorkspaceFrame>  // provenance: seq, age, refresh
+<QueryError what="Orders" error={q.error} />
+```
+
+Formatting is exact. `formatDecimal('1234567.8912', { minFraction: 2 })` gives `1,234,567.8912`. Trailing zeros are trimmed down to the currency's minor units, and non-zero digits are never rounded away. `compareDecimal` sorts money without floats.
+
+## Contract checklist (enforced in code)
+
+- Money is a decimal string from the API and is never converted to a JS number. Every amount shows its currency, and amount kinds are labelled in column headers and tooltips.
+- Quotes and marks show their source and age. Fixture data carries a `FIXTURE` badge. The header always shows the account mode in text and colour, plus a mode-coloured band.
+- Red STOP is always in the header and never shrinks out of view. It needs only a session and sends immediately. The drawer then shows the durable command id and stop progress from `/api/preflight` `stop_progress`: entries blocked, open buys and cancels pending, unknown orders, residual positions, and "reconciled flat" only when the server says so. Liquidation is read from the active policy (`NONE`), and the drawer says it is not offered.
+- Green START opens the preflight panel. It lists each blocker with its cause and resolution and offers no bypass. Start is enabled only when a stop or resume hold is active and every blocker is resolvable by step-up.
+- There are no optimistic updates. A command shows `sending`, then `pending` with its command id, then `applied` when the stream reaches the command's event seq. On any stream reconnect, gap or reset, every visible query refetches.
+- Keyboard: Cmd/Ctrl+K opens the palette, `?` lists shortcuts, `g <key>` switches workspaces, and table rows take arrows, Home/End, PageUp/PageDown and Enter. Dialogs trap focus and restore it on close. The modal scrim starts below the header, so STOP stays clickable. Single-character shortcuts can be turned off from the `?` help or the palette (WCAG 2.1.4, `ui/charKeys.ts`).
+- The stream status pill reads STREAMING, never LIVE: in this terminal, LIVE always means the account mode.
+
+## Contrast (WCAG 2.2 AA)
+
+Text tokens on their surfaces, as computed from `styles.css`:
+
+| Pair | Dark | Light |
+|---|---|---|
+| text / surface | 14.4 | 16.2 |
+| muted text / surface-2 | 7.1 | 5.9 |
+| accent / surface | 8.9 | 6.3 |
+| ok, warn, bad, info / surface | 9.2, 9.7, 7.8, 8.8 | 5.9, 6.0, 6.4, 6.2 |
+| mode SIMULATED, PAPER, LIVE / surface | 8.1, 8.6, 6.7 | 6.8, 6.8, 6.8 |
+| STOP text / STOP fill | 5.6 | 6.6 |
+| START text / START fill | 5.4 | 6.2 |
+| control border (inputs, buttons) / surface | 3.6 | 3.8 |
+
+The end-to-end suite measures these on the rendered pages; see `e2e/README.md`. On the last run it checked 5,251 text elements across 29 views per theme. The lowest text contrast was 5.35:1 (dark) and 4.78:1 (light), with no violations.
+
+## API notes for the backend
+
+See the foundation report. In short:
+- ns timestamps exceed 2^53, so the client displays them at millisecond precision.
+- Path ids are not percent-decoded by the API, so an id containing `/` cannot be addressed.
+- `/api/overview` does not carry the active policy's name or `on_stop_liquidation`, so the client also fetches `/api/policy/active`.

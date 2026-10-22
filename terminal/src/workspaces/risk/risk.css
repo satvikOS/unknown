@@ -1,0 +1,314 @@
+/* Risk and Policy workspaces: meters, limit cards, policy editor and diff marks. Uses the shared
+   tokens from src/ui/styles.css only, so both themes and the contrast table stay valid. */
+
+.rk-meter {
+  display: grid;
+  gap: 5px;
+  margin: 2px 0 12px;
+}
+.rk-meter-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.rk-meter-label {
+  color: var(--text);
+  font-weight: 600;
+}
+.rk-meter-track {
+  position: relative;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  overflow: hidden;
+}
+.rk-meter-fill {
+  height: 100%;
+  min-width: 0;
+}
+.rk-meter-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border-strong);
+}
+.tone-bg-ok {
+  background: var(--ok);
+}
+.tone-bg-warn {
+  background: repeating-linear-gradient(135deg, var(--warn) 0 6px, color-mix(in srgb, var(--warn) 70%, var(--surface)) 6px 9px);
+}
+.tone-bg-bad {
+  background: repeating-linear-gradient(135deg, var(--bad) 0 4px, color-mix(in srgb, var(--bad) 60%, var(--surface)) 4px 7px);
+}
+.tone-bg-info {
+  background: var(--info);
+}
+.tone-bg-neutral {
+  background: var(--neutral);
+}
+.rk-meter-text {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: var(--fs-sm);
+}
+.rk-meter-text strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.rk-meter-basis {
+  font-size: var(--fs-xs);
+  white-space: normal;
+}
+
+.rk-basis {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  white-space: normal;
+  line-height: 1.45;
+}
+
+.rk-limits {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 0;
+  margin: 0;
+}
+.rk-limit {
+  padding: 8px 12px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+.rk-limit dt {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: normal;
+}
+.rk-limit dd {
+  margin: 3px 0 0;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-md);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.rk-limit .rk-detail {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  margin-left: 6px;
+}
+.rk-limit .rk-help {
+  display: block;
+  font-family: var(--font-ui);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  margin-top: 2px;
+}
+.rk-limit.rk-warning dd {
+  color: var(--warn);
+}
+
+.rk-split {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+}
+@media (max-width: 1100px) {
+  .rk-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.rk-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  border-bottom: 1px solid var(--border);
+}
+.rk-subnav a {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  color: var(--text-muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.rk-subnav a:hover {
+  color: var(--text);
+}
+.rk-subnav a[aria-current='page'] {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.rk-editor {
+  width: 100%;
+  min-height: 520px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--control-border);
+  background: var(--bg);
+  color: var(--text);
+  white-space: pre;
+  tab-size: 2;
+}
+.rk-editor:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 0;
+}
+.rk-editor[aria-invalid='true'] {
+  border-color: var(--bad);
+}
+
+.rk-json {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 520px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+.rk-issues {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  white-space: normal;
+}
+.rk-issues button {
+  font: inherit;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.rk-change {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+.rk-old {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.rk-list-delta {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.rk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.rk-field-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.9fr) minmax(0, 1.4fr);
+  gap: 3px 14px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.rk-field-row:last-child {
+  border-bottom: none;
+}
+.rk-field-row dt {
+  color: var(--text);
+  white-space: normal;
+}
+.rk-field-row dt .rk-path {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+.rk-field-row dd {
+  margin: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.rk-field-row dd .rk-help {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+
+.rk-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.rk-checks li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: start;
+  white-space: normal;
+}
+
+.modal.rk-dialog {
+  width: min(860px, calc(100vw - 32px));
+  max-height: calc(92vh - var(--header-h) - 16px);
+}
+
+.rk-select {
+  height: 30px;
+  padding: 0 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--control-border);
+  background: var(--bg);
+  color: var(--text);
+  max-width: 100%;
+}
+.rk-select:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 0;
+}
+
+.rk-field-row dt .rk-path {
+  overflow-wrap: anywhere;
+}
+/* Policy names are case-sensitive identifiers: never uppercase them in panel headings. */
+.rk-name {
+  text-transform: none;
+  letter-spacing: normal;
+}
+.rk-ws a.btn {
+  text-decoration: none;
+  color: var(--text);
+}
+.rk-ws a.btn.primary {
+  color: var(--accent-ink);
+}

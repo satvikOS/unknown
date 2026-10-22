@@ -1,0 +1,196 @@
+/* Sessions workspace. Uses only the shared design tokens from src/ui/styles.css. */
+
+.ses-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.ses-filters {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ses-filters .btn[aria-pressed='true'] {
+  background: var(--surface-3);
+  border-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+.ses-filters .count {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.ses-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.btn.ses-danger {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.btn.ses-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--bad) 12%, var(--surface-2));
+}
+
+.ses-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px 16px;
+  margin: 0;
+}
+.ses-figures > div {
+  min-width: 0;
+}
+.ses-figures dt {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+.ses-figures dd {
+  margin: 0;
+  font-size: var(--fs-md);
+  overflow-wrap: anywhere;
+}
+.ses-figures dd .money {
+  font-size: 14px;
+}
+.ses-figures .sub {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  margin-top: 2px;
+}
+
+.ses-milestones {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+.ses-milestone {
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--tone, var(--border-strong));
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: 6px 9px 8px;
+  display: grid;
+  gap: 3px;
+  align-content: start;
+  min-width: 0;
+}
+.ses-milestone[data-state='pending'],
+.ses-milestone[data-state='skipped'] {
+  background: transparent;
+}
+.ses-milestone .ms-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  align-items: baseline;
+}
+.ses-milestone .ms-label {
+  font-weight: 650;
+  font-size: var(--fs-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.ses-milestone .ms-detail {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+.ses-reasons {
+  display: grid;
+  gap: 6px;
+}
+.ses-reason {
+  display: grid;
+  gap: 2px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--tone, var(--warn));
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.ses-reason code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.ses-info summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: var(--fs-sm);
+}
+.ses-json {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 260px;
+  overflow: auto;
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.ses-notes {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: var(--fs-sm);
+}
+.ses-notes li {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.ses-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0 12px;
+}
+.ses-form-grid .input {
+  font-family: var(--font-mono);
+}
+.ses-dialog {
+  width: min(680px, calc(100vw - 32px));
+}
+.ses-implied {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: baseline;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.ses-implied .pct {
+  font-family: var(--font-mono);
+  font-size: var(--fs-lg);
+  font-weight: 650;
+}
+
+.ses-captioned table.data caption {
+  padding: 10px 12px 6px;
+}
