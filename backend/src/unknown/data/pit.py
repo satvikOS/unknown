@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS observation (
   event_time_ns INTEGER, published_time_ns INTEGER, receipt_time_ns INTEGER NOT NULL, available_time_ns INTEGER NOT NULL,
   known_from_ns INTEGER NOT NULL, known_to_ns INTEGER NOT NULL,
   supersedes INTEGER REFERENCES observation(obs_id),
+  publication_id TEXT NOT NULL,
   source_ref TEXT NOT NULL, quality TEXT NOT NULL,
   CHECK ((value IS NOT NULL) + (value_text IS NOT NULL) + (missing_reason IS NOT NULL) = 1)
 );
@@ -84,6 +85,8 @@ class Observation:
     event_time_ns: int | None = None
     published_time_ns: int | None = None
     quality: tuple[str, ...] = ()
+    publication_id: str = ""   # source document identity (e.g. SEC accession); "" = one publication per available time
+
 
     def __post_init__(self) -> None:
         if sum(x is not None for x in (self.value, self.value_text, self.missing_reason)) != 1:
@@ -146,21 +149,25 @@ class ResearchStore:
     def record(self, obs: Observation, known_at_ns: int) -> tuple[int, str]:
         """Insert a version of one publication. Returns (obs_id, outcome): NEW | UNCHANGED | CORRECTED.
 
-        A *publication* is keyed by (dataset, entity, field, period, available_time). A later
+        A *publication* is keyed by (dataset, entity, field, period, publication_id), where the
+        publication id is the source document (an SEC accession number); two documents filed at
+        the same instant are two publications, never a correction of each other. A later
         publication for the same period (e.g. a restatement filed later) is simply another row with
         its own available_time; nothing is closed. If the *same* publication arrives with different
         content (a silent provider correction), the previous version's knowledge interval is closed
         and the new version links to it, flagged ``silent_correction``."""
-        key = (obs.dataset, obs.entity_id, obs.field, obs.period_start, obs.period_end, obs.available_time_ns)
+        pub = obs.publication_id or f"t:{obs.available_time_ns}"
+        key = (obs.dataset, obs.entity_id, obs.field, obs.period_start, obs.period_end, obs.unit, pub)
         cur = self.conn.execute(
-            "SELECT obs_id, value, value_text, missing_reason, unit, currency FROM observation WHERE dataset=? AND entity_id=? AND field=? "
-            "AND COALESCE(period_start,'')=COALESCE(?, '') AND COALESCE(period_end,'')=COALESCE(?, '') AND available_time_ns=? AND known_to_ns=?",
+            "SELECT obs_id, value, value_text, missing_reason, unit, currency, available_time_ns FROM observation WHERE dataset=? AND entity_id=? "
+            "AND field=? AND COALESCE(period_start,'')=COALESCE(?, '') AND COALESCE(period_end,'')=COALESCE(?, '') AND unit=? "
+            "AND publication_id=? AND known_to_ns=?",
             key + (OPEN_END,)).fetchone()
         new_value = obs.value.to_str() if obs.value is not None else None
         quality = list(obs.quality)
         if cur is not None:
-            if (cur["value"], cur["value_text"], cur["missing_reason"], cur["unit"], cur["currency"]) == \
-                    (new_value, obs.value_text, obs.missing_reason, obs.unit, obs.currency):
+            if (cur["value"], cur["value_text"], cur["missing_reason"], cur["unit"], cur["currency"], cur["available_time_ns"]) == \
+                    (new_value, obs.value_text, obs.missing_reason, obs.unit, obs.currency, obs.available_time_ns):
                 return cur["obs_id"], "UNCHANGED"
             quality.append("silent_correction")
         self.conn.execute("BEGIN IMMEDIATE")
@@ -172,10 +179,10 @@ class ResearchStore:
             c = self.conn.execute(
                 "INSERT INTO observation(dataset, entity_id, field, period_start, period_end, period_kind, value, value_text, unit, currency, "
                 "missing_reason, event_time_ns, published_time_ns, receipt_time_ns, available_time_ns, known_from_ns, known_to_ns, "
-                "supersedes, source_ref, quality) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "supersedes, publication_id, source_ref, quality) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (obs.dataset, obs.entity_id, obs.field, obs.period_start, obs.period_end, obs.period_kind, new_value, obs.value_text,
                  obs.unit, obs.currency, obs.missing_reason, obs.event_time_ns, obs.published_time_ns, obs.receipt_time_ns,
-                 obs.available_time_ns, known_at_ns, OPEN_END, supersedes, obs.source_ref, json.dumps(quality)))
+                 obs.available_time_ns, known_at_ns, OPEN_END, supersedes, pub, obs.source_ref, json.dumps(quality)))
             self.conn.execute("COMMIT")
         except Exception:
             self.conn.execute("ROLLBACK")
@@ -203,8 +210,11 @@ class ResearchStore:
             params.append(dataset)
         best: dict[tuple, sqlite3.Row] = {}
         for r in self.conn.execute(sql, tuple(params)):
-            k = (r["dataset"], r["period_kind"], r["period_start"], r["period_end"])
-            if k not in best or (r["available_time_ns"], r["known_from_ns"]) > (best[k]["available_time_ns"], best[k]["known_from_ns"]):
+            # Latest publication wins; ties at the same instant break deterministically by publication id
+            # (``conflicts()`` exposes same-instant publications with different values for review).
+            k = (r["dataset"], r["period_kind"], r["period_start"], r["period_end"], r["unit"])
+            rank = (r["available_time_ns"], r["publication_id"], r["known_from_ns"])
+            if k not in best or rank > (best[k]["available_time_ns"], best[k]["publication_id"], best[k]["known_from_ns"]):
                 best[k] = r
         return sorted(best.values(), key=lambda r: (r["period_end"] or "", r["period_start"] or ""))
 
@@ -213,6 +223,16 @@ class ResearchStore:
         rows = [r for r in self.as_of(entity_id, field, t_ns, dataset=dataset, knowledge_cutoff_ns=knowledge_cutoff_ns)
                 if period_kind is None or r["period_kind"] == period_kind]
         return rows[-1] if rows else None
+
+    def conflicts(self, entity_id: str, field: str) -> list[sqlite3.Row]:
+        """Distinct current publications for one period available at the same instant with different values."""
+        return self.conn.execute(
+            "SELECT a.period_start, a.period_end, a.unit, a.available_time_ns, a.publication_id AS pub_a, a.value AS value_a, "
+            "b.publication_id AS pub_b, b.value AS value_b FROM observation a JOIN observation b ON a.entity_id=b.entity_id "
+            "AND a.field=b.field AND COALESCE(a.period_start,'')=COALESCE(b.period_start,'') AND a.period_end=b.period_end "
+            "AND a.unit=b.unit AND a.available_time_ns=b.available_time_ns AND a.publication_id<b.publication_id "
+            "AND a.known_to_ns=? AND b.known_to_ns=? AND COALESCE(a.value,'')<>COALESCE(b.value,'') "
+            "WHERE a.entity_id=? AND a.field=?", (OPEN_END, OPEN_END, entity_id, field)).fetchall()
 
     def history(self, entity_id: str, field: str, period_end: str) -> list[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM observation WHERE entity_id=? AND field=? AND period_end=? ORDER BY known_from_ns",

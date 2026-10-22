@@ -105,3 +105,22 @@ class PointInTimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PublicationIdentityTests(unittest.TestCase):
+    def test_same_instant_different_documents_are_not_a_correction(self):
+        """Regression (live SEC ingest 2026-10-22): a 10-Q and an 8-K filed the same day reporting different
+        values for one period are two publications, not a silent correction."""
+        s = ResearchStore(":memory:")
+        t = utc_ns(2013, 4, 24, 23, 59, 59)
+        a = Observation(dataset=D, entity_id="I", field="UTB", unit="USD", receipt_time_ns=INGESTED, available_time_ns=t,
+                        source_ref="r", value=Fixed.parse("2100000000"), period_end="2012-09-29", period_kind="INSTANT",
+                        publication_id="0001193125-13-168288")
+        b = Observation(dataset=D, entity_id="I", field="UTB", unit="USD", receipt_time_ns=INGESTED, available_time_ns=t,
+                        source_ref="r", value=Fixed.parse("2062000000"), period_end="2012-09-29", period_kind="INSTANT",
+                        publication_id="0001193125-13-170623")
+        self.assertEqual(s.record(a, INGESTED)[1], "NEW")
+        self.assertEqual(s.record(b, INGESTED)[1], "NEW")
+        self.assertEqual(len(s.conflicts("I", "UTB")), 1)
+        self.assertEqual(s.latest_as_of("I", "UTB", t)["publication_id"], "0001193125-13-170623")  # deterministic tie-break
+        s.close()

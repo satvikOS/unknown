@@ -41,8 +41,9 @@ def parse_json(body: bytes) -> dict:
 
 
 def acceptance_times(submissions: dict) -> dict[str, int]:
-    """accessionNumber -> acceptance time (UTC ns) from the submissions 'recent' block."""
-    recent = submissions.get("filings", {}).get("recent", {})
+    """accessionNumber -> acceptance time (UTC ns) from a submissions 'recent' block, or from an
+    additional submissions file (which carries the same columns at top level)."""
+    recent = submissions.get("filings", {}).get("recent", submissions)
     out = {}
     for accn, acc in zip(recent.get("accessionNumber", []), recent.get("acceptanceDateTime", [])):
         if acc:
@@ -85,7 +86,8 @@ def companyfacts_observations(cik: int, facts: dict, accepted: dict[str, int], r
                         period_start=r.get("start"), period_end=r.get("end"),
                         period_kind="INSTANT" if r.get("start") is None else (r.get("fp") or "DURATION"),
                         value=value, receipt_time_ns=receipt_ns, available_time_ns=available,
-                        published_time_ns=accepted.get(accn), source_ref=f"raw:{raw_ref}#{taxonomy}/{concept}/{unit}/{accn}",
+                        published_time_ns=accepted.get(accn), publication_id=accn or f"filed:{filed}",
+                        source_ref=f"raw:{raw_ref}#{taxonomy}/{concept}/{unit}/{accn}",
                         quality=quality + ((f"form:{r.get('form')}",) if r.get("form") else ())))
     return out
 
@@ -105,6 +107,16 @@ def ingest(cik: int, store: ResearchStore, fetcher: Fetcher, now_ns) -> dict:
         # Current tickers carry no validity dates in this feed: recorded from now, never backdated.
         store.add_alias(f"ticker:{ex or 'UNKNOWN'}", t, entity_id(cik), sub_resp.receipt_time_ns, f"raw:{sub_ref}")
     accepted = acceptance_times(submissions)
+    # Older filings live in additional submissions files; their acceptance times replace the
+    # conservative filed-date fallback (data.sec.gov/submissions/<name>).
+    for extra in submissions.get("filings", {}).get("files", []):
+        name = extra.get("name", "")
+        if not name.endswith(".json") or "/" in name:
+            continue
+        resp = fetcher.get(f"https://data.sec.gov/submissions/{name}")
+        store.put_raw(resp.body, provider="sec-edgar", dataset=ds_sub.dataset_id, request={"url": resp.url},
+                      receipt_time_ns=resp.receipt_time_ns, media_type=resp.content_type)
+        accepted.update(acceptance_times(parse_json(resp.body)))
     facts_resp = fetcher.get(COMPANYFACTS.format(cik=cik))
     facts_ref = store.put_raw(facts_resp.body, provider="sec-edgar", dataset=ds_facts.dataset_id, request={"url": facts_resp.url},
                               receipt_time_ns=facts_resp.receipt_time_ns, media_type=facts_resp.content_type)

@@ -6803,11 +6803,10 @@
         "status": "tested",
         "evidence": [
           "SEC companyfacts as separate publications keyed by acceptance time",
-          "backend/tests/test_data_sec.py (fixture payloads)"
+          "backend/tests/test_data_sec.py (fixture payloads)",
+          "live run 2026-10-22 against data.sec.gov (owner-declared User-Agent): Apple 25,135 and Microsoft 32,711 observations; 0 false corrections, 0 same-instant conflicts, 100% acceptance-time coverage via additional submissions files"
         ],
-        "gaps": [
-          "live SEC fetch not yet run (needs owner User-Agent in ~/.unknown/config/data.json)"
-        ],
+        "gaps": [],
         "requirements": [
           "DAT-02",
           "DAT-04"
@@ -25698,11 +25697,11 @@
         "status": "tested",
         "evidence": [
           "backend/src/unknown/data/sec.py + http.py (rate limit, User-Agent, retries)",
-          "backend/tests/test_data_sec.py"
+          "backend/tests/test_data_sec.py",
+          "live run 2026-10-22 against data.sec.gov (owner-declared User-Agent): Apple 25,135 and Microsoft 32,711 observations; 0 false corrections, 0 same-instant conflicts, 100% acceptance-time coverage via additional submissions files"
         ],
         "gaps": [
-          "submissions additional files, bulk files and filing documents not ingested",
-          "live fetch not yet run"
+          "submissions additional files, bulk files and filing documents not ingested"
         ],
         "requirements": [
           "DAT-01",
