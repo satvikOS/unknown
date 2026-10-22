@@ -6,7 +6,7 @@
  */
 import { useState, type ReactNode } from 'react';
 import { DataTable, type Column } from '../../ui/DataTable';
-import { Money, StatusPill } from '../../ui/primitives';
+import { FixtureBadge, Money, StatusPill } from '../../ui/primitives';
 import { QueryError } from '../../ui/WorkspaceFrame';
 import { Segmented } from '../operations/parts';
 import { usePluginQuery } from '../plugin-api/hooks';
@@ -175,7 +175,30 @@ function VarPanel({ body, formulas }: { body: Rec; formulas: Map<string, Formula
   );
 }
 
-export function BacktestPanel({ body, formulas }: { body: Rec; formulas: Map<string, FormulaDef> }) {
+/**
+ * Whether the valuation snapshots a backtest reads include FIXTURE data. var.backtest reports no fixture
+ * flag of its own, so the terminal reads it from GET /api/portfolio/snapshots (one flag per run). Null when
+ * the snapshot list could not be read.
+ */
+export function snapshotsIncludeFixture(snapshots: unknown): boolean | null {
+  const b = ofKind(snapshots, 'snapshots');
+  if (!b || b.available !== true) return null;
+  return recs(b.runs).some((r) => r.fixture === true || r.fixture === 1);
+}
+
+function BacktestFixtureNote({ fixtureRuns, hasDays }: { fixtureRuns: boolean | null | undefined; hasDays: boolean }) {
+  if (!hasDays || fixtureRuns === false || fixtureRuns === undefined) return null;
+  if (fixtureRuns === null) {
+    return <p className="pf-hint">The backtest response does not say whether its valuation snapshots used FIXTURE data, and the snapshot list could not be read.</p>;
+  }
+  return (
+    <div className="pf-note">
+      <FixtureBadge /> <span>Computed from valuation snapshots that include FIXTURE quotes: test data, not market data.</span>
+    </div>
+  );
+}
+
+export function BacktestPanel({ body, formulas, fixtureRuns }: { body: Rec; formulas: Map<string, FormulaDef>; fixtureRuns?: boolean | null }) {
   const ccy = str(body.currency) ?? '';
   const days = backtestDays(body);
   const verdict = kupiecVerdict(body.kupiec);
@@ -197,6 +220,7 @@ export function BacktestPanel({ body, formulas }: { body: Rec; formulas: Map<str
       </header>
       <div className="panel-body">
         <FixtureNote body={body} />
+        <BacktestFixtureNote fixtureRuns={fixtureRuns} hasDays={days.length > 0} />
         {verdict ? (
           <div className="callout pf-gap" role="status" style={{ ['--tone' as string]: `var(--${verdict.tone === 'neutral' ? 'info' : verdict.tone})` }}>
             {verdict.text}
@@ -240,6 +264,9 @@ export function RiskTab({ bar, scope, setScope, options, formulas }: { bar: Reac
   const expoQ = usePluginQuery<unknown>('/api/portfolio/exposure', { scope });
   const varQ = usePluginQuery<unknown>('/api/portfolio/var', { scope, alpha, horizon });
   const btQ = usePluginQuery<unknown>('/api/portfolio/var/backtest', { scope, alpha });
+  // The backtest carries no fixture flag; the snapshot runs it reads do (route limit: 5000 runs).
+  const snapQ = usePluginQuery<unknown>('/api/portfolio/snapshots', { limit: 5000 });
+  const fixtureRuns = snapQ.status === 'error' ? null : snapQ.data === undefined ? undefined : snapshotsIncludeFixture(snapQ.data);
   const expo = ofKind(expoQ.data, 'exposure');
   const v = ofKind(varQ.data, 'var');
   const bt = ofKind(btQ.data, 'var_backtest');
@@ -279,7 +306,7 @@ export function RiskTab({ bar, scope, setScope, options, formulas }: { bar: Reac
       <QueryError what="VaR backtest" error={btQ.error} />
       {expo ? <ExposurePanel body={expo} formulas={formulas} /> : expoQ.status === 'loading' ? <p className="muted">Loading exposure…</p> : null}
       {v ? <VarPanel body={v} formulas={formulas} /> : null}
-      {btWhy ? <Unavailable what="VaR backtest" reason={btWhy} /> : bt ? <BacktestPanel body={bt} formulas={formulas} /> : null}
+      {btWhy ? <Unavailable what="VaR backtest" reason={btWhy} /> : bt ? <BacktestPanel body={bt} formulas={formulas} fixtureRuns={fixtureRuns} /> : null}
     </PortfolioFrame>
   );
 }

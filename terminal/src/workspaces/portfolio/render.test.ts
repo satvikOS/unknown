@@ -7,7 +7,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { PerformancePanel, PnlPanel } from './PerformanceTab';
-import { BacktestPanel } from './RiskTab';
+import { BacktestPanel, snapshotsIncludeFixture } from './RiskTab';
 import { TradeList } from './AllocationTab';
 import { Impact } from './WhatIfTab';
 import type { Rec } from './model';
@@ -112,6 +112,19 @@ describe('VaR backtest panel: exceptions', () => {
     expect(html).toContain('2026-10-23 (loss 3.10 USD vs VaR 1.60 USD)');
     expect(html).toContain('More exceptions than expected: the VaR understates losses.');
     expect(html).toContain('1 day(s) skipped');
+  });
+
+  it('labels a backtest read from FIXTURE snapshots, which its own response does not flag', () => {
+    // var.backtest returns no fixture_data; the snapshot runs carry the flag (sqlite integer 0/1).
+    const runs = { kind: 'snapshots', available: true, runs: [{ run_id: 'r1', fixture: 0 }, { run_id: 'r2', fixture: 1 }] };
+    expect(snapshotsIncludeFixture(runs)).toBe(true);
+    expect(snapshotsIncludeFixture({ ...runs, runs: [{ run_id: 'r1', fixture: 0 }] })).toBe(false);
+    expect(snapshotsIncludeFixture({ kind: 'snapshots', available: false, reason: 'no snapshots' })).toBeNull();
+    const html = renderToStaticMarkup(createElement(BacktestPanel, { body, formulas, fixtureRuns: true }));
+    expect(html).toContain('FIXTURE');
+    expect(html).toContain('valuation snapshots that include FIXTURE quotes');
+    expect(renderToStaticMarkup(createElement(BacktestPanel, { body, formulas, fixtureRuns: false }))).not.toContain('FIXTURE');
+    expect(renderToStaticMarkup(createElement(BacktestPanel, { body, formulas, fixtureRuns: null }))).toContain('could not be read');
   });
 
   it('draws no exception marker when there is none', () => {

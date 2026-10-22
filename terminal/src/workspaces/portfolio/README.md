@@ -27,6 +27,7 @@ Shortcut `g f`, nav order 45. Route: `#/portfolio/<tab>`. The palette lists ever
 
 - The money-weighted result has no explicit uniqueness field. The terminal reads `irr_annualized`, `period_mwr` and the `reason` text (`irrStatus`). An explicit `roots` count would be sturdier.
 - Stress threshold rows carry no currency (see above).
+- `var/backtest` reports no fixture flag. The tab reads the snapshot runs' `fixture` flags (`snapshots?limit=5000`) and labels a backtest FIXTURE when any run is; VaR and allocation history come from the same snapshots, but their `fixture_data` reflects only the current quotes.
 - Fee-revision `exit_costs` and stale-quote `conservative_values` carry no currency; the terminal takes the position's currency from the instrument master. `open_buy_envelopes` carry neither a currency nor an instrument, so their amounts are shown as "currency not reported".
 - There is no formula-to-capability link in the API, other than the `capabilities` field of `/api/portfolio/formulas` entries.
 - The icon is the generic one; `ui/Icon.tsx` has no portfolio glyph and is outside this workspace's scope.
