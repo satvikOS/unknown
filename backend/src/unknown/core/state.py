@@ -8,9 +8,7 @@ from ..domain.fixed import Fixed
 from ..domain.instruments import Instrument
 from ..policy.model import Mandate, Policy
 from ..store.db import Tx
-
-OPEN_ORDER_STATES = ("RESERVED", "SUBMIT_PENDING", "ACKNOWLEDGED", "PARTIALLY_FILLED", "CANCEL_PENDING", "UNKNOWN")
-TERMINAL_ORDER_STATES = ("FILLED", "CANCELED", "REJECTED", "EXPIRED")
+from .order_machine import OPEN_STATES as OPEN_ORDER_STATES, TERMINAL_STATES as TERMINAL_ORDER_STATES  # noqa: F401
 ACTIVE_SESSION_STATES = ("RUNNING", "SUSPENDED", "WINDING_DOWN", "RECONCILING")
 
 

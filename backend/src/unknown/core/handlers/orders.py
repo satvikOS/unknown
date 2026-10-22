@@ -351,7 +351,12 @@ def outbox_result(ctx: Context, p: dict) -> dict:
                            prev_state=order["state"])
             ctx.emit("OrderAcknowledged", {"via": "submit_result"}, {"orders": [new], "outbox": [{**row, "state": "DONE", "result": result}]}, **refs)
         elif status == "REJECTED":
-            if Fixed.parse(order["cum_qty"]).is_positive():
+            if order["state"] in state.TERMINAL_ORDER_STATES and not Fixed.parse(order["cum_qty"]).is_positive():
+                # A broker report already ended the order (e.g. CANCELED) before the submit result was recorded: a
+                # terminal state is never left or relabelled (order transition table); the result is kept on the row.
+                ctx.emit("SubmitResultAfterTerminal", {"reason": reason, "local_state": order["state"]},
+                         {"outbox": [{**row, "state": "DONE", "result": result}]}, **refs)
+            elif Fixed.parse(order["cum_qty"]).is_positive():
                 case = new_exception(ctx, key, "EXECUTION_ANOMALY", blocking=True, severity="high",
                                      detail={"order_id": order["order_id"], "issue": "rejection after fills", "reason": reason},
                                      key=f"reject-after-fill:{order['order_id']}", session_id=order["session_id"],

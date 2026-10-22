@@ -27,11 +27,13 @@ from ...domain.money import Money, currency
 from ...risk import fees as fee_model
 from .. import ledger, state
 from ..desk import Context
-from .common import (EXECUTION_ANOMALY, FOREIGN_ACTIVITY, OVERCOMMITTED, POST_COMPLETION_ADJUSTMENT,
+from .common import (EXECUTION_ANOMALY, FOREIGN_ACTIVITY, OVERCOMMITTED, POST_COMPLETION_ADJUSTMENT, UNKNOWN_ORDER,
                      hold_rows, multiplier_of, new_exception)
 
-TERMINAL_MAP = {"CANCELED": "CANCELED", "EXPIRED": "EXPIRED", "REJECTED": "REJECTED", "INACTIVE": "REJECTED"}
+TERMINAL_MAP = {"CANCELED": "CANCELED", "EXPIRED": "EXPIRED", "REJECTED": "REJECTED"}
 WORKING_STATUSES = ("PENDING_SUBMIT", "ACKNOWLEDGED", "PARTIALLY_FILLED", "PENDING_CANCEL")
+# Not working and not final (IBKR Inactive): the order is held as UNKNOWN with every reservation (order_machine.py).
+HELD_STATUSES = ("INACTIVE",)
 ECONOMIC_FIELDS = ("side", "quantity", "price", "instrument_id", "currency")
 
 
@@ -113,12 +115,14 @@ def apply_status(ctx: Context, order: dict, status: str, broker_filled: Fixed, r
     if broker_order_id and not order.get("broker_order_id"):
         new["broker_order_id"] = broker_order_id
     # A working report says nothing about a cancel whose outcome is unknown (it may never have reached the broker):
-    # only a terminal or PENDING_CANCEL report resolves that case (review finding 35).
-    if order.get("cancel_state") == "UNKNOWN" and status in ("PENDING_SUBMIT", "ACKNOWLEDGED", "PARTIALLY_FILLED"):
+    # only a terminal or PENDING_CANCEL report resolves that case (review finding 35). A held (Inactive) report
+    # resolves nothing: it is itself an outcome the core cannot rely on.
+    if (order.get("cancel_state") == "UNKNOWN" and status in ("PENDING_SUBMIT", "ACKNOWLEDGED", "PARTIALLY_FILLED")) \
+            or status in HELD_STATUSES:
         resolved = []
     else:
         resolved = _resolve_case(ctx, key, f"unknown-order:{order['order_id']}", f"broker reported {status}")
-    if status not in WORKING_STATUSES and status != "FILLED" and status not in TERMINAL_MAP:
+    if status not in WORKING_STATUSES and status != "FILLED" and status not in TERMINAL_MAP and status not in HELD_STATUSES:
         case = new_exception(ctx, key, EXECUTION_ANOMALY, blocking=True, severity="medium",
                              detail={"order_id": order["order_id"], "issue": f"unrecognised broker status {status!r}"},
                              key=f"status:{order['order_id']}:{status}", session_id=order["session_id"], order_id=order["order_id"])
@@ -144,9 +148,13 @@ def apply_status(ctx: Context, order: dict, status: str, broker_filled: Fixed, r
                 from .orders import enqueue_cancel
                 enqueue_cancel(ctx, state.order(ctx.tx, order["order_id"]), "broker still working a locally terminal buy")
         return {"state": order["state"], "noop": True}
+    if status in HELD_STATUSES:
+        return _hold_at_broker(ctx, new, status, broker_filled, reason, via)
     if status in WORKING_STATUSES:
         if order["state"] in ("SUBMIT_PENDING", "UNKNOWN", "RESERVED"):
             new.update(state="PARTIALLY_FILLED" if local.is_positive() else "ACKNOWLEDGED", prev_state=order["state"])
+        if new.get("broker_held"):
+            new["broker_held"] = None   # working again: no longer held
         if status == "PENDING_CANCEL" and new["state"] != "CANCEL_PENDING":
             new.update(state="CANCEL_PENDING", prev_state=new["state"])
         if new != order or resolved:
@@ -185,6 +193,36 @@ def finalize(ctx: Context, order: dict, target: str, reason: str, *, extra_excep
              {"orders": [new], "holds": hold_rows(new, mult, release=True), "exceptions": extra_exceptions or []},
              account_key=order["account_key"], session_id=order["session_id"], order_id=order["order_id"])
     return {"state": target}
+
+
+def _hold_at_broker(ctx: Context, order: dict, status: str, broker_filled: Fixed, reason: str, via: str) -> dict:
+    """The broker reports the order exists but is not working and does not say it is final (IBKR Inactive).
+
+    Decision (BR-ORD-07, order_machine.py): such an order is an outcome the core cannot rely on, like a timeout.
+    It becomes UNKNOWN, keeps every hold, opens the blocking ``unknown-order:<id>`` case and, for a buy, queues a
+    cancel so it cannot come back to life unattended. A later broker terminal report or the owner's
+    ``close_unknown_order`` resolution on evidence ends it; nothing is released here."""
+    key = order["account_key"]
+    refs = dict(account_key=key, session_id=order["session_id"], order_id=order["order_id"])
+    held = {"status": status, "reason": reason, "broker_filled": broker_filled.to_str(), "via": via}
+    if order["state"] == "UNKNOWN" and {k: (order.get("broker_held") or {}).get(k) for k in held} == held:
+        return {"state": "UNKNOWN", "held": True, "noop": True}   # the same report again
+    new = {**order, "broker_held": {**held, "at_ns": ctx.now_ns}}
+    if order["state"] != "UNKNOWN":
+        new.update(state="UNKNOWN", prev_state=order["state"])
+    case = new_exception(ctx, key, UNKNOWN_ORDER, blocking=True, severity="high",
+                         detail={"order_id": order["order_id"], "cause": status, "reason": reason,
+                                 "broker_filled": broker_filled.to_str(),
+                                 "rule": "held at the broker and not working: every hold is kept until a broker terminal "
+                                         "report, or the owner's close_unknown_order on broker evidence"},
+                         key=f"unknown-order:{order['order_id']}", session_id=order["session_id"], order_id=order["order_id"])
+    ctx.emit("OrderHeldAtBroker", {"status": status, "reason": reason, "via": via,
+                                   "note": "not working and not final: reservation kept, order treated as UNKNOWN"},
+             {"orders": [new], "exceptions": [case] if case else []}, **refs)
+    if order["side"] == "BUY":
+        from .orders import cancel_order
+        cancel_order(ctx, state.order(ctx.tx, order["order_id"]), f"broker reports the buy {status}")
+    return {"state": "UNKNOWN", "held": True}
 
 
 # -------------------------------------------------------------- executions

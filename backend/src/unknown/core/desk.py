@@ -23,7 +23,8 @@ from ..domain.ids import IdGenerator, validate_id
 from ..domain.principal import Principal, Role, permitted, strategy_id_reserved
 from ..market.quotes import QuoteBook
 from ..store.db import Store, Tx
-from . import ledger, state
+from . import ledger, order_machine, state
+from .order_machine import UndeclaredOrderTransition
 from .projector import apply_changes
 from .replay import CHAINED_COLUMNS, chain_hash
 
@@ -102,6 +103,10 @@ class Context:
     def emit(self, event_type: str, info: dict | None = None, changes: dict | None = None, *,
              account_key: str | None = None, session_id: str | None = None, order_id: str | None = None,
              instrument_id: str | None = None, event_time_ns: int | None = None) -> int:
+        if changes and changes.get("orders"):
+            # The single enforcement point of the order transition table (BR-ORD-07): every handler writes
+            # orders through here, so an undeclared state change is refused before anything is recorded.
+            order_machine.check(self.tx, changes["orders"], event_type)
         payload = {"info": info or {}, "changes": changes or {}}
         text = canonical_json(payload)
         payload_hash = sha256_hex(text)
@@ -228,6 +233,13 @@ class Desk:
                                              "payload_hash": payload_hash},
                          account_key=command.payload.get("account_key") if isinstance(command.payload.get("account_key"), str) else None)
                 status = "REJECTED"
+            except UndeclaredOrderTransition as refused:
+                tx.run("ROLLBACK TO handler")
+                tx.run("RELEASE handler")
+                ctx.event_seqs.clear()
+                ctx.touched = ledger.Touched()
+                body = self._refuse_transition(ctx, command, refused)
+                status = "REJECTED"
             tx.run("INSERT INTO commands(command_id, kind, principal_id, principal_role, payload_hash, status, result, recorded_time_ns) "
                    "VALUES (?,?,?,?,?,?,?,?)",
                    (command.command_id, command.kind, command.principal.id, command.principal.role.value, payload_hash,
@@ -247,6 +259,50 @@ class Desk:
                     "key": f"ledger-invariant:{command.command_id}", "resolution": None}
             ctx.emit("LedgerInvariantViolation", {"problems": problems[:20], "command_kind": command.kind},
                      {"control": [c], "exceptions": [case]}, account_key=key)
+
+    def _refuse_transition(self, ctx: Context, command: Command, refused: UndeclaredOrderTransition) -> dict:
+        """Record an undeclared order state change as an anomaly instead of writing it (BR-ORD-07).
+
+        The command's effects are already rolled back. What is recorded: an ``OrderTransitionRefused`` event with
+        the attempted transitions (and, for a SYSTEM observation, the received payload, so a broker fact is never
+        lost), one blocking ``ORDER_TRANSITION_REFUSED`` case per account and the stop latch. A handler that computes
+        an undeclared transition is a defect, so the desk fails closed. The command is stored as REJECTED with the
+        code ``UNDECLARED_ORDER_TRANSITION``."""
+        body = Rejected("UNDECLARED_ORDER_TRANSITION", str(refused), event_type=refused.event_type,
+                        transitions=refused.transitions).to_json()
+        fallback = command.payload.get("account_key") if isinstance(command.payload.get("account_key"), str) else None
+        by_account: dict[str, list[dict]] = {}
+        for t in refused.transitions:
+            key = t.get("account_key") or fallback
+            if key is not None:
+                by_account.setdefault(key, []).append(t)
+        info = {"command_kind": command.kind, "event_type": refused.event_type, "transitions": refused.transitions,
+                "payload_hash": ctx.payload_hash,
+                "received": command.payload if command.principal.role is Role.SYSTEM else None,
+                "note": "not written: the order transition table does not declare this change"}
+        if not by_account:
+            ctx.emit("OrderTransitionRefused", info)
+            return body
+        for key, transitions in sorted(by_account.items()):
+            first = transitions[0]
+            changes: dict = {}
+            row = ctx.tx.one("SELECT row FROM control WHERE account_key=?", (key,))
+            if row is not None:
+                c = json.loads(row["row"])
+                if not c["stop_latched"]:
+                    changes["control"] = [{**c, "stop_latched": True, "latch_reason": "ORDER_TRANSITION_REFUSED",
+                                           "latched_by": ctx.principal.id, "latched_at_ns": ctx.now_ns,
+                                           "latch_command_id": command.command_id}]
+                case_key = f"order-transition:{first['order_id']}:{first['from']}->{first['to']}"
+                if state.exception_by_key(ctx.tx, key, case_key) is None:
+                    changes["exceptions"] = [{
+                        "case_id": ctx.new_id("case-"), "account_key": key, "kind": "ORDER_TRANSITION_REFUSED",
+                        "blocking": True, "status": "OPEN", "severity": "critical", "opened_at_ns": ctx.now_ns,
+                        "session_id": first.get("session_id"), "order_id": first["order_id"], "owner_hint": None,
+                        "detail": {**info, "transitions": transitions}, "key": case_key, "resolution": None}]
+            ctx.emit("OrderTransitionRefused", {**info, "transitions": transitions}, changes, account_key=key,
+                     order_id=first["order_id"], session_id=first.get("session_id"))
+        return body
 
     def _open_quantity_shortfalls(self, ctx: Context, command: Command) -> None:
         """Open one blocking EXECUTION_ANOMALY per (owner, instrument) whose ACTIVE quantity holds now exceed
