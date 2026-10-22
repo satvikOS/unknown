@@ -6,9 +6,14 @@
  * 2. Unknown outcomes and conflicts: a STOP whose response is lost on the way back is recovered from
  *    GET /api/commands/<id> (never sent twice); a command id that already names another command is refused
  *    with 409 COMMAND_ID_CONFLICT and shown as that refusal.
+ * 3. The capability register is revalidated with its ETag: a refresh is answered 304 by the API (its own
+ *    request log says so) and the page keeps showing the register.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { baseUrl, drawer, goKeys, header, login, watchProblems } from './support/app';
+import { readState } from './support/backend';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -123,4 +128,29 @@ test('a command id that already names another command is refused with 409 COMMAN
   const stored = await page.request.get(`${baseUrl()}/api/commands/${encodeURIComponent(earlier)}`);
   expect(await stored.json()).toMatchObject({ command_id: earlier, kind: 'stop', accepted: true });
   expect(problems.filter((p) => !expectedNoise(p))).toEqual([]);
+});
+
+/** How many times the API answered GET /api/capabilities with this status, from its own request log. */
+function capabilityAnswers(status: number): number {
+  const log = readFileSync(join(readState().home, 'api.log'), 'utf8');
+  return log.split('\n').filter((line) => line.includes(`"GET /api/capabilities HTTP/1.1" ${status} `)).length;
+}
+
+test('the capability register revalidates with its ETag: a refresh is a 304 and the page keeps the register', async ({ page }) => {
+  const problems = watchProblems(page);
+  await login(page);
+  const full = capabilityAnswers(200);
+  await page.goto(`${baseUrl()}/#/capabilities`);
+  const table = page.getByRole('table', { name: /^Capability register: \d+ of \d+ entries\b/ });
+  await expect(table).toBeVisible();
+  const caption = (await table.locator('caption').textContent()) ?? '';
+  // Nothing is kept before the first load after sign-in: it is a full 200.
+  await expect.poll(() => capabilityAnswers(200)).toBeGreaterThan(full);
+  const fullAfterFirst = capabilityAnswers(200);
+  const notModified = capabilityAnswers(304);
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect.poll(() => capabilityAnswers(304)).toBeGreaterThan(notModified);
+  expect(capabilityAnswers(200)).toBe(fullAfterFirst); // the register was not sent again
+  await expect(table.locator('caption')).toHaveText(caption);
+  expect(problems).toEqual([]);
 });

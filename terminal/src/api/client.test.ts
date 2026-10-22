@@ -20,9 +20,10 @@ interface Recorded {
   method: string;
   headers: Record<string, string>;
   body: unknown;
+  cache: RequestCache | undefined;
 }
 
-type Reply = { status: number; body?: unknown } | Error;
+type Reply = { status: number; body?: unknown; headers?: Record<string, string> } | Error;
 
 /** Scripted fetch: replies are consumed in order; every request is recorded. */
 function fakeFetch(replies: Reply[]) {
@@ -33,12 +34,14 @@ function fakeFetch(replies: Reply[]) {
       method: init?.method ?? 'GET',
       headers: (init?.headers ?? {}) as Record<string, string>,
       body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      cache: init?.cache,
     });
     const r = replies.shift();
     if (!r) throw new Error('unexpected request');
     if (r instanceof Error) throw r;
     const text = r.body === undefined ? '' : typeof r.body === 'string' ? r.body : JSON.stringify(r.body);
-    return new Response(text, { status: r.status, headers: { 'Content-Type': 'application/json' } });
+    // A 304 (like a 204) has no body; the Response constructor refuses one.
+    return new Response(r.status === 304 || r.status === 204 ? null : text, { status: r.status, headers: { 'Content-Type': 'application/json', ...r.headers } });
   });
   return { impl: impl as unknown as typeof fetch, calls };
 }
@@ -57,6 +60,65 @@ describe('ApiClient reads', () => {
     expect(calls[0]?.url).toBe('/api/orders?limit=50&state=open');
     expect(calls[0]?.method).toBe('GET');
     expect(calls[0]?.headers['X-CSRF-Token']).toBeUndefined();
+  });
+
+  it('revalidates an ETag-tagged read with If-None-Match: a 304 returns the kept body, a 200 replaces it', async () => {
+    const v1 = { capabilities: [{ id: 'CAP-1' }] };
+    const v2 = { capabilities: [{ id: 'CAP-1' }, { id: 'CAP-2' }] };
+    const { impl, calls } = fakeFetch([
+      { status: 200, body: v1, headers: { ETag: 'W/"d1"' } },
+      { status: 304, headers: { ETag: 'W/"d1"' } },
+      { status: 200, body: v2, headers: { ETag: 'W/"d2"' } },
+      { status: 304 },
+      { status: 200, body: v2 }, // served without a tag: nothing is kept
+      { status: 200, body: v2 },
+    ]);
+    const client = new ApiClient({ fetchImpl: impl });
+    const first = await client.get('/api/capabilities');
+    expect(first).toEqual(v1);
+    expect(await client.get('/api/capabilities')).toBe(first); // 304: the very body that was kept
+    expect(await client.get('/api/capabilities')).toEqual(v2); // the register changed: a full 200
+    expect(await client.get('/api/capabilities')).toEqual(v2);
+    expect(await client.get('/api/capabilities')).toEqual(v2);
+    await client.get('/api/capabilities');
+    expect(calls.map((c) => [c.headers['If-None-Match'] ?? null, c.cache])).toEqual([
+      [null, 'no-cache'],
+      ['W/"d1"', 'no-store'], // our own validator: the API's 304 must reach the client, not the browser cache
+      ['W/"d1"', 'no-store'],
+      ['W/"d2"', 'no-store'],
+      ['W/"d2"', 'no-store'],
+      [null, 'no-cache'],
+    ]);
+  });
+
+  it('never sends a validator for a response without an ETag, and forgets validators on sign-out', async () => {
+    const { impl, calls } = fakeFetch([
+      { status: 200, body: { mode: 'SIMULATED' } },
+      { status: 200, body: { mode: 'SIMULATED' } },
+      { status: 200, body: { capabilities: [] }, headers: { ETag: 'W/"d1"' } },
+      { status: 200, body: { capabilities: [] }, headers: { ETag: 'W/"d1"' } },
+      accepted('ui.stop.c1'),
+    ]);
+    const client = new ApiClient({ fetchImpl: impl });
+    await client.get('/api/overview');
+    await client.get('/api/overview');
+    await client.get('/api/capabilities');
+    client.forgetValidated();
+    await client.get('/api/capabilities');
+    await client.sendCommand('stop', { account_key: 'SIM-1' }, { commandId: 'ui.stop.c1' });
+    expect(calls.map((c) => [c.method, c.url, c.headers['If-None-Match'] ?? null, c.cache])).toEqual([
+      ['GET', '/api/overview', null, 'no-cache'],
+      ['GET', '/api/overview', null, 'no-cache'],
+      ['GET', '/api/capabilities', null, 'no-cache'],
+      ['GET', '/api/capabilities', null, 'no-cache'],
+      ['POST', '/api/commands', null, 'no-store'],
+    ]);
+  });
+
+  it('a 304 with nothing kept is an error, never an empty register', async () => {
+    const { impl } = fakeFetch([{ status: 304 }]);
+    const client = new ApiClient({ fetchImpl: impl });
+    await expect(client.get('/api/capabilities')).rejects.toMatchObject({ status: 304 });
   });
 
   it('401 on a read calls onUnauthorized and throws UnauthorizedError', async () => {

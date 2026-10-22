@@ -80,6 +80,7 @@ export function createRuntime(options: RuntimeOptions = {}): Runtime {
     } else if (s === 'unauthenticated') {
       stream.stop();
       queries.clear();
+      client.forgetValidated();
       stepUp.settle(false);
     }
   });
