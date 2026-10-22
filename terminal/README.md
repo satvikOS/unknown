@@ -113,11 +113,15 @@ Route contract: `route.rest[0]` is the entity id. Once a workspace with id `sess
 ## Component and hook API
 
 ```ts
-// Data: refetches on every state-stream version bump (new seq, gap, reset, reconnect).
-useQuery<E extends Endpoint>(endpoint: E | null, params?: ParamsOf<E>, options?: { pollMs?: number })
+// Data: refetches on every state-stream version bump (new seq, gap, reset, reconnect, manual refresh).
+useQuery<E extends Endpoint>(endpoint: E | null, params?: ParamsOf<E>, options?: { pollMs?: number; seqDriven?: boolean })
   : { status: 'idle'|'loading'|'success'|'error'; data?: ResponseOf<E>; error: unknown; fetching: boolean;
       fetchedAtMs: number | null; seqAtFetch: number | null; key: string | null; refetch(): void }
 // e.g. useQuery('/api/orders', { state: 'open', limit: 200 });  useQuery('/api/preflight', undefined, { pollMs: 3000 })
+// seqDriven: false for data outside the core's event log (research store and registry, valuation snapshots,
+// the capability register): a new seq or a gap does not refetch it; opening the view, Refresh, a reconnect,
+// a reset and pollMs still do, and seqAtFetch is null. useApi (research-common) defaults to it; the Company
+// tearsheet (about 640 kB) is no longer fetched again for every core event.
 // Detail endpoints: useQuery(`/api/sessions/${encodePathSegment(id)}`)
 
 // Commands: never optimistic. Resolves when the core's decision is known; the record then moves
@@ -164,7 +168,7 @@ Formatting is exact. `formatDecimal('1234567.8912', { minFraction: 2 })` gives `
 - Quotes and marks show their source and age. Fixture data carries a `FIXTURE` badge. The header always shows the account mode in text and colour, plus a mode-coloured band.
 - Red STOP is always in the header and never shrinks out of view. It needs only a session and sends immediately. The drawer then shows the durable command id and stop progress from `/api/preflight` `stop_progress`: entries blocked, open buys and cancels pending, unknown orders, residual positions, and "reconciled flat" only when the server says so. Liquidation is read from the active policy (`NONE`), and the drawer says it is not offered.
 - Green START opens the preflight panel. It lists each blocker with its cause and resolution and offers no bypass. Start is enabled only when a stop or resume hold is active and every blocker is resolvable by step-up.
-- There are no optimistic updates. A command shows `sending`, then `pending` with its command id, then `applied` when the stream reaches the command's event seq. On any stream reconnect, gap or reset, every visible query refetches.
+- There are no optimistic updates. A command shows `sending`, then `pending` with its command id, then `applied` when the stream reaches the command's event seq. On any stream reconnect or reset, every visible query refetches; a new seq or a gap refetches every visible query on core state (data outside the event log, such as research, is `seqDriven: false`).
 - No read is served stale. Every GET asks the API (`cache: 'no-cache'`, never `force-cache`). A response with an ETag (today the capability register, about 3 MB) is kept with its tag, and the next GET of that path sends `If-None-Match` itself with `cache: 'no-store'`: the API answers 304 when the register is unchanged and the kept body is used, or 200 with the new one. The client validates because the API speaks HTTP/1.0 and Chromium revalidates only HTTP/1.1 responses with their ETag (checked on 2026-10-22: with `no-cache` alone it never sent `If-None-Match`). Every other JSON route is `no-store` and is fetched in full; validators are dropped at sign-out. POSTs use `no-store`.
 - Keyboard: Cmd/Ctrl+K opens the palette, `?` lists shortcuts, `g <key>` switches workspaces, and table rows take arrows, Home/End, PageUp/PageDown and Enter. Dialogs trap focus and restore it on close. The modal scrim starts below the header, so STOP stays clickable. Single-character shortcuts can be turned off from the `?` help or the palette (WCAG 2.1.4, `ui/charKeys.ts`).
 - The stream status pill reads STREAMING, never LIVE: in this terminal, LIVE always means the account mode.

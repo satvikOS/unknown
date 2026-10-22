@@ -9,12 +9,12 @@ import { FixtureBadge, ShortId, Timestamp } from '../../ui/primitives';
 import { QueryError } from '../../ui/WorkspaceFrame';
 import { Segmented } from '../operations/parts';
 import { usePluginQuery } from '../plugin-api/hooks';
-import { num, ofKind, recs, str, unavailableReason, type Rec } from './model';
+import { SNAPSHOT_STORE_QUERY, num, ofKind, recs, str, unavailableReason, type Rec } from './model';
 import { PortfolioFrame, Unavailable } from './parts';
 
 export function SnapshotsTab({ bar }: { bar: ReactNode }) {
   const [limit, setLimit] = useState<'30' | '250' | '1000'>('30');
-  const q = usePluginQuery<unknown>('/api/portfolio/snapshots', { limit });
+  const q = usePluginQuery<unknown>('/api/portfolio/snapshots', { limit }, SNAPSHOT_STORE_QUERY);
   const body = ofKind(q.data, 'snapshots');
   const why = unavailableReason(body);
   const runs = body ? recs(body.runs) : [];

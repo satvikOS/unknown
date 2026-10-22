@@ -4,6 +4,13 @@
  * optionally on a polling interval for live process state that is not in the event log (quotes,
  * health, preflight). Data is never modified locally.
  *
+ * Data outside the core's event log (the research store and registry, valuation snapshots, the
+ * capability register) does not change when the core writes an event, so a subscriber can say
+ * `seqDriven: false`: a new seq (or a gap) does not refetch it. It is still fetched when a view first
+ * subscribes, on its own Refresh, on a manual "refresh all", on a stream reconnect (the API may have
+ * restarted) and on a reset (a restore), and on `pollMs`. An entry is seq-driven while any of its
+ * subscribers wants that, and its `seqAtFetch` is null otherwise: its data says nothing about a seq.
+ *
  * Ordering rule: a fetch that started before a version bump may return pre-bump data, so a bump that
  * arrives while a fetch is in flight schedules exactly one more fetch after it completes.
  */
@@ -24,12 +31,23 @@ export interface QueryState<T = unknown> {
 
 export type QueryFetcher = (endpoint: string, params: Record<string, unknown> | undefined) => Promise<unknown>;
 
+/** One subscriber's wishes. */
+export interface SubscribeOptions {
+  /** Also refetch on this interval (ms). */
+  pollMs?: number;
+  /** False: the data is not in the core's event log, so a new stream seq does not refetch it (default true). */
+  seqDriven?: boolean;
+}
+
+/** Why every subscribed entry is being refetched: `core` (a new seq or a gap) skips entries that are not seq-driven. */
+export type InvalidationScope = 'core' | 'all';
+
 interface Entry {
   key: string;
   endpoint: string;
   params: Record<string, unknown> | undefined;
   state: QueryState;
-  listeners: Map<() => void, number | undefined>;
+  listeners: Map<() => void, SubscribeOptions>;
   /** Increments for every reason this entry must be fetched again. */
   wanted: number;
   /** `wanted` at the start of the in-flight fetch. */
@@ -114,11 +132,11 @@ export class QueryCache {
     endpoint: string,
     params: Record<string, unknown> | undefined,
     listener: () => void,
-    pollMs?: number,
+    options: number | SubscribeOptions = {},
   ): () => void {
     const e = this.entry(endpoint, params);
     const first = e.listeners.size === 0;
-    e.listeners.set(listener, pollMs);
+    e.listeners.set(listener, typeof options === 'number' ? { pollMs: options } : options);
     this.updatePolling(e);
     if (first) this.request(e);
     return () => {
@@ -127,12 +145,30 @@ export class QueryCache {
     };
   }
 
-  /** Mark every subscribed entry stale and refetch it (called on every stream version bump). */
+  /** Mark every subscribed entry stale and refetch it (a reconnect, a reset, a manual refresh). */
   invalidateAll(): void {
+    this.invalidate('all');
+  }
+
+  /**
+   * Refetch the subscribed entries a stream version bump concerns: every one for `all`; for `core` (a new seq or
+   * a gap) only those a subscriber marked seq-driven.
+   */
+  invalidate(scope: InvalidationScope): void {
     for (const e of this.entries.values()) {
-      if (e.listeners.size > 0) this.request(e);
-      else e.wanted += 1; // refetched on next subscribe anyway
+      if (e.listeners.size > 0) {
+        if (scope === 'all' || this.seqDriven(e)) this.request(e);
+      } else {
+        e.wanted += 1; // refetched on next subscribe anyway
+      }
     }
+  }
+
+  /** Whether a new core seq should refetch this entry: true while any subscriber wants that (and when none says). */
+  private seqDriven(e: Entry): boolean {
+    if (e.listeners.size === 0) return true;
+    for (const o of e.listeners.values()) if (o.seqDriven !== false) return true;
+    return false;
   }
 
   /** Refetch one key now (e.g. a view's refresh button). */
@@ -160,7 +196,7 @@ export class QueryCache {
 
   private updatePolling(e: Entry): void {
     let min: number | undefined;
-    for (const ms of e.listeners.values()) {
+    for (const { pollMs: ms } of e.listeners.values()) {
       if (ms !== undefined && ms > 0 && (min === undefined || ms < min)) min = ms;
     }
     if (min === e.pollMs && (min === undefined || e.pollHandle !== null)) return;
@@ -185,7 +221,8 @@ export class QueryCache {
     try {
       while (e.inflightFor < e.wanted) {
         e.inflightFor = e.wanted;
-        const seq = this.currentSeq();
+        // Data outside the event log reflects no seq: say so rather than label it with an unrelated one.
+        const seq = this.seqDriven(e) ? this.currentSeq() : null;
         this.notify(e, { fetching: true, status: e.state.status === 'idle' ? 'loading' : e.state.status });
         try {
           const data = await this.fetcher(e.endpoint, e.params);

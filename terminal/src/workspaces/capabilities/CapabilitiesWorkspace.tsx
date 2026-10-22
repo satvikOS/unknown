@@ -158,7 +158,8 @@ const columns: Column<CapabilityRow>[] = [
 ];
 
 export function CapabilitiesWorkspace({ route, navigate }: WorkspaceProps) {
-  const caps = useQuery('/api/capabilities');
+  // A file in the repository, not core state: revalidated (ETag) when the page opens or refreshes, never per seq.
+  const caps = useQuery('/api/capabilities', undefined, { seqDriven: false });
   const [text, setText] = useState('');
   const [area, setArea] = useState('');
   const [status, setStatus] = useState('');

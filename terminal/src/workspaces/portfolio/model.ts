@@ -9,9 +9,18 @@
 import { compareDecimal, formatDecimal, formatMoney, isDecimal } from '../../format/decimal';
 import { addDecimal, ratioBps } from '../../format/exact';
 import type { Tone } from '../../ui/primitives';
+import type { QueryOptions } from '../../state/react';
 import { PORTFOLIO_TABS, type PortfolioTab } from './tabs';
 
 export { PORTFOLIO_TABS, type PortfolioTab };
+
+/**
+ * For routes that read only the valuation snapshot store (written by the owner's `snapshots record` command)
+ * or code: snapshots, performance, the VaR backtest and the formula list. A new core seq changes nothing in
+ * them, so it does not refetch them (state/queries.ts `seqDriven`); opening the tab and Refresh do. Holdings,
+ * P&L, exposure, VaR and allocation read the core's ledger or quotes and stay seq-driven.
+ */
+export const SNAPSHOT_STORE_QUERY: QueryOptions = { seqDriven: false };
 
 // ------------------------------------------------------------------ routes
 

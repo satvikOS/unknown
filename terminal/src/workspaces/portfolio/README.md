@@ -21,6 +21,7 @@ Shortcut `g f`, nav order 45. Route: `#/portfolio/<tab>`. The palette lists ever
 - **IRR uniqueness.** A money-weighted rate is shown only when exactly one root solves the cash-flow equation. "Not unique" (several sign changes) and "no solution" are flagged in red with the backend's reason. Periods under one year show only the period MWR (GIPS 2.A.12).
 - **Hypothetical results are not recomputed silently.** What-if and stress results are fetched once per run, not on every stream version bump. They show the core sequence they were computed on, and a "Stale" notice with a Re-run button once the core records a later event (`whatif.is_stale`).
 - **No snapshot history yet.** The tab shows the backend's own reason, including the `snapshots record` command, and no placeholder figures.
+- **Snapshot-store data is not refetched per core event.** Snapshots, performance, the VaR backtest and the formula list read only the snapshot store (written by the owner's `snapshots record` command) or code, so they are `seqDriven: false` (`SNAPSHOT_STORE_QUERY`): opening the tab and Refresh fetch them, a new core seq does not. Holdings, P&L, exposure, VaR and allocation read the core and refetch on every seq.
 - **Charts** are inline SVG with no dependency. Each one is a summary of a table on the same page. Sign and exceptions are shown by position and shape as well as colour.
 
 ## API gaps found

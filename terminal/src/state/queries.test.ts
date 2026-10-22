@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { QueryCache, queryKey } from './queries';
+import { invalidationScope } from './runtime';
 import { StreamStore, type EventSourceLike } from './stream';
 
 /** A fetcher whose responses the test resolves by hand. */
@@ -174,5 +175,134 @@ describe('QueryCache', () => {
     es!.fire(20); // gap
     await flush();
     expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('QueryCache: data outside the core event log (seqDriven: false)', () => {
+  const RESEARCH = '/api/company/9000001';
+
+  it('a core seq refetches seq-driven entries only; mount, Refresh and an all-scope bump refetch research data too', async () => {
+    const calls: string[] = [];
+    const cache = new QueryCache({
+      fetcher: async (endpoint) => {
+        calls.push(endpoint);
+        return endpoint;
+      },
+      currentSeq: () => 77,
+    });
+    cache.subscribe('/api/overview', undefined, () => undefined);
+    cache.subscribe(RESEARCH, { as_of: '2026-10-22' }, () => undefined, { seqDriven: false });
+    await flush();
+    expect(calls).toEqual(['/api/overview', RESEARCH]);
+    // Research data reflects no event-log seq, so it is not labelled with one.
+    expect(cache.getState('/api/overview').seqAtFetch).toBe(77);
+    expect(cache.getState(`${RESEARCH}?as_of=2026-10-22`).seqAtFetch).toBeNull();
+
+    calls.length = 0;
+    cache.invalidate('core'); // a new seq or a gap: the core wrote events
+    cache.invalidate('core');
+    await flush();
+    expect(calls).toEqual(['/api/overview', '/api/overview']);
+
+    calls.length = 0;
+    cache.refetch(`${RESEARCH}?as_of=2026-10-22`); // the view's Refresh
+    await flush();
+    expect(calls).toEqual([RESEARCH]);
+
+    calls.length = 0;
+    cache.invalidate('all'); // reconnect, reset or a manual refresh-all
+    await flush();
+    expect(calls.sort()).toEqual(['/api/overview', RESEARCH].sort());
+
+    calls.length = 0;
+    cache.invalidateAll();
+    await flush();
+    expect(calls).toHaveLength(2);
+  });
+
+  it('is seq-driven while any subscriber wants that, and polls when asked', async () => {
+    const calls: string[] = [];
+    const cache = new QueryCache({
+      fetcher: async (endpoint) => {
+        calls.push(endpoint);
+        return endpoint;
+      },
+    });
+    const research = cache.subscribe(RESEARCH, undefined, () => undefined, { seqDriven: false });
+    const core = cache.subscribe(RESEARCH, undefined, () => undefined, {});
+    await flush();
+    calls.length = 0;
+    cache.invalidate('core');
+    await flush();
+    expect(calls).toEqual([RESEARCH]);
+    core();
+    calls.length = 0;
+    cache.invalidate('core');
+    await flush();
+    expect(calls).toEqual([]);
+    research();
+    // Opening the view again fetches once (the data may have changed while nobody looked).
+    cache.subscribe(RESEARCH, undefined, () => undefined, { seqDriven: false });
+    await flush();
+    expect(calls).toEqual([RESEARCH]);
+  });
+
+  it('wired to the stream as the runtime does: seq and gap skip research data; reconnect, reset and manual refetch it', async () => {
+    let es: (EventSourceLike & { fire: (seq: number) => void; openNow: () => void; failNow: () => void }) | null = null;
+    const stream = new StreamStore({
+      createEventSource: () => {
+        const listeners: ((ev: MessageEvent) => void)[] = [];
+        const src = {
+          readyState: 1,
+          onopen: null as ((ev: Event) => void) | null,
+          onerror: null as ((ev: Event) => void) | null,
+          addEventListener: (_t: string, l: (ev: MessageEvent) => void) => listeners.push(l),
+          close: () => undefined,
+          fire: (seq: number) => listeners.forEach((l) => l({ data: JSON.stringify({ seq }) } as MessageEvent)),
+          openNow: () => src.onopen?.(new Event('open')),
+          failNow: () => src.onerror?.(new Event('error')),
+        };
+        es = src;
+        return src;
+      },
+    });
+    const counts = new Map<string, number>();
+    const cache = new QueryCache({
+      fetcher: async (endpoint) => {
+        counts.set(endpoint, (counts.get(endpoint) ?? 0) + 1);
+        return endpoint;
+      },
+      currentSeq: () => stream.getSnapshot().seq,
+    });
+    let last = stream.getSnapshot().version;
+    stream.subscribe(() => {
+      const { version, lastReason } = stream.getSnapshot();
+      if (version !== last) {
+        last = version;
+        cache.invalidate(invalidationScope(lastReason));
+      }
+    });
+    cache.subscribe('/api/overview', undefined, () => undefined);
+    cache.subscribe(RESEARCH, undefined, () => undefined, { seqDriven: false });
+    stream.start();
+    es!.openNow();
+    await flush();
+    const seen = () => [counts.get('/api/overview') ?? 0, counts.get(RESEARCH) ?? 0];
+    expect(seen()).toEqual([1, 1]);
+    for (const seq of [10, 11, 15]) {
+      es!.fire(seq); // first seq, next seq, a gap
+      await flush();
+    }
+    expect(seen()).toEqual([4, 1]);
+    es!.fire(3); // reset: a restored database
+    await flush();
+    expect(seen()).toEqual([5, 2]);
+    stream.refreshAll(); // manual
+    await flush();
+    expect(seen()).toEqual([6, 3]);
+    es!.failNow(); // interrupted; the browser reconnects
+    es!.openNow();
+    await flush();
+    expect(seen()).toEqual([7, 4]);
   });
 });

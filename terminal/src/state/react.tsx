@@ -57,6 +57,12 @@ export function useStepUp(): StepUpSnapshot {
 export interface QueryOptions {
   /** Also refetch on this interval (ms) while mounted: for live process state outside the event log. */
   pollMs?: number;
+  /**
+   * False for data that is not in the core's event log (research store and registry, valuation snapshots, the
+   * capability register): a new stream seq does not refetch it. Mount, Refresh, a reconnect, a reset and
+   * `pollMs` still do. Default true.
+   */
+  seqDriven?: boolean;
 }
 
 export interface QueryResult<T> extends QueryState<T> {
@@ -76,7 +82,8 @@ const DISABLED: QueryState<never> = {
 
 /**
  * Subscribe a view to a GET endpoint. Refetches whenever the state stream's version changes (new
- * seq, gap, reset, reconnect) and on `pollMs` if given. Pass `null` as the endpoint to disable.
+ * seq, gap, reset, reconnect) and on `pollMs` if given; with `seqDriven: false`, not on a new seq or
+ * gap. Pass `null` as the endpoint to disable.
  *
  *   const overview = useQuery('/api/overview');
  *   const open = useQuery('/api/orders', { state: 'open' });
@@ -91,13 +98,14 @@ export function useQuery<E extends Endpoint>(
   const paramsRef = useRef(params);
   paramsRef.current = params;
   const pollMs = options.pollMs;
+  const seqDriven = options.seqDriven ?? true;
   const subscribe = useCallback(
     (listener: () => void) =>
       endpoint && key
-        ? queries.subscribe(endpoint, paramsRef.current as Record<string, unknown> | undefined, listener, pollMs)
+        ? queries.subscribe(endpoint, paramsRef.current as Record<string, unknown> | undefined, listener, { pollMs, seqDriven })
         : () => undefined,
     // `key` captures endpoint + params; params are read through a ref so a new object identity does not resubscribe.
-    [queries, key, pollMs],
+    [queries, key, pollMs, seqDriven],
   );
   const getSnapshot = useCallback(() => (key ? queries.getState(key) : DISABLED), [queries, key]);
   const state = useSyncExternalStore(subscribe, getSnapshot) as QueryState<ResponseOf<E>>;

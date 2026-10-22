@@ -4,7 +4,7 @@ import { useStream, type QueryResult } from '../../state/react';
 import { WorkspaceFrame, WorkspaceLink } from '../../ui/WorkspaceFrame';
 import { Badge, FixtureBadge, ShortId, StatusPill, Timestamp } from '../../ui/primitives';
 import { usePluginQuery } from '../plugin-api/hooks';
-import { arr, isRec, num, recs, str, whatIfStale, type Rec, type ScopeOption } from './model';
+import { SNAPSHOT_STORE_QUERY, arr, isRec, num, recs, str, whatIfStale, type Rec, type ScopeOption } from './model';
 
 export interface FormulaDef {
   id: string;
@@ -15,7 +15,7 @@ export interface FormulaDef {
 
 /** GET /api/portfolio/formulas, keyed by `id@version`. */
 export function useFormulas(): Map<string, FormulaDef> {
-  const q = usePluginQuery<unknown>('/api/portfolio/formulas');
+  const q = usePluginQuery<unknown>('/api/portfolio/formulas', undefined, SNAPSHOT_STORE_QUERY);
   const map = new Map<string, FormulaDef>();
   if (isRec(q.data)) {
     for (const f of recs(q.data.formulas)) {

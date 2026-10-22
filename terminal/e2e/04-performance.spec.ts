@@ -8,6 +8,8 @@
  *    with 409 COMMAND_ID_CONFLICT and shown as that refusal.
  * 3. The capability register is revalidated with its ETag: a refresh is answered 304 by the API (its own
  *    request log says so) and the page keeps showing the register.
+ * 4. Research data is not refetched per core seq: while the Company tearsheet is open, the core writes
+ *    events and the core-driven overview refetches, but the tearsheet does not; Refresh fetches it.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -152,5 +154,52 @@ test('the capability register revalidates with its ETag: a refresh is a 304 and 
   await expect.poll(() => capabilityAnswers(304)).toBeGreaterThan(notModified);
   expect(capabilityAnswers(200)).toBe(fullAfterFirst); // the register was not sent again
   await expect(table.locator('caption')).toHaveText(caption);
+  expect(problems).toEqual([]);
+});
+
+const CIK = 9000001; // seeded by 03-research (SYNTHETIC SEC fixtures)
+const AS_OF = '2026-10-22T12:00:00Z';
+
+/** Make the core write an event, as the owner CLI or another terminal would: a STOP (StopReasserted once latched). */
+async function coreWritesAnEvent(page: Page): Promise<void> {
+  const session = await page.request.get(`${baseUrl()}/api/auth/session`);
+  const { csrf_token } = (await session.json()) as { csrf_token: string };
+  const id = `e2e.stop.${Date.now().toString(16)}`;
+  const r = await page.request.post(`${baseUrl()}/api/commands`, {
+    headers: { 'X-CSRF-Token': csrf_token },
+    data: { kind: 'stop', command_id: id, payload: { account_key: 'SIM-1', reason: 'E2E_CORE_EVENT' } },
+  });
+  expect(r.status()).toBe(200);
+  expect(((await r.json()) as { events?: number[] }).events?.length).toBeGreaterThan(0);
+}
+
+test('the Company tearsheet is not refetched when the core writes events; Refresh fetches it', async ({ page }) => {
+  const problems = watchProblems(page);
+  await login(page);
+  const gets: string[] = [];
+  page.on('request', (r) => {
+    if (r.method() === 'GET') gets.push(new URL(r.url()).pathname);
+  });
+  const count = (path: string) => gets.filter((p) => p === path).length;
+  const tearsheet = `/api/company/${CIK}`;
+  await page.goto(`${baseUrl()}/#/company/${CIK}/tearsheet/as_of=${AS_OF}`);
+  await expect(page.locator('#main').getByText(/Block status words:/)).toBeVisible({ timeout: 20_000 });
+  expect(count(tearsheet)).toBe(1);
+  // Research data reflects no event-log seq, so the header does not label it with one.
+  await expect(page.locator('.ws-head .provenance')).not.toContainText('as of seq');
+
+  for (let i = 0; i < 2; i++) {
+    const overview = count('/api/overview');
+    await coreWritesAnEvent(page);
+    // The stream reports the new seq: the header's core-driven overview refetches...
+    await expect.poll(() => count('/api/overview'), { timeout: 15_000 }).toBeGreaterThan(overview);
+  }
+  // ...and the tearsheet (about 640 kB for a real issuer) does not.
+  await page.waitForTimeout(1_000);
+  expect(count(tearsheet)).toBe(1);
+
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect.poll(() => count(tearsheet)).toBe(2);
+  await expect(page.locator('#main').getByText(/Block status words:/)).toBeVisible();
   expect(problems).toEqual([]);
 });
