@@ -1,0 +1,66 @@
+/* Market data workspace: local layout only; colours come from the shared tokens in src/ui/styles.css. */
+
+.md-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.md-gap {
+  margin: 0 0 12px;
+}
+.md-inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+}
+.md-hint {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.md-meter {
+  height: 8px;
+  border-radius: 3px;
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  overflow: hidden;
+  margin: 6px 0 4px;
+}
+.md-meter > div {
+  height: 100%;
+  background: var(--accent);
+}
+.md-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0 0 10px;
+}
+.md-counts .n {
+  font-family: var(--font-mono);
+  font-size: var(--fs-lg);
+  color: var(--text);
+}
+.md-issues {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.md-issues li {
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 6px;
+  overflow-wrap: anywhere;
+}
+.md-issues li:last-child {
+  border-bottom: none;
+}
+.md-detail {
+  margin-top: 12px;
+}
+.md-fields {
+  margin: 0;
+  padding-left: 18px;
+}
