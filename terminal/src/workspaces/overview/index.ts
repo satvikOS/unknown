@@ -1,5 +1,4 @@
 import type { WorkspaceDefinition } from '../types';
-import { OverviewWorkspace } from './OverviewWorkspace';
 
 export const overviewWorkspace: WorkspaceDefinition = {
   id: 'overview',
@@ -7,7 +6,7 @@ export const overviewWorkspace: WorkspaceDefinition = {
   icon: 'overview',
   shortcut: 'g o',
   order: 10,
-  component: OverviewWorkspace,
+  load: () => import('./OverviewWorkspace').then((m) => m.OverviewWorkspace),
   description: 'Mode, control state, capital buckets, positions, sessions and exceptions',
   keywords: ['home', 'account', 'buckets', 'positions', 'capital', 'stop'],
 };

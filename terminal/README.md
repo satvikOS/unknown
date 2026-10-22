@@ -33,6 +33,17 @@ UNKNOWN_API=http://127.0.0.1:8765 TERMINAL_PORT=5173 npm run dev   # http://127.
 
 Vite proxies `/api` to `UNKNOWN_API`, including the Server-Sent Events stream. In production, `python -m unknown.api.server --static terminal/dist` serves the build. The page loads no third-party origin, so it works under the API's Content-Security-Policy (`default-src 'self'`).
 
+## Bundle
+
+Each workspace is loaded on demand (`src/workspaces/lazy.tsx`): the registry stays static, and the shell shows "Loading the <name> workspace…" while a workspace's chunk arrives. A chunk that fails to load (for example after the API started serving a newer build) is contained in the workspace area with a reload button, so the header and STOP keep working. Hovering or focusing a navigation link starts loading its chunk.
+
+| Build | Initial JavaScript | Initial CSS |
+|---|---|---|
+| One bundle (before, 2026-10-22) | 938.20 kB (265.71 kB gzip) | 44.55 kB |
+| Split by workspace | 305.28 kB (96.75 kB gzip) | 16.50 kB |
+
+The largest workspace chunk is Portfolio, 90.26 kB. `vite.config.ts` fails the build when the initial JavaScript (the entry chunk and everything it imports statically) exceeds 400 kB, instead of printing Vite's 500 kB chunk warning.
+
 ## Layout
 
 ```
@@ -49,6 +60,7 @@ src/
   controls/             red STOP, green START, control drawer, pure control model
   ui/                   shell, header, nav, palette, DataTable, primitives, modal, theme, styles.css
   workspaces/registry.ts   the only list of workspaces (nav, palette, shortcuts)
+  workspaces/lazy.tsx      on-demand loading of each workspace chunk (loading line, contained failure)
   workspaces/<id>/         one directory per workspace
 e2e/                    Playwright suite, backend harness and accessibility checks (e2e/README.md)
 ```
@@ -61,7 +73,6 @@ Register a workspace only when its backend service exists (ADR-0013 "no dead con
 
 ```ts
 import type { WorkspaceDefinition } from '../types';
-import { SessionsWorkspace } from './SessionsWorkspace';
 
 export const sessionsWorkspace: WorkspaceDefinition = {
   id: 'sessions',                 // URL segment: #/sessions, #/sessions/<session_id>
@@ -69,11 +80,14 @@ export const sessionsWorkspace: WorkspaceDefinition = {
   icon: 'sessions',               // see src/ui/Icon.tsx IconName
   shortcut: 'g s',                // must be unique; reserved list in registry.ts
   order: 20,                      // nav position
-  component: SessionsWorkspace,   // receives { route, navigate }
+  // A dynamic import: the component (which receives { route, navigate }) is its own chunk.
+  load: () => import('./SessionsWorkspace').then((m) => m.SessionsWorkspace),
   description: 'Seed, goal, P&L, protection, settlement, successor',
   keywords: ['mandate', 'successor'],
 };
 ```
+
+`index.ts` is in the initial bundle, so it imports no component (`.tsx`) module: `registry.test.ts` fails if it does. Constants it needs, such as palette paths, go in a small module of their own (for example `portfolio/tabs.ts`).
 
 2. Add one import line and one array entry to `src/workspaces/registry.ts`. Array order does not matter, because `order` sets the navigation order:
 

@@ -1,5 +1,4 @@
 import type { WorkspaceDefinition } from '../types';
-import { ResearchWorkspace } from './ResearchWorkspace';
 
 export const researchWorkspace: WorkspaceDefinition = {
   id: 'research',
@@ -7,7 +6,7 @@ export const researchWorkspace: WorkspaceDefinition = {
   icon: 'research',
   shortcut: 'g q',
   order: 130,
-  component: ResearchWorkspace,
+  load: () => import('./ResearchWorkspace').then((m) => m.ResearchWorkspace),
   description: 'Experiments, trials with manifests and returns, strategy specs, artifacts with gate verdicts, reports, formulas',
   keywords: ['experiment', 'trial', 'backtest', 'pre-registration', 'holdout', 'manifest', 'artifact', 'promotion', 'evidence', 'gate', 'report', 'formula', 'strategy', 'fixture'],
   commands: [

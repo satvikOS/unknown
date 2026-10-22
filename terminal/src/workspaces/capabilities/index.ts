@@ -1,5 +1,4 @@
 import type { WorkspaceDefinition } from '../types';
-import { CapabilitiesWorkspace } from './CapabilitiesWorkspace';
 
 export const capabilitiesWorkspace: WorkspaceDefinition = {
   id: 'capabilities',
@@ -7,7 +6,7 @@ export const capabilitiesWorkspace: WorkspaceDefinition = {
   icon: 'capabilities',
   shortcut: 'g c',
   order: 900,
-  component: CapabilitiesWorkspace,
+  load: () => import('./CapabilitiesWorkspace').then((m) => m.CapabilitiesWorkspace),
   description: 'The capability register: what is built, specified or blocked, with sources',
   keywords: ['register', 'parity', 'roadmap', 'status', 'unimplemented'],
 };

@@ -1,5 +1,4 @@
 import type { WorkspaceDefinition } from '../types';
-import { PolicyWorkspace } from './PolicyWorkspace';
 
 export const policyWorkspace: WorkspaceDefinition = {
   id: 'policy',
@@ -7,7 +6,7 @@ export const policyWorkspace: WorkspaceDefinition = {
   icon: 'policy',
   shortcut: 'g y',
   order: 80,
-  component: PolicyWorkspace,
+  load: () => import('./PolicyWorkspace').then((m) => m.PolicyWorkspace),
   description: 'Published policy versions, field-by-field comparison, new versions and activation',
   keywords: ['limits', 'publish', 'activate', 'version', 'diff', 'compare', 'mandate', 'template', 'edit'],
   commands: [

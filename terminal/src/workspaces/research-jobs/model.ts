@@ -10,6 +10,7 @@ import { compareDecimal, isDecimal } from '../../format/decimal';
 import { ratioBps } from '../../format/exact';
 import type { Instrument } from '../../api/types';
 import type { Tone } from '../../ui/primitives';
+import { NEW_SEGMENT } from './segments';
 
 // ------------------------------------------------------------------ constants (mirroring the backend)
 
@@ -658,7 +659,7 @@ export function addIssuer(text: string, id: string): string {
 
 // ------------------------------------------------------------------ routes
 
-export const NEW_SEGMENT = '~new';
+export { NEW_SEGMENT };
 
 export type JobsRoute = { view: 'list' } | { view: 'new' } | { view: 'job'; jobId: string };
 

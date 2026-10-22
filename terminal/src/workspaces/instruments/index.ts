@@ -1,5 +1,4 @@
 import type { WorkspaceDefinition } from '../types';
-import { InstrumentsWorkspace } from './InstrumentsWorkspace';
 
 export const instrumentsWorkspace: WorkspaceDefinition = {
   id: 'instruments',
@@ -7,7 +6,7 @@ export const instrumentsWorkspace: WorkspaceDefinition = {
   icon: 'instruments',
   shortcut: 'g i',
   order: 50,
-  component: InstrumentsWorkspace,
+  load: () => import('./InstrumentsWorkspace').then((m) => m.InstrumentsWorkspace),
   description: 'Instrument master: tick rules, multiplier, settlement cycle, provider mappings, latest quote',
   keywords: ['symbol', 'reference data', 'tick', 'mapping', 'conid', 'fixture', 'quote'],
 };

@@ -9,19 +9,11 @@
 import { compareDecimal, formatDecimal, formatMoney, isDecimal } from '../../format/decimal';
 import { addDecimal, ratioBps } from '../../format/exact';
 import type { Tone } from '../../ui/primitives';
+import { PORTFOLIO_TABS, type PortfolioTab } from './tabs';
+
+export { PORTFOLIO_TABS, type PortfolioTab };
 
 // ------------------------------------------------------------------ routes
-
-export const PORTFOLIO_TABS = [
-  { id: 'holdings', label: 'Holdings' },
-  { id: 'performance', label: 'Performance' },
-  { id: 'risk', label: 'Exposure and VaR' },
-  { id: 'stress', label: 'Stress' },
-  { id: 'whatif', label: 'What-if' },
-  { id: 'allocation', label: 'Allocation' },
-  { id: 'snapshots', label: 'Snapshots' },
-] as const;
-export type PortfolioTab = (typeof PORTFOLIO_TABS)[number]['id'];
 
 export function parsePortfolioRoute(rest: readonly string[]): { tab: PortfolioTab } {
   const t = rest[0];

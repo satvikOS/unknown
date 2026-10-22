@@ -27,6 +27,8 @@ export interface WorkspaceKey {
   action: string;
 }
 
+export type WorkspaceComponent = ComponentType<WorkspaceProps>;
+
 export interface WorkspaceDefinition {
   /** URL segment and stable id: lower-case letters, digits and hyphens. */
   id: string;
@@ -35,7 +37,13 @@ export interface WorkspaceDefinition {
   icon?: IconName;
   /** Two-key sequence "g <key>" (press g, then the key). Must be unique across the registry. */
   shortcut: string;
-  component: ComponentType<WorkspaceProps>;
+  /**
+   * Loads the workspace's component with a dynamic import, so each workspace is its own chunk and only the
+   * registry metadata (this object) is in the initial bundle:
+   *   load: () => import('./SessionsWorkspace').then((m) => m.SessionsWorkspace)
+   * The shell shows a loading line while the chunk arrives (src/workspaces/lazy.tsx).
+   */
+  load: () => Promise<WorkspaceComponent>;
   /** One line shown under the title and in the palette. */
   description?: string;
   /** Navigation order, ascending (default 100). */
@@ -59,6 +67,7 @@ export function validateRegistry(defs: readonly WorkspaceDefinition[]): readonly
     if (!ID_RE.test(d.id)) throw new Error(`workspace id ${JSON.stringify(d.id)} must match ${ID_RE}`);
     if (ids.has(d.id)) throw new Error(`duplicate workspace id ${d.id}`);
     ids.add(d.id);
+    if (typeof d.load !== 'function') throw new Error(`workspace ${d.id}: load must be a function returning the component`);
     if (!SHORTCUT_RE.test(d.shortcut)) throw new Error(`workspace ${d.id}: shortcut ${JSON.stringify(d.shortcut)} must look like "g x"`);
     const prev = keys.get(d.shortcut);
     if (prev) throw new Error(`workspace ${d.id}: shortcut "${d.shortcut}" already used by ${prev}`);

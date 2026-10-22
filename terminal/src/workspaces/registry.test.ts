@@ -1,10 +1,14 @@
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { countBy, normalizeRegister } from './capabilities/normalize';
 import { findWorkspace, hasWorkspace, WORKSPACES } from './registry';
 import { validateRegistry, type WorkspaceDefinition } from './types';
 
 const Dummy = () => null;
-const def = (id: string, shortcut: string, order?: number): WorkspaceDefinition => ({ id, title: id, shortcut, component: Dummy, order });
+const def = (id: string, shortcut: string, order?: number): WorkspaceDefinition => ({ id, title: id, shortcut, load: () => Promise.resolve(Dummy), order });
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 describe('workspace registry', () => {
   it('registers overview and capabilities with unique shortcuts', () => {
@@ -41,6 +45,35 @@ describe('workspace registry', () => {
         expect(k.keys, w.id).toMatch(/^[a-z0-9]$/);
         expect(['g', '?']).not.toContain(k.keys);
       }
+    }
+  });
+
+  it('rejects an entry without a loader', () => {
+    const bad = { id: 'a', title: 'a', shortcut: 'g a' } as unknown as WorkspaceDefinition;
+    expect(() => validateRegistry([bad])).toThrow(/load must be a function/);
+  });
+
+  it('keeps every workspace component out of the registry: index.ts files import no component module statically', () => {
+    // The registry is in the initial bundle; a static import of a component (a .tsx module) would pull that whole
+    // workspace back into it. Components arrive through `load` (a dynamic import), one chunk per workspace.
+    const dirs = readdirSync(HERE, { withFileTypes: true }).filter((d) => d.isDirectory() && existsSync(join(HERE, d.name, 'index.ts')));
+    expect(dirs.length).toBeGreaterThanOrEqual(WORKSPACES.length);
+    for (const d of dirs) {
+      const file = join(HERE, d.name, 'index.ts');
+      const source = readFileSync(file, 'utf8');
+      for (const m of source.matchAll(/^import\s+(type\s+)?[^;]*?from\s+'([^']+)';/gms)) {
+        if (m[1]) continue; // type-only imports are erased
+        const target = resolve(dirname(file), m[2] ?? '');
+        expect(existsSync(`${target}.tsx`), `${d.name}/index.ts imports ${m[2]} statically`).toBe(false);
+      }
+      expect(source, `${d.name}/index.ts`).toMatch(/load: \(\) => import\('\.\/\w+'\)/);
+    }
+  });
+
+  it('every registered workspace loads a component', async () => {
+    for (const w of WORKSPACES) {
+      const component = await w.load();
+      expect(typeof component, w.id).toBe('function');
     }
   });
 

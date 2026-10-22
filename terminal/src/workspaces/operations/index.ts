@@ -1,5 +1,4 @@
 import type { WorkspaceDefinition } from '../types';
-import { OperationsWorkspace } from './OperationsWorkspace';
 
 export const operationsWorkspace: WorkspaceDefinition = {
   id: 'operations',
@@ -7,7 +6,7 @@ export const operationsWorkspace: WorkspaceDefinition = {
   icon: 'operations',
   shortcut: 'g p',
   order: 60,
-  component: OperationsWorkspace,
+  load: () => import('./OperationsWorkspace').then((m) => m.OperationsWorkspace),
   description: 'Service health, control state, reconciliation runs, exceptions and fee estimates',
   keywords: ['health', 'reconciliation', 'exceptions', 'resolve', 'fees', 'ownership', 'broker', 'runbook'],
   commands: [

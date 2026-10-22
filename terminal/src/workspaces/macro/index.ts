@@ -1,5 +1,4 @@
 import type { WorkspaceDefinition } from '../types';
-import { MacroWorkspace } from './MacroWorkspace';
 
 export const macroWorkspace: WorkspaceDefinition = {
   id: 'macro',
@@ -7,7 +6,7 @@ export const macroWorkspace: WorkspaceDefinition = {
   icon: 'markets',
   shortcut: 'g m',
   order: 120,
-  component: MacroWorkspace,
+  load: () => import('./MacroWorkspace').then((m) => m.MacroWorkspace),
   description: 'US Treasury par yield curve by date and ECB euro reference rates, with availability times',
   keywords: ['markets', 'macro', 'treasury', 'yield curve', 'par yield', 'rates', 'ecb', 'fx', 'reference rates', 'currency'],
 };
