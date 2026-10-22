@@ -120,6 +120,12 @@ describe('timeline summaries', () => {
     );
     expect(summarizeEventInfo({ info: {} })).toBe('');
   });
+
+  it("leaves out the API's *_ns_str siblings, which the event never recorded", () => {
+    expect(summarizeEventInfo({ info: { last_execution_ns: 7, last_execution_ns_str: '7', reason: 'requested' } })).toBe(
+      'last_execution_ns=7 · reason=requested',
+    );
+  });
 });
 
 const checks = [

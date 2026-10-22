@@ -9,6 +9,7 @@ import type {
   HealthResponse,
   Reconciliation,
 } from '../../api/types';
+import { isNsStringSibling } from '../../api/nsStrings';
 import { formatMoney, isDecimal, parseDecimal, signOf } from '../../format/decimal';
 import type { Tone } from '../../ui/primitives';
 
@@ -226,7 +227,8 @@ export function describeDetail(detail: Record<string, unknown> | null | undefine
   if (!detail) return [];
   const ccy = typeof detail.currency === 'string' && /^[A-Z]{3}$/.test(detail.currency) ? detail.currency : null;
   const positionLike = context?.kind === 'POSITION_MISMATCH' || 'instrument_id' in detail;
-  return Object.entries(detail).map(([key, value]): DetailField => {
+  // The API's *_ns_str siblings were never recorded: a timestamp string must not read as a decimal or money.
+  return Object.entries(detail).filter(([key]) => !isNsStringSibling(key, detail)).map(([key, value]): DetailField => {
     const label = humanizeKey(key);
     if (value === null || value === undefined || value === '') return { key, label, kind: 'none' };
     if (typeof value === 'boolean') return { key, label, kind: 'bool', value };

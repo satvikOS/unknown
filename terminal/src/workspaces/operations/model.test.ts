@@ -131,6 +131,14 @@ describe('describeDetail', () => {
     expect(missing.map((f) => f.kind)).toEqual(['id', 'quantity', 'quantity', 'time', 'json', 'text', 'bool']);
   });
 
+  it("skips the API's *_ns_str siblings: a timestamp string is never shown as a decimal or as money", () => {
+    const fields = describeDetail({ currency: 'USD', unexplained: '1.000000', expected_at_ns: NOW, expected_at_ns_str: String(NOW), opened_ns: null, opened_ns_str: null });
+    expect(fields.map((f) => f.key)).toEqual(['currency', 'unexplained', 'expected_at_ns', 'opened_ns']);
+    expect(fields.find((f) => f.key === 'expected_at_ns')).toMatchObject({ kind: 'time' });
+    // a *_str key with no *_ns partner is recorded data and stays
+    expect(describeDetail({ note_ns_str: 'x' }).map((f) => f.key)).toEqual(['note_ns_str']);
+  });
+
   it('never invents a currency: an amount without one stays an unlabelled decimal', () => {
     const late = describeDetail({ settlement_id: 'stl-1', expected_date: '2026-10-20', owner: 'session:ses-1', amount: '41.990000' });
     expect(late.find((f) => f.key === 'amount')).toEqual({ key: 'amount', label: 'Amount', kind: 'decimal', value: '41.990000' });

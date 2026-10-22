@@ -5,6 +5,7 @@
  */
 import { useMemo, useState } from 'react';
 import { ApiError, encodePathSegment } from '../../api/client';
+import { withoutNsStrings } from '../../api/nsStrings';
 import type { BalanceRow, Bucket, EventRecord, Execution, Order, Position, SessionDetail as Detail, Settlement } from '../../api/types';
 import { useQuery } from '../../state/react';
 import { DataTable, type Column } from '../../ui/DataTable';
@@ -897,7 +898,7 @@ const timelineColumns: Column<TimelineRow>[] = [
     cell: (e) => (
       <details className="ses-info">
         <summary>{eventSummary(e) || 'show recorded detail'}</summary>
-        <pre className="ses-json">{JSON.stringify(e.info, null, 2)}</pre>
+        <pre className="ses-json">{JSON.stringify(withoutNsStrings(e.info), null, 2)}</pre>
         <span className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
           changed {e.changed_sections.join(', ') || 'nothing'} · chain {e.chain_hash.slice(0, 12)}…
         </span>
