@@ -186,14 +186,13 @@ def resolve_exception(ctx: Context, p: dict) -> dict:
         changes["control"] = [{**c, "needs_reconciliation": True}]
     ctx.emit("ExceptionResolved", {"case_id": case["case_id"], "kind": case["kind"], "action": action, "note": note}, changes,
              account_key=key, session_id=case.get("session_id"))
-    if case.get("session_id"):
-        s = state.session(ctx.tx, case["session_id"])
-        others = [e for e in state.open_exceptions(ctx.tx, key, blocking_only=True) if e.get("session_id") == s["session_id"]]
-        if s["state"] == "FAILED_REVIEW" and not others:
-            back = s["review_return_state"] or "SUSPENDED"
-            back = "SUSPENDED" if back == "RUNNING" else back
-            ctx.emit("SessionReviewResolved", {"returns_to": back},
-                     {"sessions": [{**s, "state": back, "review_return_state": None}]}, account_key=key, session_id=s["session_id"])
+    # FAILED_REVIEW exit (ADR-0008). The rule lives with the session machine, which also applies it on every
+    # tick so that a case the system resolves ends the review too (review finding 10). A case names its
+    # session by id or only by owner (owner_hint session:<id>).
+    from .sessions import exit_review_if_clear, sessions_of_case
+    for session_id in sessions_of_case(case):
+        if ctx.tx.one("SELECT 1 FROM sessions WHERE session_id=?", (session_id,)):
+            exit_review_if_clear(ctx, state.session(ctx.tx, session_id))
     return {"case_id": case["case_id"], "status": "RESOLVED"}
 
 

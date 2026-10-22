@@ -98,7 +98,9 @@ def evaluate(i: PretradeInput) -> Decision:
     check("OPEN_EXCEPTIONS", not blocking, ",".join(sorted(set(blocking))))
     check("LOSS_BUDGET", i.loss_budget_breached is None, i.loss_budget_breached or "", applies=buy)
     entry_states = ("RUNNING",)
-    reduce_states = ("RUNNING", "SUSPENDED", "WINDING_DOWN")
+    # FAILED_REVIEW freezes exposure for owner review, never its reduction (review finding 8): selling is how
+    # an overcommitted session frees cash. Position-related exceptions still block sells (BLOCKS_REDUCTION).
+    reduce_states = ("RUNNING", "SUSPENDED", "WINDING_DOWN", "FAILED_REVIEW")
     check("SESSION_STATE", i.session_state in (entry_states if buy else reduce_states), f"session state {i.session_state}")
     check("POLICY_VERSION", i.intent_policy_hash == i.mandate_policy_hash, "intent policy hash differs from mandate")
     check("STRATEGY_PERMITTED", i.strategy_permitted, "strategy not in mandate eligibility")

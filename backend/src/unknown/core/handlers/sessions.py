@@ -25,10 +25,54 @@ ACTIVE = ("RUNNING", "SUSPENDED", "WINDING_DOWN", "RECONCILING", "FAILED_REVIEW"
 # uncertainty (UNKNOWN_ORDER) already blocks entries account-wide and clears through
 # reconciliation, so it does not by itself move a session to FAILED_REVIEW.
 REVIEW_KINDS = frozenset({"EXECUTION_ANOMALY", "OVERCOMMITTED"})
+# Preflight checks only an owner can satisfy; automatic starts run the rest (ADR-0010).
+OWNER_ACTION_CHECKS = frozenset({"OWNER_REQUIRED", "OWNER_REAUTHENTICATION_REQUIRED"})
 
 
 def _refs(s: dict) -> dict:
     return dict(account_key=s["account_key"], session_id=s["session_id"])
+
+
+def _merge(*lists: list[str]) -> list[str]:
+    out: list[str] = []
+    for items in lists:
+        out += [x for x in items if x not in out]
+    return out
+
+
+def attributed_exceptions(ctx: Context, s: dict, kinds: frozenset[str] | None = None) -> list[dict]:
+    """Open blocking exceptions attributed to the session: by session id, or by naming the session's
+    ledger owner (an uncovered sell or a correction below the sold quantity carries only the owner)."""
+    owner = ledger.session_owner(s["session_id"])
+    return [e for e in state.open_exceptions(ctx.tx, s["account_key"], blocking_only=True)
+            if (e.get("session_id") == s["session_id"] or e.get("owner_hint") == owner)
+            and (kinds is None or e["kind"] in kinds)]
+
+
+def sessions_of_case(case: dict) -> list[str]:
+    """Ids of the sessions an exception case is attributed to (session id and/or session owner)."""
+    ids = [case["session_id"]] if case.get("session_id") else []
+    hint = case.get("owner_hint") or ""
+    if hint.startswith("session:") and hint.split(":", 1)[1] not in ids:
+        ids.append(hint.split(":", 1)[1])
+    return ids
+
+
+def preflight_blockers(ctx: Context, account_key: str, *, owner_decision: bool) -> tuple[list[str], dict]:
+    """ADR-0010 green preflight for a session start or resume (review finding 45). An automatic start
+    runs the subset that needs no owner action, as ADR-0010 defines for automatic resumption."""
+    from .control import preflight
+    blockers, evidence = preflight(ctx, account_key)
+    if not owner_decision:
+        blockers = [b for b in blockers if b not in OWNER_ACTION_CHECKS]
+    return blockers, evidence
+
+
+def _cancel_open_buys(ctx: Context, s: dict, reason: str) -> None:
+    from .orders import cancel_order
+    for o in state.orders(ctx.tx, s["account_key"], session_id=s["session_id"], open_only=True):
+        if o["side"] == "BUY":
+            cancel_order(ctx, o, reason)
 
 
 def _new_row(session_id: str, account_key: str, m: Mandate, predecessor: str | None, now_ns: int) -> dict:
@@ -113,27 +157,31 @@ def start_session(ctx: Context, p: dict) -> dict:
     m = state.mandate(ctx.tx, s["mandate_hash"])
     if ctx.principal.role is Role.SYSTEM and not m.auto_start:
         raise Rejected("AUTO_START_NOT_PERMITTED", "mandate does not allow automatic start")
-    blockers = start_blockers(ctx, s)
+    blockers, evidence = start_blockers(ctx, s, owner_decision=ctx.principal.role is Role.OWNER)
     if blockers:
-        raise Rejected("START_BLOCKED", ", ".join(blockers), blockers=blockers)
-    _start(ctx, s)
+        raise Rejected("START_BLOCKED", ", ".join(blockers), blockers=blockers, evidence=evidence)
+    _start(ctx, s, evidence)
     return {"session_id": s["session_id"], "state": "RUNNING"}
 
 
-def start_blockers(ctx: Context, s: dict) -> list[str]:
+def start_blockers(ctx: Context, s: dict, *, owner_decision: bool) -> tuple[list[str], dict]:
+    """Entry gates plus the ADR-0010 preflight (full for an owner start, the no-owner-action subset for an
+    automatic one), execution ownership and the one-active-session limit. Returns (blockers, evidence)."""
     ok, blockers = entries_permitted(ctx, s["account_key"])
+    checks, evidence = preflight_blockers(ctx, s["account_key"], owner_decision=owner_decision)
+    blockers = _merge(blockers, checks)
     own = state.ownership(ctx.tx, s["account_key"])
     if not (own and own["status"] == "HELD" and own["deployment_id"] == ctx.desk.deployment_id):
-        blockers.append("EXECUTION_OWNERSHIP_NOT_HELD")
+        blockers = _merge(blockers, ["EXECUTION_OWNERSHIP_NOT_HELD"])
     active = [x for x in state.sessions(ctx.tx, s["account_key"], ACTIVE) if x["session_id"] != s["session_id"]]
     if len(active) >= MAX_ACTIVE_SESSIONS:
         blockers.append(f"ACTIVE_SESSION_LIMIT:{active[0]['session_id']}")
-    return blockers
+    return blockers, evidence
 
 
-def _start(ctx: Context, s: dict) -> None:
-    ctx.emit("SessionStarted", {"by": ctx.principal.id}, {"sessions": [{**s, "state": "RUNNING", "started_at_ns": ctx.now_ns,
-                                                                        "blockers": []}]}, **_refs(s))
+def _start(ctx: Context, s: dict, evidence: dict) -> None:
+    ctx.emit("SessionStarted", {"by": ctx.principal.id, "preflight": evidence},
+             {"sessions": [{**s, "state": "RUNNING", "started_at_ns": ctx.now_ns, "blockers": []}]}, **_refs(s))
 
 
 def suspend_session(ctx: Context, p: dict) -> dict:
@@ -145,22 +193,26 @@ def suspend_session(ctx: Context, p: dict) -> dict:
 
 
 def suspend(ctx: Context, s: dict, reason: str, evidence: dict | None = None) -> None:
-    from .orders import cancel_order
     ctx.emit("SessionSuspended", {"reason": reason, "evidence": evidence or {}},
              {"sessions": [{**s, "state": "SUSPENDED", "suspend_reason": reason}]}, **_refs(s))
-    for o in state.orders(ctx.tx, s["account_key"], session_id=s["session_id"], open_only=True):
-        if o["side"] == "BUY":
-            cancel_order(ctx, o, f"session suspended: {reason}")
+    _cancel_open_buys(ctx, s, f"session suspended: {reason}")
 
 
 def resume_session(ctx: Context, p: dict) -> dict:
+    """SUSPENDED -> RUNNING (OWNER only): preflight passes and the session's own budgets are not breached
+    on fresh marks (ADR-0008; review findings 34 and 45)."""
+    from .valuation import session_budget_breaches
     s = state.session(ctx.tx, p.get("session_id", ""))
     if s["state"] != "SUSPENDED":
         raise Rejected("INVALID_STATE", f"session is {s['state']}")
     ok, blockers = entries_permitted(ctx, s["account_key"])
-    if not ok:
-        raise Rejected("RESUME_BLOCKED", ", ".join(blockers), blockers=blockers)
-    ctx.emit("SessionResumed", {"by": ctx.principal.id}, {"sessions": [{**s, "state": "RUNNING", "suspend_reason": None}]}, **_refs(s))
+    checks, evidence = preflight_blockers(ctx, s["account_key"], owner_decision=True)
+    breaches, valued = session_budget_breaches(ctx, s)
+    blockers = _merge(blockers, checks, breaches)
+    if blockers:
+        raise Rejected("RESUME_BLOCKED", ", ".join(blockers), blockers=blockers, evidence=evidence, valuation=valued)
+    ctx.emit("SessionResumed", {"by": ctx.principal.id, "preflight": evidence, "valuation": valued},
+             {"sessions": [{**s, "state": "RUNNING", "suspend_reason": None}]}, **_refs(s))
     return {"session_id": s["session_id"], "state": "RUNNING"}
 
 
@@ -212,12 +264,12 @@ def maybe_auto_start(ctx: Context, s: dict) -> None:
     m = state.mandate(ctx.tx, s["mandate_hash"])
     if not m.auto_start:
         return
-    blockers = start_blockers(ctx, s)
+    blockers, evidence = start_blockers(ctx, s, owner_decision=False)
     if blockers:
         if s.get("blockers") != blockers:
             ctx.emit("SessionStartDeferred", {"blockers": blockers}, {"sessions": [{**s, "blockers": blockers}]}, **_refs(s))
         return
-    _start(ctx, s)
+    _start(ctx, s, evidence)
 
 
 def retry_waiting_funding(ctx: Context, account_key: str) -> None:
@@ -243,16 +295,21 @@ def advance_wind_down(ctx: Context, s: dict) -> None:
     policy = state.active_policy(ctx.tx, key)
     m = state.mandate(ctx.tx, s["mandate_hash"])
     open_orders = state.orders(ctx.tx, key, session_id=s["session_id"], open_only=True)
+    ctl = state.control(ctx.tx, key)
+    attempts = dict(s.get("wind_down_attempts") or {})
     for o in open_orders:
         if o["side"] == "BUY":
             cancel_order(ctx, o, "session winding down")
         elif o["purpose"] == WIND_DOWN and ctx.now_ns - o["accepted_at_ns"] > policy.wind_down.reprice_after_s * 1_000_000_000:
+            # A working reduction is pulled to reprice only if a replacement may follow. Under a stop, sells
+            # already working stay working (ADR-0010, on_stop_liquidation = NONE); after the last permitted
+            # attempt the working order is the last one (review finding 32).
+            if ctl["stop_latched"] or attempts.get(o["instrument_id"], 0) >= policy.wind_down.max_attempts:
+                continue
             cancel_order(ctx, o, "wind-down reprice")
     blockers: list[str] = []
-    ctl = state.control(ctx.tx, key)
     lots = ledger.owner_lots(ctx.tx, key, owner)
     instruments = sorted({l["instrument_id"] for l in lots})
-    attempts = dict(s.get("wind_down_attempts") or {})
     for inst_id in instruments:
         unreserved = ledger.owned_quantity(ctx.tx, key, owner, inst_id) - ledger.active_quantity_holds(ctx.tx, key, owner, inst_id)
         if not unreserved.is_positive():
@@ -270,6 +327,15 @@ def advance_wind_down(ctx: Context, s: dict) -> None:
             continue
         price = (q.bid * (10_000 - policy.wind_down.collar_bps)).div(10_000, q.bid.scale + 4, Rounding.FLOOR)
         price = inst.round_price(price, Rounding.FLOOR)
+        mid = q.mid()
+        if mid is not None:
+            # Never below the pretrade sell floor ceil(mid x (1 - price_collar_bps)): on a spread wider than
+            # about the two collars' difference the bid-based price would fail its own pretrade check on every
+            # attempt and liquidation would never start (review finding 46).
+            floor = (mid * (10_000 - policy.limits.price_collar_bps)).div(10_000, mid.scale + 4, Rounding.CEILING)
+            floor = inst.round_price(inst.round_price(floor, Rounding.CEILING), Rounding.CEILING)
+            if price < floor:
+                price = floor
         qty = unreserved.to_increment(inst.quantity_increment, Rounding.DOWN)
         if not qty.is_positive() or not price.is_positive():
             blockers.append(f"{inst_id}:BELOW_MINIMUM")
@@ -297,6 +363,17 @@ def advance_wind_down(ctx: Context, s: dict) -> None:
 def evaluate_reconciling(ctx: Context, s: dict) -> None:
     key = s["account_key"]
     owner = ledger.session_owner(s["session_id"])
+    open_orders = state.orders(ctx.tx, key, session_id=s["session_id"], open_only=True)
+    lots = ledger.owner_lots(ctx.tx, key, owner)
+    if open_orders or lots:
+        # Activity after the session went flat (a late fill or a broker correction) gave it inventory or
+        # orders again. RECONCILING cannot reduce them, so wind-down resumes (review finding 9); the broker
+        # observation path has already opened a session-attributed case for the late activity.
+        ctx.emit("SessionWindDownResumed", {"reason": "NOT_FLAT", "open_orders": [o["order_id"] for o in open_orders],
+                                            "lots": {l["lot_id"]: l["open_qty"] for l in lots}},
+                 {"sessions": [{**s, "state": "WINDING_DOWN", "blockers": []}]}, **_refs(s))
+        advance_wind_down(ctx, state.session(ctx.tx, s["session_id"]))
+        return
     blockers: list[str] = []
     execs = [json.loads(r["row"]) for r in ctx.tx.all(
         "SELECT row FROM executions WHERE json_extract(row,'$.session_id')=?", (s["session_id"],))]
@@ -309,16 +386,19 @@ def evaluate_reconciling(ctx: Context, s: dict) -> None:
     rec = state.latest_reconciliation(ctx.tx, key)
     if rec is None or rec["status"] != "CLEAN" or rec["epoch"] != ctx.epoch or rec.get("event_seq_at_start", 0) < (last_seq_row["s"] or 0):
         blockers.append("CLEAN_RECONCILIATION_AFTER_LAST_EXECUTION_REQUIRED")
-    if [e for e in state.open_exceptions(ctx.tx, key, blocking_only=True) if e.get("session_id") == s["session_id"]]:
+    if attributed_exceptions(ctx, s):
         blockers.append("SESSION_EXCEPTIONS_OPEN")
-    if state.orders(ctx.tx, key, session_id=s["session_id"], open_only=True) or ledger.owner_lots(ctx.tx, key, owner):
-        blockers.append("NOT_FLAT")
+    m = state.mandate(ctx.tx, s["mandate_hash"])
+    available = ledger.available_cash(ctx.tx, key, owner, m.currency)
+    if available.is_negative():
+        # Completion and close move every balance out of the session; a deficit must never be moved to
+        # protected or unallocated cash (that would fail the ledger invariants on every tick, finding 31).
+        blockers.append(f"NEGATIVE_AVAILABLE_CASH:{available.to_str()}")
     if blockers:
         if blockers != s.get("blockers"):
             ctx.emit("SessionReconcilingBlocked", {"blockers": blockers, "last_execution_ns": last_exec_ns},
                      {"sessions": [{**s, "blockers": blockers}]}, **_refs(s))
         return
-    m = state.mandate(ctx.tx, s["mandate_hash"])
     equity = ledger.liquid_value(ctx.tx, key, owner, m.currency)
     if s["wind_down_reason"] == "TARGET_OBSERVED":
         if equity >= m.target_terminal_equity.amount:
@@ -327,9 +407,11 @@ def evaluate_reconciling(ctx: Context, s: dict) -> None:
         if m.below_target_after_target_observed is BelowTarget.RESUME and s["resumes_used"] < m.max_resumes:
             ok, why = entries_permitted(ctx, key)
             if ok:
+                # A later target observation starts a new wind-down with its own attempt budget (finding 48).
                 ctx.emit("SessionResumedBelowTarget", {"terminal_equity": equity.to_str(), "target": m.target_terminal_equity.amount.to_str()},
                          {"sessions": [{**s, "state": "RUNNING", "resumes_used": s["resumes_used"] + 1, "wind_down_reason": None,
-                                        "wind_down_evidence": None, "ended_at_ns": None, "blockers": []}]}, **_refs(s))
+                                        "wind_down_evidence": None, "ended_at_ns": None, "blockers": [],
+                                        "wind_down_attempts": {}}]}, **_refs(s))
                 return
         close(ctx, s, "BELOW_TARGET", equity)
         return
@@ -414,6 +496,23 @@ def flag_review(ctx: Context, session_id: str, case_id: str) -> None:
         return
     ctx.emit("SessionFailedReview", {"case_id": case_id},
              {"sessions": [{**s, "state": "FAILED_REVIEW", "review_return_state": s["state"]}]}, **_refs(s))
+    # A frozen session must not keep adding inventory it can no longer manage (review finding 33).
+    _cancel_open_buys(ctx, s, f"session failed review: {case_id}")
+
+
+def exit_review_if_clear(ctx: Context, s: dict) -> bool:
+    """FAILED_REVIEW -> previous state once no blocking exception is attributed to the session (ADR-0008).
+
+    Runs when the owner resolves a case and on every session tick, so a case the system resolves itself
+    (reconciliation, a broker status) also ends the review (review finding 10). The exit never grants new
+    exposure: a RUNNING session returns SUSPENDED and needs an owner resume."""
+    if s["state"] != "FAILED_REVIEW" or attributed_exceptions(ctx, s):
+        return False
+    back = s.get("review_return_state") or "SUSPENDED"
+    back = "SUSPENDED" if back == "RUNNING" else back
+    ctx.emit("SessionReviewResolved", {"returns_to": back, "by": ctx.principal.id},
+             {"sessions": [{**s, "state": back, "review_return_state": None}]}, **_refs(s))
+    return True
 
 
 # ---------------------------------------------------------------- tick
@@ -422,6 +521,8 @@ def session_tick(ctx: Context, p: dict) -> dict:
     state.account(ctx.tx, key)
     for s in state.sessions(ctx.tx, key):
         s = state.session(ctx.tx, s["session_id"])
+        if exit_review_if_clear(ctx, s):
+            s = state.session(ctx.tx, s["session_id"])
         if s["state"] in ("RUNNING", "SUSPENDED"):
             m = state.mandate(ctx.tx, s["mandate_hash"])
             if m.expires_at_ns is not None and ctx.now_ns >= m.expires_at_ns:
@@ -430,8 +531,7 @@ def session_tick(ctx: Context, p: dict) -> dict:
             advance_wind_down(ctx, s)
         elif s["state"] == "RECONCILING":
             evaluate_reconciling(ctx, s)
-        for b in [x for x in state.open_exceptions(ctx.tx, key, blocking_only=True)
-                  if x.get("session_id") == s["session_id"] and x["kind"] in REVIEW_KINDS]:
+        for b in attributed_exceptions(ctx, s, REVIEW_KINDS):
             flag_review(ctx, s["session_id"], b["case_id"])
     retry_waiting_funding(ctx, key)
     mark_settled_sessions(ctx, key)
