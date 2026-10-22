@@ -10,7 +10,7 @@
  * Reserved shortcuts and nav order, so parallel work does not collide:
  *   overview g o (10)   sessions g s (20)   orders g b (30)   risk g r (40)
  *   instruments g i (50)   operations g p (60)   audit g a (70)   policy g y (80)
- *   capabilities g c (900)
+ *   capabilities g c (900)   research-jobs g j (85)
  */
 import { auditWorkspace } from './audit';
 import { capabilitiesWorkspace } from './capabilities';
@@ -19,6 +19,7 @@ import { operationsWorkspace } from './operations';
 import { ordersWorkspace } from './orders';
 import { overviewWorkspace } from './overview';
 import { policyWorkspace } from './policy';
+import { researchJobsWorkspace } from './research-jobs';
 import { riskWorkspace } from './risk';
 import { sessionsWorkspace } from './sessions';
 import { validateRegistry, type WorkspaceDefinition } from './types';
@@ -33,6 +34,7 @@ export const WORKSPACES: readonly WorkspaceDefinition[] = validateRegistry([
   operationsWorkspace,
   auditWorkspace,
   instrumentsWorkspace,
+  researchJobsWorkspace,
 ]);
 
 export function findWorkspace(id: string): WorkspaceDefinition | undefined {
