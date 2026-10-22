@@ -19,16 +19,23 @@ discarded and never submitted.
 Model output is untrusted: it is parsed with exact decimals, validated against the job's
 output schema, and its claims are verified against the supplied spans before any of it
 reaches the proposal. Unverified claims are carried only as labelled assumptions.
+
+The proposal is research_proposal schema version 2 (``build_proposal``). Its typed fields (as-of
+instant, instrument and entity ids, evidence references, observation window, horizon) come from
+the job and from the provenance of the spans that verified claims cite, never from model output
+or span text; the model supplies only text. Agent answers carry no forecast block.
 """
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from ..domain.canonical import content_hash
+from ..domain.ids import InvalidIdentifier, validate_id
 from ..domain.money import Money
 from .budget import BudgetError, Reservation, SpendLedger
 from .catalog import Catalog
@@ -45,6 +52,18 @@ from .tariffs import TariffBook, TariffError
 from .tools import ToolBudgetExceeded, ToolGateway, ToolRegistry
 
 PROPOSAL_SCHEMA_PATH = CONTRACTS / "research_proposal.schema.json"
+PROPOSAL_SCHEMA_VERSION = 2
+MAX_EVIDENCE_REFS = 50
+MAX_CLAIMS = 20
+MAX_SUBJECT_IDS = 20
+MAX_HORIZON_S = 31_536_000
+MAX_TIME_NS = 2 ** 63 - 1
+EVIDENCE_REF_TYPES = frozenset({"observation", "document_span"})
+# The same syntax the core enforces on evidence references (core/handlers/control.py).
+_HEX64 = re.compile(r"[0-9a-f]{64}")
+_DATASET_ID = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}")
+_SPAN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}")
+_REF_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@/+#=-]{0,199}")
 
 
 class CoreClientLike(Protocol):
@@ -69,6 +88,12 @@ class JobInputs:
     horizon_seconds: int
     max_output_tokens: int
     facts: tuple[TypedFact, ...] = ()
+    # The job's point-in-time instant (the evidence selection's as_of); None means the envelope's created_ns.
+    as_of_ns: int | None = None
+    # Owner-supplied instrument ids (checked against the instrument master at submission and again by the core)
+    # and the research-store entity ids the evidence was selected for. Never taken from model output or span text.
+    instrument_ids: tuple[str, ...] = ()
+    entity_ids: tuple[str, ...] = ()
 
 
 @dataclass
@@ -125,34 +150,137 @@ def _cut(text: str, n: int) -> str:
     return text if len(text) <= n else text[: n - 12] + " [truncated]"
 
 
-def abstention(job_id: str, horizon_seconds: int, reason: str) -> dict:
-    return {"schema_version": 1, "job_id": job_id, "hypothesis": "", "evidence": [], "horizon_seconds": horizon_seconds,
-            "assumptions": [], "abstain": True, "reason": _cut(reason, 2000)}
+@dataclass(frozen=True)
+class Subject:
+    """The typed fields of a version-2 proposal that come from the job, never from the model: the as-of instant,
+    the instrument and research-entity ids, and the horizon."""
+    as_of_ns: int
+    instrument_ids: tuple[str, ...] = ()
+    entity_ids: tuple[str, ...] = ()
+    horizon_seconds: int | None = None
 
 
-def build_proposal(job_id: str, parsed: Mapping[str, Any], verdicts, horizon_seconds: int,
-                   notes: Sequence[str] = ()) -> dict:
-    verified = [v for v in verdicts if v.status is ClaimStatus.VERIFIED]
-    evidence = []
-    for v in verified[:50]:
-        quote = v.claim.quote or ""
-        evidence.append(_cut(f"verified span {','.join(v.claim.span_ids)}: \"{quote}\" -- {v.claim.text}", 500))
+def _ids_problem(ids: Any, what: str) -> str | None:
+    if not isinstance(ids, (tuple, list)) or len(ids) > MAX_SUBJECT_IDS:
+        return f"{what} must be at most {MAX_SUBJECT_IDS} identifiers"
+    try:
+        for i in ids:
+            validate_id(i, what)
+    except InvalidIdentifier as exc:
+        return str(exc)
+    return f"{what} are not unique" if len(set(ids)) != len(ids) else None
+
+
+def job_subject(env: JobEnvelope, inputs: JobInputs, now_ns: int) -> tuple[Subject, str | None]:
+    """The job's subject, plus a problem when the inputs are malformed. The subject then keeps only well-formed
+    values, so even the abstention that reports the problem matches the contract."""
+    problems = []
+    as_of = env.created_ns if inputs.as_of_ns is None else inputs.as_of_ns
+    if type(as_of) is not int or not 0 <= as_of <= MAX_TIME_NS:
+        problems.append("as_of_ns must be a non-negative integer")
+        as_of = env.created_ns
+    if as_of > now_ns:
+        problems.append("as_of_ns is in the future")
+        as_of = max(0, now_ns)
+    ids = {}
+    for what, value in (("instrument_ids", inputs.instrument_ids), ("entity_ids", inputs.entity_ids)):
+        problem = _ids_problem(value, what)
+        if problem:
+            problems.append(problem)
+        ids[what] = () if problem else tuple(value)
+    horizon = inputs.horizon_seconds
+    if type(horizon) is not int or not 1 <= horizon <= MAX_HORIZON_S:
+        problems.append("horizon_seconds out of range")
+        horizon = None
+    return Subject(as_of, ids["instrument_ids"], ids["entity_ids"], horizon), "; ".join(problems) or None
+
+
+def abstention(job_id: str, subject: Subject, reason: str) -> dict:
+    return {"schema_version": PROPOSAL_SCHEMA_VERSION, "job_id": job_id, "as_of_ns": subject.as_of_ns, "hypothesis": "",
+            "claims": [], "evidence": [], "instrument_ids": list(subject.instrument_ids),
+            "entity_ids": list(subject.entity_ids), "observation_window": None, "horizon_seconds": subject.horizon_seconds,
+            "assumptions": [], "forecast": None, "abstain": True,
+            "reason": _cut(reason, 2000) if reason.strip() else "abstained without a stated reason"}
+
+
+def evidence_ref(span: EvidenceSpan, as_of_ns: int) -> dict | None:
+    """The typed reference of a cited span, built only from the span's provenance fields (which the evidence
+    builder took from the store row), never from its text. None when the span has no usable provenance or when
+    any time is after the job's as-of instant. Mirrors the core's checks, so one odd span cannot get a whole
+    proposal rejected."""
+    if not span.typed or span.ref_type not in EVIDENCE_REF_TYPES:
+        return None
+    observed, available = span.observed_ns, span.available_ns
+    if not (_SPAN_ID.fullmatch(span.span_id) and _DATASET_ID.fullmatch(span.dataset_id) and _REF_ID.fullmatch(span.ref_id)
+            and _HEX64.fullmatch(span.content_hash)):
+        return None
+    if not 0 <= available <= as_of_ns:
+        return None
+    if observed is not None and (type(observed) is not int or not 0 <= observed <= as_of_ns):
+        return None
+    return {"span_id": span.span_id, "dataset_id": span.dataset_id, "ref_type": span.ref_type, "ref_id": span.ref_id,
+            "content_hash": span.content_hash, "observed_at_ns": observed, "available_at_ns": available}
+
+
+def build_proposal(job_id: str, parsed: Mapping[str, Any], verdicts, subject: Subject,
+                   spans: Sequence[EvidenceSpan] = (), notes: Sequence[str] = ()) -> dict:
+    """A research_proposal v2. The model contributes only text (hypothesis, claim text and quote, assumptions,
+    reason); every typed field comes from ``subject`` and from the provenance of the spans its verified claims
+    cite. A claim becomes evidence only when it is verified AND cites a span with typed provenance."""
+    by_id = {s.span_id: s for s in spans}
+    refs: list[dict] = []
+    index_of: dict[tuple, int] = {}
+    claims: list[dict] = []
     assumptions = [_cut(a, 500) for a in parsed.get("assumptions", [])]
     for v in verdicts:
+        text = v.claim.text
         if v.status is not ClaimStatus.VERIFIED:
-            assumptions.append(_cut(f"[{v.status.value} claim, not evidence] {v.claim.text}", 500))
+            assumptions.append(_cut(f"[{v.status.value} claim, not evidence] {text}", 500))
+            continue
+        if len(claims) >= MAX_CLAIMS or not text.strip():
+            assumptions.append(_cut(f"[verified claim not carried as evidence] {text}", 500))
+            continue
+        cited = []
+        for sid in dict.fromkeys(v.claim.span_ids):
+            span = by_id.get(sid)
+            ref = evidence_ref(span, subject.as_of_ns) if span is not None else None
+            if ref is None:
+                continue
+            key = (ref["dataset_id"], ref["ref_type"], ref["ref_id"])
+            if key not in index_of:
+                if len(refs) >= MAX_EVIDENCE_REFS:
+                    continue
+                index_of[key] = len(refs)
+                refs.append(ref)
+            if index_of[key] not in cited:
+                cited.append(index_of[key])
+        if not cited:
+            assumptions.append(_cut(f"[verified claim without typed evidence provenance, not evidence] {text}", 500))
+            continue
+        quote = v.claim.quote if v.claim.quote and v.claim.quote.strip() else None
+        claims.append({"text": _cut(text, 1000), "quote": _cut(quote, 1000) if quote else None,
+                       "evidence_indexes": cited[:10]})
     assumptions.extend(_cut(n, 500) for n in notes)
-    model_abstained = bool(parsed.get("abstain"))
-    abstain = model_abstained or not verified
-    if model_abstained:
-        reason = parsed.get("reason", "")
-    elif not verified:
-        reason = "no claim had verified evidence; " + parsed.get("reason", "")
+    times = [r["available_at_ns"] if r["observed_at_ns"] is None else r["observed_at_ns"] for r in refs]
+    window = {"from_ns": min(times), "to_ns": max(times)} if times else None
+    hypothesis = parsed.get("hypothesis", "")
+    reason = parsed.get("reason", "")
+    if parsed.get("abstain"):
+        abstain = True
+    elif not claims:
+        abstain, reason = True, "no claim had verified evidence with typed provenance; " + reason
+    elif not hypothesis.strip() or subject.horizon_seconds is None:
+        abstain, reason = True, "no hypothesis or horizon was stated; " + reason
     else:
-        reason = parsed.get("reason", "")
-    return {"schema_version": 1, "job_id": job_id, "hypothesis": parsed.get("hypothesis", ""), "evidence": evidence,
-            "horizon_seconds": horizon_seconds, "assumptions": assumptions[:30], "abstain": abstain,
-            "reason": _cut(reason, 2000)}
+        abstain = False
+    if abstain and not reason.strip():
+        reason = "the model abstained without giving a reason"
+    return {"schema_version": PROPOSAL_SCHEMA_VERSION, "job_id": job_id, "as_of_ns": subject.as_of_ns,
+            "hypothesis": hypothesis, "claims": claims, "evidence": refs, "instrument_ids": list(subject.instrument_ids),
+            "entity_ids": list(subject.entity_ids), "observation_window": window,
+            "horizon_seconds": subject.horizon_seconds, "assumptions": assumptions[:30],
+            # Model answers carry no calibration record (book Ch. 4), so the agent layer never emits a forecast block.
+            "forecast": None, "abstain": abstain, "reason": _cut(reason, 2000)}
 
 
 def _claims(parsed: Mapping[str, Any]) -> list[Claim]:
@@ -292,20 +420,22 @@ class JobRunner:
     # ------------------------------------------------------------------ main entry
     def run(self, env: JobEnvelope, inputs: JobInputs, candidates: Sequence[Candidate]) -> JobResult:
         result = JobResult(env.job_id, JobState.PROVIDER_UNAVAILABLE, "")
+        subject, problem = job_subject(env, inputs, self.d.clock_ns())
         try:
-            proposal = self._run(env, inputs, candidates, result)
+            proposal = self._run(env, inputs, candidates, result, subject, problem)
             result.status, result.reason, result.proposal = JobState.SUCCEEDED, "ok", proposal
         except _Terminal as t:
             result.status, result.reason = t.status, t.reason
             result.proposal = t.proposal
             if result.proposal is None and t.status not in (JobState.CANCELLED_BY_OWNER, JobState.DEADLINE_EXPIRED):
-                result.proposal = abstention(env.job_id, inputs.horizon_seconds, f"{t.status.value}: {t.reason}")
+                result.proposal = abstention(env.job_id, subject, f"{t.status.value}: {t.reason}")
         self._rec(result.records, "terminal", status=result.status.value, reason=result.reason)
         if result.proposal is not None:
             self._submit(env, result.proposal, result)
         return result
 
-    def _run(self, env: JobEnvelope, inputs: JobInputs, candidates: Sequence[Candidate], result: JobResult) -> dict:
+    def _run(self, env: JobEnvelope, inputs: JobInputs, candidates: Sequence[Candidate], result: JobResult,
+             subject: Subject, subject_problem: str | None) -> dict:
         d, records = self.d, result.records
         self._check_live(env)
         if env.prompt_template_hash is not None and env.prompt_template_hash != PROMPT_TEMPLATE_HASH:
@@ -316,8 +446,8 @@ class JobRunner:
             raise _Terminal(JobState.DENIED_BY_POLICY, f"unknown output schema {env.output_schema} v{env.schema_version}: {exc}") from None
         if not d.ledger.paid_calls_enabled():
             raise _Terminal(JobState.BUDGET_EXHAUSTED, "paid_calls_disabled: no owner budget policy (~/.unknown/config/agents.json)")
-        if type(inputs.horizon_seconds) is not int or not 1 <= inputs.horizon_seconds <= 31_536_000:
-            raise _Terminal(JobState.DENIED_BY_POLICY, "horizon_seconds out of range")
+        if subject_problem is not None:
+            raise _Terminal(JobState.DENIED_BY_POLICY, subject_problem)
         span_hashes = {s.content_hash for s in inputs.spans if s.content_hash}
         if span_hashes and not span_hashes <= set(env.input_hashes):
             raise _Terminal(JobState.DENIED_BY_POLICY, "evidence spans carry content hashes not listed in the envelope")
@@ -455,7 +585,7 @@ class JobRunner:
                                     f"inference_geo {gen.inference_geo} differs from requested {requested_geo}; output quarantined")
                 if gen.status is OutputStatus.REFUSED:
                     raise _Terminal(JobState.SUCCEEDED, f"model_refused:{gen.refusal_category}",
-                                    abstention(env.job_id, inputs.horizon_seconds, f"model refused (category {gen.refusal_category})"))
+                                    abstention(env.job_id, subject, f"model refused (category {gen.refusal_category})"))
                 if gen.status is OutputStatus.TRUNCATED:
                     if not truncation_retry_used:
                         truncation_retry_used = True
@@ -490,7 +620,7 @@ class JobRunner:
                 verdicts = verify_claims(_claims(parsed), inputs.spans, inputs.facts)
                 result.verdicts = verdicts
                 self._rec(records, "verified", statuses=[v.status.value for v in verdicts])
-                return build_proposal(env.job_id, parsed, verdicts, inputs.horizon_seconds, notes)
+                return build_proposal(env.job_id, parsed, verdicts, subject, inputs.spans, notes)
         if not any_routable:
             raise _Terminal(JobState.DENIED_BY_POLICY, "no candidate is routable (see candidate_skipped records)")
         if policy_causes and all(policy_causes):

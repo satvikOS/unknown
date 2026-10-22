@@ -28,7 +28,7 @@ One job goes through the runner in this order (`runner.py`):
     - Output is parsed with exact decimals and validated against the job's output schema (`schema.py`).
     - Any `tool_requests` go through the default-deny gateway (`tools.py`), and the job takes another turn.
     - Claims are verified against the supplied spans and typed facts (`evidence.py`).
-11. **Proposal.** A `ResearchProposal` matching `contracts/research_proposal.schema.json` (or an abstention) is submitted. Outputs that arrive after the deadline or after cancellation are discarded, not submitted.
+11. **Proposal.** A research proposal, schema version 2 of `contracts/research_proposal.schema.json` (or an abstention), is submitted. See [The research proposal contract](#the-research-proposal-contract-version-2). Outputs that arrive after the deadline or after cancellation are discarded, not submitted.
 
 | Module | What it enforces |
 |---|---|
@@ -37,11 +37,61 @@ One job goes through the runner in this order (`runner.py`):
 | `budget.py` | SQLite `SpendLedger` (`~/.unknown/agents/ledger.sqlite`, path injectable). It covers reserve, settle, release, mark_unconfirmed and reconcile. The caps are lifetime, month, day, job, role/day, and provider lifetime/day. The envelope cap can only lower the owner's per-job cap. |
 | `tariffs.py` | Effective-dated rows, band selection by prompt tokens with the all-tokens rule, exact `cost()`, and `worst_case()`, which needs an owner-approved row. Unverified bands and unrecorded rates are refused. |
 | `schema.py` | Local JSON-Schema subset validator. Any keyword it cannot enforce fails closed. The per-provider compatibility checker classifies each keyword as enforced, best_effort, not_enforced, unverified or rejected (CAP-MODEL-02). |
-| `evidence.py` | Span-id existence, verbatim quotes after whitespace normalisation, exact numeric comparison with typed facts, and labelled `unsupported`/`uncertain` claims. It also renders untrusted data blocks behind a random nonce. Instruction screening is informational only. |
+| `evidence.py` | Span-id existence, verbatim quotes after whitespace normalisation, exact numeric comparison with typed facts, and labelled `unsupported`/`uncertain` claims. It also renders untrusted data blocks behind a random nonce. Instruction screening is informational only. A span built from a store row carries that row's typed provenance (`ref_type`, `ref_id`, `observed_ns`, `available_ns`). |
 | `tools.py` | The registry accepts read-only tools only; order, policy, secret and spawning names are refused. The gateway checks the envelope allowlist, the tool-call budget, the arguments and the dataset rights of what a tool returns. |
 | `gate.py` | `Dataset.permits("model_processing_cloud")` combined with the provider data policy (`config/models/provider_policies.json`) and the owner's data policy. It covers retention, training, residency, paid tier, staleness and covered models. Unknown facts block. |
 | `catalog.py` | Snapshots and diff. New ids are `unreviewed`. Approved ids missing from a successful refresh become non-routable and raise an alert. A 401/403 marks the provider `credentials_invalid`. Moving aliases are refused. Providers without lifecycle data need an owner lifecycle review date. |
 | `providers/` | `base.py` holds the interface, error taxonomy, retry policy, circuit breaker, urllib transport and protocol-fact tables. Adapters: `openai.py`, `xai.py` and `gemini.py` (urllib, verified fragments only) and `anthropic.py` (official SDK, lazily imported). |
+
+### The research proposal contract (version 2)
+
+`contracts/research_proposal.schema.json` holds two versions. The core accepts both (`submit_research_proposal` in `core/handlers/control.py`). Version 1, with free-text evidence, stays accepted so that a proposal already waiting in a worker's outbox is still recorded. The runner now emits version 2 only. It resolves book-review finding BR-DAT-12: Chapter 19 asks for cited evidence, instrument identity and timestamps to be checked separately from the shape.
+
+| Field | Content | Where it comes from |
+|---|---|---|
+| `as_of_ns` | The job's point-in-time instant: the evidence selection's pinned `as_of`, or the submission time when there is no evidence. | The job (submission) |
+| `instrument_ids` | Up to 20 internal instrument ids. | The owner's request, checked against the core's instrument master at submission |
+| `entity_ids` | Up to 20 research-store entity ids (issuers, series), never tickers. | The evidence selection |
+| `evidence` | Up to 50 typed references: `span_id`, `dataset_id`, `ref_type` (`observation` or `document_span`), `ref_id` (for example `obs:42`), `content_hash` (the span hash listed in the envelope's input hashes), `observed_at_ns` (or null) and `available_at_ns`. | The provenance of each span a **verified** claim cites, taken from the store row |
+| `claims` | Up to 20 verified claims: text, quote and `evidence_indexes` into `evidence`. | The model's text; the indexes come from the runner |
+| `observation_window` | `{from_ns, to_ns}` covering every reference's observation time (`observed_at_ns`, else `available_at_ns`). | Computed from `evidence` |
+| `horizon_seconds` | 1..31,536,000, or null on an abstention. | The request |
+| `forecast` | Optional (null otherwise). See below. | Never emitted by the agent layer |
+| `hypothesis`, `assumptions`, `reason`, `abstain` | Text and the abstention flag. | The model, then the runner's rules |
+
+**Abstain-dependent rules.**
+- `abstain: true` needs a non-blank `reason` and no forecast. `hypothesis` may be empty, and `horizon_seconds` and `observation_window` may be null.
+- `abstain: false` needs a non-blank `hypothesis`, at least one claim, at least one evidence reference, an observation window and a horizon.
+
+The runner abstains when no verified claim cites a span with typed provenance. A claim that is verified but cites only spans without provenance is carried as a labelled assumption, never as evidence.
+
+**What the core checks beyond the schema.** The core grants nothing for either version: the only change is one `proposals` row, with no order, hold, outbox row, reservation, policy or balance change. Before it records a version 2 proposal, it checks the following:
+- the types, lengths and counts of every field;
+- that `as_of_ns` is not after the core's clock;
+- that no `available_at_ns`, `observed_at_ns` or window end is after `as_of_ns`, and that every reference lies inside the window;
+- that every instrument id is in the instrument master, and that identifiers, dataset ids, ref ids and span ids are well formed;
+- that every `content_hash` is 64 lowercase hex characters;
+- that references are not duplicated and that claim indexes are in range;
+- the forecast's ordering and units.
+
+**Labels.** The core labels each version 2 proposal; the author cannot choose the label:
+- `ABSTENTION`;
+- `QUALITATIVE`, when there is no forecast block. Under the finding's resolution such a proposal must not feed a strategy feature; today nothing consumes proposals at all (CAP-AGT-09, see "Not built");
+- `FORECAST_UNCALIBRATED`;
+- `FORECAST_QUANTIFIED`, only when the calibration method and version and every Chapter 4 uncertainty field are present.
+
+**Forecast block.** A forecast predicts a measurable quantity; it is never a trade instruction. It has these fields:
+- `target`: `subject_id`, which must be one of the proposal's instrument or entity ids; `quantity`, one of `return`, `log_return`, `price`, `volatility`, `fundamental` or `probability`; and a written `definition`;
+- `horizon_seconds`;
+- an explicit `unit`: `fraction`, `percent`, `bp`, `ratio`, `count`, an ISO 4217 code, or `<ISO 4217>/share`;
+- a `distribution`: an `interval` (level strictly between 0 and 1, lower <= upper) or `quantiles` (probabilities strictly increasing, values non-decreasing), all as decimal strings;
+- `calibration`: method and version;
+- `uncertainty`: observation count, effective sample size, training and evaluation windows (not after `as_of_ns`), interval method and data version;
+- at least one invalidation condition.
+
+**Injected text cannot change a typed field.** Every typed field comes from the job and from store provenance. The model's output schema (`research_answer.v1.json`) has no typed fields, so an answer that adds `as_of_ns`, `instrument_ids`, `evidence` or `forecast` fails validation. Evidence text that imitates typed fields reaches only the free-text fields. `backend/tests/test_research_proposal_v2.py` covers the validation matrix, the labels, the injection cases and a worker job end to end.
+
+The agent layer emits no forecast block. A model answer has no calibration record, and book Chapter 4 says such output cannot be treated as quantified confidence. The block exists for calibrated estimators.
 
 Tool use is provider-neutral: the model asks for a tool through the `tool_requests` field of its structured output (`config/models/schemas/research_answer.v1.json`). It names the tool and gives its arguments as a JSON string. The gateway validates the request and executes it or refuses it; results come back as untrusted data blocks on the next turn. The model never gets authority from document text.
 
@@ -171,7 +221,7 @@ The only source of model budgets is the owner policy `<UNKNOWN_HOME>/config/agen
 |---|---|---|
 | Job store (`jobstore.py`) | `<UNKNOWN_HOME>/agents/jobs.sqlite` | WAL, `synchronous=FULL`, `fullfsync` on macOS, mode 0600. States are QUEUED, RUNNING, SUCCEEDED, FAILED, CANCELLED and EXPIRED; `outcome` keeps the runner's fine status (`budget_exhausted`, `schema_invalid`, ...). Submission is idempotent: the same job id with the same content returns the job, and an equivalent job (CAP-AGT-01 key: role, schema, prompt template, input hashes) that is queued, running or succeeded within 24 h, and is not being cancelled, is returned instead of a new one. The key leaves out caps and the deadline. Claims are atomic and respect the concurrency limits. A finished job's proposal is stored in the same transaction as its terminal state. |
 | Audit trail (`audit.py`) | `<UNKNOWN_HOME>/agents/audit.sqlite` | Append-only (UPDATE and DELETE refused by triggers). It holds every runner record (reservations, settlements, gate decisions, generations, tool calls, schema failures, discards) and every worker action (start, candidates, budget admission, catalog refresh, recovery, delivery), written as they happen and hash-chained like the core event log. `verify()` reports edits, deletions and re-attribution; truncating the newest rows is detectable only against a head kept elsewhere. |
-| Evidence (`pit_evidence.py`) | `<UNKNOWN_HOME>/research/research.sqlite` (read-only) | Issuers (PIT entity ids such as `SEC-CIK-0000320193`, or tickers such as `AAPL`) and XBRL concepts become spans pinned to the submission instant with `as_of(t, knowledge_cutoff_ns=t)`. Each span states concept, period, unit and exact value, and carries a typed fact for exact numeric checks. The worker re-derives the spans and refuses the job if they differ from what was submitted, so only store-derived text, labelled with the store's dataset id, reaches the data-use gate and the provider. |
+| Evidence (`pit_evidence.py`) | `<UNKNOWN_HOME>/research/research.sqlite` (read-only) | Issuers (PIT entity ids such as `SEC-CIK-0000320193`, or tickers such as `AAPL`) and XBRL concepts become spans pinned to the submission instant with `as_of(t, knowledge_cutoff_ns=t)`. Each span states concept, period, unit and exact value, and carries a typed fact for exact numeric checks. It also carries the row's provenance: `ref_id` `obs:<obs_id>`, the available time, and the observed time (the event time, else the period-end date at 00:00 UTC). These become the proposal's typed evidence references. The worker re-derives the spans and refuses the job if they differ from what was submitted, so only store-derived text, labelled with the store's dataset id, reaches the data-use gate and the provider. |
 | Model worker (`worker.py`) | `python -m unknown.agents.worker` | See below. |
 | API routes (`api/routes/research_jobs.py`) | `GET/POST /api/research/jobs`, `GET /api/research/jobs/<id>`, `POST /api/research/jobs/<id>/cancel` | Owner session required; POSTs also require the CSRF token. The API writes only the job store. It holds no key and loads no provider, runner, worker or tool module; a test checks every module the API process loads. |
 
@@ -260,6 +310,7 @@ Everything here stays on this Mac; nothing below is committed except the approva
    - `question` is required.
    - `role` defaults to `research`.
    - `issuer_ids` takes up to 5 PIT entity ids or tickers.
+   - `instrument_ids` takes up to 20 internal instrument ids. Each must be in the core's instrument master: the API checks this read-only, and refuses the request when there is no core database to check. The ids are named in the task text, so jobs that differ only in their instruments are not deduplicated. The worker refuses a job whose stored ids are not the ones its task names.
    - `fields` takes XBRL concepts (taxonomy:Concept); the default is 12 common us-gaap/dei concepts.
    - `max_output_tokens` defaults to 8000 (range 256..32000).
    - `deadline_seconds` defaults to 3600.
@@ -271,7 +322,8 @@ Everything here stays on this Mac; nothing below is committed except the approva
    - the evidence spans;
    - the audit trail with its chain status;
    - the ledger rows for the job;
-   - the proposal, and the proposal as the core recorded it.
+   - the proposal, and the proposal as the core recorded it;
+   - `proposal_contract`: the proposal's schema version, the label the core assigned and, for version 2, the typed fields (as-of instant, instrument and entity ids, observation window, horizon, evidence references, claims and forecast).
 
 **Cost of one job** at the approved rates of 4.00 USD input and 20.00 USD output per million tokens:
 - **Evidence size.** AAPL and MSFT with the default concepts gave 138 spans, about 35 KB (measured on this Mac's store, 2026-10-22). That is roughly 10k prompt tokens.
@@ -402,3 +454,5 @@ Only numbers present in the register, or in the coordinator-supplied Claude API 
 - More than one job at a time. One worker runs per `UNKNOWN_HOME`, one job at a time.
 - Reconciliation of UNCONFIRMED spend against a provider cost report. `SpendLedger.reconcile()` takes owner evidence; no cost API is integrated.
 - Proposal-to-order lineage (CAP-AGT-09). No order intent consumes research proposals yet.
+- Forecast blocks from agents. The contract and the core accept them, but no producer emits one yet. The runner never turns a model answer into a forecast, and no calibrated estimator has been wired to submit them.
+- Automatic issuer-to-instrument mapping. The `instrument_ids` on a proposal are the ones the owner names in the request. The research store's issuer entities are not linked to the core's instrument master.

@@ -491,8 +491,8 @@ def _validate_claims(claims: object, n_refs: int) -> list:
 def _validate_proposal_v2(ctx: Context, body: dict) -> str:
     """Strict validation of research_proposal v2 (finding BR-DAT-12; book Ch. 19 line 13: cited evidence,
     instrument identity and timestamps are checked separately from the shape). Returns the core-assigned label:
-    ABSTENTION, QUALITATIVE (no forecast block, so it cannot feed a strategy feature), FORECAST_UNCALIBRATED or
-    FORECAST_QUANTIFIED."""
+    ABSTENTION, QUALITATIVE (no forecast block; not quantified confidence, so it must not feed a strategy feature,
+    although nothing consumes proposals yet), FORECAST_UNCALIBRATED or FORECAST_QUANTIFIED."""
     _keys(body, "proposal", PROPOSAL_V2_KEYS)
     _text(body["job_id"], "job_id", 160, min_len=1)
     as_of = _int(body["as_of_ns"], "as_of_ns", 0, MAX_TIME_NS)

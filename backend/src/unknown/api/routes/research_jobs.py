@@ -12,7 +12,9 @@ connection).
   POST /api/research/jobs                  body: see ``unknown.agents.submission``
   POST /api/research/jobs/<job_id>/cancel  body: {"reason": "..."} (optional)
 
-POSTs reach these handlers only with an authenticated owner session and its CSRF token.
+POSTs reach these handlers only with an authenticated owner session and its CSRF token. A submission's
+``instrument_ids`` are checked against the core's instrument master (read-only). The detail's
+``proposal_contract`` shows the typed fields of a research_proposal v2 and the label the core assigned.
 """
 from __future__ import annotations
 
@@ -59,6 +61,37 @@ def _recorded_proposal(conn: sqlite3.Connection, proposal_id: str | None) -> dic
     return {"proposal_id": row["proposal_id"], "author": row["author"], **json.loads(row["row"])}
 
 
+def _contract_view(proposal: dict | None, recorded: dict | None) -> dict | None:
+    """The typed fields of the job's proposal for the terminal (research_proposal v2): the as-of instant, the
+    instrument and entity ids, the observation window, the evidence references and the forecast. The label is
+    the one the core assigned when it recorded the proposal (None until then, and for version 1)."""
+    if not isinstance(proposal, dict):
+        return None
+    version = proposal.get("schema_version")
+    view = {"schema_version": version, "label": (recorded or {}).get("label"), "abstain": proposal.get("abstain")}
+    if version != 2:
+        return {**view, "typed": False, "note": "version 1: free-text evidence, no instrument ids or timestamps"}
+    return {**view, "typed": True, "as_of_ns": proposal.get("as_of_ns"), "instrument_ids": proposal.get("instrument_ids"),
+            "entity_ids": proposal.get("entity_ids"), "observation_window": proposal.get("observation_window"),
+            "horizon_seconds": proposal.get("horizon_seconds"), "evidence": proposal.get("evidence"),
+            "claims": proposal.get("claims"), "forecast": proposal.get("forecast")}
+
+
+def _instrument_checker(ctx):
+    """Membership in the core's instrument master, read through a read-only connection; None without a core
+    database (a request naming instruments is then refused)."""
+    if not ctx.db_path.exists():
+        return None
+
+    def known(instrument_id: str) -> bool:
+        conn = ctx.ro()
+        try:
+            return conn.execute("SELECT 1 FROM instruments WHERE instrument_id = ?", (instrument_id,)).fetchone() is not None
+        finally:
+            conn.close()
+    return known
+
+
 def _detail(ctx, store: JobStore, job_id: str, conn: sqlite3.Connection) -> dict:
     job = store.get(job_id)
     if job is None:
@@ -71,6 +104,7 @@ def _detail(ctx, store: JobStore, job_id: str, conn: sqlite3.Connection) -> dict
         trail.close()
     core_result = job.get("core_result") or {}
     inputs = job["inputs"]
+    recorded = _recorded_proposal(conn, (core_result.get("body") or {}).get("proposal_id"))
     return {
         "job": {k: v for k, v in job.items() if k not in _BULKY},
         "request": inputs.get("request"),
@@ -79,7 +113,8 @@ def _detail(ctx, store: JobStore, job_id: str, conn: sqlite3.Connection) -> dict
         "envelope": job["envelope"],
         "proposal": job["proposal"],
         "core_result": job["core_result"],
-        "recorded_proposal": _recorded_proposal(conn, (core_result.get("body") or {}).get("proposal_id")),
+        "recorded_proposal": recorded,
+        "proposal_contract": _contract_view(job["proposal"], recorded),
         "events": store.events(job_id),
         "audit": audit,
         "audit_chain": {"ok": not problems, "problems": problems[:20]},
@@ -103,7 +138,7 @@ def _submit(ctx, store: JobStore, body: dict) -> dict:
         raise RouteConflict(f"the owner policy is invalid: {exc}") from None
     try:
         env, inputs = build_research_job(body, policy=policy, research_path=research_store_path(ctx.paths.root),
-                                         now_ns=_now())
+                                         now_ns=_now(), instrument_known=_instrument_checker(ctx))
     except SubmissionRefused as exc:
         raise RouteConflict(str(exc)) from None
     try:

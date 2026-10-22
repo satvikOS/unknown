@@ -11,7 +11,10 @@ Request fields (unknown fields are refused):
   question           required, 1..4000 characters
   role               default "research"
   issuer_ids         up to 5 PIT entity ids or tickers known to the research store (optional)
-  fields             XBRL concepts (taxonomy:Concept); default ``pit_evidence.DEFAULT_FIELDS``
+  instrument_ids     up to 20 internal instrument ids (optional). Each must be in the core's instrument master:
+                     checked here through ``instrument_known`` and again by the core when it records the
+                     proposal. They are named in the task text, so they are part of the input hashes.
+  fields            XBRL concepts (taxonomy:Concept); default ``pit_evidence.DEFAULT_FIELDS``
   max_output_tokens  default 8000, 256..32000
   deadline_seconds   default 3600, 60..86400 (covers queueing and running)
   horizon_seconds    default 7776000 (90 days), 1..31536000
@@ -20,11 +23,12 @@ Request fields (unknown fields are refused):
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from ..data.pit import ResearchStore
 from ..domain.canonical import sha256_hex
 from ..domain.fixed import Fixed
+from ..domain.ids import InvalidIdentifier, validate_id
 from ..domain.money import Money
 from .config import OwnerPolicy
 from .envelope import ROLE_RE, EnvelopeError, JobEnvelope
@@ -34,8 +38,9 @@ from .prompts import PROMPT_TEMPLATE_HASH
 
 OUTPUT_SCHEMA = "research_answer"
 SCHEMA_VERSION = 1
-REQUEST_FIELDS = frozenset({"question", "role", "issuer_ids", "fields", "max_output_tokens", "deadline_seconds",
-                            "horizon_seconds", "spend_cap"})
+REQUEST_FIELDS = frozenset({"question", "role", "issuer_ids", "instrument_ids", "fields", "max_output_tokens",
+                            "deadline_seconds", "horizon_seconds", "spend_cap"})
+MAX_INSTRUMENTS = 20
 DEFAULTS = {"role": "research", "max_output_tokens": 8000, "deadline_seconds": 3600, "horizon_seconds": 7_776_000}
 LIMITS = {"max_output_tokens": (256, 32_000), "deadline_seconds": (60, 86_400), "horizon_seconds": (1, 31_536_000)}
 MAX_TURNS = 4          # one answer, one truncation retry, two transient-error retries
@@ -65,8 +70,32 @@ def _int(body: Mapping[str, Any], name: str) -> int:
     return value
 
 
+def instrument_ids(body: Mapping[str, Any], instrument_known: Callable[[str], bool] | None) -> list[str]:
+    """The request's instrument ids, each checked against the core's instrument master (``instrument_known``).
+    With no master to check against, a request that names instruments is refused, never accepted unchecked."""
+    raw = body.get("instrument_ids", [])
+    if not isinstance(raw, list) or len(raw) > MAX_INSTRUMENTS:
+        raise SubmissionError(f"instrument_ids must be a list of at most {MAX_INSTRUMENTS} instrument ids")
+    out: list[str] = []
+    for v in raw:
+        try:
+            validate_id(v, "instrument id")
+        except InvalidIdentifier as exc:
+            raise SubmissionError(str(exc)) from None
+        if v in out:
+            raise SubmissionError(f"instrument id {v} is listed twice")
+        out.append(v)
+    if out and instrument_known is None:
+        raise SubmissionRefused("instrument_ids cannot be checked: the core's instrument master is not available")
+    unknown = [v for v in out if not instrument_known(v)]
+    if unknown:
+        raise SubmissionError(f"not in the instrument master: {unknown}; register the instrument first")
+    return out
+
+
 def build_research_job(body: Mapping[str, Any], *, policy: OwnerPolicy | None, research_path: Path, now_ns: int,
-                       job_id: str | None = None) -> tuple[JobEnvelope, dict]:
+                       job_id: str | None = None,
+                       instrument_known: Callable[[str], bool] | None = None) -> tuple[JobEnvelope, dict]:
     if not isinstance(body, Mapping):
         raise SubmissionError("request must be a JSON object")
     unknown = set(body) - REQUEST_FIELDS
@@ -98,6 +127,7 @@ def build_research_job(body: Mapping[str, Any], *, policy: OwnerPolicy | None, r
             raise SubmissionError("spend_cap must be positive")
         if cap > per_job:
             raise SubmissionError(f"spend_cap {cap} exceeds the owner's per-job cap {per_job}; a job cannot raise it")
+    instruments = instrument_ids(body, instrument_known)
     issuers = body.get("issuer_ids") or []
     fields = body.get("fields")
     if fields is not None and not issuers:
@@ -116,7 +146,7 @@ def build_research_job(body: Mapping[str, Any], *, policy: OwnerPolicy | None, r
             raise SubmissionError(str(exc)) from None
         finally:
             store.close()
-    task = task_text(question, sel, evidence)
+    task = task_text(question, sel, evidence, instruments)
     task_hash = sha256_hex(task)
     try:
         env = JobEnvelope(
@@ -133,7 +163,7 @@ def build_research_job(body: Mapping[str, Any], *, policy: OwnerPolicy | None, r
         "task_hash": task_hash,
         "horizon_seconds": horizon,
         "max_output_tokens": max_out,
-        "request": {"question": question, "role": role, "issuer_ids": list(issuers),
+        "request": {"question": question, "role": role, "issuer_ids": list(issuers), "instrument_ids": instruments,
                     "fields": list(fields) if fields is not None else None},
         "evidence": {"selection": sel.to_dict() if sel else None, "spans": evidence.manifest()},
     }

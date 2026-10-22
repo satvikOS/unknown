@@ -26,7 +26,7 @@ from unknown.domain.clock import ManualClock, utc_ns
 from unknown.domain.fixed import Fixed
 from unknown.domain.money import Money
 
-T0 = utc_ns(2026, 10, 23, 14, 0, 0)
+T0 = utc_ns(2026, 10, 22, 14, 0, 0)
 MODEL = "claude-opus-5-5"
 SECOND = 1_000_000_000
 
@@ -220,10 +220,16 @@ def deps_kwargs(tmp: Path, clock: ManualClock, *, owner_policy="default", adapte
         estimate=(pol.estimate if pol else parse_owner_policy(owner_doc()).estimate))
 
 
+SPAN_OBSERVED = T0 - 30 * 86_400 * SECOND      # fixture: the fact's period end
+SPAN_AVAILABLE = T0 - 7 * 86_400 * SECOND       # fixture: when the filing became available
+
+
 def spans():
+    """One span with typed provenance (research_proposal v2): a document span of a fixture filing."""
     from unknown.agents.evidence import EvidenceSpan
     return (EvidenceSpan("span-1", "doc-1", "fixture.public", "Fixture Industries 10-K. Total revenue was $1,000,000 for fiscal 2025.",
-                         content_hash=sha("span-1")),)
+                         content_hash=sha("span-1"), ref_type="document_span", ref_id="doc-1#p12",
+                         observed_ns=SPAN_OBSERVED, available_ns=SPAN_AVAILABLE),)
 
 
 def facts():
