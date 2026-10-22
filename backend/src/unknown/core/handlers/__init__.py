@@ -11,6 +11,7 @@ HANDLERS = {
     "release_execution_ownership": admin.release_execution_ownership,
     "authorize_capital": admin.authorize_capital,
     "deauthorize_capital": admin.deauthorize_capital,
+    "broker_admin_action": admin.broker_admin_action,
     # sessions
     "create_session": sessions.create_session,
     "amend_session_request": sessions.amend_session_request,

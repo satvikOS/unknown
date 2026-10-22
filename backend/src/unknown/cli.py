@@ -5,6 +5,9 @@
   python -m unknown.cli status --account SIM-1
   python -m unknown.cli stop --account SIM-1 --reason "owner emergency"
   python -m unknown.cli bootstrap-sim --account SIM-1 --deployment mac-dev
+  python -m unknown.cli alerts
+  python -m unknown.cli broker-admin --account IBKR-PAPER-1 clear-entry-block SHORT_SALE_SIGNAL --note "..."
+  python -m unknown.cli broker-admin --account IBKR-PAPER-1 ack-history-gap 2026-10-20 --note "..."
 
 ``stop`` goes through the core socket. If the core is not running, nothing in
 this system is sending orders, but orders already resting at the broker remain:
@@ -20,7 +23,7 @@ import sys
 import time
 from pathlib import Path
 
-from .api.auth import write_owner_record
+from .api.auth import verify_passphrase, write_owner_record
 from .service.ipc import CoreClient
 from .service.paths import Paths
 
@@ -50,6 +53,12 @@ def main(argv: list[str] | None = None) -> int:
     bs.add_argument("--account", required=True)
     bs.add_argument("--deployment", required=True)
     bs.add_argument("--authorize", default="300.00")
+    sub.add_parser("alerts", help="broker adapter anomalies and latched entry blocks")
+    ba = sub.add_parser("broker-admin", help="owner action on broker adapter state (needs the passphrase)")
+    ba.add_argument("--account", required=True)
+    ba.add_argument("action", choices=["clear-entry-block", "ack-history-gap"])
+    ba.add_argument("value", help="entry-block name, or the YYYY-MM-DD day reconciled from statements")
+    ba.add_argument("--note", required=True)
     args = ap.parse_args(argv)
     paths = Paths(Path(args.home).expanduser()) if args.home else Paths.default()
 
@@ -78,7 +87,31 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if r["accepted"] else 1
     if args.cmd == "bootstrap-sim":
         return _bootstrap_sim(client, args)
+    if args.cmd == "alerts":
+        print(json.dumps(client.query("broker_alerts"), indent=2, default=str))
+        return 0
+    if args.cmd == "broker-admin":
+        auth_ns = _reauthenticate(paths)
+        if auth_ns is None:
+            print("invalid passphrase", file=sys.stderr)
+            return 1
+        payload = {"account_key": args.account, "note": args.note}
+        if args.action == "clear-entry-block":
+            payload.update(action="clear_entry_block", name=args.value)
+        else:
+            payload.update(action="acknowledge_history_gap", through_day=args.value)
+        r = client.command(f"cli.broker_admin.{secrets.token_hex(8)}", "broker_admin_action", payload, _owner(auth_ns))
+        print(json.dumps(r, indent=2, default=str))
+        return 0 if r["accepted"] else 1
     return 1
+
+
+def _reauthenticate(paths: Paths) -> int | None:
+    """Owner step-up for sensitive CLI actions: verify the passphrase against the stored scrypt record."""
+    record = json.loads((paths.secrets / "owner.json").read_text())
+    if not verify_passphrase(getpass.getpass("Owner passphrase: "), record):
+        return None
+    return time.time_ns()
 
 
 def _bootstrap_sim(client: CoreClient, args) -> int:

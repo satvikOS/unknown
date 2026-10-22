@@ -31,7 +31,7 @@ OWNER_ONLY = frozenset({
     "register_account", "publish_policy", "activate_policy", "acquire_execution_ownership",
     "release_execution_ownership", "authorize_capital", "deauthorize_capital", "create_session",
     "cancel_session", "suspend_session", "resume_session", "end_session", "start", "resolve_exception",
-    "accept_fee_estimate", "register_instrument", "amend_session_request", "submit_intent",
+    "accept_fee_estimate", "register_instrument", "amend_session_request", "submit_intent", "broker_admin_action",
 })
 SYSTEM_ONLY = frozenset({
     "process_started", "outbox_begin", "outbox_result", "broker_order_status", "broker_execution",

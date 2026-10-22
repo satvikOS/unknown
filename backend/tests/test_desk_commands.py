@@ -41,7 +41,7 @@ OWNER_KINDS = frozenset({
     "acquire_execution_ownership", "release_execution_ownership", "authorize_capital", "deauthorize_capital",
     "create_session", "amend_session_request", "cancel_session", "start_session", "suspend_session",
     "resume_session", "end_session", "submit_intent", "request_cancel", "stop", "start", "resolve_exception",
-    "accept_fee_estimate", "submit_research_proposal",
+    "accept_fee_estimate", "submit_research_proposal", "broker_admin_action",
 })
 SYSTEM_KINDS = frozenset({
     "process_started", "outbox_begin", "outbox_result", "broker_order_status", "broker_execution",

@@ -3,7 +3,10 @@ execution ownership, capital authorization, process start (ADR-0007/0010/0011)."
 from __future__ import annotations
 
 import json
+import re
+from datetime import date
 
+from ...domain.calendar import local_date
 from ...domain.errors import Rejected
 from ...domain.fixed import Fixed
 from ...domain.ids import validate_id
@@ -258,3 +261,46 @@ def process_started(ctx: Context, p: dict) -> dict:
     if not accounts:
         ctx.emit("ProcessStarted", {"epoch": ctx.epoch, "restored": restored})
     return {"epoch": ctx.epoch, "accounts": touched, "restored": restored}
+
+
+BROKER_ADMIN_ACTIONS = ("clear_entry_block", "acknowledge_history_gap")
+_BLOCK_NAME = re.compile(r"^[A-Z][A-Z0-9_]{0,63}\Z")
+
+
+def broker_admin_action(ctx: Context, p: dict) -> dict:
+    """An owner instruction to the broker adapter that the port cannot carry: clear a latched adapter entry
+    block (e.g. IBKR SHORT_SALE_SIGNAL) or attest that executions up to a day were reconciled from statements.
+    The core records it with fresh owner authentication; the service applies it to the adapter only after
+    the record commits, and never on a duplicate (ADR-0012)."""
+    key = p.get("account_key")
+    state.account(ctx.tx, key)
+    action = p.get("action")
+    if action not in BROKER_ADMIN_ACTIONS:
+        raise Rejected("INVALID_FIELD", f"action must be one of {', '.join(BROKER_ADMIN_ACTIONS)}")
+    note = p.get("note")
+    if not isinstance(note, str) or not note.strip() or len(note) > 2000:
+        raise Rejected("NOTE_REQUIRED", "a broker administration action requires an explanatory note (<= 2000 chars)")
+    policy = state.active_policy(ctx.tx, key)
+    auth = ctx.principal.authenticated_at_ns
+    if auth is None or ctx.now_ns - auth > policy.limits.reauth_max_age_s * 1_000_000_000:
+        raise Rejected("OWNER_REAUTHENTICATION_REQUIRED", "re-authenticate before changing broker adapter state")
+    changes: dict = {}
+    if action == "clear_entry_block":
+        name = p.get("name")
+        if not isinstance(name, str) or not _BLOCK_NAME.match(name):
+            raise Rejected("INVALID_FIELD", "name must be an upper-case entry-block identifier")
+        args = {"name": name}
+    else:
+        try:
+            day = date.fromisoformat(p.get("through_day"))
+        except (TypeError, ValueError):
+            raise Rejected("INVALID_FIELD", "through_day must be YYYY-MM-DD") from None
+        if day > local_date(ctx.now_ns, policy.limits.risk_day_timezone):
+            raise Rejected("INVALID_FIELD", "through_day cannot be in the future")
+        args = {"through_day": day.isoformat()}
+        # The attested history must be confirmed against the broker again before new exposure.
+        changes["control"] = [control_update(ctx, key, needs_reconciliation=True)]
+    ctx.emit("BrokerAdminActionRecorded", {"action": action, "args": args, "note": note, "by": ctx.principal.id,
+                                           "note_on_effect": "applied to the adapter by the service after commit"},
+             changes, account_key=key)
+    return {"action": action, "args": args}

@@ -32,7 +32,8 @@ log = logging.getLogger("unknown.api")
 
 TERMINAL_KINDS = (OWNER_ONLY | SHARED_OWNER_SYSTEM | AGENT_ALLOWED) - {"process_started"}
 STEP_UP_KINDS = frozenset({"start", "publish_policy", "activate_policy", "authorize_capital", "deauthorize_capital",
-                           "acquire_execution_ownership", "release_execution_ownership", "resolve_exception"})
+                           "acquire_execution_ownership", "release_execution_ownership", "resolve_exception",
+                           "broker_admin_action"})
 STEP_UP_MAX_AGE_NS = 15 * 60 * 1_000_000_000
 COOKIE = "unk_session"
 SECURITY_HEADERS = {

@@ -101,7 +101,10 @@ class CoreService:
                 raise PermissionError(f"token may not assert role {role}")
             principal = Principal(str(p.get("id")), Role(role), p.get("authenticated_at_ns"))
             result = desk.execute(Command(req["command_id"], req["kind"], principal, req.get("payload") or {}))
-            return {"accepted": result.accepted, "duplicate": result.duplicate, "body": result.body, "events": result.events}
+            body = result.body
+            if req["kind"] == "broker_admin_action" and result.accepted and not result.duplicate:
+                body = {**body, "adapter": self._apply_broker_admin(body, principal.id)}
+            return {"accepted": result.accepted, "duplicate": result.duplicate, "body": body, "events": result.events}
         if req.get("op") == "query":
             name = req.get("name")
             if name == "health":
@@ -121,8 +124,29 @@ class CoreService:
                 return {"blockers": blockers, "evidence": evidence, "stop_progress": progress}
             if name == "quotes":
                 return {k: q.to_json(self.clock.now_ns()) for k, q in desk.quotes.snapshot().items()}
+            if name == "broker_alerts":
+                anomalies = getattr(self.broker, "anomalies", None)
+                blocks = getattr(self.broker, "entry_blocks", None)
+                return {"anomalies": anomalies() if anomalies else [], "entry_blocks": blocks() if blocks else {}}
             raise ValueError(f"unknown query {name}")
         raise ValueError("op must be command or query")
+
+    def _apply_broker_admin(self, body: dict, by: str) -> dict:
+        """Apply an owner broker-admin action that the core has just recorded (never on a duplicate)."""
+        action, args = body["action"], body["args"]
+        fn = getattr(self.broker, action, None)
+        if fn is None:
+            return {"applied": False, "reason": f"this broker adapter has no {action}"}
+        note = f"core-recorded owner action ({by})"
+        try:
+            if action == "clear_entry_block":
+                return {"applied": bool(fn(args["name"], by=by, note=note))}
+            from datetime import date
+            fn(date.fromisoformat(args["through_day"]), by=by, note=note)
+            return {"applied": True}
+        except Exception as exc:
+            log.exception("broker admin action %s failed", action)
+            return {"applied": False, "reason": f"{type(exc).__name__}: {exc}"}
 
     # ---------------------------------------------------------------- loop
     def _drain_requests(self, budget: int = 50) -> None:
