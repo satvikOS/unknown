@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "checked_on": "2026-10-22",
+  "comment": "Provider data-use, retention, training and residency facts for the data-use gate (ADR-0016 section 6; CAP-MODEL-09, CAP-MODEL-10, CAP-MODEL-04 rights). Values are transcribed from the verified capability records (register verified 2026-10-22); each provider lists its record ids and source pages. retention_days null = not recorded/unbounded, which blocks any artifact whose owner ceiling is finite. Master API terms of OpenAI, Anthropic and xAI were not fetched (CAP-MODEL-09 open question): confirm contractual wording before production. Legal-hold and flagged-content retention exceptions exist for every provider and are not modelled as the default.",
+  "providers": {
+    "openai": {
+      "records": ["CAP-MODEL-09", "CAP-MODEL-10", "CAP-MODEL-04"],
+      "sources": ["https://developers.openai.com/api/docs/guides/your-data"],
+      "training": {"rule": "off_unless_opt_in", "account_fact": "training_opt_in", "required_value": false,
+                   "basis": "API data is not used to train or improve OpenAI models unless the customer opts in."},
+      "paid_tier_required": false,
+      "features": {
+        "generate": {"retention_days": 30, "zdr_retention_days": null,
+                     "basis": "Abuse monitoring logs up to 30 days for all API usage; the Responses API keeps 30-day application state by default and the adapter sends store=false. Effective retention under ZDR/MAM is not recorded."},
+        "count_tokens": {"same_as": "generate", "basis": "Retention for counting calls is not stated; treat as the provider default (CAP-MODEL-04)."},
+        "batch": {"retention_days": null, "zdr_retention_days": null,
+                  "basis": "Batches are not ZDR-eligible; output files are deleted 30 days after completion; input files are kept until deleted."}
+      },
+      "regions": {
+        "global": {"processing": "unspecified", "storage": "unspecified"},
+        "us": {"processing": "us", "storage": "us", "note": "Regional processing endpoint us.api.openai.com."},
+        "eu": {"processing": "eu", "storage": "eu", "requires_account_fact": "zdr_enabled",
+               "note": "eu.api.openai.com; requires ZDR, Modified Abuse Monitoring, Private Retention with PSP, or Safety Retention."}
+      },
+      "storage_only_regions": ["australia", "canada", "japan", "india", "singapore", "south_korea", "uk"]
+    },
+    "anthropic": {
+      "records": ["CAP-MODEL-09", "CAP-MODEL-10", "CAP-MODEL-04"],
+      "sources": ["https://platform.claude.com/docs/en/manage-claude/api-and-data-retention",
+                  "https://platform.claude.com/docs/en/manage-claude/data-residency"],
+      "training": {"rule": "off_unless_permission", "account_fact": "training_permission_granted", "required_value": false,
+                   "basis": "Retained data is never used for training without express permission."},
+      "paid_tier_required": false,
+      "features": {
+        "generate": {"retention_days": 0, "covered_model_retention_days": 30,
+                     "basis": "Conversation content is not retained by default; Covered Models require 30-day retention."},
+        "count_tokens": {"same_as": "generate", "basis": "Token counting is ZDR-eligible, excluding Covered Models."},
+        "batch": {"retention_days": 29, "basis": "Batch is not ZDR-eligible (29-day retention)."}
+      },
+      "covered_models": {
+        "display_names": ["Claude Fable 5.1", "Claude Mythos 5.1", "Claude Fable 5", "Claude Mythos 5"],
+        "model_ids": ["claude-fable-5-1", "claude-mythos-5-1", "claude-fable-5"],
+        "note": "Display names from CAP-MODEL-09; ids from the Claude API reference model table. The Mythos 5 id is not recorded."
+      },
+      "non_covered_model_ids": ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5", "claude-opus-4-8"],
+      "fallback_targets": {
+        "model_ids": ["claude-opus-4-8", "claude-opus-5"],
+        "note": "Supported server-side refusal-fallback targets per the Claude API reference ('expansion expected'). Used to bound the worst-case cost of a fallback attempt; a response served by any other model is booked at its reservation and flagged."
+      },
+      "regions": {
+        "global": {"processing": "unspecified", "storage": "us", "inference_geo": "global"},
+        "us": {"processing": "us", "storage": "us", "inference_geo": "us"}
+      }
+    },
+    "xai": {
+      "records": ["CAP-MODEL-09", "CAP-MODEL-10"],
+      "sources": ["https://docs.x.ai/developers/faq/security", "https://docs.x.ai/developers/advanced-api-usage/regions"],
+      "training": {"rule": "off_unless_permission", "account_fact": "training_permission_granted", "required_value": false,
+                   "basis": "Never trains on API inputs or outputs without explicit permission."},
+      "paid_tier_required": false,
+      "features": {
+        "generate": {"retention_days": 30, "zdr_retention_days": 0,
+                     "basis": "Stored encrypted for 30 days for auditing; ZDR (team admin toggle or sales) removes it."},
+        "count_tokens": {"same_as": "generate", "basis": "Retention for tokenize calls is not stated; treat as the provider default (CAP-MODEL-04)."},
+        "batch": {"retention_days": null, "zdr_available": false, "basis": "Batch API is unavailable under ZDR."}
+      },
+      "regions": {
+        "global": {"processing": "unspecified", "storage": "unspecified", "note": "https://api.x.ai: no guaranteed processing location."},
+        "us": {"processing": "us", "storage": "unspecified", "models": ["grok-4.7", "grok-4.6"],
+               "note": "https://us.api.x.ai/v1 serves only the listed models; a regional endpoint is not by itself a comprehensive residency guarantee."}
+      }
+    },
+    "gemini": {
+      "records": ["CAP-MODEL-09", "CAP-MODEL-10"],
+      "sources": ["https://ai.google.dev/gemini-api/terms", "https://ai.google.dev/gemini-api/docs/interactions"],
+      "training": {"rule": "paid_tier_only", "account_fact": "paid_tier", "required_value": true,
+                   "basis": "Unpaid Services content may be used to improve products and read by human reviewers; Paid Services prompts and responses are not used to improve products."},
+      "paid_tier_required": true,
+      "features": {
+        "generate": {"retention_days": null,
+                     "basis": "Paid tier: logged for a limited period for abuse detection (period not quantified, CAP-MODEL-09 open question); Interactions stored 55 days unless store=false, which the adapter always sends."},
+        "count_tokens": {"same_as": "generate", "basis": "Not stated; treat as the provider default (CAP-MODEL-04)."},
+        "batch": {"retention_days": null, "basis": "Not recorded."}
+      },
+      "regions": {
+        "global": {"processing": "unspecified", "storage": "unspecified",
+                   "note": "Logged data may be stored transiently or cached in any country where Google or its agents maintain facilities."}
+      }
+    }
+  }
+}
