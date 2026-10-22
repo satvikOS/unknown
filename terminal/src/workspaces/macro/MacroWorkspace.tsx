@@ -236,7 +236,8 @@ function CurvePanel({
   );
 }
 
-function CurveTable({ c, k }: { c: CurveResponse; k: CurveResponse | null }) {
+/** Par yields of the curve date, with the comparison date's value for every tenor (also where the main curve has none). */
+export function CurveTable({ c, k }: { c: CurveResponse; k: CurveResponse | null }) {
   const other = new Map((k?.points ?? []).map((p) => [p.tenor, p]));
   return (
     <div className="rx-table-wrap rx-gap">
@@ -283,16 +284,23 @@ function CurveTable({ c, k }: { c: CurveResponse; k: CurveResponse | null }) {
               </td>
             </tr>
           ))}
-          {(c.missing_tenors ?? []).map((t) => (
-            <tr key={`missing-${t}`}>
-              <th scope="row" className="mono">
-                {t}
-              </th>
-              <td colSpan={k ? 6 : 5} className="muted">
-                missing on {c.curve_date} (not published or not available at as of); not interpolated
-              </td>
-            </tr>
-          ))}
+          {(c.missing_tenors ?? []).map((t) => {
+            const kp = other.get(t);
+            return (
+              <tr key={`missing-${t}`}>
+                <th scope="row" className="mono">
+                  {t}
+                </th>
+                <td className="num">{kp?.years ?? ''}</td>
+                <td className="muted">missing</td>
+                {k ? <td className="num">{kp?.value_pct ?? <span className="muted">missing</span>}</td> : null}
+                <td colSpan={3} className="muted">
+                  missing on {c.curve_date} (not published or not available at as of); not interpolated
+                  {kp ? ` · ${k!.curve_date}: obs ${kp.obs_id}` : ''}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
