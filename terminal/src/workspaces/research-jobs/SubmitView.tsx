@@ -4,7 +4,7 @@
  * API answers), and refuses to send until the owner acknowledges the spend. Nothing here calls a model:
  * the API only writes the job store, and the owner's model worker decides whether the job runs.
  */
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { describeError, encodePathSegment } from '../../api/client';
 import { formatMoney } from '../../format/decimal';
 import { useQuery } from '../../state/react';
@@ -47,12 +47,22 @@ function described(field: FormField, error: string | undefined, hint: boolean): 
   return ids.length ? ids.join(' ') : undefined;
 }
 
-/** The cap and spend of the most recent job, as the API recorded them (the only caps visible before submitting). */
-function RecentCap() {
+/**
+ * The cap and spend of the most recent job, as the API recorded them (the only caps visible before
+ * submitting). The job store is outside the event log, so the parent bumps `version` after a submit.
+ */
+function RecentCap({ version }: { version: number }) {
   const list = usePluginQuery<unknown>('/api/research/jobs', { limit: 1 });
   const latest = list.data === undefined ? null : (parseJobList(list.data)?.[0] ?? null);
   const detailQ = usePluginQuery<unknown>(latest ? `/api/research/jobs/${encodePathSegment(latest.job_id)}` : null);
   const detail = detailQ.data === undefined ? null : parseDetail(detailQ.data);
+  const { refetch: refetchList } = list;
+  const { refetch: refetchDetail } = detailQ;
+  useEffect(() => {
+    if (version === 0) return;
+    refetchList();
+    refetchDetail();
+  }, [version, refetchList, refetchDetail]);
   if (list.status === 'success' && !latest) return <li>No job has been queued on this machine yet, so the API has not reported a cap.</li>;
   if (!detail?.envelope?.spend_cap) return null;
   const cap = detail.envelope.spend_cap;
@@ -120,6 +130,7 @@ export function SubmitView() {
   const [sending, setSending] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [result, setResult] = useState<SubmitResponse | null>(null);
+  const [submits, setSubmits] = useState(0);
   const [pick, setPick] = useState('');
 
   const set = <K extends FormField>(k: K, v: SubmitForm[K]) => {
@@ -146,6 +157,7 @@ export function SubmitView() {
       if (!parsed) setRefusal('The API answered, but not with a job record; check the job list before submitting again.');
       else {
         setResult(parsed);
+        setSubmits((n) => n + 1);
         setForm({ ...EMPTY_FORM });
       }
     } catch (err) {
@@ -381,7 +393,7 @@ export function SubmitView() {
               </p>
               <ul style={{ margin: 0, paddingLeft: 18 }}>
                 <li>The default cap is the owner's per-job cap. This terminal cannot read it before submitting; the API reports each job's cap once queued.</li>
-                <RecentCap />
+                <RecentCap version={submits} />
                 <li>A duplicate of a queued, running or succeeded job (same question and evidence within 24 hours) returns that job instead of spending again.</li>
                 <li>Cancel stops a queued job at once and a running job at its next turn boundary.</li>
               </ul>
