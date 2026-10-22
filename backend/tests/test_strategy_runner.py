@@ -68,11 +68,22 @@ CLOCK_UTC = dtime(21, 30)
 INSTRUMENTS = ("FIX-EQ-1", "FIX-EQ-2")
 
 
-def runtime_spec(instruments=INSTRUMENTS):
-    """TREND_DAILY_V1 as specified, with a minimum order notional that fits the 100.00 fixture session."""
+def runtime_spec(instruments=INSTRUMENTS, *, collar_bps: int = 50, loss_fraction: str = "1"):
+    """TREND_DAILY_V1 as specified, with a minimum order notional that fits the 100.00 fixture session and (by default)
+    a risk budget of the whole session, so the BR-DAT-04 risk term does not bind on it: these tests exercise the
+    runtime's mechanics. ``tests/test_strategy_risk_window.py`` runs the spec's own 3% budget against a real core."""
     body = json.loads(json.dumps(trend_spec(list(instruments), DEV, HOLD).body))
     body["rules"]["sizing"]["min_order_notional"] = "10"
+    body["rules"]["sizing"]["risk_budget"]["loss_fraction_of_equity"] = loss_fraction
+    body["rules"]["execution"]["submission_window"]["collar_bps"] = collar_bps
     return parse_spec(body)
+
+
+def window_clock(day: date) -> int:
+    """15:00 UTC on the execution session of ``day``'s decisions: inside its FIXTURE submission window (14:45-20:45
+    UTC, BR-DAT-19) and before that session's own decision instant, so ``day`` is still the latest eligible session."""
+    exec_date = WEEKDAYS_ONLY.add_business_days(day, 1)
+    return utc_ns(exec_date.year, exec_date.month, exec_date.day, 15, 0)
 
 
 class ResearchFixture:
@@ -535,9 +546,13 @@ class ExcludedInstrumentKeepsItsShareOfTheCapTest(unittest.TestCase):
         from unknown.strategy.coreview import CoreSnapshot
         held, mark3 = Fixed(3100), Fixed.parse("9.96")          # FIX-EQ-3: held, last visible close 9.96 (D-1)
         cash = Fixed.parse("68000")
+        # the active policy's fee model (simulated-default.v1): the BR-DAT-04 risk term needs one to size any buy
+        from unknown.policy.model import FeeModel
+        from unknown.domain.money import Money
+        fees = FeeModel(Fixed.parse("0.005"), Money("USD", Fixed.parse("1.00")), 100, 2000, "TEST FIXTURE", "test")
         snap = CoreSnapshot(ACCOUNT, "SIMULATED", "S1", "RUNNING", "p" * 64, "USD", 6,
                             {i: fixture_instrument(i) for i in self.INSTS}, {"FIX-EQ-3": Holding(owned=held, unreserved=held)},
-                            cash, cash, None)
+                            cash, cash, fees)
         r = StrategyRunner(RunnerConfig(self.art.artifact_id, ACCOUNT, "live", self.paths), clock=ManualClock(self.t))
         self.addCleanup(r.close)
         _, deadline = execution_window(self.DAY, WEEKDAYS_ONLY, CLOCK_UTC, 1)
@@ -563,6 +578,8 @@ class RealCoreCase(unittest.TestCase):
     LISTED: tuple[str, ...] = ()        # registry handles (set up by subclasses) whose ids the mandate lists
     LAST_CLOSE = {"FIX-EQ-1": 1000, "FIX-EQ-2": 4200}     # cents; the FIXTURE market's mids are 10.00 and 42.00
     STALE: tuple[str, ...] = ()        # instruments whose bar for the eligible session is missing
+    COLLAR_BPS = 50                    # the spec's transmission collar (BR-DAT-19)
+    LOSS_FRACTION = "1"                # the spec's risk budget (BR-DAT-04); "1" does not bind on a 100.00 session
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -571,9 +588,12 @@ class RealCoreCase(unittest.TestCase):
         self.paths = Paths(self.root)
         self.paths.ensure()
         self.now = stable_now()
-        self.clock = ManualClock(self.now)        # the runner's clock; the core runs on the system clock
         self.day = latest_eligible_session(self.now, WEEKDAYS_ONLY, CLOCK_UTC)
-        self.rf = ResearchFixture(self.root / "research" / "experiments.sqlite", runtime_spec())
+        # The runner's clock, inside the submission window of the session after ``day`` (BR-DAT-19: intents are
+        # transmitted there, not at the decision); the core runs on the system clock.
+        self.clock = ManualClock(window_clock(self.day))
+        self.rf = ResearchFixture(self.root / "research" / "experiments.sqlite",
+                                  runtime_spec(collar_bps=self.COLLAR_BPS, loss_fraction=self.LOSS_FRACTION))
         self.addCleanup(self.rf.close)
         self.ids: dict[str, str] = {}
         self.hashes: dict[str, str] = {}
@@ -699,7 +719,11 @@ class RealCoreCase(unittest.TestCase):
 
 class LiveRunnerTest(RealCoreCase):
     LISTED = ("A",)
-    LAST_CLOSE = {"FIX-EQ-1": 1000, "FIX-EQ-2": 4400}     # FIX-EQ-2's limit (44.22) is outside the 1% price collar
+    LAST_CLOSE = {"FIX-EQ-1": 1000, "FIX-EQ-2": 4400}     # FIX-EQ-2's model bound (44.22) is far above the 42.00 mid
+    # A transmission collar of 2% (wider than the policy's 1% price collar), so FIX-EQ-2 is sent at min(44.22, 42.84)
+    # = 42.84 and the core's PRICE_COLLAR rejection path stays exercised. With the spec's own 50 bps it would be sent
+    # at 42.21 and accepted (tests/test_strategy_risk_window.py).
+    COLLAR_BPS = 200
 
     def make_artifacts(self) -> None:
         self.add("A", "10", "paper")      # listed in the session mandate
@@ -830,6 +854,9 @@ class CrashingClient:
             self.crashed = True
             raise Crash()
         return result
+
+    def query(self, name, **args):
+        return self.inner.query(name, **args)
 
 
 class CrashResumeTest(RealCoreCase):

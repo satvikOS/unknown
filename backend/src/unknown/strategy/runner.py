@@ -47,12 +47,15 @@ from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from ..core.state import TERMINAL_ORDER_STATES
 from ..domain.calendar import WEEKDAYS_ONLY, BusinessCalendar, SessionTimeUnknown
 from ..domain.clock import NS_PER_S, Clock, SystemClock
 from ..domain.fixed import Fixed, Rounding
 from ..research.bars import Bar, BarSeries, Cursor, DatasetView, load_series
 from ..research.common import float_to_fixed, stable_hash
 from ..research.engine import DecisionContext, Sizing, StrategyDecision
+from ..research.execution import (FIXTURE_SESSION_BASIS, SessionHoursUnknown, SubmissionWindow, WindowTimes,
+                                  transmission_limit, window_times)
 from ..research.registry import ResearchRegistry
 from ..research.spec import StrategySpec
 from ..research.strategies import build
@@ -61,8 +64,8 @@ from ..service.paths import Paths
 from . import artifacts
 from .artifacts import ArtifactRefused, LoadedArtifact
 from .coreview import CoreSnapshot, CoreUnavailable, CoreView
-from .journal import FINAL, Journal, decision_ids
-from .sizing import Holding, InstrumentPlan, plan
+from .journal import FINAL, Journal, cancel_command_id, decision_ids
+from .sizing import Holding, InstrumentPlan, RiskTerm, plan
 
 log = logging.getLogger("unknown.strategy")
 
@@ -110,15 +113,50 @@ def _session_close_ns(calendar: BusinessCalendar, day: date) -> int | None:
 
 
 def execution_window(session_date: date, calendar: BusinessCalendar, clock_utc: time, delay: int) -> tuple[date, int]:
-    """(execution session, intent deadline). The deadline is the end of the execution session when the calendar
-    knows its hours, and never later than that session's own decision instant, so an intent cannot outlive the
-    next decision."""
+    """(execution session, latest possible deadline): the end of the execution session when the calendar knows its
+    hours, and never later than that session's own decision instant, so an intent cannot outlive the next decision.
+    The intent's deadline is tighter: the end of its submission window (``submission_window``)."""
     exec_date = calendar.add_business_days(session_date, delay)
     deadline = decision_instant(exec_date, clock_utc)
     close = _session_close_ns(calendar, exec_date)
     if close is not None and close < deadline:
         deadline = close
     return exec_date, deadline
+
+
+def submission_window(spec: StrategySpec, session_date: date, calendar: BusinessCalendar, *,
+                      fixture: bool) -> tuple[date, WindowTimes]:
+    """(execution session, its submission window) for the decisions of ``session_date`` (BR-DAT-19): the spec's
+    [open + N, close - M] of the next regular session, placed by ``research.execution.window_times``, the function
+    the backtest uses. ``SessionHoursUnknown`` when the calendar has no hours and the data is not a FIXTURE."""
+    exec_date = calendar.add_business_days(session_date, spec.execution["execution_delay_sessions"])
+    window = SubmissionWindow.from_spec(spec)
+    if window is None:
+        raise ArtifactRefused("SPEC_SCHEMA_V1", "the spec declares no submission window")
+    return exec_date, window_times(window, calendar, exec_date, fixture=fixture)
+
+
+def quote_reference(quote: dict | None, *, max_age_ms: int | None, account_mode: str) -> tuple[Fixed | None, str]:
+    """(mid, "") for a fresh, validated quote from the core's ``quotes`` query, else (None, why). The checks are the
+    core's own (``risk.pretrade``): present, live (not delayed or frozen), two-sided and not crossed, younger than
+    the policy's ``quote_max_age_ms``, and consolidated on a LIVE account."""
+    if quote is None:
+        return None, "NO_QUOTE"
+    if quote.get("delayed") or quote.get("market_data_type") not in ("live", "unreported"):
+        return None, f"QUOTE_NOT_LIVE ({quote.get('market_data_type')}, delayed={quote.get('delayed')})"
+    if account_mode == "LIVE" and quote.get("consolidation") != "consolidated":
+        return None, f"QUOTE_NOT_CONSOLIDATED ({quote.get('consolidation')})"
+    if max_age_ms is None:
+        return None, "NO_ACTIVE_POLICY (no quote age limit)"
+    if quote.get("age_ms") is None or quote["age_ms"] > max_age_ms:
+        return None, f"QUOTE_STALE (age {quote.get('age_ms')} ms > {max_age_ms} ms)"
+    if quote.get("bid") is None or quote.get("ask") is None:
+        return None, "QUOTE_NOT_TWO_SIDED"
+    bid, ask = Fixed.parse(quote["bid"]), Fixed.parse(quote["ask"])
+    if not bid.is_positive() or bid > ask:
+        return None, f"QUOTE_CROSSED_OR_EMPTY (bid {bid} ask {ask})"
+    # the core's mid (``market.quotes.Quote.mid``): half the sum at one more decimal, HALF_EVEN
+    return (bid + ask).div(2, max(bid.scale, ask.scale) + 1, Rounding.HALF_EVEN), ""
 
 
 # ------------------------------------------------------------- research code path
@@ -367,11 +405,17 @@ class StrategyRunner:
         if close is not None and t < close:
             raise RunnerError("DECISION_BEFORE_CLOSE", f"decision clock {spec.execution['decision_clock_utc']} UTC precedes "
                                                        f"the {day} close of {self.cfg.calendar.calendar_id}")
-        exec_date, deadline = execution_window(day, self.cfg.calendar, clock_utc, spec.execution["execution_delay_sessions"])
+        try:
+            exec_date, window = submission_window(spec, day, self.cfg.calendar, fixture=art.fixture_allowed)
+        except SessionHoursUnknown as exc:
+            raise RunnerError("SESSION_HOURS_UNKNOWN", str(exc)) from None
+        # BR-DAT-19: an intent lives until the end of its submission window (close - M), never past the next decision.
+        deadline = min(window.end_ns, decision_instant(exec_date, clock_utc))
         summary: dict[str, Any] = {
             "artifact_id": art.artifact_id, "artifact_hash": art.artifact_hash, "status": art.status, "mode": self.cfg.mode,
             "account_key": self.cfg.account_key, "session_date": day.isoformat(), "decision_ns": t,
-            "execution_date": exec_date.isoformat(), "deadline_ns": deadline, "runtime_code_hash": self.runtime_code,
+            "execution_date": exec_date.isoformat(), "deadline_ns": deadline, "window": window.to_json(),
+            "runtime_code_hash": self.runtime_code,
             "calendar": f"{self.cfg.calendar.calendar_id}@{self.cfg.calendar.version}", "instruments": {}, "result": "OK"}
 
         # Rows an earlier session left unfinished (a core outage or a crash that outlasted it) are finished first:
@@ -445,7 +489,7 @@ class StrategyRunner:
                 summary["reason"] = snap.reason or "no session"
                 log.warning("%s: no decision recorded for %s: %s", art.artifact_id, day, summary["reason"])
                 return self._finish(summary, todo)
-            rows = self._decide(art, day, t, deadline, now, snap, fresh, recovered)
+            rows = self._decide(art, day, t, deadline, now, snap, fresh, recovered, window=window)
             self.journal.plan(rows, now)
             todo += [self.journal.get(day, r["instrument_id"]) for r in rows]
         return self._finish(summary, todo)
@@ -460,9 +504,89 @@ class StrategyRunner:
                 log.error("core unreachable; %s %s stays %s for the next cycle: %s", row["session_date"], row["instrument_id"],
                           row["state"], exc)
                 self._put(summary, self.journal.get(date.fromisoformat(row["session_date"]), row["instrument_id"]))
-                break
+                return summary
             self._put(summary, row)
+        try:
+            cancels = self._cancel_at_window_end()
+        except CoreUnreachable as exc:
+            summary["result"] = "CORE_UNREACHABLE"
+            summary["reason"] = exc.message
+            log.error("core unreachable; window-end cancellations wait for the next cycle: %s", exc)
+            return summary
+        if cancels:
+            summary["window_cancels"] = cancels
         return summary
+
+    # ------------------------------------------------------- window and transmission (BR-DAT-19)
+    def _cancel_at_window_end(self) -> dict:
+        """Cancel the unfilled remainder of every accepted intent whose submission window has ended (the spec's
+        CANCEL_AT_WINDOW_END: a DAY order must not keep working into the closing auction, nor be carried over).
+        One deterministic ``request_cancel`` id per decision; an order already terminal is noted, not cancelled."""
+        now = self.clock.now_ns()
+        out = {}
+        for row in self.journal.open_intents():
+            window = row["detail"]["window"]
+            if now < window["end_ns"]:
+                continue
+            day, inst = date.fromisoformat(row["session_date"]), row["instrument_id"]
+            o = self._core_order(row["order_id"])
+            if o is None or o.get("principal_id") != row["artifact_id"]:
+                note = {"skipped": "the core holds no order of this artifact under this id"}
+            elif o["state"] in TERMINAL_ORDER_STATES:
+                note = {"skipped": f"order already {o['state']} at the window's end", "state": o["state"]}
+            else:
+                cid = cancel_command_id(row["artifact_id"], day, inst)
+                res = self._command(cid, "request_cancel", {"order_id": row["order_id"],
+                                                            "reason": "submission window ended (BR-DAT-19)"})
+                note = {"command_id": cid, "accepted": res["accepted"], "duplicate": bool(res.get("duplicate")),
+                        "body": res.get("body"), "state_before": o["state"]}
+                log.info("%s %s %s: window ended at %s; cancel %s %s", row["artifact_id"], day, inst, window["end_ns"],
+                         row["order_id"], "requested" if res["accepted"] else f"REFUSED {(res.get('body') or {}).get('code')}")
+            note["at_ns"] = now
+            self.journal.update(day, inst, now, detail={**row["detail"], "window_cancel": note})
+            out[f"{row['session_date']}|{inst}"] = note
+        return out
+
+    def _price(self, row: dict) -> dict | None:
+        """Set the intent's limit at transmission (BR-DAT-19): min(model bound, collar above a fresh validated quote's
+        mid) for a buy, max(model bound, collar below it) for a sell, by ``research.execution.transmission_limit``.
+        The priced payload is journaled before it is sent (write-ahead), so a resend after a crash is identical.
+        Returns the updated row, or None (still PLANNED) when no valid quote is available yet."""
+        detail = row["detail"] or {}
+        if detail.get("transmission") is not None or detail.get("window") is None:
+            return row                                         # priced already, or a row planned before windows existed
+        day, inst, sub = date.fromisoformat(row["session_date"]), row["instrument_id"], row["submit_payload"]
+        try:
+            quotes = self.client().query("quotes")
+        except (IpcError, OSError) as exc:
+            raise CoreUnreachable("CORE_UNREACHABLE", f"quotes for {inst}: {type(exc).__name__}: {exc}") from None
+        try:
+            instrument, max_age, mode = self.core.transmission_context(self.cfg.account_key, inst)
+        except (CoreUnavailable, sqlite3.Error) as exc:
+            raise CoreUnreachable("CORE_DB_UNAVAILABLE", str(exc)) from None
+        now = self.clock.now_ns()
+        mid, why = quote_reference(quotes.get(inst), max_age_ms=max_age, account_mode=mode)
+        if mid is None or instrument is None:
+            why = why or "INSTRUMENT_NOT_REGISTERED"
+            self.journal.update(day, inst, now, detail={**detail, "pricing_refusal": {"at_ns": now, "why": why}})
+            log.warning("%s %s %s: not transmitted yet: %s", row["artifact_id"], day, inst, why)
+            return None
+        bound = Fixed.parse(detail["model_bound"])
+        collar = int(detail["collar_bps"])
+        limit = transmission_limit(sub["side"], bound, mid, collar, instrument)
+        q = quotes[inst]
+        priced = {**sub, "limit_price": limit.to_str()}
+        record = {"at_ns": now, "model_bound": bound.to_str(), "reference_mid": mid.to_str(), "bid": q.get("bid"),
+                  "ask": q.get("ask"), "quote_age_ms": q.get("age_ms"), "quote_source": q.get("source"),
+                  "collar_bps": collar, "limit": limit.to_str(), "rule": "execution.window.br-dat-19@1"}
+        relation = "min" if sub["side"] == "BUY" else "max"
+        sign = "+" if sub["side"] == "BUY" else "-"
+        decision = {**row["decision_payload"],
+                    "reason": _join(f"TRANSMITTED in the window: limit {limit} = {relation}(model bound {bound}, mid {mid} "
+                                    f"{sign} {collar} bps)", row["decision_payload"].get("reason", ""))}
+        self.journal.update(day, inst, now, submit_payload=priced, decision_payload=decision,
+                            detail={**detail, "transmission": record})
+        return self.journal.get(day, inst)
 
     def _put(self, summary: dict, row: dict) -> None:
         """A row of the decided session goes under ``instruments``; a row carried over from an earlier session under
@@ -474,8 +598,14 @@ class StrategyRunner:
 
     # ------------------------------------------------------------- decisions
     def _decide(self, art: LoadedArtifact, day: date, t: int, deadline: int, now: int, snap: CoreSnapshot,
-                fresh: list[str], recovered: dict[str, dict]) -> list[dict]:
+                fresh: list[str], recovered: dict[str, dict], *, window: WindowTimes | None = None) -> list[dict]:
         spec = art.spec
+        if window is None:
+            try:
+                _, window = submission_window(spec, day, self.cfg.calendar, fixture=art.fixture_allowed)
+            except SessionHoursUnknown as exc:
+                raise RunnerError("SESSION_HOURS_UNKNOWN", str(exc)) from None
+        deadline = min(deadline, window.end_ns)
         from ..data.pit import ResearchStore
         try:
             store = ResearchStore.open_readonly(self.cfg.research_path)
@@ -512,6 +642,10 @@ class StrategyRunner:
                 d.outcome, d.reason = "BLOCKED", "FIXTURE_DATA_NOT_ALLOWED by the spec's data requirements"
             elif any(b.fixture for b in bars) and snap.account_mode != "SIMULATED":
                 d.outcome, d.reason = "BLOCKED", f"FIXTURE_DATA_ON_{snap.account_mode}_ACCOUNT: synthetic bars never drive this account"
+            elif window.basis == FIXTURE_SESSION_BASIS and not all(b.fixture for b in bars):
+                d.outcome, d.reason = "BLOCKED", (f"SESSION_HOURS_UNKNOWN: {self.cfg.calendar.calendar_id} has no session "
+                                                  "hours, and only FIXTURE data may use the fixture session convention "
+                                                  "to place the submission window; run with the venue calendar")
             elif decision.orders:
                 d.outcome, d.reason = "BLOCKED", "EXPLICIT_ORDERS_NOT_SUPPORTED by the runtime (target weights only)"
             else:
@@ -527,11 +661,17 @@ class StrategyRunner:
         fixture = any(b.fixture for bars in visible.values() for b in bars)
         if tradable:
             marks = {i: (visible[i][-1].close if visible.get(i) else None) for i in spec.instrument_ids}
+            # BR-DAT-04: the risk term prices entry and exit fees with the core's reservation function under the
+            # active policy's fee model (``risk.fees.envelope``); the backtest prices them the same way.
+            risk = RiskTerm.from_spec(spec, snap.fees)
+            if risk is not None and snap.currency:
+                risk = RiskTerm(risk.loss_fraction_of_equity, risk.adverse_move_fraction, risk.cost_fraction, risk.fee_model,
+                                snap.currency)
             plans, plan_notes = plan(targets, sizing=sizing, limit_offset_bps=spec.execution["limit_offset_bps"],
                                      equity=snap.equity(marks), marks=marks, holdings=snap.holdings,
                                      instruments={i: snap.instruments[i] for i in tradable}, budget=snap.available_cash,
                                      fee_envelope=snap.fee_envelope, adv={i: _adv(visible.get(i, []), sizing.adv_window) for i in tradable},
-                                     ledger_scale=snap.ledger_scale, tradable=tradable)
+                                     ledger_scale=snap.ledger_scale, tradable=tradable, risk=risk)
         else:
             plans, plan_notes = {}, {}
         for i in eligible:
@@ -547,6 +687,8 @@ class StrategyRunner:
             d.detail = {"target_weight": p.target_weight.to_str() if p.target_weight is not None else None,
                         "current_weight": p.current_weight.to_str() if p.current_weight is not None else None,
                         "equity": plan_notes.get("equity"), "budget": plan_notes.get("budget")}
+            if p.risk is not None:
+                d.detail["risk"] = p.risk
             if p.order is None:
                 d.reason = _join(text, p.note, "FIXTURE data" if fixture else "")
                 continue
@@ -557,11 +699,20 @@ class StrategyRunner:
             elif now >= deadline:
                 d.outcome = "BLOCKED"
                 d.reason = _join(f"RUNNER_LATE: intent deadline passed before submission; would {what}", text)
+            elif window.empty:
+                d.outcome = "BLOCKED"
+                d.reason = _join(f"NO_SUBMISSION_WINDOW: the {window.session_date} session is shorter than the spec's open "
+                                 f"and close offsets; would {what}", text)
             else:
                 d.outcome, d.order = "INTENT", o
                 d.reason = _join(text, p.note, "FIXTURE data" if fixture else "")
+                # BR-DAT-19: sent inside [open + N, close - M] of the execution session, its limit set at transmission
+                d.detail.update({"window": window.to_json(), "model_bound": o.limit_price.to_str(),
+                                 "collar_bps": spec.submission_window["collar_bps"]})
         rows = []
         for i in fresh:
+            if i in recovered:          # the core holds this decision's intent: its remainder is cancelled at window end
+                decisions[i].detail = {**decisions[i].detail, "window": window.to_json()}
             rows.append(self._row(art, day, t, deadline, snap, decisions[i], recovered.get(i)))
         return rows
 
@@ -649,8 +800,16 @@ class StrategyRunner:
                 # Planned by a live run, now executed by a runner the owner started in shadow mode: never sent.
                 self._withhold(row, "MODE_CHANGED", f"planned by a {row['mode']} run; this runner runs in {self.cfg.mode} mode")
             elif sub is not None and self.clock.now_ns() >= sub["deadline_ns"]:
-                self._withhold(row, "RUNNER_LATE", "the intent deadline passed before the core took it")
+                refusal = (row["detail"] or {}).get("pricing_refusal")
+                self._withhold(row, "RUNNER_LATE", "the intent deadline passed before the core took it"
+                               + (f" (last transmission attempt: {refusal['why']})" if refusal else ""))
+            elif sub is not None and self.clock.now_ns() < ((row["detail"] or {}).get("window") or {}).get("start_ns", 0):
+                return row          # BR-DAT-19: waits for its submission window (open + N of the execution session)
             elif sub is not None:
+                priced = self._price(row)
+                if priced is None:
+                    return self.journal.get(day, inst)     # no valid quote yet: still PLANNED, retried next cycle
+                row = priced
                 res = self._command(row["submit_command_id"], "submit_intent", row["submit_payload"])
                 decision = self._finalize(row["decision_payload"], res, row["order_id"])
                 self.journal.update(day, inst, self.clock.now_ns(), state="SUBMITTED", submit_result=res, decision_payload=decision)
@@ -708,6 +867,14 @@ class StrategyRunner:
                "core_refusal": (dec.get("body") or {}).get("code") if dec and not dec.get("accepted") else None,
                "submit_rejection": (sub.get("body") or {}).get("code") if sub and not sub.get("accepted") else None,
                "recovered": bool((row.get("detail") or {}).get("recovered"))}
+        detail = row.get("detail") or {}
+        if row["state"] == "PLANNED" and row.get("submit_payload") is not None:
+            # still to be transmitted: before the window opens, or no valid quote yet (BR-DAT-19)
+            out["waiting"] = "PRICING" if detail.get("pricing_refusal") else "WINDOW"
+        if detail.get("transmission"):
+            out["transmission"] = detail["transmission"]
+        if detail.get("window_cancel"):
+            out["window_cancel"] = detail["window_cancel"]
         return out
 
     # ------------------------------------------------------------------- loop

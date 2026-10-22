@@ -26,7 +26,8 @@ A runner loads the artifact from the research registry (read-only) on every cycl
 * the artifact has not expired (``expires_on``);
 * the code that would run is the code that was registered: the bundle's ``code_hash`` equals
   ``research.manifest.code_hash()`` of this checkout (research/, domain/, data/pit.py);
-* an implementation exists for the spec and it reads exactly one daily point-in-time dataset.
+* an implementation exists for the spec, the spec is schema v2 (it declares the submission window, the risk budget
+  and the feature validity windows the runtime applies) and it reads exactly one daily point-in-time dataset.
 
 ``shadow`` is a status of the research registry (``research.promotion``): the owner approves it, or the SYSTEM promotes
 a validated artifact inside an owner-approved envelope (``PromotionService.auto_shadow``). Shadow mode needs ``shadow``
@@ -159,6 +160,11 @@ def load(registry: ResearchRegistry, aid: str, *, mode: str, today: date, code_h
                                             f"checkout's {running[:16]}...: the code that would run is not the code that was evaluated")
     if spec.strategy_id not in STRATEGIES:
         raise ArtifactRefused("NO_IMPLEMENTATION", f"no runtime implementation for {spec.strategy_id}")
+    if spec.schema_version < 2:
+        # A v1 spec declares no submission window (BR-DAT-19), no risk budget (BR-DAT-04) and no feature validity
+        # windows (BR-DAT-18): the runtime would have to invent its execution, sizing and feature rules.
+        raise ArtifactRefused("SPEC_SCHEMA_V1", f"{aid} is a schema v1 spec: the runner needs v2 (submission window, "
+                                                "risk budget, feature validity windows); register a v2 spec")
     reqs = spec.body["data_requirements"]
     daily = [d for d in reqs if d["frequency"] == "DAILY"]
     if len(reqs) != 1 or len(daily) != 1:

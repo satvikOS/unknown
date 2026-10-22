@@ -150,6 +150,25 @@ class CoreView:
                 conn.rollback()
             conn.close()
 
+    def transmission_context(self, account_key: str, instrument_id: str) -> tuple[Instrument | None, int | None, str]:
+        """(instrument, the active policy's quote_max_age_ms, account mode) for pricing an intent at transmission."""
+        conn = self._open()
+        try:
+            tx = Tx(conn)
+            try:
+                mode = state.account(tx, account_key)["mode"]
+            except Rejected as exc:
+                raise CoreUnavailable(f"{exc.code}: {account_key}") from None
+            try:
+                max_age = state.active_policy(tx, account_key).limits.quote_max_age_ms
+            except Rejected:
+                max_age = None
+            return state.instrument(tx, instrument_id), max_age, mode
+        finally:
+            if conn.in_transaction:
+                conn.rollback()
+            conn.close()
+
     def order(self, order_id: str) -> dict | None:
         """The core's order row, or None."""
         conn = self._open()
