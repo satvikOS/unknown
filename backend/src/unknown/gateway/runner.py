@@ -111,6 +111,7 @@ class GatewayRunner:
         self.desk.run_system("session_tick", {"account_key": self.account_key})
 
     def last_watermark(self) -> str | None:
+        # The last CLEAN run recorded, by insertion order: wall time can step back (review finding 51).
         r = self.desk.store.query("SELECT row FROM reconciliations WHERE account_key=? AND status='CLEAN' "
-                                  "ORDER BY completed_at_ns DESC, rowid DESC LIMIT 1", (self.account_key,))
+                                  "ORDER BY rowid DESC LIMIT 1", (self.account_key,))
         return json.loads(r[0]["row"]).get("watermark") if r else None

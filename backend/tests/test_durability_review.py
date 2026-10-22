@@ -9,6 +9,8 @@ Findings covered (numbers from the review's confirmed list):
 * 16 (first part) - an observation that leaves working SELL holds above the
   shares owned opens a blocking EXECUTION_ANOMALY naming the owner, instead of
   the owner-less ledger-invariant alarm;
+* 51 - the latest reconciliation is the last one recorded, not the one with the
+  largest wall-clock time;
 * 53 - only an OPEN *blocking* case in the *same account* excuses an owner.
 
 Every number is a TEST FIXTURE. The broker is the deterministic SimulatedBroker.
@@ -25,11 +27,12 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from support import ACCOUNT, Harness, load_policy  # noqa: E402
+from support import ACCOUNT, T0, Harness, load_policy  # noqa: E402
 from test_replay_randomized import Scenario  # noqa: E402
 
 from unknown.core import desk as desk_module  # noqa: E402
-from unknown.core import ledger  # noqa: E402
+from unknown.core import ledger, state  # noqa: E402
+from unknown.domain.clock import ManualClock  # noqa: E402
 from unknown.domain.errors import InvariantViolation  # noqa: E402
 from unknown.domain.fixed import Fixed  # noqa: E402
 from unknown.store import db as db_module  # noqa: E402
@@ -468,6 +471,66 @@ class CoverageTest(unittest.TestCase):
         self.check("session:A", "QUANTITY", INST, expected, [(ACCOUNT, False)], True)
         self.check("session:A", "QUANTITY", INST, expected, [("SIM-2", True)], True)
         self.check("session:A", "QUANTITY", INST, expected, [(ACCOUNT, True)], False)
+
+
+# ============================================================ finding 51
+class SteppingClock(ManualClock):
+    """A wall clock that an NTP correction can step backwards (monotonic time still only advances)."""
+
+    def step_back(self, ns: int) -> None:
+        self._now -= ns
+
+
+class ReconciliationOrderTest(unittest.TestCase):
+    """Review finding 51: the latest reconciliation is the last one recorded, whatever the wall clock says."""
+
+    def setUp(self):
+        self.clock = SteppingClock(T0)
+        self.h = Harness(clock=self.clock)
+        running_session(self.h)
+
+    def tearDown(self):
+        self.h.close()
+
+    def test_a_clock_step_back_does_not_resurrect_an_older_clean_run(self):
+        """REC-01, ADR-0010, review finding 51: CLEAN at T+60 s, then the wall clock steps back 10 minutes and
+        a run made while the broker is disconnected is INCOMPLETE. The latest run is the INCOMPLETE one (the
+        green-start gate must see it), although the CLEAN run carries the larger completed_at_ns."""
+        h = self.h
+        h.clock.advance(60 * NS)
+        clean = h.reconcile()
+        self.assertEqual(clean.body["status"], "CLEAN")
+        self.clock.step_back(600 * NS)
+        h.broker.disconnect()
+        incomplete = h.reconcile()
+        self.assertEqual(incomplete.body["status"], "INCOMPLETE")
+        runs = {r["run_id"]: r for r in (json.loads(x["row"]) for x in h.desk.store.query("SELECT row FROM reconciliations"))}
+        self.assertGreater(runs[clean.body["run_id"]]["completed_at_ns"], runs[incomplete.body["run_id"]]["completed_at_ns"])
+        with h.desk.store.read() as tx:
+            latest = state.latest_reconciliation(tx, ACCOUNT)
+        self.assertEqual((latest["run_id"], latest["status"]), (incomplete.body["run_id"], "INCOMPLETE"))
+
+    def test_the_execution_watermark_comes_from_the_last_clean_run(self):
+        """REC-01, review finding 51: two CLEAN runs with a clock step back between them; the next
+        reconciliation asks the broker for executions after the LATER run's watermark."""
+        h = self.h
+        self.assertTrue(h.intent("B1", "BUY", "2", "10.00", "A").accepted)
+        h.pump()
+        h.broker.fill("B1", F("1"), F("10.00"))
+        h.pump()
+        h.clock.advance(60 * NS)
+        first = h.reconcile()
+        self.assertEqual(first.body["status"], "CLEAN")
+        self.clock.step_back(600 * NS)
+        h.broker.fill("B1", F("1"), F("10.00"))
+        h.pump()
+        second = h.reconcile()
+        self.assertEqual(second.body["status"], "CLEAN", second.body)
+        marks = {r["run_id"]: r.get("watermark") for r in
+                 (json.loads(x["row"]) for x in h.desk.store.query("SELECT row FROM reconciliations"))}
+        self.assertNotEqual(marks[first.body["run_id"]], marks[second.body["run_id"]])
+        self.assertEqual(h.runner.last_watermark(), marks[second.body["run_id"]])
+        self.assertEqual(h.verify(), [])
 
 
 if __name__ == "__main__":
