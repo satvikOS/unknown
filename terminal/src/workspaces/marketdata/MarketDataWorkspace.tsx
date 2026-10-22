@@ -366,7 +366,7 @@ export function MarketDataWorkspace({ route, navigate }: WorkspaceProps) {
         ),
     },
     { id: 'state', header: 'Quote state', cell: (s) => s.quote_state ?? <span className="muted">—</span> },
-    { id: 'age', header: 'Last tick', numeric: true, description: 'Receipt-time age of the latest tick when the status was written', cell: (s) => (s.age_ms !== null ? formatAge(s.age_ms) : '—'), sortValue: (s) => s.age_ms ?? -1, sortKind: 'number' },
+    { id: 'age', header: 'Tick age at write', numeric: true, description: 'Receipt-time age of the latest tick when the session wrote the status file (see the file age above)', cell: (s) => (s.age_ms !== null ? formatAge(s.age_ms) : '—'), sortValue: (s) => s.age_ms ?? -1, sortKind: 'number' },
     { id: 'ticks', header: 'Ticks', numeric: true, cell: (s) => s.ticks ?? 0, sortValue: (s) => s.ticks ?? 0, sortKind: 'number' },
   ];
 
