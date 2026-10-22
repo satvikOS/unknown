@@ -542,42 +542,55 @@ class Worker:
             self._delivery_errors[jid] = error
         log.warning("proposal of job %s not delivered (attempt %d): %s; kept and retried", jid, n, error)
 
-    # ------------------------------------------------------------------ readiness (no network)
     def readiness(self) -> list[tuple[bool, str]]:
-        """What a live job needs on this machine, checked locally (never prints a key)."""
-        out: list[tuple[bool, str]] = []
-        policy, problem = self._load_policy()
-        out.append((policy is not None, f"owner policy {self.policy_path}: "
-                    + ("present" if policy is not None else (problem or "absent (paid calls disabled)"))))
-        cfg = policy.provider("anthropic") if policy is not None else None
-        out.append((bool(cfg and cfg.enabled), "providers.anthropic enabled" if cfg and cfg.enabled else "providers.anthropic not enabled"))
-        if cfg is not None:
-            try:
-                key_ok = resolve_api_key(cfg, environ=self.environ, secrets_dir=self.paths.secrets) is not None
-                key_msg = "API key available" if key_ok else (f"no API key: set {cfg.api_key_env} or write "
-                                                             f"{self.paths.secrets / (cfg.api_key_file or 'anthropic_api_key')} (mode 600)")
-            except OwnerPolicyError as exc:
-                key_ok, key_msg = False, f"API key file refused: {exc}"
-            out.append((key_ok, key_msg))
-        out.append((importlib.util.find_spec("anthropic") is not None, "anthropic SDK importable in this interpreter"))
+        return readiness(self.paths, models_dir=self.models_dir, environ=self.environ, now_ns=self.clock.now_ns())
+
+
+def readiness(paths: Paths, *, models_dir: Path | None = None, environ: Mapping[str, str] | None = None,
+              now_ns: int | None = None) -> list[tuple[bool, str]]:
+    """What a live research job needs on this machine, checked locally: no network call, no file written,
+    and the key is only tested for presence, never printed."""
+    models_dir = Path(models_dir) if models_dir else CONFIG_MODELS
+    environ = os.environ if environ is None else environ
+    now_ns = time.time_ns() if now_ns is None else now_ns
+    policy_path = default_policy_path(paths.root)
+    out: list[tuple[bool, str]] = []
+    try:
+        policy, problem = load_owner_policy(policy_path), None
+    except (OwnerPolicyError, OSError, ValueError) as exc:
+        policy, problem = None, f"invalid: {exc}"
+    out.append((policy is not None, f"owner policy {policy_path}: "
+                + ("present" if policy is not None else (problem or "absent (paid model calls are disabled)"))))
+    cfg = policy.provider("anthropic") if policy is not None else None
+    out.append((bool(cfg and cfg.enabled), "providers.anthropic enabled" if cfg and cfg.enabled else "providers.anthropic not enabled"))
+    if cfg is not None:
         try:
-            approvals = load_approvals(self.models_dir / "approved.json")
-            research = [a for a in approvals if a.provider == "anthropic" and "research" in a.roles]
-            out.append((bool(research), f"approved.json: {len(research)} anthropic model(s) approved for role 'research'"))
-        except (CatalogError, OSError, ValueError) as exc:
-            out.append((False, f"approved.json invalid: {exc}"))
-        if cfg is not None and cfg.default_model:
-            try:
-                ok = TariffBook.load(self.models_dir / "tariffs.json").is_routable("anthropic", cfg.default_model,
-                                                                                   at_ns=self.clock.now_ns())
-            except (TariffError, OSError, ValueError) as exc:
-                ok = False
-            out.append((ok, f"tariff row for the default model {'approved' if ok else 'missing or not approved'}"))
-        token = self.paths.secrets / "agent_token"
-        out.append((token.exists(), f"agent token {token} " + ("present" if token.exists() else "missing: run python -m unknown.cli init")))
-        out.append((self.research_path.exists(), f"research store {self.research_path} "
-                    + ("present" if self.research_path.exists() else "missing (questions without issuer_ids still run)")))
-        return out
+            key_ok = resolve_api_key(cfg, environ=environ, secrets_dir=paths.secrets) is not None
+            key_msg = "API key available" if key_ok else (f"no API key: set {cfg.api_key_env} for the worker or write "
+                                                         f"{paths.secrets / (cfg.api_key_file or 'anthropic_api_key')} (mode 600)")
+        except OwnerPolicyError as exc:
+            key_ok, key_msg = False, f"API key file refused: {exc}"
+        out.append((key_ok, key_msg))
+    out.append((importlib.util.find_spec("anthropic") is not None,
+                "anthropic SDK importable in this interpreter (use the agents venv: backend/requirements-agents.txt)"))
+    try:
+        approvals = load_approvals(models_dir / "approved.json")
+        research = sorted(a.model_id for a in approvals if a.provider == "anthropic" and "research" in a.roles)
+        out.append((bool(research), f"approved.json: anthropic models approved for role 'research': {research or 'none'}"))
+    except (CatalogError, OSError, ValueError) as exc:
+        out.append((False, f"approved.json invalid: {exc}"))
+    if cfg is not None and cfg.default_model:
+        try:
+            ok = TariffBook.load(models_dir / "tariffs.json").is_routable("anthropic", cfg.default_model, at_ns=now_ns)
+        except (TariffError, OSError, ValueError):
+            ok = False
+        out.append((ok, f"tariff row for {cfg.default_model}: {'owner-approved' if ok else 'missing or not approved'}"))
+    token = paths.secrets / "agent_token"
+    out.append((token.exists(), f"agent token {token}: " + ("present" if token.exists() else "missing (the core creates it at start)")))
+    research_db = paths.root / "research" / "research.sqlite"
+    out.append((research_db.exists(), f"research store {research_db}: "
+                + ("present" if research_db.exists() else "missing (questions without issuer_ids still run)")))
+    return out
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -590,13 +603,12 @@ def main(argv: list[str] | None = None) -> None:
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     paths = Paths(Path(args.home).expanduser()) if args.home else Paths.default()
-    worker = Worker(paths, worker_id=args.worker_id)
     if args.check:
-        items = worker.readiness()
+        items = readiness(paths)
         for ok, text in items:
             print(("ok   " if ok else "MISS ") + text)
-        worker.close()
         raise SystemExit(0 if all(ok for ok, _ in items) else 1)
+    worker = Worker(paths, worker_id=args.worker_id)
     try:
         worker.start()
     except WorkerError as exc:

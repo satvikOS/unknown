@@ -13,6 +13,7 @@ import logging
 import os
 import shutil
 import sqlite3
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -28,7 +29,7 @@ from unknown.agents.common import CONFIG_MODELS  # noqa: E402
 from unknown.agents.jobstore import MAX_START_ATTEMPTS  # noqa: E402
 from unknown.agents.providers.anthropic import AnthropicAdapter  # noqa: E402
 from unknown.agents.submission import build_research_job  # noqa: E402
-from unknown.agents.worker import Worker, WorkerError  # noqa: E402
+from unknown.agents.worker import Worker, WorkerError, readiness  # noqa: E402
 from unknown.domain.canonical import content_hash  # noqa: E402
 from unknown.domain.fixed import Fixed  # noqa: E402
 from unknown.domain.money import Money  # noqa: E402
@@ -36,6 +37,7 @@ from unknown.service.ipc import IpcError  # noqa: E402
 from unknown.service.paths import Paths  # noqa: E402
 
 KEY_ENV = {"UNKNOWN_TEST_ANTHROPIC_KEY": "fixture-not-a-key"}
+SRC = Path(__file__).resolve().parents[1] / "src"
 FIELDS = ["us-gaap:Revenues", "us-gaap:Assets"]
 QUESTION = "Did Fixture Industries grow revenue in fiscal 2025?"
 
@@ -471,6 +473,25 @@ class WorkerFailsClosedTest(WorkerHarness, unittest.TestCase):
         generate = [r for r in self.ledger().reservations(jid) if r["purpose"] == "generate"]
         self.assertEqual([r["state"] for r in generate], ["UNCONFIRMED"])
         self.assertIn("worker_error", self.audit_kinds(w, jid))
+
+
+class WorkerReadinessTest(WorkerHarness, unittest.TestCase):
+    def test_check_lists_what_a_live_job_needs_without_side_effects(self):
+        items = readiness(self.paths, models_dir=self.models, environ={}, now_ns=self.clock.now_ns())
+        by_ok = {text.split(":")[0]: ok for ok, text in items}
+        self.assertTrue(by_ok[f"owner policy {self.home / 'config' / 'agents.json'}"])
+        self.assertFalse([ok for ok, text in items if text.startswith("no API key")][0])
+        self.assertTrue([ok for ok, text in items if text.startswith("approved.json")][0])
+        with_key = readiness(self.paths, models_dir=self.models, environ=KEY_ENV, now_ns=self.clock.now_ns())
+        self.assertIn((True, "API key available"), with_key)
+        self.assertFalse(any("fixture-not-a-key" in text for _, text in with_key))
+        self.assertFalse((self.home / "agents").exists())
+        out = subprocess.run([sys.executable, "-m", "unknown.agents.worker", "--check", "--home", str(self.home)],
+                             capture_output=True, text=True, timeout=120, cwd=str(SRC.parent),
+                             env={k: v for k, v in {**os.environ, "PYTHONPATH": str(SRC)}.items() if k != "ANTHROPIC_API_KEY"})
+        self.assertEqual(out.returncode, 1, out.stderr)                 # the repository's approved.json is empty
+        self.assertIn("MISS approved.json", out.stdout)
+        self.assertFalse((self.home / "agents").exists())
 
 
 class WorkerRecoveryTest(WorkerHarness, unittest.TestCase):
