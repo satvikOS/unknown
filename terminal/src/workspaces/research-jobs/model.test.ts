@@ -14,6 +14,7 @@ import {
   parseJobsRoute,
   parseSubmitResponse,
   proposalHeadline,
+  reasonSource,
   shortQuestion,
   spendUse,
   splitList,
@@ -129,6 +130,11 @@ describe('states, cancel and polling', () => {
     expect(stateExplanation({ state: 'QUEUED', cancel_requested: false, start_attempts: 0 })).toMatch(/nothing has been spent/);
     expect(stateExplanation({ state: 'RUNNING', cancel_requested: false, start_attempts: 1 })).toMatch(/may be spending money/);
     expect(stateExplanation({ state: 'QUEUED', cancel_requested: false, start_attempts: 2 })).toMatch(/2 start attempt/);
+  });
+
+  it('attributes a job reason to whoever wrote it, never to the model', () => {
+    expect(reasonSource({ outcome: 'cancelled_by_owner' })).toBe("the owner's cancel reason, not model text");
+    expect(reasonSource({ outcome: 'denied_by_policy' })).toBe('recorded by the worker or runner, not model text');
   });
 
   it('allows cancel only where the job store does', () => {

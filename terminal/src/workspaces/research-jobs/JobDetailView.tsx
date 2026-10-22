@@ -21,6 +21,7 @@ import {
   parseCancelResponse,
   parseDetail,
   proposalHeadline,
+  reasonSource,
   spendUse,
   stateExplanation,
   stateTone,
@@ -32,18 +33,7 @@ import {
 } from './model';
 import './jobs.css';
 
-function stable(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map(stable).join(',')}]`;
-  if (v && typeof v === 'object') {
-    return `{${Object.keys(v as Record<string, unknown>)
-      .sort()
-      .map((k) => `${JSON.stringify(k)}:${stable((v as Record<string, unknown>)[k])}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(v);
-}
-
-function ModelOutput({ p, context }: { p: Proposal; context: string }) {
+export function ModelOutput({ p, context }: { p: Proposal; context: string }) {
   return (
     <div className="rj-model" aria-label={`Model output: ${context}`} role="group">
       <div className="rj-model-head">
@@ -92,9 +82,9 @@ function ModelOutput({ p, context }: { p: Proposal; context: string }) {
   );
 }
 
-function ProposalPanel({ d }: { d: JobDetail }) {
+export function ProposalPanel({ d }: { d: JobDetail }) {
   const rec = d.recorded_proposal;
-  const same = rec?.body && d.proposal ? stable(rec.body) === stable(d.proposal) : null;
+  const same = rec ? rec.matches_job_output : null;
   let empty: string;
   switch (d.job.state) {
     case 'QUEUED':
@@ -282,7 +272,7 @@ function SpendPanel({ d }: { d: JobDetail }) {
         ) : null}
         <p className="rj-hint" style={{ margin: '8px 0 0' }}>
           Consumed follows the spend ledger: open and unconfirmed reservations count their reserved amount, settled ones their actual amount, released
-          ones nothing. Daily, monthly and lifetime owner caps also apply in the worker.
+          ones nothing. The owner's daily cap, and any monthly, lifetime, per-role or per-provider caps, also apply in the worker.
         </p>
       </div>
       {d.spend.reservations.length ? (
@@ -355,7 +345,7 @@ export function JobDetailView({ jobId }: { jobId: string }) {
                     <dt>Reason</dt>
                     <dd>
                       {d.job.reason ? <span className="rj-text">{d.job.reason}</span> : <span className="muted">—</span>}
-                      {d.job.reason ? <span className="rj-hint"> (recorded by the worker or runner, not model text)</span> : null}
+                      {d.job.reason ? <span className="rj-hint"> ({reasonSource(d.job)})</span> : null}
                     </dd>
                     <dt>Submitted</dt>
                     <dd>

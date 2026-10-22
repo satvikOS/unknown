@@ -388,8 +388,8 @@ export function SubmitView() {
             <div className="panel-body" id="rj-spend-note">
               <p style={{ marginTop: 0 }}>
                 <strong>A research job may spend money.</strong> When the owner's model worker runs it, the question and its evidence go to a paid model
-                provider. One job can spend up to its <em>spend cap</em>; the owner's daily, monthly and lifetime caps in <code>agents.json</code> also
-                apply.
+                provider. One job can spend up to its <em>spend cap</em>. The owner's daily cap, and any monthly, lifetime, per-role or per-provider caps in{' '}
+                <code>agents.json</code>, also apply.
               </p>
               <ul style={{ margin: 0, paddingLeft: 18 }}>
                 <li>The default cap is the owner's per-job cap. This terminal cannot read it before submitting; the API reports each job's cap once queued.</li>

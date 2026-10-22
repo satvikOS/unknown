@@ -117,6 +117,11 @@ export interface RecordedProposal {
   body: Proposal | null;
   missing_from_core_db: boolean;
   error: string | null;
+  /**
+   * Whether the body the core recorded is identical, field for field, to the job's output (both as the
+   * API returned them, not as parsed here). Null when either side is missing.
+   */
+  matches_job_output: boolean | null;
 }
 
 export interface JobEvent {
@@ -278,7 +283,19 @@ export function parseProposal(v: unknown): Proposal | null {
   };
 }
 
-function parseRecorded(v: unknown): RecordedProposal | null {
+/** Canonical JSON (sorted keys) for comparing two wire values exactly. */
+export function canonicalJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(',')}]`;
+  if (isRecord(v)) {
+    return `{${Object.keys(v)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonicalJson(v[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(v) ?? 'null';
+}
+
+function parseRecorded(v: unknown, jobOutput: unknown): RecordedProposal | null {
   if (!isRecord(v) || typeof v.proposal_id !== 'string') return null;
   return {
     proposal_id: v.proposal_id,
@@ -287,6 +304,7 @@ function parseRecorded(v: unknown): RecordedProposal | null {
     body: parseProposal(v.body),
     missing_from_core_db: v.missing_from_core_db === true,
     error: strOrNull(v.error),
+    matches_job_output: isRecord(v.body) && isRecord(jobOutput) ? canonicalJson(v.body) === canonicalJson(jobOutput) : null,
   };
 }
 
@@ -351,7 +369,7 @@ export function parseDetail(v: unknown): JobDetail | null {
     envelope: parseEnvelope(v.envelope),
     proposal: parseProposal(v.proposal),
     core_result: core,
-    recorded_proposal: parseRecorded(v.recorded_proposal),
+    recorded_proposal: parseRecorded(v.recorded_proposal, v.proposal),
     events: Array.isArray(v.events)
       ? v.events.filter(isRecord).map((e) => ({ seq: num(e.seq), kind: str(e.kind), at_ns: numOrNull(e.at_ns), detail: str(e.detail) }))
       : [],
@@ -404,6 +422,14 @@ export function stateExplanation(j: Pick<JobSummary, 'state' | 'cancel_requested
     default:
       return `State ${j.state} is not one this terminal knows.`;
   }
+}
+
+/**
+ * Who wrote a job's `reason`. It is never model text: an owner cancel stores the owner's own reason
+ * (jobstore.JobStore.cancel), and every other outcome stores the worker's or runner's reason.
+ */
+export function reasonSource(j: Pick<JobSummary, 'outcome'>): string {
+  return j.outcome === 'cancelled_by_owner' ? "the owner's cancel reason, not model text" : 'recorded by the worker or runner, not model text';
 }
 
 /** QUEUED cancels at once; RUNNING records a cancel request (jobstore.JobStore.cancel). */
