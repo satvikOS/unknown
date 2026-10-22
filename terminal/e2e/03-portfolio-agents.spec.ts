@@ -132,8 +132,8 @@ test('stress: a hypothetical overnight gap computed on a private copy of the cor
   if (s.thresholds.length) await expect(table.locator('tbody tr')).toHaveCount(s.thresholds.length);
   for (const t of s.thresholds) {
     const row = table.locator('tbody tr').filter({ hasText: t.threshold }).filter({ hasText: t.owner ? 'session:' : 'system' });
-    await expect(row.locator('td').nth(3), `${t.threshold} level`).toHaveText(`${money2(t.level)}USD`);
-    const crossed = row.locator('td').nth(7);
+    await expect(row.locator('td').nth(4), `${t.threshold} level`).toHaveText(`${money2(t.level)}USD`);
+    const crossed = row.locator('td').nth(2);
     if (t.crossed === false) await expect(crossed, `${t.threshold} crossed`).toHaveText('no');
     else await expect(crossed.locator('.pill-text'), `${t.threshold} crossed`).toHaveText(t.crossed ? 'crossed' : 'unknown');
   }

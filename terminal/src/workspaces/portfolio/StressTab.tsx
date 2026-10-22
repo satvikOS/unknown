@@ -188,17 +188,17 @@ function StressResult({ run, q, rerun, formulas }: { run: Run; q: OneShot<unknow
   const tCols: Column<ThresholdRow>[] = [
     { id: 't', header: 'Threshold', cell: (t) => t.threshold },
     { id: 'o', header: 'Owner', cell: (t) => (t.owner ? <OwnerName owner={t.owner} /> : <span className="muted">system</span>) },
+    { id: 'c', header: 'Crossed', cell: (t) => <CrossedCell t={t} /> },
     {
       id: 'm',
-      header: 'Compared with',
-      description: 'Session rows: equity after the scenario, crossed at or below the level. Account rows: the loss, crossed at or above the level.',
-      cell: (t) => (t.measure === 'equity' ? 'equity after (at or below)' : 'loss (at or above)'),
+      header: 'Crossed when',
+      description: 'Session rows: equity after the scenario at or below the level. Account rows: the loss at or above the level.',
+      cell: (t) => (t.measure === 'equity' ? 'equity ≤ level' : 'loss ≥ level'),
     },
     { id: 'l', header: 'Level', numeric: true, cell: (t) => <ThresholdAmount v={t.level} currency={t.currency} /> },
     { id: 'b', header: 'Before', numeric: true, description: 'Session equity, or system P&L for account rows (losses negative)', cell: (t) => <ThresholdAmount v={t.before} currency={t.currency} /> },
     { id: 'a', header: 'After', numeric: true, description: 'Session equity, or system P&L for account rows (losses negative)', cell: (t) => <ThresholdAmount v={t.after} currency={t.currency} /> },
     { id: 'loss', header: 'Loss', numeric: true, description: 'Account rows: the loss compared with the level', cell: (t) => <ThresholdAmount v={t.loss} currency={t.currency} /> },
-    { id: 'c', header: 'Crossed', cell: (t) => <CrossedCell t={t} /> },
     { id: 'x', header: 'Loss beyond', numeric: true, cell: (t) => <ThresholdAmount v={t.beyond} currency={t.currency} /> },
   ];
   const pCols: Column<Rec>[] = [
