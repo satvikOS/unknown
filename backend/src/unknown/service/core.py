@@ -152,6 +152,17 @@ class CoreService:
                 anomalies = getattr(self.broker, "anomalies", None)
                 blocks = getattr(self.broker, "entry_blocks", None)
                 return {"anomalies": anomalies() if anomalies else [], "entry_blocks": blocks() if blocks else {}}
+            if name == "command_result":
+                # Answered on the loop thread, after every request queued before it (the queue is FIFO), so
+                # "not found" here means the core never received the command or refused it before storing it.
+                if "OWNER" not in roles:
+                    raise PermissionError("command results require the owner token")
+                from ..api.queries import stored_command   # a primary-key read: cheap on the loop thread
+                args = req.get("args") or {}
+                with desk.store.read() as tx:
+                    found = stored_command(tx.conn, str(args.get("command_id")), principal_id=str(args.get("principal_id")),
+                                           principal_role="OWNER")
+                return {"found": found is not None, "command": found}
             raise ValueError(f"unknown query {name}")
         raise ValueError("op must be command or query")
 
