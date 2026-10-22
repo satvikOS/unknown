@@ -232,6 +232,21 @@ class ArtifactIdentityAndEligibilityTest(unittest.TestCase):
             artifacts.load(self.rf.reg, "trend@xyz", mode="shadow", today=self.today)
         self.assertEqual(cm.exception.code, "INVALID_ARTIFACT_ID")
 
+    def test_once_without_a_core_database_exits_core_unreachable(self):
+        """Review fix: a missing core database (or an account it does not know) escaped ``--once`` as a traceback
+        with exit code 1 instead of the documented 3."""
+        h, aid = self.rf.register()
+        self.rf.to_paper(h)
+        home = Path(self.tmp.name) / "home"
+        Paths(home).create_strategy_token(aid)
+        proc = subprocess.run([sys.executable, "-m", "unknown.strategy", "--home", str(home), "run", "--artifact", aid,
+                               "--account", ACCOUNT, "--mode", "shadow", "--once",
+                               "--registry", str(Path(self.tmp.name) / "experiments.sqlite")],
+                              env={**os.environ, "PYTHONPATH": str(SRC)}, capture_output=True, text=True, timeout=120)
+        self.assertEqual(proc.returncode, 3, proc.stderr)
+        self.assertIn("core unreachable: CORE_DB_UNAVAILABLE", proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+
     def test_status_gates_each_mode(self):
         expect = {"proposed": (False, False), "reproducible": (False, False), "validated": (False, False),
                   "shadow": (True, False), "paper": (True, True), "eligible": (True, True), "active": (True, True),

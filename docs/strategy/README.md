@@ -148,7 +148,7 @@ Exit codes for `--once`:
 |---|---|
 | 0 | Decisions handled. A JSON summary is printed. |
 | 2 | Refused: artifact, status, token, code drift or calendar. |
-| 3 | Core unreachable. |
+| 3 | Core unreachable: its socket, or its database (missing, unreadable, or without the account). |
 | 4 | No session to record into. |
 
 ## Not implemented / known limits

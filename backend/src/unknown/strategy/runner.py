@@ -40,6 +40,7 @@ import fcntl
 import logging
 import os
 import re
+import sqlite3
 import threading
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
@@ -59,7 +60,7 @@ from ..service.ipc import CoreClient, IpcError
 from ..service.paths import Paths
 from . import artifacts
 from .artifacts import ArtifactRefused, LoadedArtifact
-from .coreview import CoreSnapshot, CoreView
+from .coreview import CoreSnapshot, CoreUnavailable, CoreView
 from .journal import FINAL, Journal, decision_ids
 from .sizing import Holding, InstrumentPlan, plan
 
@@ -305,7 +306,7 @@ class StrategyRunner:
             return self.client().command(command_id, kind, payload, self._principal())
         except IpcError as exc:
             if "CommandConflict" in str(exc):
-                stored = self.core.commands([command_id]).get(command_id)
+                stored = self._core_commands([command_id]).get(command_id)
                 if stored is not None and self._own(stored):
                     # We already hold this id with another payload (only possible after the journal was lost and
                     # recovery raced the core): adopt our stored outcome, never resend.
@@ -319,6 +320,19 @@ class StrategyRunner:
             raise CoreUnreachable("CORE_ERROR", f"{kind} {command_id}: {exc}") from None
         except OSError as exc:
             raise CoreUnreachable("CORE_UNREACHABLE", f"{kind} {command_id}: {type(exc).__name__}: {exc}") from None
+
+    def _core_commands(self, command_ids: list[str]) -> dict[str, dict]:
+        """``CoreView.commands``; a missing or unreadable core database is ``CoreUnreachable`` (exit 3 for --once)."""
+        try:
+            return self.core.commands(command_ids)
+        except (CoreUnavailable, sqlite3.Error) as exc:
+            raise CoreUnreachable("CORE_DB_UNAVAILABLE", str(exc)) from None
+
+    def _core_snapshot(self, account_key: str, session_id: str | None, instrument_ids) -> CoreSnapshot:
+        try:
+            return self.core.snapshot(account_key, session_id, instrument_ids)
+        except (CoreUnavailable, sqlite3.Error) as exc:
+            raise CoreUnreachable("CORE_DB_UNAVAILABLE", str(exc)) from None
 
     def _load_artifact(self, today: date) -> LoadedArtifact:
         try:
@@ -372,7 +386,7 @@ class StrategyRunner:
         recovered: dict[str, dict] = {}
         if fresh:
             ids = {i: decision_ids(art.artifact_id, day, i) for i in fresh}
-            stored = self.core.commands([c for i in fresh for c in (ids[i]["decision_command_id"], ids[i]["submit_command_id"])])
+            stored = self._core_commands([c for i in fresh for c in (ids[i]["decision_command_id"], ids[i]["submit_command_id"])])
             adopted = []
             for i in list(fresh):
                 # Only commands this artifact's principal issued are ours. The ids are predictable and the core stores
@@ -411,7 +425,7 @@ class StrategyRunner:
                     summary["instruments"][r["instrument_id"]] = self._row_summary(self.journal.get(day, r["instrument_id"]),
                                                                                     already=True)
         if fresh:
-            snap = self.core.snapshot(self.cfg.account_key, self.cfg.session_id, spec.instrument_ids)
+            snap = self._core_snapshot(self.cfg.account_key, self.cfg.session_id, spec.instrument_ids)
             summary["session_id"] = snap.session_id
             if snap.session_id is None:
                 summary["result"] = "NO_SESSION"
@@ -635,7 +649,7 @@ class StrategyRunner:
         If an earlier process did send it (a crash before the journal learned), the core's stored result is the
         truth and is recorded; otherwise the decision is recorded BLOCKED (RUNNER_LATE)."""
         day, inst, sub = date.fromisoformat(row["session_date"]), row["instrument_id"], row["submit_payload"]
-        stored = self.core.commands([row["submit_command_id"]]).get(row["submit_command_id"])
+        stored = self._core_commands([row["submit_command_id"]]).get(row["submit_command_id"])
         if stored is not None and self._own(stored):
             res = {"accepted": stored["status"] == "ACCEPTED", "duplicate": True, "body": stored["result"], "events": [],
                    "recovered": True}
