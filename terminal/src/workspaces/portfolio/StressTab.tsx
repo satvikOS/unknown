@@ -9,7 +9,7 @@ import { DataTable, type Column } from '../../ui/DataTable';
 import { Money, StatusPill } from '../../ui/primitives';
 import { QueryError } from '../../ui/WorkspaceFrame';
 import { usePluginGetOnce, type OneShot } from '../plugin-api/hooks';
-import { dec, isRec, num, ofKind, recs, str, STRESS_SCENARIOS, stressParamError, thresholdRows, type Rec, type ScopeOption, type StressScenario, type ThresholdRow } from './model';
+import { sentence, dec, isRec, num, ofKind, recs, str, STRESS_SCENARIOS, stressParamError, thresholdRows, type Rec, type ScopeOption, type StressScenario, type ThresholdRow } from './model';
 import { PortfolioFrame, AsOf, FixtureNote, Lineage, QuoteSnapshotNote, ResultLabel, ScopeSelect, SnapshotStale, type FormulaDef } from './parts';
 
 interface Run {
@@ -166,6 +166,7 @@ function StressResult({ run, q, rerun, formulas }: { run: Run; q: OneShot<unknow
   const tCols: Column<ThresholdRow>[] = [
     { id: 't', header: 'Threshold', cell: (t) => t.threshold },
     { id: 'o', header: 'Owner', cell: (t) => t.owner ?? <span className="muted">system</span> },
+    { id: 'm', header: 'Measure', description: 'What Before and After measure: a session equity or the system P&L (losses negative)', cell: (t) => t.measure },
     { id: 'l', header: 'Level', numeric: true, cell: (t) => t.level ?? '—' },
     { id: 'b', header: 'Before', numeric: true, cell: (t) => t.before ?? '—' },
     { id: 'a', header: 'After', numeric: true, cell: (t) => t.after ?? '—' },
@@ -225,7 +226,7 @@ function StressResult({ run, q, rerun, formulas }: { run: Run; q: OneShot<unknow
               <div className="panel-body flush">
                 <DataTable caption="Loss thresholds under the scenario" captionHidden columns={tCols} rows={thresholds} rowKey={(t) => `${t.threshold}|${t.owner ?? ''}`} />
               </div>
-              {thresholds.some((t) => t.caveat) ? <div className="panel-note">{thresholds.find((t) => t.caveat)?.caveat}</div> : null}
+              {thresholds.some((t) => t.caveat) ? <div className="panel-note">{sentence(thresholds.find((t) => t.caveat)?.caveat)}</div> : null}
             </section>
           ) : null}
           <ScenarioDetails body={body} scenario={run.scenario} />

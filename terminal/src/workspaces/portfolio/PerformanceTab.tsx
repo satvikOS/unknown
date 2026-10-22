@@ -12,7 +12,7 @@ import { QueryError } from '../../ui/WorkspaceFrame';
 import { Segmented } from '../operations/parts';
 import { usePluginQuery } from '../plugin-api/hooks';
 import { LineChart, SignedBarChart } from './charts';
-import { arr, dec, fmtNum, fmtPct, irrStatus, isRec, num, ofKind, recs, str, twrStatus, unavailableReason, type Rec, type ScopeOption } from './model';
+import { sentences, arr, dec, fmtNum, fmtPct, irrStatus, isRec, num, ofKind, recs, str, twrStatus, unavailableReason, type Rec, type ScopeOption } from './model';
 import { PortfolioFrame, AsOf, FixtureNote, Lineage, ScopeSelect, Toolbar, Unavailable, type FormulaDef } from './parts';
 
 type Convention = 'start_of_day' | 'end_of_day';
@@ -99,9 +99,9 @@ function PerformancePanel({ body, formulas }: { body: Rec; formulas: Map<string,
           <dt>Volatility (annualized)</dt>
           <dd className="num">{fmtPct(num(stats.volatility_annualized), 2)}</dd>
           <dt>Sharpe</dt>
-          <dd className="num">
-            {fmtNum(num(stats.sharpe), 2)}
-            {se ? <span className="pf-hint"> ± {fmtNum(num(se.n_eff), 2)} (1 s.e., n_eff {neff !== null ? fmtNum(neff, 1) : '?'}). {str(se.note)}</span> : null}
+          <dd>
+            <span className="num">{fmtNum(num(stats.sharpe), 2)}</span>
+            {se ? <span className="pf-hint"> ± {fmtNum(num(se.n_eff), 2)} (1 s.e., n_eff {neff !== null ? fmtNum(neff, 1) : '?'}). {str(se.note)}.</span> : null}
           </dd>
           <dt>Sortino</dt>
           <dd className="num">{fmtNum(num(stats.sortino), 2)}</dd>
@@ -194,7 +194,7 @@ function PnlPanel({ body, formulas }: { body: Rec; formulas: Map<string, Formula
         )}
         {isRec(body.conventions) ? (
           <p className="pf-hint" style={{ margin: 0 }}>
-            {[str(body.conventions.sign), str(body.conventions.day_boundary), str(body.conventions.fees)].filter(Boolean).join('. ')}.
+            {sentences([str(body.conventions.sign), str(body.conventions.day_boundary), str(body.conventions.fees)])}
           </p>
         ) : null}
       </div>

@@ -98,6 +98,22 @@ export function fmtPct(x: number | null | undefined, digits = 2, signed = false)
   return `${neg ? '−' : signed ? '+' : ''}${body}%`;
 }
 
+/** Backend notes are lower-case fragments ("estimated and final fees shown separately"); show them as sentences. */
+export function sentence(text: string | null | undefined): string {
+  const t = (text ?? '').trim();
+  if (!t) return '';
+  const s = t.charAt(0).toUpperCase() + t.slice(1);
+  return /[.!?)]$/.test(s) ? s : `${s}.`;
+}
+
+/** Several fragments joined as sentences. */
+export function sentences(parts: readonly (string | null | undefined)[]): string {
+  return parts
+    .map((p) => sentence(p))
+    .filter(Boolean)
+    .join(' ');
+}
+
 export function fmtNum(x: number | null | undefined, digits = 4): string {
   if (x === null || x === undefined || !Number.isFinite(x)) return '—';
   const v = x.toFixed(digits);
@@ -175,7 +191,7 @@ export function kupiecVerdict(k: unknown, level = 0.05): { text: string; tone: T
   const e = num(k.expected_exceptions);
   const n = num(k.observations);
   if (p === null || x === null || e === null || n === null) return { text: 'Kupiec test not computed (too few observations).', tone: 'neutral' };
-  const head = `${x} exception(s) in ${n} day(s); about ${e.toFixed(1)} expected. Kupiec POF p = ${p.toFixed(3)}.`;
+  const head = `${x} exception(s) in ${n} day(s); about ${e.toFixed(2)} expected. Kupiec POF p = ${p.toFixed(3)}.`;
   if (p >= level) return { text: `${head} The exception rate is consistent with the confidence level at ${level * 100}%.`, tone: 'ok' };
   return x < e
     ? { text: `${head} Fewer exceptions than expected: the VaR may be too conservative.`, tone: 'warn' }
@@ -259,6 +275,8 @@ export function backtestDays(bt: Rec): BacktestDay[] {
 
 export interface ThresholdRow {
   threshold: string;
+  /** What `before` and `after` measure: a session's equity, or the system P&L (losses negative). */
+  measure: 'equity' | 'system P&L' | 'loss';
   owner: string | null;
   level: string | null;
   crossed: boolean;
@@ -272,6 +290,7 @@ export interface ThresholdRow {
 export function thresholdRows(body: Rec): ThresholdRow[] {
   return recs(body.thresholds).map((t) => ({
     threshold: str(t.threshold) ?? '?',
+    measure: (dec(t.equity_before) ?? dec(t.equity_after)) !== null ? 'equity' : (dec(t.system_pnl_before) ?? dec(t.system_pnl_after)) !== null ? 'system P&L' : 'loss',
     owner: str(t.owner),
     level: dec(t.level),
     crossed: t.crossed === true,

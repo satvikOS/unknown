@@ -14,6 +14,8 @@ import {
   ofKind,
   parsePortfolioRoute,
   scopeOptions,
+  sentence,
+  sentences,
   sessionOfScope,
   stressParamError,
   thresholdRows,
@@ -68,6 +70,13 @@ describe('statistical formatting (display only)', () => {
     expect(fmtNum(1.7199374787803063, 2)).toBe('1.72');
     expect(fmtNum(-0.5, 1)).toBe('−0.5');
     expect(fmtFloatMoney(0.4017543859649123, 'USD')).toBe('0.40 USD');
+  });
+
+  it('shows backend fragments as sentences', () => {
+    expect(sentence('estimated and final fees shown separately')).toBe('Estimated and final fees shown separately.');
+    expect(sentence('already a sentence.')).toBe('Already a sentence.');
+    expect(sentence(null)).toBe('');
+    expect(sentences(['gains positive', null, '', 'fees (ch09)'])).toBe('Gains positive. Fees (ch09)');
   });
 
   it('formats exact decimal weights without floats', () => {
@@ -160,8 +169,8 @@ describe('stress, what-if and allocation inputs', () => {
         { threshold: 'cumulative_loss_allowance', level: '15.00', crossed: false, system_pnl_after: '-4.780000', loss_after: '4.780000' },
       ],
     });
-    expect(rows[0]).toMatchObject({ crossed: true, before: '99.800000', after: '95.220000', beyond: '2.780000' });
-    expect(rows[1]).toMatchObject({ crossed: false, before: null, after: '-4.780000', owner: null });
+    expect(rows[0]).toMatchObject({ crossed: true, measure: 'equity', before: '99.800000', after: '95.220000', beyond: '2.780000' });
+    expect(rows[1]).toMatchObject({ crossed: false, measure: 'system P&L', before: null, after: '-4.780000', owner: null });
   });
 
   it('validates scenario parameters as the backend parses them', () => {

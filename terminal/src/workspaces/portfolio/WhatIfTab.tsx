@@ -11,7 +11,7 @@ import { QueryError, WorkspaceLink } from '../../ui/WorkspaceFrame';
 import { parseDecision } from '../orders/decision';
 import { DecisionTable } from '../orders/parts';
 import { usePluginGetOnce } from '../plugin-api/hooks';
-import { dec, fmtNum, isRec, num, ofKind, str, weightPct, whatIfErrors, type Rec, type WhatIfInput } from './model';
+import { sentence, sentences, dec, fmtNum, isRec, num, ofKind, str, weightPct, whatIfErrors, type Rec, type WhatIfInput } from './model';
 import { PortfolioFrame, AsOf, FixtureNote, Lineage, QuoteSnapshotNote, ResultLabel, SnapshotStale, type FormulaDef } from './parts';
 
 const EMPTY: WhatIfInput = { session: '', instrument: '', side: 'BUY', quantity: '', limit: '' };
@@ -80,7 +80,7 @@ function Impact({ body }: { body: Rec }) {
             </dd>
           </dl>
           <p className="pf-hint" style={{ marginBottom: 0 }}>
-            {str(cash.note)}
+            {sentence(str(cash.note))}
           </p>
         </div>
       </section>
@@ -90,7 +90,7 @@ function Impact({ body }: { body: Rec }) {
         </header>
         <div className="panel-body">
           <p className="pf-hint" style={{ marginTop: 0 }}>
-            {str(fill.assumption)}. {str(fill.note)}.
+            {sentences([str(fill.assumption), str(fill.note)])}
           </p>
           {str(fill.reason) ? (
             <p className="pf-hint">{str(fill.reason)}</p>

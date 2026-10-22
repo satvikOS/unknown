@@ -4,8 +4,34 @@
  * series of statistical floats (unit values, VaR) are drawn from the floats the API returns.
  * Colours are the shared tokens; sign and exceptions are also shown by position and shape.
  */
+import { useCallback, useEffect, useRef, useState, type RefCallback } from 'react';
 import { formatMoney } from '../../format/decimal';
 import { exactBars, fmtFloatMoney, linePath, type BacktestDay } from './model';
+
+/**
+ * The rendered width of the chart's container, so the SVG viewBox is drawn at 1:1 and its text stays at
+ * the CSS font size on every screen (a fixed viewBox would scale 11 px labels to 20 px on a wide panel).
+ */
+function useChartWidth(fallback = 640): [RefCallback<HTMLElement>, number] {
+  const [width, setWidth] = useState(fallback);
+  const observer = useRef<ResizeObserver | null>(null);
+  const ref = useCallback((el: HTMLElement | null) => {
+    observer.current?.disconnect();
+    observer.current = null;
+    if (!el) return;
+    const update = () => {
+      const w = Math.round(el.getBoundingClientRect().width);
+      if (w > 0) setWidth((prev) => (Math.abs(prev - w) > 1 ? Math.max(280, w) : prev));
+    };
+    update();
+    if (typeof ResizeObserver !== 'undefined') {
+      observer.current = new ResizeObserver(update);
+      observer.current.observe(el);
+    }
+  }, []);
+  useEffect(() => () => observer.current?.disconnect(), []);
+  return [ref, width];
+}
 
 // ------------------------------------------------------------------ horizontal bars (exact)
 
@@ -46,9 +72,8 @@ export function BarList({ items, label }: { items: readonly BarItem[]; label: st
 
 // ------------------------------------------------------------------ line (statistical series)
 
-const W = 640;
-
 export function LineChart({ values, labels, title, format, height = 150 }: { values: readonly number[]; labels: readonly string[]; title: string; format: (v: number) => string; height?: number }) {
+  const [ref, W] = useChartWidth();
   const padL = 72;
   const padB = 22;
   const plotW = W - padL - 8;
@@ -58,7 +83,7 @@ export function LineChart({ values, labels, title, format, height = 150 }: { val
   const last = g.points[g.points.length - 1];
   const summary = `${title}: ${values.length} points from ${labels[0] ?? '?'} to ${labels[labels.length - 1] ?? '?'}, low ${format(g.min)}, high ${format(g.max)}, last ${format(values[values.length - 1] ?? NaN)}.`;
   return (
-    <figure className="pf-figure">
+    <figure className="pf-figure" ref={ref}>
       <svg viewBox={`0 0 ${W} ${height}`} className="pf-chart" role="img" aria-label={summary}>
         <g transform={`translate(${padL} 8)`}>
           <line x1="0" x2={plotW} y1="6" y2="6" className="pf-grid" />
@@ -92,6 +117,7 @@ export function LineChart({ values, labels, title, format, height = 150 }: { val
 // ------------------------------------------------------------------ signed bars (exact money)
 
 export function SignedBarChart({ items, currency, title, height = 150 }: { items: readonly { key: string; label: string; value: string }[]; currency: string; title: string; height?: number }) {
+  const [ref, W] = useChartWidth();
   const bars = exactBars(items.map((i) => ({ key: i.key, value: i.value })));
   if (!bars.length) return null;
   const padL = 8;
@@ -104,7 +130,7 @@ export function SignedBarChart({ items, currency, title, height = 150 }: { items
   const gains = bars.filter((b) => !b.negative && b.bps > 0).length;
   const losses = bars.filter((b) => b.negative).length;
   return (
-    <figure className="pf-figure">
+    <figure className="pf-figure" ref={ref}>
       <svg viewBox={`0 0 ${W} ${height}`} className="pf-chart" role="img" aria-label={`${title}: ${bars.length} days, ${gains} gains above the line, ${losses} losses below it.`}>
         <line x1={padL} x2={W - padL} y1={zeroY} y2={zeroY} className="pf-zero" />
         {bars.map((b, i) => {
@@ -131,6 +157,7 @@ export function SignedBarChart({ items, currency, title, height = 150 }: { items
 // ------------------------------------------------------------------ VaR backtest
 
 export function BacktestChart({ days, currency, height = 170 }: { days: readonly BacktestDay[]; currency: string; height?: number }) {
+  const [ref, W] = useChartWidth();
   const vals = days.flatMap((d) => [d.forecast ?? 0, d.realized ?? 0]);
   if (!days.length) return null;
   const max = Math.max(0, ...vals);
@@ -151,7 +178,7 @@ export function BacktestChart({ days, currency, height = 170 }: { days: readonly
     .join(' ');
   const exceptions = days.filter((d) => d.exception).length;
   return (
-    <figure className="pf-figure">
+    <figure className="pf-figure" ref={ref}>
       <svg
         viewBox={`0 0 ${W} ${height}`}
         className="pf-chart"

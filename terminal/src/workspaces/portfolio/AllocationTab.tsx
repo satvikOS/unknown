@@ -12,7 +12,7 @@ import { Money, Qty, StatusPill } from '../../ui/primitives';
 import { QueryError } from '../../ui/WorkspaceFrame';
 import { usePluginQuery } from '../plugin-api/hooks';
 import { WeightBar } from './charts';
-import { ALLOCATION_METHODS, allocationParamErrors, fmtNum, fmtPct, isRec, num, ofKind, recs, str, weightRows, dec, type Rec, type ScopeOption, type WeightRow } from './model';
+import { sentence, ALLOCATION_METHODS, allocationParamErrors, fmtNum, fmtPct, isRec, num, ofKind, recs, str, weightRows, dec, type Rec, type ScopeOption, type WeightRow } from './model';
 import { PortfolioFrame, AsOf, FixtureNote, Lineage, QuoteSnapshotNote, ResultLabel, ScopeSelect, Unavailable, type FormulaDef } from './parts';
 
 interface Params {
@@ -84,7 +84,7 @@ function TradeList({ name, label, tl }: { name: string; label: string; tl: Rec }
         <DataTable caption={`Proposed trades, ${label}`} captionHidden columns={cols} rows={recs(tl.trades)} rowKey={(t) => `${str(t.instrument_id)}|${str(t.side)}`} emptyText="No trade: the targets equal the holdings after lot rounding." />
       </div>
       <div className="panel-body">
-        <ul className="pf-list">
+        <ul className="pf-list pf-checks">
           {checks.map((c, i) => (
             <li key={i}>
               <StatusPill label={c.passed === true ? 'pass' : 'fail'} tone={c.passed === true ? 'ok' : 'bad'} compact /> <code className="pf-code">{str(c.check)}</code>{' '}
@@ -254,7 +254,7 @@ export function AllocationTab({ bar, scope, setScope, options, formulas }: { bar
             <p className="pf-hint">Mean-variance: {str(mv.reason) ?? 'unavailable'}.</p>
           ) : null}
           {lists && str(lists.reason) ? (
-            <p className="pf-hint">{str(lists.reason)}. Choose a session scope for whole-lot trade lists.</p>
+            <p className="pf-hint">{sentence(str(lists.reason))} Choose a session scope for whole-lot trade lists.</p>
           ) : lists ? (
             ALLOCATION_METHODS.filter((m) => isRec(lists[m.id])).map((m) => <TradeList key={m.id} name={m.id} label={m.label} tl={lists[m.id] as Rec} />)
           ) : null}
