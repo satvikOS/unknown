@@ -24,3 +24,4 @@ Evidence classes follow the book's reading guide: verified external fact (linked
 | [0014](0014-ibkr-adapter-boundary-and-order-identity.md) | IBKR adapter boundary, SDK licence and order identity | accepted; licence decided by owner |
 | [0015](0015-data-platform-point-in-time-store.md) | Data platform: provider registry, point-in-time store and lineage | accepted |
 | [0016](0016-bounded-agents-and-model-providers.md) | Bounded agents, model-provider adapters and spend control | accepted |
+| [0017](0017-strategy-artifacts-promotion-and-runtime.md) | Strategy artifacts, promotion gate and strategy runtime | proposed |
