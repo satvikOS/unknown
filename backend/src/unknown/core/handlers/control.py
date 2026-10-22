@@ -16,10 +16,14 @@ from .common import control_update, entries_permitted
 def stop(ctx: Context, p: dict) -> dict:
     key = p.get("account_key")
     reason = str(p.get("reason") or ("OWNER_STOP" if ctx.principal.role is Role.OWNER else "SYSTEM_STOP"))
-    return latch_stop(ctx, key, reason)
+    # The core service records what it did while the database could not record a stop (BR-SES-13): the error, the
+    # stop commands the in-memory latch stood in for and the cancels it sent to the broker directly. Only SYSTEM
+    # (the service itself) carries this evidence.
+    evidence = p.get("memory_latch") if ctx.principal.role is Role.SYSTEM and isinstance(p.get("memory_latch"), dict) else None
+    return latch_stop(ctx, key, reason, evidence=evidence)
 
 
-def latch_stop(ctx: Context, key: str, reason: str) -> dict:
+def latch_stop(ctx: Context, key: str, reason: str, *, evidence: dict | None = None) -> dict:
     from .orders import cancel_order
     c = state.control(ctx.tx, key)
     first = not c["stop_latched"]
@@ -27,10 +31,11 @@ def latch_stop(ctx: Context, key: str, reason: str) -> dict:
     if first:
         new.update(stop_latched=True, latch_reason=reason, latched_by=ctx.principal.id, latched_at_ns=ctx.now_ns,
                    latch_command_id=ctx.command.command_id)
-    ctx.emit("StopLatched" if first else "StopReasserted",
-             {"reason": reason, "by": ctx.principal.id, "liquidation_policy": "NONE",
-              "note": "new exposure blocked; open entries are being canceled; residual positions are not sold automatically"},
-             {"control": [new]}, account_key=key)
+    info = {"reason": reason, "by": ctx.principal.id, "liquidation_policy": "NONE",
+            "note": "new exposure blocked; open entries are being canceled; residual positions are not sold automatically"}
+    if evidence is not None:
+        info["memory_latch"] = evidence
+    ctx.emit("StopLatched" if first else "StopReasserted", info, {"control": [new]}, account_key=key)
     canceled = []
     for o in state.orders(ctx.tx, key, open_only=True):
         if o["side"] == "BUY":

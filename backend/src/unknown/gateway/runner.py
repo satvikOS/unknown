@@ -72,12 +72,15 @@ class PumpStats:
 
 class GatewayRunner:
     def __init__(self, desk: Desk, broker: BrokerPort, account_key: str, *,
-                 heartbeat: Callable[[], None] | None = None):
+                 heartbeat: Callable[[], None] | None = None, entry_gate: Callable[[], str | None] | None = None):
         self.desk = desk
         self.broker = broker
         self.account_key = account_key
         # Called between commands of a long pump so the writer lease stays fresh (review finding 57).
         self.heartbeat = heartbeat
+        # Returns why no buy may be transmitted now, or None: the core service's in-memory stop latch, for a red
+        # stop the database has not recorded yet (BR-SES-13). Sells and cancels are never held back.
+        self.entry_gate = entry_gate
 
     def _beat(self) -> None:
         if self.heartbeat is not None:
@@ -97,6 +100,15 @@ class GatewayRunner:
                 stats.skipped += 1
                 continue
             body = begin.body
+            blocked = self.entry_gate() if self.entry_gate is not None and body["action"] == "SUBMIT" \
+                and body["order"]["side"] == "BUY" else None
+            if blocked:
+                # Claimed but never sent: a conclusive local refusal, so the order is REJECTED and its holds released.
+                self.desk.run_system("outbox_result", {"outbox_id": outbox_id, "status": "REJECTED", "broker_order_id": None,
+                                                       "reason": f"NOT_TRANSMITTED: {blocked}"})
+                stats.skipped += 1
+                self._beat()
+                continue
             try:
                 if body["action"] == "SUBMIT":
                     o = body["order"]
