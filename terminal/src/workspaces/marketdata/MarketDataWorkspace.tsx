@@ -212,8 +212,10 @@ function CapacityPanel({ st }: { st: MarketDataStatus }) {
   );
 }
 
-function SubscriptionDetail({ s }: { s: Subscription }) {
+export function SubscriptionDetail({ s }: { s: Subscription }) {
   const a = s.analytics;
+  // Prices are per share in the quote's currency (marketdata.py quote_analytics units); never shown bare.
+  const quoteCcy = a?.currency ?? '(currency not reported)';
   return (
     <section className="panel md-detail" aria-labelledby="md-sub-h">
       <header>
@@ -279,7 +281,8 @@ function SubscriptionDetail({ s }: { s: Subscription }) {
           <dd>
             {a ? (
               <span className="num">
-                mid {a.mid !== null ? formatDecimal(a.mid) : '—'} · spread {a.spread ?? '—'} ({a.spread_bps ?? '—'} bps) · age {a.age_ms !== null ? formatAge(a.age_ms) : '—'}
+                mid {a.mid !== null ? `${formatDecimal(a.mid)} ${quoteCcy}` : '—'} · spread {a.spread !== null ? `${formatDecimal(a.spread)} ${quoteCcy}` : '—'} ({a.spread_bps ?? '—'} bps) · age{' '}
+                {a.age_ms !== null ? formatAge(a.age_ms) : '—'}
                 {a.stale ? ` · stale for ${Object.entries(a.stale).filter(([, v]) => v).map(([k]) => k).join(', ') || 'no use'}` : ''}
                 {a.missing_reason ? ` · ${a.missing_reason}` : ''}
               </span>

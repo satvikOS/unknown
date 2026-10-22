@@ -12,7 +12,7 @@ import { Money, Qty, StatusPill } from '../../ui/primitives';
 import { QueryError } from '../../ui/WorkspaceFrame';
 import { usePluginQuery } from '../plugin-api/hooks';
 import { WeightBar } from './charts';
-import { sentence, ALLOCATION_METHODS, allocationParamErrors, fmtNum, fmtPct, isRec, num, ofKind, recs, str, weightRows, dec, type Rec, type ScopeOption, type WeightRow } from './model';
+import { arr, sentence, ALLOCATION_METHODS, allocationParamErrors, fmtNum, fmtPct, isRec, num, ofKind, recs, str, weightRows, dec, type Rec, type ScopeOption, type WeightRow } from './model';
 import { PortfolioFrame, AsOf, FixtureNote, Lineage, QuoteSnapshotNote, ResultLabel, ScopeSelect, Unavailable, type FormulaDef } from './parts';
 
 interface Params {
@@ -31,7 +31,7 @@ const PARAM_SPECS: readonly { key: keyof Params; label: string; placeholder: str
   { key: 'tau', label: 'Turnover limit τ', placeholder: 'none' },
 ];
 
-function TradeList({ name, label, tl }: { name: string; label: string; tl: Rec }) {
+export function TradeList({ name, label, tl }: { name: string; label: string; tl: Rec }) {
   const ccy = str(tl.currency) ?? '';
   if (!Array.isArray(tl.trades)) {
     return (
@@ -41,6 +41,8 @@ function TradeList({ name, label, tl }: { name: string; label: string; tl: Rec }
     );
   }
   const checks = recs(tl.checks);
+  // allocation.propose: instruments whose sizing price is a stale last mark (analytics/marks.py).
+  const stale = arr(tl.stale_sizing_marks).filter((x): x is string => typeof x === 'string');
   const totals = isRec(tl.totals) ? tl.totals : {};
   const cols: Column<Rec>[] = [
     { id: 'i', header: 'Instrument', cell: (t) => <span className="cmd-id">{str(t.instrument_id)}</span> },
@@ -59,6 +61,7 @@ function TradeList({ name, label, tl }: { name: string; label: string; tl: Rec }
         <span className="pf-label">
           {tl.constraints_hold === true ? <StatusPill label="constraints hold" tone="ok" compact /> : <StatusPill label="constraints fail" tone="bad" compact />}
           {tl.trade_list_usable === false ? <StatusPill label="not usable" tone="warn" compact /> : null}
+          {stale.length ? <StatusPill label="sized on stale marks" tone="warn" compact detail={stale.join(', ')} /> : null}
         </span>
       </header>
       <div className="panel-body">
@@ -94,6 +97,11 @@ function TradeList({ name, label, tl }: { name: string; label: string; tl: Rec }
         </ul>
         {recs(tl.left_unchanged).length ? (
           <p className="pf-hint">Left unchanged: {recs(tl.left_unchanged).map((l) => `${str(l.instrument_id)} (${str(l.reason)})`).join('; ')}</p>
+        ) : null}
+        {stale.length ? (
+          <p className="pf-hint">
+            Sized on stale marks (older than the freshness budget, or delayed): {stale.join(', ')}. The quantities may not match current prices.
+          </p>
         ) : null}
         {str(tl.sequencing_note) ? <p className="pf-hint">{str(tl.sequencing_note)}</p> : null}
       </div>

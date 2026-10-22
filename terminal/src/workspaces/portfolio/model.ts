@@ -225,10 +225,11 @@ export function kupiecVerdict(k: unknown, level = 0.05): { text: string; tone: T
   const n = num(k.observations);
   if (p === null || x === null || e === null || n === null) return { text: 'Kupiec test not computed (too few observations).', tone: 'neutral' };
   const head = `${x} exception(s) in ${n} day(s); about ${e.toFixed(2)} expected. Kupiec POF p = ${p.toFixed(3)}.`;
-  if (p >= level) return { text: `${head} The exception rate is consistent with the confidence level at ${level * 100}%.`, tone: 'ok' };
+  const sig = `${level * 100}% significance level`;
+  if (p >= level) return { text: `${head} Not rejected at the ${sig}: the exception rate is consistent with the VaR confidence level.`, tone: 'ok' };
   return x < e
-    ? { text: `${head} Fewer exceptions than expected: the VaR may be too conservative.`, tone: 'warn' }
-    : { text: `${head} More exceptions than expected: the VaR understates losses.`, tone: 'bad' };
+    ? { text: `${head} Rejected at the ${sig}. Fewer exceptions than expected: the VaR may be too conservative.`, tone: 'warn' }
+    : { text: `${head} Rejected at the ${sig}. More exceptions than expected: the VaR understates losses.`, tone: 'bad' };
 }
 
 // ------------------------------------------------------------------ exact bar geometry

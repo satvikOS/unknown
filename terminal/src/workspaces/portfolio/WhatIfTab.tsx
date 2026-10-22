@@ -5,6 +5,7 @@
  * placed or authorized: a real order is a new intent in Orders and passes the gate again.
  */
 import { useState, type FormEvent, type ReactNode } from 'react';
+import { formatMoney, formatQuantity } from '../../format/decimal';
 import { useQuery } from '../../state/react';
 import { Money, Qty, StatusPill } from '../../ui/primitives';
 import { QueryError, WorkspaceLink } from '../../ui/WorkspaceFrame';
@@ -16,7 +17,7 @@ import { PortfolioFrame, AsOf, FixtureNote, Lineage, QuoteSnapshotNote, ResultLa
 
 const EMPTY: WhatIfInput = { session: '', instrument: '', side: 'BUY', quantity: '', limit: '' };
 
-function Impact({ body }: { body: Rec }) {
+export function Impact({ body }: { body: Rec }) {
   const imp = isRec(body.impact) ? body.impact : {};
   if (str(imp.reason)) return <p className="pf-hint">Impact not computed: {str(imp.reason)}</p>;
   const ccy = str(imp.currency) ?? '';
@@ -71,9 +72,9 @@ function Impact({ body }: { body: Rec }) {
             <dt>Headroom after</dt>
             <dd className="num">
               {[
-                dec(head.cash) ? `cash ${dec(head.cash)}` : null,
-                dec(head.max_order_notional) ? `max order notional ${dec(head.max_order_notional)}` : null,
-                dec(head.owned_quantity) ? `unreserved quantity ${dec(head.owned_quantity)}` : null,
+                dec(head.cash) ? `cash ${formatMoney(dec(head.cash) as string, ccy, { signDisplay: 'auto' })}` : null,
+                dec(head.max_order_notional) ? `max order notional ${formatMoney(dec(head.max_order_notional) as string, ccy)}` : null,
+                dec(head.owned_quantity) ? `unreserved quantity ${formatQuantity(dec(head.owned_quantity) as string)}` : null,
               ]
                 .filter(Boolean)
                 .join(' · ') || '—'}

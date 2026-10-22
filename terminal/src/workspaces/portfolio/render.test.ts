@@ -8,6 +8,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { PerformancePanel, PnlPanel } from './PerformanceTab';
 import { BacktestPanel } from './RiskTab';
+import { TradeList } from './AllocationTab';
+import { Impact } from './WhatIfTab';
 import type { Rec } from './model';
 
 const formulas = new Map();
@@ -168,5 +170,52 @@ describe('daily P&L panel: days with an unpriced snapshot', () => {
     const html = renderToStaticMarkup(createElement(PnlPanel, { body: priced, formulas }));
     expect(html).toContain('identity holds');
     expect(html).not.toContain('Component totals cover');
+  });
+});
+
+describe('what-if impact: headroom amounts carry their currency', () => {
+  // analytics/whatif.py `_impact`: headroom.cash and headroom.max_order_notional are amounts in the session currency.
+  const body: Rec = {
+    impact: {
+      currency: 'USD',
+      order_notional_at_limit: '10.030000',
+      cash: { available_before: '90.000000', required_reservation: '11.080000', available_after_reservation: '78.920000', shortfall: null, note: 'unsettled sale proceeds add nothing to available cash (ch09)' },
+      quantity: { owned_before: '0', reserved_before: '0', unreserved_before: '0', excess_over_unreserved: null },
+      if_filled: { assumption: 'complete fill at the limit price; marked at the current bid', reason: 'no bid mark, no owner NAV or an invalid order: concentration impact not computed' },
+      headroom: { max_order_notional: '989.970000', cash: '78.920000', owned_quantity: null },
+    },
+  };
+
+  it('formats each headroom amount as money in the session currency', () => {
+    const html = renderToStaticMarkup(createElement(Impact, { body }));
+    const start = html.indexOf('Headroom after');
+    const row = html.slice(start, html.indexOf('</dd>', start));
+    expect(row).toContain('cash 78.92 USD');
+    expect(row).toContain('max order notional 989.97 USD');
+    expect(row).not.toMatch(/cash 78\.920000/);
+  });
+});
+
+describe('allocation trade list: sizing on stale marks is flagged', () => {
+  const tl: Rec = {
+    currency: 'USD',
+    label: 'PROPOSAL ONLY',
+    trades: [{ instrument_id: 'FIX-EQ-1', side: 'BUY', quantity: '3', target_quantity: '9', sizing_price: '10.01', estimated_notional: '30.03', estimated_fee: '1.00', reservation_estimate: '31.08' }],
+    totals: { buy_notional: '30.03', sell_notional: '0', fees: '1.00', liquid_after: '58.92', nav_after_fees: '99.00' },
+    checks: [{ check: 'cash_reserve', passed: true, detail: 'liquid after >= 5% of NAV' }],
+    constraints_hold: true,
+    left_unchanged: [],
+    stale_sizing_marks: ['FIX-EQ-1'],
+  };
+
+  it('says which instruments were sized on a stale mark', () => {
+    const html = renderToStaticMarkup(createElement(TradeList, { name: 'equal_weight', label: 'Equal weight', tl }));
+    expect(html).toContain('sized on stale marks');
+    expect(html).toContain('Sized on stale marks (older than the freshness budget, or delayed): FIX-EQ-1.');
+  });
+
+  it('says nothing about staleness when every sizing mark is fresh', () => {
+    const html = renderToStaticMarkup(createElement(TradeList, { name: 'equal_weight', label: 'Equal weight', tl: { ...tl, stale_sizing_marks: [] } }));
+    expect(html).not.toContain('stale');
   });
 });

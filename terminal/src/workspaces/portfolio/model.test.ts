@@ -125,6 +125,11 @@ describe('IRR uniqueness and TWR', () => {
     expect(kupiecVerdict({ exceptions: 0, expected_exceptions: 1.9, observations: 19, p_value: 0.0454 })).toMatchObject({ tone: 'warn', text: expect.stringMatching(/too conservative/) });
     expect(kupiecVerdict({ exceptions: 6, expected_exceptions: 1.9, observations: 19, p_value: 0.01 })).toMatchObject({ tone: 'bad', text: expect.stringMatching(/understates losses/) });
     expect(kupiecVerdict({ exceptions: 2, expected_exceptions: 1.9, observations: 19, p_value: 0.9 })?.tone).toBe('ok');
+    // The 5% is the test's significance level, not the VaR confidence level (which is 95% or 99%).
+    const ok = kupiecVerdict({ exceptions: 2, expected_exceptions: 1.9, observations: 19, p_value: 0.9 })?.text ?? '';
+    expect(ok).toContain('Not rejected at the 5% significance level');
+    expect(ok).not.toMatch(/confidence level at 5%/);
+    expect(kupiecVerdict({ exceptions: 6, expected_exceptions: 1.9, observations: 19, p_value: 0.01 })?.text).toContain('Rejected at the 5% significance level.');
     expect(kupiecVerdict({ exceptions: 0 })?.tone).toBe('neutral');
     expect(kupiecVerdict(null)).toBeNull();
   });
