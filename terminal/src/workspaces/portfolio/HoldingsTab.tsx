@@ -165,6 +165,13 @@ export function HoldingsTab({ bar, q, scope, setScope, basis, setBasis, options,
     const parts = exactShares(owners.filter((o) => str(o.currency) === ccy).map((o) => ({ key: str(o.owner) ?? '?', value: dec(o.nav_marked) })));
     return parts.parts.map((p) => ({ key: `${ccy}:${p.key}`, label: shortOwnerLabel(p.key), title: ownerLabel(p.key), value: p.value, currency: ccy, note: `${(p.bps / 100).toFixed(2)}% of positive NAV` }));
   });
+  // Owners the share bars cannot show: an unavailable NAV (unpriced position) or a negative one. Named, never dropped silently.
+  const notCharted = owners.flatMap((o) => {
+    const nav = dec(o.nav_marked);
+    const who = `${ownerLabel(str(o.owner) ?? '?')} (${str(o.currency) ?? '?'})`;
+    if (nav === null) return [`${who}: NAV unavailable, an unpriced position`];
+    return nav.startsWith('-') && !/^-0(\.0*)?$/.test(nav) ? [`${who}: negative NAV`] : [];
+  });
 
   return (
     <PortfolioFrame tab="holdings" bar={bar} queries={[q]}>
@@ -237,6 +244,7 @@ export function HoldingsTab({ bar, q, scope, setScope, basis, setBasis, options,
               </header>
               <div className="panel-body">
                 {shareItems.length ? <BarList items={shareItems} label="Marked NAV by owner" /> : <p className="muted" style={{ margin: 0 }}>No owner has a positive marked NAV in this scope.</p>}
+                {notCharted.length ? <p className="pf-hint" style={{ margin: '6px 0 0' }}>Not in the chart: {notCharted.join('; ')}.</p> : null}
               </div>
             </section>
             <CashLadder ladder={ladder} scope={str(body.scope)} />

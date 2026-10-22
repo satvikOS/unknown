@@ -96,3 +96,20 @@ describe('holdings: account-wide figures under a narrower scope', () => {
     expect(kpi).toContain('authorized total, whatever the scope');
   });
 });
+
+describe('holdings: NAV by owner', () => {
+  it('names an owner whose NAV is unavailable instead of leaving it out of the chart silently', () => {
+    const html = render(holdings('account'), 'account');
+    expect(html).toContain('No owner has a positive marked NAV in this scope.');
+    expect(html).toContain('Not in the chart: Session S1 (USD): NAV unavailable, an unpriced position.');
+  });
+
+  it('names an owner with a negative NAV', () => {
+    const body = holdings('account');
+    body.owners = [owner('unallocated', 'complete', '910.000000'), owner('session:S2', 'complete', '-4.500000')];
+    const html = render(body, 'account');
+    expect(html).toContain('Marked NAV by owner');
+    expect(html).toContain('Not in the chart: Session S2 (USD): negative NAV.');
+    expect(html).not.toContain('Unallocated (USD)');
+  });
+});
