@@ -2,6 +2,7 @@
 
   python3 scripts/capabilities/build_register.py --source <dir of verified area JSON> [--write]
   python3 scripts/capabilities/build_register.py [--check] [--run-tests] [--write]
+  python3 -m unittest discover -s scripts/capabilities          # tests of this checker
 
 Idempotent: a record keeps its stable ID (CAP-<AREA>-<NN>) and its implementation
 status/evidence/gaps across re-imports, matched by area+slug. New records get the
@@ -24,11 +25,14 @@ Implementation evidence (``implementation`` of each record):
 --check validates every record mechanically and exits non-zero on any problem: an
 unknown status, paper-verified or live-verified without external evidence, a status
 above proposed without files, gaps or verified_against, a tested status without
-tests, a cited path that does not exist, or a cited test whose class/method (Python)
-or title (TypeScript) is not in its file. It checks references, not behaviour.
+tests, a cited path that does not exist, a cited Python test whose class or method is
+not in its file, or a cited TypeScript test whose describe titles and it/test title are
+not the literal titles of describe and enabled it/test calls, in that order, in its
+file (a title found only in a comment or string, or on a .skip/.todo/.only call, is a
+problem). It checks references, not behaviour.
 --run-tests also runs every cited backend test with this interpreter and fails if one
 does not pass (a skip is accepted only for tests marked [IBKR venv]); terminal tests
-run with `npm test` and `npm run test:e2e` in terminal/.
+run with `npm test` and `npm run test:e2e` in terminal/ (CI runs the unit tests only).
 """
 from __future__ import annotations
 
@@ -116,31 +120,68 @@ def import_records(source: Path, existing: dict) -> dict:
 
 
 # -------------------------------------------------------------- validate
+# One pattern for both --check and --run-tests, so a reference the checker accepts is never skipped by the runner.
+_PY_TEST_REF = re.compile(r"^backend/tests/(?P<module>[\w/]+)\.py::(?P<cls>\w+)\.(?P<method>\w+)$")
+# A describe/it/test call whose first argument is a string literal; group "title" is the literal's text.
+_TS_CALL = re.compile(r"(?<![\w.$])(?P<fn>describe|it|test)(?P<mods>(?:\.\w+)*)\(\s*(?P<q>['\"`])(?P<title>(?:\\.|(?!(?P=q)).)*)(?P=q)",
+                      re.S)
+_TS_DISABLED = {"skip", "todo", "fixme", "fails", "only"}
+
+
 def _python_test(ref: str, root: Path) -> str | None:
-    m = re.match(r"^(backend/tests/[\w/]+\.py)::(\w+)\.(\w+)$", ref)
+    m = _PY_TEST_REF.match(ref)
     if not m:
         return f"test reference must be backend/tests/<file>.py::<Class>.<test>: {ref!r}"
-    path = root / m[1]
+    rel = f"backend/tests/{m['module']}.py"
+    path = root / rel
     if not path.is_file():
-        return f"missing test file {m[1]}"
-    cls = re.search(rf"^class {re.escape(m[2])}\b.*?(?=^class |\Z)", path.read_text(encoding="utf-8"), re.S | re.M)
+        return f"missing test file {rel}"
+    cls = re.search(rf"^class {re.escape(m['cls'])}\b.*?(?=^class |\Z)", path.read_text(encoding="utf-8"), re.S | re.M)
     if cls is None:
         return f"{ref}: class not found"
-    if not re.search(rf"^    def {re.escape(m[3])}\(", cls.group(0), re.M):
+    if not re.search(rf"^    def {re.escape(m['method'])}\(", cls.group(0), re.M):
         return f"{ref}: test method not found in its class"
     return None
 
 
+def _ts_calls(text: str) -> list[tuple[int, str, str]]:
+    """(position, kind, title) of every describe/it/test call with a literal title; kind is
+    'describe', 'test' or 'disabled' (.skip, .todo, .fixme, .fails, .only)."""
+    calls = []
+    for m in _TS_CALL.finditer(text):
+        mods = set(m["mods"].split(".")) - {""}
+        if mods & _TS_DISABLED:
+            kind = "disabled"
+        elif m["fn"] == "describe" or "describe" in mods:
+            kind = "describe"
+        elif not mods:
+            kind = "test"
+        else:
+            continue
+        calls.append((m.start(), kind, m["title"]))
+    return calls
+
+
 def _terminal_test(ref: str, root: Path) -> str | None:
+    """Each ``describe`` part must be the title of a describe call and the last part the title of an enabled
+    it/test call, in that order in the file. A title that only appears in a comment or a string does not count."""
     path, _, title = ref.partition("::")
     if not re.match(r"^terminal/(src/.+\.test\.tsx?|e2e/.+\.spec\.ts)$", path) or not title:
         return f"terminal test reference must be terminal/src/<file>.test.ts::<describe> > <it> or terminal/e2e/<file>.spec.ts::<title>: {ref!r}"
     if not (root / path).is_file():
         return f"missing test file {path}"
-    text = (root / path).read_text(encoding="utf-8")
-    for part in title.split(" > "):
-        if part not in text:
-            return f"{ref}: title {part!r} not found in the file"
+    calls = _ts_calls((root / path).read_text(encoding="utf-8"))
+    *groups, leaf = title.split(" > ")
+    after = -1
+    for part in groups:
+        found = [pos for pos, kind, t in calls if kind == "describe" and t == part and pos > after]
+        if not found:
+            return f"{ref}: no describe titled {part!r} in the file"
+        after = found[0]
+    if not [pos for pos, kind, t in calls if kind == "test" and t == leaf and pos > after]:
+        if [1 for _, kind, t in calls if kind == "disabled" and t == leaf]:
+            return f"{ref}: test {leaf!r} is skipped, todo or focused"
+        return f"{ref}: no it/test titled {leaf!r} in the file" + (f" after describe {groups[-1]!r}" if groups else "")
     return None
 
 
@@ -184,13 +225,19 @@ def validate(reg: dict, root: Path = ROOT) -> list[str]:
 def run_cited_tests(reg: dict, root: Path = ROOT) -> list[str]:
     """Run every cited backend test with this interpreter; a skip is accepted only for [IBKR venv] tests."""
     cited: dict[str, bool] = {}
+    problems = []
     for c in reg["capabilities"]:
         for ref in (c.get("implementation") or {}).get("tests", []):
-            if ref.startswith("backend/tests/"):
+            if ref.startswith("backend/"):
                 venv = ref.endswith(VENV_NOTE)
-                m = re.match(r"^backend/tests/(\w+)\.py::(\w+)\.(\w+)", ref)
-                if m:
-                    cited[f"{m[1]}.{m[2]}.{m[3]}"] = cited.get(f"{m[1]}.{m[2]}.{m[3]}", True) and venv
+                m = _PY_TEST_REF.match(ref[:-len(VENV_NOTE)] if venv else ref)
+                if not m:
+                    problems.append(f"{c['id']}: cited test {ref!r} is not backend/tests/<file>.py::<Class>.<test>, so it cannot run")
+                    continue
+                name = f"{m['module'].replace('/', '.')}.{m['cls']}.{m['method']}"
+                cited[name] = cited.get(name, True) and venv
+    if not cited:
+        return problems  # never run `python -m unittest` without names: that would discover the whole directory
     env = {**os.environ, "PYTHONPATH": "src"}
     run = subprocess.run([sys.executable, "-m", "unittest", "-v", *sorted(f"tests.{n}" for n in cited)], cwd=root / "backend",
                          env=env, capture_output=True, text=True)
@@ -205,7 +252,6 @@ def run_cited_tests(reg: dict, root: Path = ROOT) -> list[str]:
         if s and current:
             status[current.removeprefix("tests.")] = s[1]
             current = None
-    problems = []
     for name, venv_only in sorted(cited.items()):
         st = status.get(name)
         if st == "ok" or (st and st.startswith("skipped") and venv_only):
@@ -256,8 +302,10 @@ def render_readme(reg: dict) -> str:
         "",
         "Every status above `proposed` cites the implementing files, the tests that prove it and the gaps that remain",
         "(`implementation.files`, `.tests`, `.gaps` in `register.json`). `build_register.py --check` verifies that every cited",
-        "file, test class and test method exists; `--run-tests` runs the cited backend tests. Passing offline tests is evidence",
-        "of offline behaviour only.",
+        "file exists, every cited Python test class and method exists, and every cited terminal test is an enabled `it`/`test`",
+        "call under the cited `describe` titles; `--run-tests` runs the cited backend tests. Terminal unit tests run in CI; the",
+        "Playwright end-to-end tests (`terminal/e2e`) and the tests marked IBKR venv run only locally. Passing offline tests is",
+        "evidence of offline behaviour only.",
         "",
     ]
     if basis:

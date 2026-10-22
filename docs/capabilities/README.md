@@ -19,8 +19,10 @@ each capability records lawful alternatives and what cannot be replicated.
 
 Every status above `proposed` cites the implementing files, the tests that prove it and the gaps that remain
 (`implementation.files`, `.tests`, `.gaps` in `register.json`). `build_register.py --check` verifies that every cited
-file, test class and test method exists; `--run-tests` runs the cited backend tests. Passing offline tests is evidence
-of offline behaviour only.
+file exists, every cited Python test class and method exists, and every cited terminal test is an enabled `it`/`test`
+call under the cited `describe` titles; `--run-tests` runs the cited backend tests. Terminal unit tests run in CI; the
+Playwright end-to-end tests (`terminal/e2e`) and the tests marked IBKR venv run only locally. Passing offline tests is
+evidence of offline behaviour only.
 
 Checked against `impl/foundation@73f7b03` on 2026-10-22.
 
