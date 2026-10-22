@@ -21,6 +21,7 @@ import { operationsWorkspace } from './operations';
 import { ordersWorkspace } from './orders';
 import { overviewWorkspace } from './overview';
 import { policyWorkspace } from './policy';
+import { researchWorkspace } from './research';
 import { riskWorkspace } from './risk';
 import { sessionsWorkspace } from './sessions';
 import { validateRegistry, type WorkspaceDefinition } from './types';
@@ -37,6 +38,7 @@ export const WORKSPACES: readonly WorkspaceDefinition[] = validateRegistry([
   instrumentsWorkspace,
   companyWorkspace,
   macroWorkspace,
+  researchWorkspace,
 ]);
 
 export function findWorkspace(id: string): WorkspaceDefinition | undefined {
