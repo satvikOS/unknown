@@ -113,6 +113,7 @@ The journal, `<home>/strategy/<account>/<artifact>.journal.sqlite`, stores the e
 | Core down | Decisions stay PLANNED. After the core is back (and the owner's green start), exactly the planned payloads are sent, once, while their deadline has not passed. |
 | Core down past the intent deadline (or into the next session) | The intent is never sent. If the core already holds it (a crash after sending), its stored result is recorded; otherwise the decision is recorded `BLOCKED` with a `RUNNER_LATE` reason. Rows of an earlier session are finished before the new session is decided. |
 | Journal lost | The core's stored commands are adopted: a recorded decision is not decided again. A stored intent without a record is recorded from the core's stored result and never resubmitted. |
+| Restarted in shadow mode while a live run's intents are still PLANNED | They are never sent. Each is recorded `BLOCKED` with a `MODE_CHANGED` reason, or as submitted if the core already holds it. A session's decision is made once per account, artifact and instrument, whatever the mode: switching modes does not decide that session again. |
 | Two runners for one artifact and account | The second refuses (`RUNNER_ALREADY_RUNNING`, exclusive `flock`). The same artifact may run for another account; it has its own journal. |
 
 The order id cannot be reused either: the core refuses `DUPLICATE_ORDER_ID`.

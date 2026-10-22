@@ -903,6 +903,26 @@ class CrashResumeTest(RealCoreCase):
         self.stop_core()
         self.assertEqual(self.verify_ledger(), [])
 
+    def test_a_runner_restarted_in_shadow_mode_never_sends_the_live_intents_left_planned(self):
+        """Review fix: a live run left intents PLANNED (core down); the owner restarted the runner in shadow mode,
+        and the shadow runner sent them. Shadow mode never submits: they are recorded BLOCKED (MODE_CHANGED)."""
+        a = self.ids["A"]
+        self.stop_core()
+        with self.runner("A", "live") as r, self.assertLogs("unknown.strategy", level="ERROR"):
+            self.assertEqual(r.run_once()["result"], "CORE_UNREACHABLE")
+            self.assertEqual(len([x for x in r.journal.rows(self.day) if x["submit_payload"] is not None]), 2)
+        self.start_core()
+        self.green_start()
+        with self.runner("A", "shadow") as r, self.assertLogs("unknown.strategy", level="WARNING"):
+            s = r.run_once()
+        self.assertEqual(self.orders(a), [])
+        for x in s["instruments"].values():
+            self.assertEqual((x["state"], x["outcome"], x["submitted"]), ("RECORDED", "BLOCKED", False), x)
+            self.assertTrue(x["reason"].startswith("MODE_CHANGED: not submitted"), x["reason"])
+        self.assertEqual(sorted(d["outcome"] for d in self.decisions(a)), ["BLOCKED", "BLOCKED"])
+        self.stop_core()
+        self.assertEqual(self.verify_ledger(), [])
+
     def test_an_outage_past_the_session_records_its_decisions_late_and_never_submits_them(self):
         """Review fix: a cycle only looked at the latest eligible session, so decisions an outage left PLANNED (or
         SUBMITTED without a record) stayed so forever once the next session became eligible: never recorded. They

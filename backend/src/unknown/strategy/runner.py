@@ -618,8 +618,11 @@ class StrategyRunner:
         inst = row["instrument_id"]
         if row["state"] == "PLANNED":
             sub = row["submit_payload"]
-            if sub is not None and self.clock.now_ns() >= sub["deadline_ns"]:
-                self._expire(row)
+            if sub is not None and self.cfg.mode != "live":
+                # Planned by a live run, now executed by a runner the owner started in shadow mode: never sent.
+                self._withhold(row, "MODE_CHANGED", f"planned by a {row['mode']} run; this runner runs in {self.cfg.mode} mode")
+            elif sub is not None and self.clock.now_ns() >= sub["deadline_ns"]:
+                self._withhold(row, "RUNNER_LATE", "the intent deadline passed before the core took it")
             elif sub is not None:
                 res = self._command(row["submit_command_id"], "submit_intent", row["submit_payload"])
                 decision = self._finalize(row["decision_payload"], res, row["order_id"])
@@ -644,10 +647,11 @@ class StrategyRunner:
         """A command the core stored under one of this runner's ids was issued by this artifact's principal."""
         return (stored.get("principal_id"), stored.get("principal_role")) == (self.cfg.artifact_id, "STRATEGY")
 
-    def _expire(self, row: dict) -> None:
-        """A PLANNED intent whose deadline has passed is never sent (the core would refuse it as DEADLINE anyway).
-        If an earlier process did send it (a crash before the journal learned), the core's stored result is the
-        truth and is recorded; otherwise the decision is recorded BLOCKED (RUNNER_LATE)."""
+    def _withhold(self, row: dict, code: str, why: str) -> None:
+        """A PLANNED intent this runner may not send (``RUNNER_LATE``: its deadline has passed, the core would refuse
+        it as DEADLINE anyway; ``MODE_CHANGED``: a shadow runner never submits) is never sent. If an earlier process
+        did send it (a crash before the journal learned), the core's stored result is the truth and is recorded;
+        otherwise the decision is recorded BLOCKED with ``code``."""
         day, inst, sub = date.fromisoformat(row["session_date"]), row["instrument_id"], row["submit_payload"]
         stored = self._core_commands([row["submit_command_id"]]).get(row["submit_command_id"])
         if stored is not None and self._own(stored):
@@ -655,16 +659,15 @@ class StrategyRunner:
                    "recovered": True}
             decision = self._finalize(row["decision_payload"], res, row["order_id"])
             self.journal.update(day, inst, self.clock.now_ns(), state="SUBMITTED", submit_result=res, decision_payload=decision)
-            log.info("%s %s %s: intent past its deadline was already taken by the core (%s); recording that, not resending",
-                     row["artifact_id"], day, inst, stored["status"])
+            log.info("%s %s %s: %s, but the core already took this intent (%s); recording that, not resending",
+                     row["artifact_id"], day, inst, code, stored["status"])
             return
         base = row["decision_payload"]
         decision = {**base, "outcome": "BLOCKED", "order_ids": [],
-                    "reason": _join(f"RUNNER_LATE: not submitted; the intent deadline passed before the core took it; would "
-                                    f"{sub['side']} {sub['quantity']} @ {sub['limit_price']}", base.get("reason", ""))}
+                    "reason": _join(f"{code}: not submitted; {why}; would {sub['side']} {sub['quantity']} @ {sub['limit_price']}",
+                                    base.get("reason", ""))}
         self.journal.update(day, inst, self.clock.now_ns(), state="SUBMITTED", decision_payload=decision)
-        log.warning("%s %s %s: intent past its deadline, not submitted; recorded BLOCKED (RUNNER_LATE)", row["artifact_id"],
-                    day, inst)
+        log.warning("%s %s %s: intent not submitted (%s: %s); recorded BLOCKED", row["artifact_id"], day, inst, code, why)
 
     @staticmethod
     def _row_summary(row: dict, already: bool = False) -> dict:
