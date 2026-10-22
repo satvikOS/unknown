@@ -67,7 +67,8 @@ class Harness:
 
     def health(self) -> HealthSnapshot:
         s = self.broker.session()
-        return HealthSnapshot(s.connected, s.authenticated, s.server_time_ns, 50_000, "simulated broker")
+        return HealthSnapshot(s.connected, s.authenticated, s.server_time_ns, 50_000, "simulated broker",
+                              self.broker.capabilities().account_mode.value)
 
     @property
     def runner(self) -> GatewayRunner:

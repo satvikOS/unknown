@@ -2,24 +2,37 @@
 
 Observations always record the economic fact. When a fact violates an
 expected invariant (unknown order, overfill, price outside limit, late fill,
-changed content under one execution id, foreign activity) the handler records
-it, opens an exception that blocks new exposure, and never discards it."""
+changed content under one execution id, foreign activity, unexpected fee
+currency) the handler records it, opens an exception that blocks new exposure,
+and never discards it. Observation handlers do not raise ``Rejected``.
+
+Ledger conventions used here (fixes from the 2026-10-22 review):
+* every settlement row records the account code it relieves (PAYABLE or
+  RECEIVABLE) and its owner; a trade touching several owners gets one row per
+  owner, so settlement moves cash to exactly the owners whose claims it clears;
+* buy fee estimates accrue to FEES_ACCRUED (covered by the order's fee
+  envelope hold); sell fee estimates accrue against the sale's RECEIVABLE, so
+  an exit never reduces settled-cash availability;
+* after completion every later effect (commission, correction, restatement)
+  posts to the owner that holds the session's balances now, protected:<id> or
+  unallocated, so the change is a visible delta there (ADR-0008)."""
 from __future__ import annotations
 
 import json
 from datetime import date
 
 from ...domain.calendar import local_date
-from ...domain.errors import Rejected
 from ...domain.fixed import Fixed, Rounding
 from ...domain.money import Money, currency
 from ...risk import fees as fee_model
 from .. import ledger, state
 from ..desk import Context
-from .common import (EXECUTION_ANOMALY, FOREIGN_ACTIVITY, OVERCOMMITTED, POST_COMPLETION_ADJUSTMENT, UNKNOWN_ORDER,
-                     control_update, hold_rows, multiplier_of, new_exception)
+from .common import (EXECUTION_ANOMALY, FOREIGN_ACTIVITY, OVERCOMMITTED, POST_COMPLETION_ADJUSTMENT,
+                     hold_rows, multiplier_of, new_exception)
 
 TERMINAL_MAP = {"CANCELED": "CANCELED", "EXPIRED": "EXPIRED", "REJECTED": "REJECTED", "INACTIVE": "REJECTED"}
+WORKING_STATUSES = ("PENDING_SUBMIT", "ACKNOWLEDGED", "PARTIALLY_FILLED", "PENDING_CANCEL")
+ECONOMIC_FIELDS = ("side", "quantity", "price", "instrument_id", "currency")
 
 
 def _fx(v) -> Fixed:
@@ -36,6 +49,13 @@ def economic_owner(tx, session_id: str | None) -> str:
     if s["state"] in ("CLOSED", "CANCELLED"):
         return ledger.UNALLOCATED
     return ledger.session_owner(session_id)
+
+
+def current_owner(tx, owner: str) -> str:
+    """Map an original owner to whoever holds its balances now (session -> protected/unallocated)."""
+    if owner.startswith("session:"):
+        return economic_owner(tx, owner.split(":", 1)[1])
+    return owner
 
 
 def _resolve_case(ctx: Context, account_key: str, key: str, resolution: str) -> list[dict]:
@@ -63,12 +83,10 @@ def _find_order(ctx: Context, account_key: str, client_order_id: str | None, ord
     return None, None
 
 
-def _latch_changes(ctx: Context, account_key: str, reason: str) -> dict:
-    c = state.control(ctx.tx, account_key)
-    if c["stop_latched"]:
-        return c
-    return {**c, "stop_latched": True, "latch_reason": reason, "latched_by": ctx.principal.id,
-            "latched_at_ns": ctx.now_ns, "latch_command_id": ctx.command.command_id}
+def latch(ctx: Context, account_key: str, reason: str) -> None:
+    """Latch the stop through the one shared path, which also cancels open buys (ADR-0010)."""
+    from .control import latch_stop
+    latch_stop(ctx, account_key, reason)
 
 
 # ----------------------------------------------------------------- status
@@ -79,9 +97,8 @@ def broker_order_status(ctx: Context, p: dict) -> dict:
         case = new_exception(ctx, key, FOREIGN_ACTIVITY, blocking=True, severity="critical",
                              detail={"observation": "order status", "payload": p, "reason": foreign or "not our order"},
                              key=f"foreign-order:{p.get('broker_order_id')}")
-        ctx.emit("ForeignOrderObserved", {"payload": p}, {"exceptions": [case] if case else [],
-                                                         "control": [_latch_changes(ctx, key, "FOREIGN_ACTIVITY")]},
-                 account_key=key)
+        ctx.emit("ForeignOrderObserved", {"payload": p}, {"exceptions": [case] if case else []}, account_key=key)
+        latch(ctx, key, "FOREIGN_ACTIVITY")
         return {"foreign": True}
     return apply_status(ctx, order, p["status"], _fx(p.get("filled_quantity", "0")), p.get("reason", ""),
                         p.get("broker_order_id"), via="status")
@@ -91,19 +108,38 @@ def apply_status(ctx: Context, order: dict, status: str, broker_filled: Fixed, r
                  broker_order_id: str | None, via: str) -> dict:
     key = order["account_key"]
     refs = dict(account_key=key, session_id=order["session_id"], order_id=order["order_id"])
-    mult = multiplier_of(ctx, order["instrument_id"])
     local = Fixed.parse(order["cum_qty"])
     new = {**order}
     if broker_order_id and not order.get("broker_order_id"):
         new["broker_order_id"] = broker_order_id
     resolved = _resolve_case(ctx, key, f"unknown-order:{order['order_id']}", f"broker reported {status}")
+    if status not in WORKING_STATUSES and status != "FILLED" and status not in TERMINAL_MAP:
+        case = new_exception(ctx, key, EXECUTION_ANOMALY, blocking=True, severity="medium",
+                             detail={"order_id": order["order_id"], "issue": f"unrecognised broker status {status!r}"},
+                             key=f"status:{order['order_id']}:{status}", session_id=order["session_id"], order_id=order["order_id"])
+        ctx.emit("UnrecognisedOrderStatus", {"status": status}, {"exceptions": [case] if case else []}, **refs)
+        return {"state": order["state"], "anomaly": True}
     if order["state"] in state.TERMINAL_ORDER_STATES:
         if broker_filled > local:
             pending = {"status": status, "filled": broker_filled.to_str(), "reason": reason}
             ctx.emit("TerminalOrderAwaitingExecutions", {"status": status},
                      {"orders": [{**new, "broker_terminal_pending": pending}], "exceptions": resolved}, **refs)
+        if status in WORKING_STATUSES and via == "reconciliation":
+            # The broker's open-order list still shows an order we consider finished (its reservation is
+            # released): block, and pull it if it adds exposure. Streamed statuses can arrive stale, so only
+            # the reconciliation snapshot is evidence here (review finding 36).
+            case = new_exception(ctx, key, EXECUTION_ANOMALY, blocking=True, severity="high",
+                                 detail={"order_id": order["order_id"], "issue": "broker lists a locally terminal order as working",
+                                         "local_state": order["state"], "broker_status": status},
+                                 key=f"working-after-terminal:{order['order_id']}", session_id=order["session_id"],
+                                 order_id=order["order_id"])
+            if case:
+                ctx.emit("TerminalOrderStillWorking", {"status": status}, {"exceptions": [case]}, **refs)
+            if order["side"] == "BUY" and status != "PENDING_CANCEL":
+                from .orders import enqueue_cancel
+                enqueue_cancel(ctx, state.order(ctx.tx, order["order_id"]), "broker still working a locally terminal buy")
         return {"state": order["state"], "noop": True}
-    if status in ("PENDING_SUBMIT", "ACKNOWLEDGED", "PARTIALLY_FILLED", "PENDING_CANCEL"):
+    if status in WORKING_STATUSES:
         if order["state"] in ("SUBMIT_PENDING", "UNKNOWN", "RESERVED"):
             new.update(state="PARTIALLY_FILLED" if local.is_positive() else "ACKNOWLEDGED", prev_state=order["state"])
         if status == "PENDING_CANCEL" and new["state"] != "CANCEL_PENDING":
@@ -111,29 +147,27 @@ def apply_status(ctx: Context, order: dict, status: str, broker_filled: Fixed, r
         if new != order or resolved:
             ctx.emit("OrderStatusObserved", {"status": status, "via": via}, {"orders": [new], "exceptions": resolved}, **refs)
         return {"state": new["state"]}
-    if status == "FILLED" or status in TERMINAL_MAP:
-        target = "FILLED" if status == "FILLED" else TERMINAL_MAP[status]
-        if broker_filled > local:
-            pending = {"status": status, "filled": broker_filled.to_str(), "reason": reason}
-            if order["state"] in ("SUBMIT_PENDING", "UNKNOWN"):
-                new.update(state="PARTIALLY_FILLED" if local.is_positive() else "ACKNOWLEDGED", prev_state=order["state"])
-            ctx.emit("TerminalStatusAwaitingExecutions", {"status": status, "broker_filled": broker_filled.to_str(),
-                                                          "local_filled": local.to_str(),
-                                                          "note": "reservation kept until executions are ingested"},
-                     {"orders": [{**new, "broker_terminal_pending": pending}], "exceptions": resolved}, **refs)
-            return {"state": new["state"], "awaiting_executions": True}
-        if broker_filled < local:
-            case = new_exception(ctx, key, EXECUTION_ANOMALY, blocking=True, severity="high",
-                                 detail={"order_id": order["order_id"], "broker_filled": broker_filled.to_str(), "local_filled": local.to_str()},
-                                 key=f"fill-count:{order['order_id']}", session_id=order["session_id"], order_id=order["order_id"])
-            ctx.emit("OrderFillCountMismatch", {"status": status}, {"exceptions": ([case] if case else []) + resolved}, **refs)
-            return {"state": order["state"], "anomaly": True}
-        if target == "FILLED" and local < Fixed.parse(order["quantity"]):
-            target = "CANCELED"  # broker says done with fewer shares: remainder is no longer working
-        if target == "REJECTED" and local.is_positive():
-            target = "CANCELED"
-        return finalize(ctx, new, target, reason or status, extra_exceptions=resolved, via=via)
-    raise Rejected("INVALID_FIELD", f"unknown broker status {status}")
+    target = "FILLED" if status == "FILLED" else TERMINAL_MAP[status]
+    if broker_filled > local:
+        pending = {"status": status, "filled": broker_filled.to_str(), "reason": reason}
+        if order["state"] in ("SUBMIT_PENDING", "UNKNOWN"):
+            new.update(state="PARTIALLY_FILLED" if local.is_positive() else "ACKNOWLEDGED", prev_state=order["state"])
+        ctx.emit("TerminalStatusAwaitingExecutions", {"status": status, "broker_filled": broker_filled.to_str(),
+                                                      "local_filled": local.to_str(),
+                                                      "note": "reservation kept until executions are ingested"},
+                 {"orders": [{**new, "broker_terminal_pending": pending}], "exceptions": resolved}, **refs)
+        return {"state": new["state"], "awaiting_executions": True}
+    if broker_filled < local:
+        case = new_exception(ctx, key, EXECUTION_ANOMALY, blocking=True, severity="high",
+                             detail={"order_id": order["order_id"], "broker_filled": broker_filled.to_str(), "local_filled": local.to_str()},
+                             key=f"fill-count:{order['order_id']}", session_id=order["session_id"], order_id=order["order_id"])
+        ctx.emit("OrderFillCountMismatch", {"status": status}, {"exceptions": ([case] if case else []) + resolved}, **refs)
+        return {"state": order["state"], "anomaly": True}
+    if target == "FILLED" and local < Fixed.parse(order["quantity"]):
+        target = "CANCELED"  # broker says done with fewer shares: remainder is no longer working
+    if target == "REJECTED" and local.is_positive():
+        target = "CANCELED"
+    return finalize(ctx, new, target, reason or status, extra_exceptions=resolved, via=via)
 
 
 def finalize(ctx: Context, order: dict, target: str, reason: str, *, extra_exceptions: list | None = None, via: str = "") -> dict:
@@ -152,18 +186,30 @@ def finalize(ctx: Context, order: dict, target: str, reason: str, *, extra_excep
 def broker_execution(ctx: Context, p: dict) -> dict:
     key = p["account_key"]
     exec_key = p["exec_key"]
+    raw_economic = {k: p.get(k) for k in ECONOMIC_FIELDS}
     existing = state.execution(ctx.tx, exec_key)
-    economic = {k: p.get(k) for k in ("side", "quantity", "price", "instrument_id", "currency")}
     if existing is not None:
-        if {k: existing.get(k) for k in economic} == economic or existing.get("raw_economic") == economic:
+        if existing.get("raw_economic") == raw_economic or {k: existing.get(k) for k in ECONOMIC_FIELDS} == raw_economic:
             return {"exec_key": exec_key, "duplicate": True}
         case = new_exception(ctx, key, EXECUTION_ANOMALY, blocking=True, severity="critical",
                              detail={"exec_key": exec_key, "issue": "same execution id with changed content",
-                                     "stored": {k: existing.get(k) for k in economic}, "received": economic},
+                                     "stored": existing.get("raw_economic"), "received": raw_economic},
                              key=f"exec-changed:{exec_key}:{ctx.payload_hash[:12]}")
         ctx.emit("ExecutionContentConflict", {"exec_key": exec_key, "received": p}, {"exceptions": [case] if case else []},
                  account_key=key)
         return {"exec_key": exec_key, "conflict": True}
+    p = {**p, "_raw_economic": raw_economic}
+    if not state.control(ctx.tx, key).get("imported"):
+        # Already reflected in the opening snapshot about to be imported: record, never book twice.
+        ctx.emit("PreImportExecutionRecorded", {"exec_key": exec_key, "note": "covered by the opening balance import"},
+                 {"executions": [{"exec_key": exec_key, "account_key": key, "order_id": None, "session_id": None,
+                                  "owner": ledger.OUTSIDE, "instrument_id": p.get("instrument_id"), "side": p.get("side"),
+                                  "quantity": p.get("quantity"), "price": p.get("price"), "currency": p.get("currency"),
+                                  "exec_time_ns": p.get("exec_time_ns"), "status": "PRE_IMPORT", "fee_status": "PRE_IMPORT",
+                                  "raw_economic": raw_economic, "effects": {"entries": [], "lots_opened": [], "lots_consumed": []},
+                                  "settlement_ids": [], "fee_estimate": "0", "fee_final": None, "corrected_by": None,
+                                  "correction_of": p.get("correction_of")}]}, account_key=key)
+        return {"exec_key": exec_key, "pre_import": True}
     if p.get("correction_of"):
         return _apply_correction(ctx, p)
     order, foreign = _find_order(ctx, key, p.get("client_order_id"), p.get("order_ref"), p.get("broker_order_id"))
@@ -172,20 +218,18 @@ def broker_execution(ctx: Context, p: dict) -> dict:
     return apply_order_execution(ctx, order, p)
 
 
-def _trade_date(ctx: Context, account_key: str, exec_time_ns: int) -> tuple[date, date, str]:
+def _settle_calendar(ctx: Context, account_key: str):
     policy = state.active_policy(ctx.tx, account_key)
-    tz = policy.limits.risk_day_timezone
-    trade = local_date(exec_time_ns, tz)
-    cal = ctx.desk.calendars.get(policy.settlement_calendar, ctx.desk.calendars["WEEKDAYS"])
-    return trade, cal, tz
+    return policy.limits.risk_day_timezone, ctx.desk.calendars.get(policy.settlement_calendar, ctx.desk.calendars["WEEKDAYS"])
 
 
-def _settlement_row(ctx: Context, account_key: str, owner: str, ccy: str, direction: str, amount: Fixed,
-                    exec_key: str, exec_time_ns: int, settlement_days: int) -> dict:
-    trade, cal, _ = _trade_date(ctx, account_key, exec_time_ns)
+def settlement_row(ctx: Context, account_key: str, owner: str, ccy: str, direction: str, amount: Fixed, relieves: str,
+                   settlement_id: str, exec_key: str | None, trade_time_ns: int, settlement_days: int) -> dict:
+    tz, cal = _settle_calendar(ctx, account_key)
+    trade = local_date(trade_time_ns, tz)
     expected = cal.add_business_days(trade, settlement_days)
-    return {"settlement_id": f"stl:{exec_key}", "account_key": account_key, "owner": owner, "currency": ccy,
-            "direction": direction, "amount": amount.to_str(), "trade_date": trade.isoformat(),
+    return {"settlement_id": settlement_id, "account_key": account_key, "owner": owner, "currency": ccy,
+            "direction": direction, "amount": amount.to_str(), "relieves": relieves, "trade_date": trade.isoformat(),
             "expected_date": expected.isoformat(), "calendar": cal.calendar_id, "status": "EXPECTED",
             "exec_key": exec_key, "settled_at_ns": None}
 
@@ -225,6 +269,7 @@ def _book_execution(ctx: Context, p: dict, *, owner: str, order: dict | None, se
     changes: dict = {"journal": [], "lots": [], "settlements": [], "exceptions": []}
     anomalies: list[dict] = []
     effects: dict = {"entries": [], "lots_opened": [], "lots_consumed": []}
+    settlements: list[dict] = []
     memo = f"{p['side']} {qty} {inst_id} @ {price} ({exec_key})"
     if p["side"] == "BUY":
         lot_id = f"lot:{exec_key}"
@@ -233,7 +278,8 @@ def _book_execution(ctx: Context, p: dict, *, owner: str, order: dict | None, se
                                 "original_qty": qty.to_str(), "opened_by": exec_key, "opened_at_ns": p["exec_time_ns"]})
         lines = [ledger.Line(ledger.INVENTORY, owner, ccy, notional, inst_id), ledger.Line(ledger.PAYABLE, owner, ccy, -notional)]
         effects["lots_opened"].append(lot_id)
-        settlement = _settlement_row(ctx, key, owner, ccy, "PAY", notional, exec_key, p["exec_time_ns"], settlement_days)
+        settlements.append(settlement_row(ctx, key, owner, ccy, "PAY", notional, ledger.PAYABLE, f"stl:{exec_key}", exec_key,
+                                          p["exec_time_ns"], settlement_days))
     else:
         rows, consumed, cost, uncovered = _consume_lots(ctx, key, owner, inst_id, qty, scale)
         changes["lots"].extend(rows)
@@ -243,6 +289,9 @@ def _book_execution(ctx: Context, p: dict, *, owner: str, order: dict | None, se
         lines = [ledger.Line(ledger.RECEIVABLE, owner, ccy, covered_proceeds),
                  ledger.Line(ledger.INVENTORY, owner, ccy, -cost, inst_id),
                  ledger.Line(ledger.REALIZED, owner, ccy, -(covered_proceeds - cost))]
+        if covered_proceeds.is_positive():
+            settlements.append(settlement_row(ctx, key, owner, ccy, "RECEIVE", covered_proceeds, ledger.RECEIVABLE,
+                                              f"stl:{exec_key}", exec_key, p["exec_time_ns"], settlement_days))
         if uncovered.is_positive():
             case = new_exception(ctx, key, EXECUTION_ANOMALY, blocking=True, severity="critical",
                                  detail={"exec_key": exec_key, "issue": "sell exceeds owned quantity", "uncovered": uncovered.to_str(),
@@ -251,25 +300,40 @@ def _book_execution(ctx: Context, p: dict, *, owner: str, order: dict | None, se
             ex_owner = ledger.exception_owner(case_id)
             excess = notional - covered_proceeds
             lines += [ledger.Line(ledger.RECEIVABLE, ex_owner, ccy, excess), ledger.Line(ledger.SUSPENSE, ex_owner, ccy, -excess)]
-            changes["lots"].append({"lot_id": f"lot:{exec_key}:short", "account_key": key, "instrument_id": inst_id,
+            short_id = f"lot:{exec_key}:short"
+            changes["lots"].append({"lot_id": short_id, "account_key": key, "instrument_id": inst_id,
                                     "owner": ex_owner, "currency": ccy, "open_qty": (-uncovered).to_str(),
                                     "open_cost": Fixed(0, scale).to_str(), "original_qty": (-uncovered).to_str(),
                                     "opened_by": exec_key, "opened_at_ns": p["exec_time_ns"]})
+            effects["lots_opened"].append(short_id)
+            # The excess proceeds settle to the quarantine owner, never to the selling owner (review finding 6).
+            settlements.append(settlement_row(ctx, key, ex_owner, ccy, "RECEIVE", excess, ledger.RECEIVABLE,
+                                              f"stl:{exec_key}:excess", exec_key, p["exec_time_ns"], settlement_days))
             if case:
                 case["owner_hint"] = owner
                 changes["exceptions"].append(case)
             anomalies.append({"issue": "uncovered sell", "qty": uncovered.to_str()})
-        settlement = _settlement_row(ctx, key, owner, ccy, "RECEIVE", notional, exec_key, p["exec_time_ns"], settlement_days)
     trade_entry = ledger.entry(ctx.new_id("je-"), key, "TRADE", memo, lines)
     changes["journal"].append(trade_entry)
     effects["entries"].append(trade_entry["entry_id"])
+    estimate_code = None
     if fee_estimate is not None and fee_estimate.is_positive():
+        estimate_code = ledger.FEES_ACCRUED if p["side"] == "BUY" else ledger.RECEIVABLE
         fe = ledger.entry(ctx.new_id("je-"), key, "FEE_ESTIMATE", f"estimated fee {exec_key}",
                           [ledger.Line(ledger.FEE_ESTIMATE, owner, ccy, fee_estimate.amount),
-                           ledger.Line(ledger.FEES_ACCRUED, owner, ccy, -fee_estimate.amount)])
+                           ledger.Line(estimate_code, owner, ccy, -fee_estimate.amount)])
         changes["journal"].append(fe)
         effects["entries"].append(fe["entry_id"])
-    changes["settlements"].append(settlement)
+        if estimate_code == ledger.RECEIVABLE:
+            # The sale's expected cash is net of the estimated fee, matching its receivable.
+            main = next((s for s in settlements if s["settlement_id"] == f"stl:{exec_key}"), None)
+            if main is None:
+                main = settlement_row(ctx, key, owner, ccy, "RECEIVE", Fixed(0, scale), ledger.RECEIVABLE, f"stl:{exec_key}",
+                                      exec_key, p["exec_time_ns"], settlement_days)
+                settlements.insert(0, main)
+            signed = Fixed.parse(main["amount"]) - fee_estimate.amount
+            main.update(direction="RECEIVE" if not signed.is_negative() else "PAY", amount=abs(signed).rescale(scale).to_str())
+    changes["settlements"].extend(settlements)
     exec_row = {"exec_key": exec_key, "account_key": key, "order_id": order["order_id"] if order else None,
                 "session_id": order["session_id"] if order else None, "owner": owner, "instrument_id": inst_id,
                 "side": p["side"], "quantity": qty.to_str(), "price": price.to_str(), "currency": ccy,
@@ -277,8 +341,11 @@ def _book_execution(ctx: Context, p: dict, *, owner: str, order: dict | None, se
                 "provider_exec_id": p.get("provider_exec_id"), "correction_of": p.get("correction_of"),
                 "corrected_by": None, "status": "ACTIVE",
                 "fee_estimate": fee_estimate.amount.to_str() if fee_estimate else Fixed(0, scale).to_str(),
-                "fee_final": None, "fee_status": "ESTIMATED", "effects": effects, "settlement_id": settlement["settlement_id"],
-                "raw_economic": {k: p.get(k) for k in ("side", "quantity", "price", "instrument_id", "currency")},
+                "fee_estimate_code": estimate_code,
+                "fee_final": None, "fee_status": "ESTIMATED", "effects": effects,
+                "settlement_id": settlements[0]["settlement_id"] if settlements else None,
+                "settlement_ids": [s["settlement_id"] for s in settlements],
+                "raw_economic": p.get("_raw_economic") or {k: p.get(k) for k in ECONOMIC_FIELDS},
                 "raw": p.get("raw", {})}
     return changes, exec_row, anomalies, effects
 
@@ -350,25 +417,41 @@ def apply_order_execution(ctx: Context, order: dict, p: dict, *, allowance: Fixe
     ctx.emit("ExecutionRecorded", {"exec_key": p["exec_key"], "anomalies": anomalies, "owner": owner},
              changes, account_key=key, session_id=order["session_id"], order_id=order["order_id"],
              instrument_id=order["instrument_id"], event_time_ns=p["exec_time_ns"])
-    _check_overcommit(ctx, key, owner, ccy, p["exec_key"], order)
+    check_overcommit(ctx, key, owner, ccy, p["exec_key"], order["session_id"])
     pending = ctx.tx.one("SELECT row FROM pending_commissions WHERE exec_key=?", (p["exec_key"],))
     if pending is not None:
-        c = json.loads(pending["row"])
-        _apply_commission(ctx, c, deferred=True)
+        _apply_commission(ctx, json.loads(pending["row"]), deferred=True)
     if owner.startswith("protected:"):
         _post_completion_notice(ctx, key, order["session_id"], f"execution {p['exec_key']} after completion", blocking=True)
+    s = state.session(ctx.tx, order["session_id"]) if order["session_id"] else None
+    if s is not None and s["state"] == "RECONCILING":
+        _late_activity_notice(ctx, key, s, f"execution {p['exec_key']} while reconciling")
     return {"exec_key": p["exec_key"], "duplicate": False, "anomalies": anomalies}
 
 
-def _check_overcommit(ctx: Context, key: str, owner: str, ccy: str, exec_key: str, order: dict | None) -> None:
-    if ledger.is_system_owner(owner) and ledger.available_cash(ctx.tx, key, owner, ccy).is_negative():
-        case = new_exception(ctx, key, OVERCOMMITTED, blocking=True, severity="high",
-                             detail={"owner": owner, "exec_key": exec_key,
-                                     "available": ledger.available_cash(ctx.tx, key, owner, ccy).to_str()},
-                             key=f"overcommitted:{owner}", session_id=order["session_id"] if order else None,
-                             owner_hint=owner)
-        if case:
-            ctx.emit("OwnerOvercommitted", {"owner": owner}, {"exceptions": [case]}, account_key=key)
+def check_overcommit(ctx: Context, key: str, owner: str, ccy: str, ref: str, session_id: str | None) -> None:
+    """A system owner whose available cash went negative (a fill or fee beyond its reservation) hands the
+    deficit to ``exception:<case>`` so the owner stays non-negative and the shortfall is visible and
+    blocking until the owner funds it (``cover_shortfall``, ADR-0006)."""
+    if not ledger.is_system_owner(owner):
+        return
+    available = ledger.available_cash(ctx.tx, key, owner, ccy)
+    if not available.is_negative():
+        return
+    case = new_exception(ctx, key, OVERCOMMITTED, blocking=True, severity="high",
+                         detail={"owner": owner, "ref": ref, "currency": ccy, "shortfall": (-available).to_str(),
+                                 "resolution": "cover_shortfall funds the exception owner from unallocated, buffer or outside cash"},
+                         key=f"overcommitted:{owner}", session_id=session_id, owner_hint=owner)
+    open_case = case or state.exception_by_key(ctx.tx, key, f"overcommitted:{owner}")
+    ex_owner = ledger.exception_owner(open_case["case_id"])
+    e = ledger.entry(ctx.new_id("je-"), key, "OWNER_TRANSFER", f"quarantine shortfall of {owner} ({ref})",
+                     ledger.transfer(ledger.CASH, ccy, -available, ex_owner, owner))
+    if case is None:
+        detail = open_case["detail"]
+        prior = Fixed.parse(detail.get("shortfall", "0"))
+        case = {**open_case, "detail": {**detail, "shortfall": (prior + -available).to_str(), "ref": ref}}
+    ctx.emit("OwnerOvercommitted", {"owner": owner, "shortfall": (-available).to_str(), "case_id": case["case_id"]},
+             {"exceptions": [case], "journal": [e]}, account_key=key, session_id=session_id)
 
 
 def _post_completion_notice(ctx: Context, key: str, session_id: str, what: str, *, blocking: bool) -> None:
@@ -380,6 +463,36 @@ def _post_completion_notice(ctx: Context, key: str, session_id: str, what: str, 
                  account_key=key, session_id=session_id)
 
 
+def _late_activity_notice(ctx: Context, key: str, session: dict, what: str) -> None:
+    case = new_exception(ctx, key, EXECUTION_ANOMALY, blocking=True, severity="medium",
+                         detail={"session_id": session["session_id"], "what": what,
+                                 "note": "economic activity after the session was flat; wind-down resumes"},
+                         key=f"late-activity:{session['session_id']}:{ctx.payload_hash[:12]}",
+                         session_id=session["session_id"], owner_hint=ledger.session_owner(session["session_id"]))
+    if case:
+        ctx.emit("LateSessionActivity", {"what": what}, {"exceptions": [case]}, account_key=key, session_id=session["session_id"])
+
+
+def cover_external(ctx: Context, key: str, ccy: str, ref: str) -> None:
+    """External (manual) activity draws on the owner's unauthorized cash first (ADR-0006)."""
+    need = -ledger.available_cash(ctx.tx, key, ledger.EXTERNAL, ccy)
+    if not need.is_positive():
+        return
+    have = ledger.available_cash(ctx.tx, key, ledger.OUTSIDE, ccy)
+    if have >= need:
+        e = ledger.entry(ctx.new_id("je-"), key, "OWNER_TRANSFER", f"cover external activity {ref}",
+                         ledger.transfer(ledger.CASH, ccy, need, ledger.OUTSIDE, ledger.EXTERNAL))
+        ctx.emit("ExternalActivityCovered", {"amount": need.to_str(), "ref": ref}, {"journal": [e]}, account_key=key)
+        return
+    case = new_exception(ctx, key, OVERCOMMITTED, blocking=True, severity="critical",
+                         detail={"owner": "external", "currency": ccy, "need": need.to_str(), "outside_available": have.to_str(),
+                                 "ref": ref}, key="overcommitted:external", owner_hint=ledger.EXTERNAL)
+    existing = None if case else state.exception_by_key(ctx.tx, key, "overcommitted:external")
+    if existing is not None:
+        case = {**existing, "detail": {**existing["detail"], "need": need.to_str(), "outside_available": have.to_str(), "ref": ref}}
+    ctx.emit("ExternalActivityUncovered", {"ref": ref, "need": need.to_str()}, {"exceptions": [case]}, account_key=key)
+
+
 def _external_execution(ctx: Context, p: dict, foreign: str | None) -> dict:
     key = p["account_key"]
     if foreign or p.get("order_ref"):
@@ -387,92 +500,120 @@ def _external_execution(ctx: Context, p: dict, foreign: str | None) -> dict:
         case = new_exception(ctx, key, FOREIGN_ACTIVITY, blocking=True, severity="critical",
                              detail={"exec_key": p["exec_key"], "reason": reason}, key=f"foreign-exec:{p['exec_key']}",
                              owner_hint=ledger.EXTERNAL)
-        kind = "ForeignExecutionRecorded"
-        latch = True
+        kind, is_foreign = "ForeignExecutionRecorded", True
     else:
         case = new_exception(ctx, key, "EXTERNAL_TRADE", blocking=False, severity="medium",
-                             detail={"exec_key": p["exec_key"], "note": "manual trade attributed to the external owner"},
+                             detail={"exec_key": p["exec_key"], "note": "manual trade attributed outside the system's sessions"},
                              key=f"external-exec:{p['exec_key']}", owner_hint=ledger.EXTERNAL)
-        kind = "ExternalExecutionRecorded"
-        latch = False
+        kind, is_foreign = "ExternalExecutionRecorded", False
     if not p.get("instrument_id") or state.instrument(ctx.tx, p["instrument_id"]) is None:
         case = case or new_exception(ctx, key, FOREIGN_ACTIVITY, blocking=True, severity="critical",
                                      detail={"exec_key": p["exec_key"]}, key=f"unmapped-exec:{p['exec_key']}")
         if case:
             case.update(blocking=True, detail={**case["detail"], "issue": "instrument not in master; economic booking deferred",
                                                "raw": p})
-        ctx.emit("UnmappedExecutionRecorded", {"payload": p}, {"exceptions": [case] if case else [],
-                                                              "control": [_latch_changes(ctx, key, "UNMAPPED_EXECUTION")]},
-                 account_key=key)
+        ctx.emit("UnmappedExecutionRecorded", {"payload": {k: v for k, v in p.items() if k != "_raw_economic"}},
+                 {"exceptions": [case] if case else []}, account_key=key)
+        latch(ctx, key, "UNMAPPED_EXECUTION")
         return {"exec_key": p["exec_key"], "unmapped": True}
     inst = state.instrument(ctx.tx, p["instrument_id"])
-    changes, exec_row, anomalies, _ = _book_execution(ctx, p, owner=ledger.EXTERNAL, order=None,
+    owner = ledger.EXTERNAL
+    if p["side"] == "SELL":
+        qty = _fx(p["quantity"])
+        # A manual sale relieves the owner's own (outside) holdings first, then earlier external buys.
+        # Session-held shares are never taken implicitly (review finding 30).
+        if ledger.owned_quantity(ctx.tx, key, ledger.OUTSIDE, p["instrument_id"]) >= qty:
+            owner = ledger.OUTSIDE
+        elif ledger.owned_quantity(ctx.tx, key, ledger.EXTERNAL, p["instrument_id"]) < qty:
+            held = [r["owner"] for r in ctx.tx.all("SELECT DISTINCT owner FROM lots WHERE account_key=? AND instrument_id=? "
+                                                   "AND owner LIKE 'session:%'", (key, p["instrument_id"]))]
+            if held:
+                c2 = new_exception(ctx, key, EXECUTION_ANOMALY, blocking=True, severity="critical",
+                                   detail={"exec_key": p["exec_key"], "issue": "manual sale may have used session-held shares",
+                                           "session_owners": held}, key=f"manual-sale-session:{p['exec_key']}")
+                if c2:
+                    ctx.emit("ManualSaleOfSessionShares", {"exec_key": p["exec_key"]}, {"exceptions": [c2]}, account_key=key)
+    changes, exec_row, anomalies, _ = _book_execution(ctx, p, owner=owner, order=None,
                                                       settlement_days=inst.settlement_days, mult=inst.multiplier, fee_estimate=None)
     exec_row["fee_status"] = "EXTERNAL"
     if case:
         changes["exceptions"].append(case)
     changes["executions"] = [exec_row]
-    if latch:
-        changes["control"] = [_latch_changes(ctx, key, "FOREIGN_ACTIVITY")]
-    ctx.emit(kind, {"exec_key": p["exec_key"], "anomalies": anomalies}, changes, account_key=key,
+    ctx.emit(kind, {"exec_key": p["exec_key"], "anomalies": anomalies, "owner": owner}, changes, account_key=key,
              instrument_id=p["instrument_id"], event_time_ns=p["exec_time_ns"])
-    # Cover an external purchase from outside cash where possible (ADR-0006 external activity).
-    if p["side"] == "BUY":
-        ccy = p["currency"]
-        need = -ledger.available_cash(ctx.tx, key, ledger.EXTERNAL, ccy)
-        if need.is_positive():
-            have = ledger.available_cash(ctx.tx, key, ledger.OUTSIDE, ccy)
-            if have >= need:
-                e = ledger.entry(ctx.new_id("je-"), key, "OWNER_TRANSFER", f"cover external purchase {p['exec_key']}",
-                                 ledger.transfer(ledger.CASH, ccy, need, ledger.OUTSIDE, ledger.EXTERNAL))
-                ctx.emit("ExternalPurchaseCovered", {"amount": need.to_str()}, {"journal": [e]}, account_key=key)
-            else:
-                c2 = new_exception(ctx, key, OVERCOMMITTED, blocking=True, severity="critical",
-                                   detail={"owner": "external", "need": need.to_str(), "outside_available": have.to_str()},
-                                   key=f"overcommitted:external:{p['exec_key']}", owner_hint=ledger.EXTERNAL)
-                if c2:
-                    ctx.emit("ExternalPurchaseUncovered", {}, {"exceptions": [c2]}, account_key=key)
-    return {"exec_key": p["exec_key"], "external": True, "foreign": latch}
+    if is_foreign:
+        latch(ctx, key, "FOREIGN_ACTIVITY")
+    if owner == ledger.EXTERNAL:
+        cover_external(ctx, key, p["currency"], p["exec_key"])
+    return {"exec_key": p["exec_key"], "external": True, "foreign": is_foreign}
+
+
+def _active_revision(ctx: Context, exec_key: str) -> dict | None:
+    ex = state.execution(ctx.tx, exec_key)
+    seen = set()
+    while ex is not None and ex.get("status") == "CORRECTED" and ex.get("corrected_by") and ex["exec_key"] not in seen:
+        seen.add(ex["exec_key"])
+        ex = state.execution(ctx.tx, ex["corrected_by"])
+    return ex
 
 
 def _apply_correction(ctx: Context, p: dict) -> dict:
+    """Book a broker correction: reverse the original, book the replacement, never park the fact."""
     key = p["account_key"]
-    orig = state.execution(ctx.tx, p["correction_of"])
-    if orig is None or orig["status"] != "ACTIVE":
+    orig = _active_revision(ctx, p["correction_of"])
+    if orig is None or orig.get("status") != "ACTIVE":
+        # The revision being corrected was never seen: book this one as an ordinary execution and flag it.
         case = new_exception(ctx, key, EXECUTION_ANOMALY, blocking=True, severity="high",
-                             detail={"exec_key": p["exec_key"], "issue": "correction of unknown or inactive execution",
-                                     "correction_of": p["correction_of"], "raw": p}, key=f"orphan-correction:{p['exec_key']}")
-        ctx.emit("OrphanCorrectionRecorded", {"payload": p}, {"exceptions": [case] if case else []}, account_key=key)
-        return {"exec_key": p["exec_key"], "orphan_correction": True}
+                             detail={"exec_key": p["exec_key"], "issue": "correction whose original was not ingested; booked as new",
+                                     "correction_of": p["correction_of"]}, key=f"orphan-correction:{p['exec_key']}")
+        ctx.emit("OrphanCorrectionRecorded", {"exec_key": p["exec_key"]}, {"exceptions": [case] if case else []}, account_key=key)
+        order, foreign = _find_order(ctx, key, p.get("client_order_id"), p.get("order_ref"), p.get("broker_order_id"))
+        plain = {**p, "correction_of": None}
+        return apply_order_execution(ctx, order, plain) if order else _external_execution(ctx, plain, foreign)
     scale = currency(orig["currency"]).ledger_scale
-    changes: dict = {"journal": [], "lots": [], "settlements": [], "executions": [], "orders": [], "holds": []}
-    # 1. Reverse the original's journal entries.
+    ccy = orig["currency"]
+    changes: dict = {"journal": [], "lots": [], "settlements": [], "executions": [], "orders": [], "holds": [], "exceptions": []}
+    # 1. Reverse the original's entries into whoever holds the balances now (ADR-0008 after completion).
     for entry_id in orig["effects"]["entries"] + orig.get("fee_entries", []):
-        lines = [dict(r) for r in ctx.tx.all("SELECT account_code, owner, currency, instrument_id, amount FROM postings WHERE entry_id=?", (entry_id,))]
+        lines = []
+        for r in ctx.tx.all("SELECT account_code, owner, currency, instrument_id, amount FROM postings WHERE entry_id=?", (entry_id,)):
+            lines.append(ledger.Line(r["account_code"], current_owner(ctx.tx, r["owner"]), r["currency"],
+                                     -Fixed.parse(r["amount"]), r["instrument_id"]))
         changes["journal"].append(ledger.entry(ctx.new_id("je-"), key, "REVERSAL", f"reverse {entry_id} (correction {p['exec_key']})",
-                                               ledger.reverse_lines(lines), reverses=entry_id))
-    # 2. Undo lot effects.
+                                               lines, reverses=entry_id))
+    # 2. Undo lot effects. A buy whose lot was partly sold keeps the disposed part: the replacement is
+    #    booked in full and the disposed quantity is re-attributed at the corrected price below.
+    disposed = Fixed(0)
+    disposed_cost_old = Fixed(0, scale)
     for lot_id in orig["effects"]["lots_opened"]:
         lot = json.loads(ctx.tx.one("SELECT row FROM lots WHERE lot_id=?", (lot_id,))["row"])
-        if Fixed.parse(lot["open_qty"]) != Fixed.parse(lot["original_qty"]):
-            case = new_exception(ctx, key, EXECUTION_ANOMALY, blocking=True, severity="high",
-                                 detail={"exec_key": p["exec_key"], "issue": "correction of a buy whose lot was already disposed",
-                                         "raw": p}, key=f"correction-after-disposal:{p['exec_key']}", owner_hint=orig["owner"])
-            ctx.emit("CorrectionRequiresReview", {"payload": p}, {"exceptions": [case] if case else []}, account_key=key)
-            return {"exec_key": p["exec_key"], "requires_review": True}
-        changes["lots"].append({**lot, "open_qty": "0", "open_cost": Fixed(0, scale).to_str()})
+        open_qty, original_qty = Fixed.parse(lot["open_qty"]), Fixed.parse(lot["original_qty"])
+        if open_qty != original_qty and original_qty.is_positive():
+            disposed = disposed + (original_qty - open_qty)
+            disposed_cost_old = disposed_cost_old + (Fixed.parse(orig["notional"]) - Fixed.parse(lot["open_cost"]))
+        changes["lots"].append({**lot, "owner": current_owner(ctx.tx, lot["owner"]), "open_qty": "0",
+                                "open_cost": Fixed(0, scale).to_str()})
     for c in orig["effects"]["lots_consumed"]:
         lot = json.loads(ctx.tx.one("SELECT row FROM lots WHERE lot_id=?", (c["lot_id"],))["row"])
-        changes["lots"].append({**lot, "open_qty": (Fixed.parse(lot["open_qty"]) + Fixed.parse(c["qty"])).to_str(),
+        changes["lots"].append({**lot, "owner": current_owner(ctx.tx, lot["owner"]),
+                                "open_qty": (Fixed.parse(lot["open_qty"]) + Fixed.parse(c["qty"])).to_str(),
                                 "open_cost": (Fixed.parse(lot["open_cost"]) + Fixed.parse(c["cost"])).rescale(scale).to_str()})
-    stl = json.loads(ctx.tx.one("SELECT row FROM settlements WHERE settlement_id=?", (orig["settlement_id"],))["row"])
-    if stl["status"] != "EXPECTED":
-        case = new_exception(ctx, key, EXECUTION_ANOMALY, blocking=True, severity="high",
-                             detail={"exec_key": p["exec_key"], "issue": "correction after settlement", "raw": p},
-                             key=f"correction-after-settlement:{p['exec_key']}", owner_hint=orig["owner"])
-        ctx.emit("CorrectionRequiresReview", {"payload": p}, {"exceptions": [case] if case else []}, account_key=key)
-        return {"exec_key": p["exec_key"], "requires_review": True}
-    changes["settlements"].append({**stl, "status": "CANCELLED", "cancelled_by": p["exec_key"]})
+    if disposed.is_positive() and _fx(p["quantity"]) < disposed:
+        case = new_exception(ctx, key, EXECUTION_ANOMALY, blocking=True, severity="critical",
+                             detail={"exec_key": p["exec_key"], "issue": "correction reduces a buy below the quantity already sold",
+                                     "disposed": disposed.to_str(), "corrected_qty": p["quantity"]},
+                             key=f"correction-below-disposed:{p['exec_key']}", owner_hint=orig["owner"])
+        changes["exceptions"].append(case) if case else None
+    # 3. Settlement: cancel unsettled rows; compensate rows already settled (cash moved at the broker).
+    for sid in orig.get("settlement_ids") or ([orig["settlement_id"]] if orig.get("settlement_id") else []):
+        stl = json.loads(ctx.tx.one("SELECT row FROM settlements WHERE settlement_id=?", (sid,))["row"])
+        if stl["status"] == "EXPECTED":
+            changes["settlements"].append({**stl, "status": "CANCELLED", "cancelled_by": p["exec_key"]})
+        else:
+            changes["settlements"].append(settlement_row(
+                ctx, key, current_owner(ctx.tx, stl["owner"]), stl["currency"], "RECEIVE" if stl["direction"] == "PAY" else "PAY",
+                Fixed.parse(stl["amount"]), stl.get("relieves") or (ledger.PAYABLE if stl["direction"] == "PAY" else ledger.RECEIVABLE),
+                f"{sid}:reversal:{p['exec_key']}", orig["exec_key"], ctx.now_ns, 0))
     changes["executions"].append({**orig, "status": "CORRECTED", "corrected_by": p["exec_key"]})
     order = state.order(ctx.tx, orig["order_id"]) if orig["order_id"] else None
     if order is not None:
@@ -487,14 +628,39 @@ def _apply_correction(ctx: Context, p: dict) -> dict:
         changes["orders"].append(order)
     ctx.emit("ExecutionCorrectionReversed", {"original": orig["exec_key"], "correction": p["exec_key"]}, changes,
              account_key=key, order_id=orig["order_id"], session_id=orig.get("session_id"), instrument_id=orig["instrument_id"])
-    p2 = {**p, "instrument_id": p.get("instrument_id") or orig["instrument_id"], "currency": p.get("currency") or orig["currency"]}
+    p2 = {**p, "instrument_id": p.get("instrument_id") or orig["instrument_id"], "currency": p.get("currency") or ccy}
     if order is not None:
         current = state.order(ctx.tx, order["order_id"])
         allowance = Fixed.parse(orig["quantity"]) if current["state"] in state.TERMINAL_ORDER_STATES else None
         result = apply_order_execution(ctx, current, p2, allowance=allowance)
     else:
         result = _external_execution(ctx, {**p2, "order_ref": None}, None)
+    if disposed.is_positive():
+        _reattribute_disposed(ctx, key, orig, p2, disposed, disposed_cost_old, scale)
     return {**result, "corrected": orig["exec_key"]}
+
+
+def _reattribute_disposed(ctx: Context, key: str, orig: dict, p: dict, disposed: Fixed, old_cost: Fixed, scale: int) -> None:
+    """Shares of a corrected buy that were already sold: remove them from the replacement lot at the
+    corrected price and restate the realized result of those sales by the cost difference."""
+    new = state.execution(ctx.tx, p["exec_key"])
+    lot_id = (new or {}).get("effects", {}).get("lots_opened", [None])[0]
+    if not lot_id:
+        return
+    lot = json.loads(ctx.tx.one("SELECT row FROM lots WHERE lot_id=?", (lot_id,))["row"])
+    open_qty, open_cost = Fixed.parse(lot["open_qty"]), Fixed.parse(lot["open_cost"])
+    take = disposed if disposed < open_qty else open_qty
+    new_cost = open_cost if take == open_qty else (open_cost * take).div(open_qty, scale, Rounding.HALF_EVEN)
+    delta = old_cost - new_cost  # inventory adjustment; realized moves by the opposite amount
+    owner = lot["owner"]
+    lines = [ledger.Line(ledger.INVENTORY, owner, lot["currency"], delta, lot["instrument_id"]),
+             ledger.Line(ledger.REALIZED, owner, lot["currency"], -delta)]
+    changes = {"lots": [{**lot, "open_qty": (open_qty - take).to_str(), "open_cost": (open_cost - new_cost).rescale(scale).to_str()}]}
+    if not delta.is_zero():
+        changes["journal"] = [ledger.entry(ctx.new_id("je-"), key, "CORRECTION_RESTATEMENT",
+                                           f"restate cost of {take} shares sold before correction {p['exec_key']}", lines)]
+    ctx.emit("CorrectionDisposalRestated", {"disposed": take.to_str(), "old_cost": old_cost.to_str(), "new_cost": new_cost.to_str()},
+             changes, account_key=key, instrument_id=lot["instrument_id"])
 
 
 # -------------------------------------------------------------- commission
@@ -502,24 +668,57 @@ def broker_commission(ctx: Context, p: dict) -> dict:
     return _apply_commission(ctx, p, deferred=False)
 
 
+def _commission_anomaly(ctx: Context, key: str, p: dict, issue: str) -> dict:
+    case = new_exception(ctx, key, EXECUTION_ANOMALY, blocking=True, severity="high",
+                         detail={"exec_key": p.get("exec_key"), "issue": issue, "commission": {k: p.get(k) for k in ("amount", "currency")}},
+                         key=f"commission:{p.get('exec_key')}:{issue[:24]}")
+    ctx.emit("CommissionAnomaly", {"issue": issue, "exec_key": p.get("exec_key")}, {"exceptions": [case] if case else []},
+             account_key=key)
+    return {"exec_key": p.get("exec_key"), "anomaly": issue}
+
+
 def _apply_commission(ctx: Context, p: dict, *, deferred: bool) -> dict:
     key = p["account_key"]
     exec_key = p["exec_key"]
+    try:
+        amount_raw = _fx(p["amount"])
+        currency(p["currency"])
+    except (ValueError, TypeError, KeyError):
+        return _commission_anomaly(ctx, key, p, "malformed commission report")
     ex = state.execution(ctx.tx, exec_key)
     if ex is None:
         ctx.emit("CommissionDeferred", {"exec_key": exec_key, "note": "commission arrived before its execution"},
                  {"pending_commissions": [{"exec_key": exec_key, "account_key": key, **{k: p[k] for k in ("amount", "currency")},
                                            "raw": p.get("raw", {})}]}, account_key=key)
         return {"deferred": True}
+    if ex.get("status") == "PRE_IMPORT":
+        ctx.emit("PreImportCommissionRecorded", {"exec_key": exec_key, "amount": p["amount"]},
+                 {"pending_commissions": [{"exec_key": exec_key, "account_key": key, "delete": True}]} if deferred else {},
+                 account_key=key)
+        return {"pre_import": True}
+    if ex.get("status") == "CORRECTED":
+        # A late report for a superseded revision: it belongs to the active replacement, once.
+        active = _active_revision(ctx, exec_key)
+        if active is None or active.get("status") != "ACTIVE":
+            return _commission_anomaly(ctx, key, p, "commission for a corrected execution with no active revision")
+        if active.get("fee_final") is not None:
+            same = Fixed.parse(active["fee_final"]) == amount_raw.rescale(currency(active["currency"]).ledger_scale, Rounding.HALF_EVEN)
+            ctx.emit("CommissionForCorrectedExecution", {"exec_key": exec_key, "active": active["exec_key"], "same_amount": same}, {},
+                     account_key=key)
+            return {"duplicate": True} if same else _commission_anomaly(ctx, key, p, "late commission differs from the active revision's")
+        ex = active
+        exec_key = active["exec_key"]
     ccy = p["currency"]
     if ccy != ex["currency"]:
-        raise Rejected("CURRENCY", "commission currency differs from execution currency (FX fees not released)")
+        if deferred:
+            return _commission_anomaly(ctx, key, p, "commission currency differs from execution currency (kept pending)")
+        return _commission_anomaly(ctx, key, p, "commission currency differs from execution currency")
     scale = currency(ccy).ledger_scale
-    amount = _fx(p["amount"]).rescale(scale, Rounding.HALF_EVEN)
-    owner = economic_owner(ctx.tx, ex["session_id"]) if ex["session_id"] else ledger.EXTERNAL
+    amount = amount_raw.rescale(scale, Rounding.HALF_EVEN)
+    owner = economic_owner(ctx.tx, ex["session_id"]) if ex["session_id"] else current_owner(ctx.tx, ex["owner"])
     changes: dict = {"journal": [], "executions": [], "settlements": [], "orders": [], "holds": [], "exceptions": []}
     if deferred:
-        changes["pending_commissions"] = [{"exec_key": exec_key, "account_key": key, "delete": True}]
+        changes["pending_commissions"] = [{"exec_key": p["exec_key"], "account_key": key, "delete": True}]
     against = ledger.PAYABLE if ex["side"] == "BUY" else ledger.RECEIVABLE
     prev_final = Fixed.parse(ex["fee_final"]) if ex.get("fee_final") is not None else None
     if prev_final is not None:
@@ -530,9 +729,10 @@ def _apply_commission(ctx: Context, p: dict, *, deferred: bool) -> dict:
         kind, info = "CommissionAdjusted", {"previous": prev_final.to_str(), "new": amount.to_str()}
     else:
         est = Fixed.parse(ex["fee_estimate"])
+        est_code = ex.get("fee_estimate_code") or ledger.FEES_ACCRUED
         lines = []
         if est.is_positive():
-            lines += [ledger.Line(ledger.FEES_ACCRUED, owner, ccy, est), ledger.Line(ledger.FEE_ESTIMATE, owner, ccy, -est)]
+            lines += [ledger.Line(est_code, owner, ccy, est), ledger.Line(ledger.FEE_ESTIMATE, owner, ccy, -est)]
         lines += [ledger.Line(ledger.COMMISSION, owner, ccy, amount), ledger.Line(against, owner, ccy, -amount)]
         delta = amount
         kind, info = "CommissionFinalized", {"estimate": est.to_str(), "final": amount.to_str()}
@@ -540,13 +740,21 @@ def _apply_commission(ctx: Context, p: dict, *, deferred: bool) -> dict:
     changes["journal"].append(e)
     changes["executions"].append({**ex, "fee_final": amount.to_str(), "fee_status": "FINAL",
                                   "fee_entries": ex.get("fee_entries", []) + [e["entry_id"]]})
-    stl = json.loads(ctx.tx.one("SELECT row FROM settlements WHERE settlement_id=?", (ex["settlement_id"],))["row"])
-    if stl["status"] == "EXPECTED":
-        new_amount = Fixed.parse(stl["amount"]) + (delta if ex["side"] == "BUY" else -delta)
-        changes["settlements"].append({**stl, "amount": new_amount.rescale(scale).to_str()})
-    else:
-        changes["settlements"].append(_settlement_row(ctx, key, owner, ccy, "PAY" if delta.is_positive() else "RECEIVE",
-                                                      abs(delta), f"{exec_key}:fee:{ctx.payload_hash[:8]}", ctx.now_ns, 1))
+    main = ex.get("settlement_id")
+    stl = json.loads(ctx.tx.one("SELECT row FROM settlements WHERE settlement_id=?", (main,))["row"]) if main else None
+    # Change in the cash this trade settles for: a higher fee means less cash on either side. A sell's
+    # estimate was already netted into its expected settlement, so the first final replaces it.
+    cash_effect = -delta
+    if prev_final is None and ex.get("fee_estimate_code") == ledger.RECEIVABLE:
+        cash_effect = cash_effect + Fixed.parse(ex["fee_estimate"])
+    if stl is not None and stl["status"] == "EXPECTED":
+        signed = (Fixed.parse(stl["amount"]) if stl["direction"] == "RECEIVE" else -Fixed.parse(stl["amount"])) + cash_effect
+        changes["settlements"].append({**stl, "owner": owner, "direction": "RECEIVE" if not signed.is_negative() else "PAY",
+                                       "amount": abs(signed).rescale(scale).to_str()})
+    elif not cash_effect.is_zero():
+        changes["settlements"].append(settlement_row(ctx, key, owner, ccy, "RECEIVE" if cash_effect.is_positive() else "PAY",
+                                                     abs(cash_effect), against, f"stl:{exec_key}:fee:{ctx.payload_hash[:8]}",
+                                                     exec_key, ctx.now_ns, 1))
     if ex.get("order_id"):
         order = state.order(ctx.tx, ex["order_id"])
         if order is not None:
@@ -559,7 +767,9 @@ def _apply_commission(ctx: Context, p: dict, *, deferred: bool) -> dict:
     if owner.startswith("protected:") and ex.get("session_id"):
         _post_completion_notice(ctx, key, ex["session_id"], f"{kind} for {exec_key}",
                                 blocking=ledger.available_cash(ctx.tx, key, owner, ccy).is_negative())
-    _check_overcommit(ctx, key, owner, ccy, exec_key, None)
+    if owner == ledger.EXTERNAL:
+        cover_external(ctx, key, ccy, f"{exec_key}:commission")
+    check_overcommit(ctx, key, owner, ccy, exec_key, ex.get("session_id"))
     return {"exec_key": exec_key, "status": "FINAL", "amount": amount.to_str()}
 
 

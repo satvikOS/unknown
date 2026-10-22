@@ -15,7 +15,7 @@ from typing import Union
 
 MAX_SCALE = 18
 
-_NUMBER = re.compile(r"^([+-]?)(\d+)(?:\.(\d+))?$")
+_NUMBER = re.compile(r"^([+-]?)([0-9]+)(?:\.([0-9]+))?\Z")
 
 
 class InexactError(ArithmeticError):
@@ -36,6 +36,8 @@ def round_div(numerator: int, denominator: int, rounding: Rounding) -> int:
     """Integer quotient of numerator/denominator under ``rounding``."""
     if type(numerator) is not int or type(denominator) is not int:
         raise TypeError("round_div requires int operands")
+    if not isinstance(rounding, Rounding):
+        raise TypeError(f"rounding must be Rounding, got {rounding!r}")
     if denominator == 0:
         raise ZeroDivisionError("division by zero")
     if denominator < 0:
@@ -263,7 +265,8 @@ class Fixed:
 
     def __hash__(self) -> int:
         n = self.normalized()
-        return hash(("Fixed", n._m, n._s))
+        # Must agree with __eq__, which treats an integral Fixed as equal to the int.
+        return hash(n._m) if n._s == 0 else hash(("Fixed", n._m, n._s))
 
     def __bool__(self) -> bool:
         return self._m != 0

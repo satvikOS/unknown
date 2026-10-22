@@ -31,7 +31,7 @@ OWNER_ONLY = frozenset({
     "register_account", "publish_policy", "activate_policy", "acquire_execution_ownership",
     "release_execution_ownership", "authorize_capital", "deauthorize_capital", "create_session",
     "cancel_session", "suspend_session", "resume_session", "end_session", "start", "resolve_exception",
-    "accept_fee_estimate", "register_instrument", "amend_session_request",
+    "accept_fee_estimate", "register_instrument", "amend_session_request", "submit_intent",
 })
 SYSTEM_ONLY = frozenset({
     "process_started", "outbox_begin", "outbox_result", "broker_order_status", "broker_execution",
@@ -39,7 +39,8 @@ SYSTEM_ONLY = frozenset({
     "settlement_check",
 })
 STRATEGY_ALLOWED = frozenset({"submit_intent", "request_cancel"})
-SHARED_OWNER_SYSTEM = frozenset({"stop", "start_session", "request_cancel", "submit_intent"})
+# SYSTEM never submits exposure-increasing intents; its wind-down sells go through create_order directly (ADR-0007).
+SHARED_OWNER_SYSTEM = frozenset({"stop", "start_session", "request_cancel"})
 AGENT_ALLOWED = frozenset({"submit_research_proposal"})
 
 

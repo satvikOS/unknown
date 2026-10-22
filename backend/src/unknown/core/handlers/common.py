@@ -52,6 +52,8 @@ def entries_permitted(ctx: Context, account_key: str) -> tuple[bool, list[str]]:
     r = state.risk_state(ctx.tx, account_key)
     if r.get("breach"):
         blockers.append(f"LOSS_BUDGET:{r['breach']}")
+    if not r.get("valuation_ok", True):
+        blockers.append("VALUATION_STALE")
     return (not blockers, blockers)
 
 

@@ -81,8 +81,10 @@ def amend_session_request(ctx: Context, p: dict) -> dict:
         m = Mandate.from_template(policy.session_template, session_id=s["session_id"], account_key=s["account_key"],
                                   currency_code=old.currency, policy_hash_value=old.policy_hash, now_ns=ctx.now_ns,
                                   origin=old.origin, seed=seed, target=target)
-    except (PolicyError, ValueError, ArithmeticError) as exc:
+    except (PolicyError, ValueError, ArithmeticError, TypeError) as exc:
         raise Rejected("MANDATE_INVALID", str(exc)) from None
+    if m.seed > policy.limits.authorized_capital:
+        raise Rejected("MANDATE_INVALID", "seed exceeds authorized capital")
     new = {**s, "mandate_hash": m.mandate_hash, "seed": m.seed.amount.to_str(), "target": m.target_terminal_equity.amount.to_str(),
            "high_water": m.seed.amount.to_str()}
     ctx.emit("SessionMandateAmended", {"previous": s["mandate_hash"], "mandate": m.to_json()},

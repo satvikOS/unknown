@@ -63,10 +63,12 @@ def valuation(ctx: Context, p: dict) -> dict:
             ctx.emit("SessionValued", {"equity": equity.to_str(), "new_high_water": True}, {"sessions": [s]},
                      account_key=key, session_id=s["session_id"])
             hw = equity
-        if s["state"] != "RUNNING":
+        if s["state"] not in ("RUNNING", "SUSPENDED"):
             continue
         if equity >= m.target_terminal_equity.amount:
             begin_wind_down(ctx, s, "TARGET_OBSERVED", evidence)
+            continue
+        if s["state"] != "RUNNING":
             continue
         dd_floor = (hw * (10_000 - m.session_drawdown_trigger_bps)).div(10_000, hw.scale, Rounding.CEILING)
         if equity <= dd_floor:

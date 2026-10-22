@@ -113,8 +113,21 @@ def acquire_execution_ownership(ctx: Context, p: dict) -> dict:
     if current and current["status"] == "HELD" and current["deployment_id"] != deployment:
         raise Rejected("OWNED_ELSEWHERE", f"held by {current['deployment_id']}; release with a reconciled certificate first")
     epoch = (current["epoch"] + 1) if current else 1
+    acct = state.account(ctx.tx, key)
+    provenance = None
+    if acct["mode"] != Mode.SIMULATED.value and not (current and current["deployment_id"] == deployment):
+        # Another deployment may trade this broker account from its own database. Hand-over needs either
+        # the previous holder's release certificate or the owner's explicit attestation (ADR-0011).
+        cert = p.get("release_certificate")
+        if isinstance(cert, dict) and {"deployment_id", "epoch", "reconciliation_run"} <= set(cert):
+            provenance = {"release_certificate": cert}
+        elif p.get("attest_no_other_deployment") is True:
+            provenance = {"owner_attestation": "no other deployment trades this broker account"}
+        else:
+            raise Rejected("RELEASE_CERTIFICATE_REQUIRED",
+                           "provide the previous deployment's release certificate or attest_no_other_deployment")
     row = {"account_key": key, "deployment_id": deployment, "epoch": epoch, "status": "HELD",
-           "granted_at_ns": ctx.now_ns, "granted_by": ctx.principal.id}
+           "granted_at_ns": ctx.now_ns, "granted_by": ctx.principal.id, "provenance": provenance}
     c = control_update(ctx, key, needs_reconciliation=True)
     ctx.emit("ExecutionOwnershipAcquired", {"account_key": key, "deployment_id": deployment, "epoch": epoch},
              {"ownership": [row], "control": [c]}, account_key=key)
@@ -210,9 +223,10 @@ def process_started(ctx: Context, p: dict) -> dict:
             submit = next((b for b in outbox if b["action"] == "SUBMIT"), None)
             in_flight = o["state"] == "SUBMIT_PENDING" or (submit and submit["state"] == "SENDING")
             maybe_sent_after_backup = restored and o["state"] == "RESERVED"
+            new = dict(o)
             if in_flight or maybe_sent_after_backup:
-                changes["orders"].append({**o, "prev_state": o["state"], "state": "UNKNOWN",
-                                          "reason": "restored from backup" if maybe_sent_after_backup else "restart during submission"})
+                new.update(prev_state=o["state"], state="UNKNOWN",
+                           reason="restored from backup" if maybe_sent_after_backup else "restart during submission")
                 if submit:
                     changes["outbox"].append({**submit, "state": "NEEDS_LOOKUP"})
                 case = new_exception(ctx, key, UNKNOWN_ORDER, blocking=True, severity="high",
@@ -222,18 +236,24 @@ def process_started(ctx: Context, p: dict) -> dict:
                 if case:
                     changes["exceptions"].append(case)
             for b in outbox:
-                if b["action"] == "CANCEL" and b["state"] == "SENDING":
+                if b["action"] == "CANCEL" and (b["state"] == "SENDING" or (restored and b["state"] == "PENDING")):
+                    # The cancel may never have reached the broker: it must stay re-issuable (a cancel is idempotent).
                     changes["outbox"].append({**b, "state": "NEEDS_LOOKUP"})
+                    new["cancel_state"] = "UNKNOWN"
+            if new != o:
+                changes["orders"].append(new)
         if restored:
-            c.update(stop_latched=True, latch_reason="RESTORED_FROM_BACKUP", latched_by=ctx.principal.id,
-                     latched_at_ns=ctx.now_ns, latch_command_id=ctx.command.command_id)
             case = new_exception(ctx, key, RESTORED_FROM_BACKUP, blocking=True, severity="critical",
-                                 detail={"epoch": ctx.epoch, "note": "reconcile all broker activity since the backup"},
+                                 detail={"epoch": ctx.epoch, "note": "reconcile all broker activity since the backup",
+                                         "evidence": p.get("restore_evidence")},
                                  key=f"restored:{ctx.epoch}")
             if case:
                 changes["exceptions"].append(case)
         ctx.emit("ProcessStartedForAccount", {"account_key": key, "epoch": ctx.epoch, "restored": restored},
                  changes, account_key=key)
+        if restored:
+            from .control import latch_stop
+            latch_stop(ctx, key, "RESTORED_FROM_BACKUP")
         touched.append(key)
     if not accounts:
         ctx.emit("ProcessStarted", {"epoch": ctx.epoch, "restored": restored})

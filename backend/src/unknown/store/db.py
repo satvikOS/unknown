@@ -169,12 +169,30 @@ class Store:
         return self.conn.execute(sql, params).fetchall()
 
     def backup_to(self, target: str | Path) -> None:
-        """Database-consistent online backup (ADR-0003 #6)."""
+        """Database-consistent online backup (ADR-0003 #6). The copy is marked as a backup inside the
+        database itself, so opening it anywhere is detected as a restore (stop latched, orders looked up)."""
         dest = sqlite3.connect(str(target))
         try:
             self.conn.backup(dest)
+            seq = self.conn.execute("SELECT COALESCE(MAX(seq), 0) FROM events").fetchone()[0]
+            dest.execute("CREATE TABLE IF NOT EXISTS backup_origin (source_epoch INTEGER NOT NULL, "
+                         "source_max_seq INTEGER NOT NULL, taken_at_ns INTEGER NOT NULL)")
+            dest.execute("INSERT INTO backup_origin VALUES (?,?,?)", (self.epoch, seq, self.clock.now_ns()))
+            dest.commit()
         finally:
             dest.close()
+
+    def backup_origin(self) -> dict | None:
+        if self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='backup_origin'").fetchone() is None:
+            return None
+        r = self.conn.execute("SELECT source_epoch, source_max_seq, taken_at_ns FROM backup_origin ORDER BY rowid DESC LIMIT 1").fetchone()
+        return dict(r) if r is not None else None
+
+    def clear_backup_origin(self) -> None:
+        self.conn.execute("DROP TABLE IF EXISTS backup_origin")
+
+    def event_count(self) -> int:
+        return self.conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
 
     def close(self) -> None:
         self.conn.close()

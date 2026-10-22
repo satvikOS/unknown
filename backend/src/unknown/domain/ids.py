@@ -33,7 +33,7 @@ class InvalidIdentifier(ValueError):
 
 
 def validate_id(value: object, what: str = "identifier") -> str:
-    if not isinstance(value, str) or not _ID.match(value):
+    if not isinstance(value, str) or not _ID.fullmatch(value):
         raise InvalidIdentifier(f"invalid {what}: {value!r}")
     return value
 
@@ -46,6 +46,19 @@ def _uuid7_from(unix_ms: int, rand: bytes) -> str:
     value |= (int.from_bytes(rand[0:2], "big") & 0x0FFF) << 64
     value |= 0b10 << 62
     value |= int.from_bytes(rand[2:10], "big") & ((1 << 62) - 1)
+    return str(uuid.UUID(int=value))
+
+
+def _bump(last: str) -> str:
+    """Next UUIDv7 after ``last`` (RFC 9562 monotonic method): increment the 74 random bits as a
+    counter, carrying into the 48-bit timestamp on overflow; version and variant bits never change."""
+    v = uuid.UUID(last).int
+    ms = v >> 80
+    counter = (((v >> 64) & 0x0FFF) << 62) | (v & ((1 << 62) - 1))
+    counter += 1
+    if counter >= 1 << 74:
+        ms, counter = ms + 1, 0
+    value = (ms & ((1 << 48) - 1)) << 80 | 0x7 << 76 | ((counter >> 62) & 0x0FFF) << 64 | 0b10 << 62 | (counter & ((1 << 62) - 1))
     return str(uuid.UUID(int=value))
 
 
@@ -62,8 +75,7 @@ class IdGenerator:
         with self._lock:
             candidate = _uuid7_from(self._now_ms(), self._random(10))
             if candidate <= self._last:
-                # Same millisecond with a smaller random tail: bump past the last id.
-                candidate = str(uuid.UUID(int=uuid.UUID(self._last).int + 1))
+                candidate = _bump(self._last)
             self._last = candidate
         return f"{prefix}{candidate}" if prefix else candidate
 

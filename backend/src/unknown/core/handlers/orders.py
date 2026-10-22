@@ -38,8 +38,12 @@ def submit_intent(ctx: Context, p: dict) -> dict:
     if purpose not in (ENTRY, EXIT):
         raise Rejected("INVALID_FIELD", "purpose must be ENTRY or EXIT")
     strategy_id = p.get("strategy_id")
-    if ctx.principal.role is Role.STRATEGY and not strategy_id:
-        raise Rejected("INVALID_FIELD", "strategy intents must name strategy_id")
+    if ctx.principal.role is Role.STRATEGY:
+        if not strategy_id:
+            raise Rejected("INVALID_FIELD", "strategy intents must name strategy_id")
+        if strategy_id != ctx.principal.id:
+            # A strategy acts only under its own authenticated identity, never another mandated id.
+            raise Rejected("STRATEGY_IDENTITY_MISMATCH", "strategy_id must equal the authenticated strategy principal")
     deadline = p.get("deadline_ns")
     if type(deadline) is not int:
         raise Rejected("INVALID_FIELD", "deadline_ns must be an integer")
@@ -88,7 +92,9 @@ def create_order(ctx: Context, *, account_key: str, session_id: str, order_id: s
     recent = tx.one("SELECT COUNT(*) AS n FROM orders WHERE account_key=? AND accepted_at_ns>=?", (account_key, since))["n"]
     own = state.ownership(tx, account_key)
     risk = state.risk_state(tx, account_key)
-    strategy_ok = (ctx.principal.role in (Role.OWNER, Role.SYSTEM)) or strategy_id in mandate.strategy_eligibility
+    # The owner may trade any session by hand; the system only liquidates (wind-down); everyone else must be mandated.
+    strategy_ok = (ctx.principal.role is Role.OWNER or (ctx.principal.role is Role.SYSTEM and purpose == WIND_DOWN)
+                   or strategy_id in mandate.strategy_eligibility)
     blocking_kinds = tuple(e["kind"] for e in state.open_exceptions(tx, account_key, blocking_only=True))
     loss = risk.get("breach") or (None if risk.get("valuation_ok", True) else "VALUATION_STALE")
 
@@ -96,7 +102,10 @@ def create_order(ctx: Context, *, account_key: str, session_id: str, order_id: s
         now_ns=ctx.now_ns, side=side, order_type=order_type, time_in_force=tif, quantity=quantity,
         limit_price=limit_price, order_currency=ccy, deadline_ns=deadline_ns, intent_policy_hash=policy_hash,
         account_mode=acct["mode"], stop_latched=ctl["stop_latched"], resume_requires_owner=ctl["resume_requires_owner"],
-        reconciled_this_epoch=(ctl["reconciled_epoch"] == ctx.epoch and not ctl["needs_reconciliation"]),
+        # Buys need a clean, current reconciliation. Risk-reducing sells need only a reconciliation in this
+        # process (positions confirmed since restart); position-related exceptions still block them (REC-03).
+        reconciled_this_epoch=(ctl["reconciled_epoch"] == ctx.epoch and (side == "SELL" or not ctl["needs_reconciliation"])),
+        would_self_cross=_self_cross(ctx, account_key, instrument_id, side, limit_price),
         ownership_held=bool(own and own["status"] == "HELD" and own["deployment_id"] == ctx.desk.deployment_id),
         blocking_exception_kinds=blocking_kinds, loss_budget_breached=loss,
         session_state=sess["state"], mandate_policy_hash=mandate.policy_hash, strategy_permitted=strategy_ok,
@@ -134,6 +143,17 @@ def create_order(ctx: Context, *, account_key: str, session_id: str, order_id: s
              {"orders": [order], "holds": hold_rows(order, mult, release=False), "outbox": [outbox]},
              account_key=account_key, session_id=session_id, order_id=order_id, instrument_id=instrument_id)
     return {"order_id": order_id, "state": "RESERVED", "decision": decision.code}
+
+
+def _self_cross(ctx: Context, account_key: str, instrument_id: str, side: str, limit: Fixed) -> bool:
+    """True if the new order could trade against one of our own working orders (wash-trade prevention, book Ch. 25)."""
+    for o in state.orders(ctx.tx, account_key, open_only=True):
+        if o["instrument_id"] != instrument_id or o["side"] == side or o["cancel_state"] == "CONFIRMED":
+            continue
+        other = Fixed.parse(o["limit_price"])
+        if (side == "BUY" and limit >= other) or (side == "SELL" and limit <= other):
+            return True
+    return False
 
 
 def _session_equity_estimate(ctx: Context, account_key: str, owner: str, ccy: str) -> Fixed:
@@ -177,13 +197,19 @@ def request_cancel(ctx: Context, p: dict) -> dict:
     return cancel_order(ctx, order, p.get("reason") or "requested")
 
 
+def _live_cancel_row(outbox: list[dict]) -> bool:
+    return any(b["action"] == "CANCEL" and b["state"] in ("PENDING", "SENDING") for b in outbox)
+
+
 def cancel_order(ctx: Context, order: dict, reason: str) -> dict:
     if order["state"] in state.TERMINAL_ORDER_STATES:
         return {"order_id": order["order_id"], "state": order["state"], "noop": True}
-    if order["cancel_state"] in ("REQUESTED", "SENT", "ACKED"):
+    outbox = state.outbox_for_order(ctx.tx, order["order_id"])
+    # A cancel is idempotent at the broker: it is re-issued unless one is queued or in flight, or the broker
+    # already acknowledged it (a cancel lost to a crash or a timeout must never make an order uncancelable).
+    if _live_cancel_row(outbox) or order["cancel_state"] == "ACKED":
         return {"order_id": order["order_id"], "state": order["state"], "noop": True}
     mult = multiplier_of(ctx, order["instrument_id"])
-    outbox = state.outbox_for_order(ctx.tx, order["order_id"])
     submit = next((b for b in outbox if b["action"] == "SUBMIT"), None)
     if order["state"] == "RESERVED" and submit is not None and submit["state"] == "PENDING":
         new = {**order, "state": "CANCELED", "prev_state": "RESERVED", "cancel_state": "CONFIRMED", "leaves_qty": "0",
@@ -193,15 +219,28 @@ def cancel_order(ctx: Context, order: dict, reason: str) -> dict:
                  account_key=order["account_key"], session_id=order["session_id"], order_id=order["order_id"])
         return {"order_id": order["order_id"], "state": "CANCELED"}
     new = {**order, "cancel_state": "REQUESTED", "reason": reason}
-    if order["state"] != "UNKNOWN":
+    if order["state"] not in ("UNKNOWN", "CANCEL_PENDING"):
         new.update(state="CANCEL_PENDING", prev_state=order["state"])
-    cancel_row = {"outbox_id": f"{order['order_id']}:cancel:{ctx.new_id()}", "order_id": order["order_id"],
-                  "account_key": order["account_key"], "action": "CANCEL", "state": "PENDING", "attempts": 0,
-                  "last_attempt_ns": None, "result": None}
     ctx.emit("OrderCancelRequested", {"reason": reason, "note": "reservation retained until broker confirmation"},
-             {"orders": [new], "outbox": [cancel_row]},
+             {"orders": [new], "outbox": [_cancel_row(ctx, order)]},
              account_key=order["account_key"], session_id=order["session_id"], order_id=order["order_id"])
     return {"order_id": order["order_id"], "state": new["state"], "cancel_state": "REQUESTED"}
+
+
+def _cancel_row(ctx: Context, order: dict, *, force: bool = False) -> dict:
+    return {"outbox_id": f"{order['order_id']}:cancel:{ctx.new_id()}", "order_id": order["order_id"],
+            "account_key": order["account_key"], "action": "CANCEL", "state": "PENDING", "attempts": 0,
+            "last_attempt_ns": None, "result": None, "force": force}
+
+
+def enqueue_cancel(ctx: Context, order: dict, reason: str) -> dict:
+    """Cancel an order the broker still works although it is terminal here (its reservation is gone)."""
+    if _live_cancel_row(state.outbox_for_order(ctx.tx, order["order_id"])):
+        return {"order_id": order["order_id"], "noop": True}
+    ctx.emit("OrderCancelForced", {"reason": reason, "local_state": order["state"]},
+             {"outbox": [_cancel_row(ctx, order, force=True)]},
+             account_key=order["account_key"], session_id=order["session_id"], order_id=order["order_id"])
+    return {"order_id": order["order_id"], "forced": True}
 
 
 # ------------------------------------------------------------------ outbox
@@ -220,7 +259,9 @@ def outbox_begin(ctx: Context, p: dict) -> dict:
     own = state.ownership(ctx.tx, key)
     if not (own and own["status"] == "HELD" and own["deployment_id"] == ctx.desk.deployment_id):
         return {"send": False, "reason": "EXECUTION_OWNERSHIP_NOT_HELD"}
-    if ctl["needs_reconciliation"] or ctl["reconciled_epoch"] != ctx.epoch:
+    if row["action"] == "SUBMIT" and (ctl["reconciled_epoch"] != ctx.epoch
+                                      or (order["side"] == "BUY" and ctl["needs_reconciliation"])):
+        # Cancels always go out (risk-reducing); sells need positions confirmed in this process.
         return {"send": False, "reason": "RECONCILIATION_REQUIRED"}
     mult = multiplier_of(ctx, order["instrument_id"])
     if row["action"] == "SUBMIT":
@@ -259,12 +300,13 @@ def outbox_begin(ctx: Context, p: dict) -> dict:
             "limit_price": order["limit_price"], "currency": order["currency"], "time_in_force": order["time_in_force"],
             "outside_regular_hours": False, "symbol": inst.symbol if inst else None}}
     # CANCEL
-    if order["state"] in state.TERMINAL_ORDER_STATES:
+    if order["state"] in state.TERMINAL_ORDER_STATES and not row.get("force"):
         ctx.emit("OutboxSkipped", {"reason": "order already terminal"}, {"outbox": [{**row, "state": "SKIPPED"}]},
                  account_key=key, order_id=order["order_id"])
         return {"send": False, "reason": "order terminal"}
     new_row = {**row, "state": "SENDING", "attempts": row["attempts"] + 1, "last_attempt_ns": ctx.now_ns}
-    ctx.emit("OrderCancelSending", {}, {"orders": [{**order, "cancel_state": "SENT"}], "outbox": [new_row]},
+    ctx.emit("OrderCancelSending", {}, {"orders": [] if order["state"] in state.TERMINAL_ORDER_STATES
+                                          else [{**order, "cancel_state": "SENT"}], "outbox": [new_row]},
              account_key=key, session_id=order["session_id"], order_id=order["order_id"])
     return {"send": True, "action": "CANCEL", "client_order_id": order["order_id"], "broker_order_id": order["broker_order_id"]}
 
@@ -332,13 +374,23 @@ def outbox_result(ctx: Context, p: dict) -> dict:
     elif status == "REJECTED":
         new = {**order, "cancel_state": "REJECTED", "reason": reason}
         if order["state"] == "CANCEL_PENDING":
-            new.update(state=order["prev_state"] or ("PARTIALLY_FILLED" if Fixed.parse(order["cum_qty"]).is_positive() else "ACKNOWLEDGED"),
-                       prev_state="CANCEL_PENDING")
+            restored = order["prev_state"] or "ACKNOWLEDGED"
+            if restored in ("ACKNOWLEDGED", "SUBMIT_PENDING", "UNKNOWN", "RESERVED") and Fixed.parse(order["cum_qty"]).is_positive():
+                restored = "PARTIALLY_FILLED"  # fills arrived while the cancel was pending
+            new.update(state=restored, prev_state="CANCEL_PENDING")
         ctx.emit("OrderCancelRejected", {"reason": reason},
                  {"orders": [new] if order["state"] not in state.TERMINAL_ORDER_STATES else [],
                   "outbox": [{**row, "state": "DONE", "result": result}]}, **refs)
     else:
+        live = order["state"] not in state.TERMINAL_ORDER_STATES
+        # Like an unknown submission: the order may still be working, so it blocks new exposure until the
+        # broker reports its state; a later stop or reconciliation re-issues the cancel.
+        case = new_exception(ctx, key, UNKNOWN_ORDER, blocking=True, severity="high",
+                             detail={"order_id": order["order_id"], "reason": reason or "cancel outcome unknown",
+                                     "rule": "the order may still be working; look up before relying on the cancel"},
+                             key=f"unknown-order:{order['order_id']}", session_id=order["session_id"],
+                             order_id=order["order_id"]) if live else None
         ctx.emit("OrderCancelOutcomeUnknown", {"reason": reason},
-                 {"orders": [{**order, "cancel_state": "UNKNOWN"}] if order["state"] not in state.TERMINAL_ORDER_STATES else [],
-                  "outbox": [{**row, "state": "UNKNOWN", "result": result}]}, **refs)
+                 {"orders": [{**order, "cancel_state": "UNKNOWN"}] if live else [],
+                  "outbox": [{**row, "state": "UNKNOWN", "result": result}], "exceptions": [case] if case else []}, **refs)
     return {"applied": True, "status": status}

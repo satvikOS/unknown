@@ -28,9 +28,21 @@ def _default(value: Any) -> Any:
     raise TypeError(f"not canonically encodable: {type(value).__name__}")
 
 
+def _check_keys(value: Any) -> None:
+    if isinstance(value, dict):
+        for k, v in value.items():
+            if not isinstance(k, str):
+                raise TypeError(f"canonical payload keys must be str, got {type(k).__name__}")
+            _check_keys(v)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            _check_keys(v)
+
+
 def canonical_json(value: Any) -> str:
     if isinstance(value, float):
         raise TypeError("floats are not canonical; use Fixed")
+    _check_keys(value)
     text = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False,
                       allow_nan=False, default=_default)
     _reject_floats(json.loads(text))

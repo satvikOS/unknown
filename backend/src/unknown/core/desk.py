@@ -25,9 +25,15 @@ from ..market.quotes import QuoteBook
 from ..store.db import Store, Tx
 from . import ledger
 from .projector import apply_changes
+from .replay import CHAINED_COLUMNS, chain_hash
 
 EVENT_SCHEMA_VERSION = 1
+# Commands whose effects must be recorded even when a ledger invariant check fails afterwards:
+# genuine broker facts (never discarded) and the red stop (never blocked) — ADR-0006, ADR-0010.
+RECORD_DESPITE_INVARIANTS = frozenset({"stop", "broker_execution", "broker_commission", "broker_order_status",
+                                       "broker_connectivity", "reconciliation_result", "process_started"})
 GENESIS_HASH = "0" * 64
+RESERVED_ID_PREFIXES = ("process.", "sys.", "conflict.")
 
 
 @dataclass(frozen=True)
@@ -62,6 +68,7 @@ class HealthSnapshot:
     broker_server_time_ns: int | None
     disk_free_mb: int
     detail: str = ""
+    broker_account_mode: str | None = None   # as the broker connection reports it, never the registered value
 
 
 class Context:
@@ -93,19 +100,21 @@ class Context:
         payload = {"info": info or {}, "changes": changes or {}}
         text = canonical_json(payload)
         payload_hash = sha256_hex(text)
-        prev = self.tx.one("SELECT chain_hash FROM events ORDER BY seq DESC LIMIT 1")
+        prev = self.tx.one("SELECT seq, chain_hash FROM events ORDER BY seq DESC LIMIT 1")
         prev_hash = prev["chain_hash"] if prev else GENESIS_HASH
-        event_id = self.new_id()
-        recorded = self.desk.clock.now_ns()
-        chain = sha256_hex(prev_hash + event_id + event_type + payload_hash)
-        cur = self.tx.run(
-            "INSERT INTO events(event_id, type, schema_version, command_id, correlation_id, causation_id, principal_id, "
-            "account_key, session_id, order_id, instrument_id, event_time_ns, receipt_time_ns, recorded_time_ns, writer_epoch, "
-            "payload, payload_hash, prev_hash, chain_hash) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (event_id, event_type, EVENT_SCHEMA_VERSION, self.command.command_id, self.correlation_id,
-             self.command.causation_id, self.principal.id, account_key, session_id, order_id, instrument_id,
-             event_time_ns, self.now_ns, recorded, self.epoch, text, payload_hash, prev_hash, chain))
-        seq = cur.lastrowid
+        fields = {"seq": (prev["seq"] + 1) if prev else 1, "event_id": self.new_id(), "type": event_type,
+                  "schema_version": EVENT_SCHEMA_VERSION, "command_id": self.command.command_id,
+                  "correlation_id": self.correlation_id, "causation_id": self.command.causation_id,
+                  "principal_id": self.principal.id, "account_key": account_key, "session_id": session_id,
+                  "order_id": order_id, "instrument_id": instrument_id, "event_time_ns": event_time_ns,
+                  "receipt_time_ns": self.now_ns, "recorded_time_ns": self.desk.clock.now_ns(), "writer_epoch": self.epoch,
+                  "payload_hash": payload_hash}
+        chain = chain_hash(prev_hash, fields)
+        cols = ", ".join(CHAINED_COLUMNS)
+        self.tx.run(f"INSERT INTO events({cols}, payload, prev_hash, chain_hash) VALUES "
+                    f"({', '.join('?' * (len(CHAINED_COLUMNS) + 3))})",
+                    tuple(fields[c] for c in CHAINED_COLUMNS) + (text, prev_hash, chain))
+        seq = fields["seq"]
         apply_changes(self.tx, seq, payload["changes"])
         self.event_seqs.append(seq)
         return seq
@@ -137,12 +146,40 @@ class Desk:
         if command.kind not in self._handlers:
             raise ValueError(f"unknown command kind {command.kind!r}")
         payload_hash = sha256_hex(canonical_json({"kind": command.kind, "payload": command.payload}))
+        reserved = command.command_id.startswith(RESERVED_ID_PREFIXES) and command.principal.role is not Role.SYSTEM
+        if reserved or not permitted(command.principal.role, command.kind):
+            # Authorization precedes dedup, and a refused command is never stored under its id, so no
+            # principal can pre-claim (or probe) another principal's command ids.
+            body = Rejected("UNAUTHORIZED", "command id prefix reserved for the system" if reserved else
+                            f"role {command.principal.role.value} may not issue {command.kind}").to_json()
+            with self.store.write() as tx:
+                key = command.payload.get("account_key") if isinstance(command.payload, dict) else None
+                seq = Context(self, tx, command, payload_hash).emit("CommandRejected", {
+                    "kind": command.kind, "rejection": body, "payload_hash": payload_hash, "stored": False},
+                    account_key=key if isinstance(key, str) else None)
+            return Result(command.command_id, False, False, body, [seq])
+        conflict: str | None = None
         with self.store.write() as tx:
-            existing = tx.one("SELECT payload_hash, status, result FROM commands WHERE command_id=?", (command.command_id,))
+            existing = tx.one("SELECT payload_hash, status, result, principal_id, principal_role FROM commands WHERE command_id=?",
+                              (command.command_id,))
             if existing is not None:
-                if existing["payload_hash"] != payload_hash:
-                    raise CommandConflict(f"command id {command.command_id} reused with a different payload")
-                return Result(command.command_id, existing["status"] == "ACCEPTED", True, json.loads(existing["result"]))
+                same_principal = (existing["principal_id"], existing["principal_role"]) == (command.principal.id, command.principal.role.value)
+                if existing["payload_hash"] == payload_hash and same_principal:
+                    return Result(command.command_id, existing["status"] == "ACCEPTED", True, json.loads(existing["result"]))
+                # A reused id with different content or from another principal is security-relevant:
+                # record it durably, then refuse (ADR-0005 #4). The stored result is never disclosed.
+                conflict = "payload" if existing["payload_hash"] != payload_hash else "principal"
+                Context(self, tx, Command(f"conflict.{command.command_id}"[:160], command.kind, command.principal, {}),
+                        payload_hash).emit("CommandIdConflict", {
+                            "command_id": command.command_id, "kind": command.kind, "difference": conflict,
+                            "presented_payload_hash": payload_hash, "principal_id": command.principal.id,
+                            "principal_role": command.principal.role.value})
+        if conflict is not None:
+            raise CommandConflict(f"command id {command.command_id} reused with a different {conflict}")
+        return self._execute_new(command, payload_hash)
+
+    def _execute_new(self, command: Command, payload_hash: str) -> Result:
+        with self.store.write() as tx:
             ctx = Context(self, tx, command, payload_hash)
             tx.run("SAVEPOINT handler")
             try:
@@ -151,10 +188,14 @@ class Desk:
                 if command.deadline_ns is not None and ctx.now_ns > command.deadline_ns:
                     raise Rejected("DEADLINE_EXPIRED", "command deadline passed before execution")
                 body = self._handlers[command.kind](ctx, command.payload) or {}
-                if self.verify_each_command:
+                if self.verify_each_command and ctx.event_seqs:
                     problems = ledger.verify(tx)
                     if problems:
-                        raise InvariantViolation("; ".join(problems[:5]))
+                        if command.kind not in RECORD_DESPITE_INVARIANTS:
+                            raise InvariantViolation("; ".join(problems[:5]))
+                        # Observation and safety path: the economic fact and the stop must be recorded even
+                        # if a projection invariant fails; open a blocking case and latch the stop instead.
+                        self._invariant_alarm(ctx, command, problems)
                 tx.run("RELEASE handler")
                 status = "ACCEPTED"
             except Rejected as rejection:
@@ -171,6 +212,20 @@ class Desk:
                    (command.command_id, command.kind, command.principal.id, command.principal.role.value, payload_hash,
                     status, canonical_json(body), self.clock.now_ns()))
             return Result(command.command_id, status == "ACCEPTED", False, body, list(ctx.event_seqs))
+
+    def _invariant_alarm(self, ctx: Context, command: Command, problems: list[str]) -> None:
+        accounts = [r["account_key"] for r in ctx.tx.all("SELECT account_key FROM accounts ORDER BY account_key")]
+        for key in accounts:
+            c = json.loads(ctx.tx.one("SELECT row FROM control WHERE account_key=?", (key,))["row"])
+            c = c if c["stop_latched"] else {**c, "stop_latched": True, "latch_reason": "LEDGER_INVARIANT",
+                                             "latched_by": ctx.principal.id, "latched_at_ns": ctx.now_ns,
+                                             "latch_command_id": command.command_id}
+            case = {"case_id": ctx.new_id("case-"), "account_key": key, "kind": "LEDGER_INVARIANT", "blocking": True,
+                    "status": "OPEN", "severity": "critical", "opened_at_ns": ctx.now_ns, "session_id": None, "order_id": None,
+                    "owner_hint": None, "detail": {"command_kind": command.kind, "problems": problems[:20]},
+                    "key": f"ledger-invariant:{command.command_id}", "resolution": None}
+            ctx.emit("LedgerInvariantViolation", {"problems": problems[:20], "command_kind": command.kind},
+                     {"control": [c], "exceptions": [case]}, account_key=key)
 
     # ------------------------------------------------------------- helpers
     def system(self) -> Principal:
@@ -195,17 +250,33 @@ def open_desk(path: str | Path, clock: Clock, ids: IdGenerator, *, deployment_id
     latches the stop and marks in-flight orders for lookup (ADR-0010)."""
     store = Store(path, clock, holder=holder or f"{deployment_id}:{os.getpid()}", takeover=takeover)
     desk = Desk(store, clock, ids, deployment_id=deployment_id, **kwargs)
-    restored = False
+    evidence: list[str] = []
     marker = Path(f"{path}.epoch") if str(path) != ":memory:" else None
-    if marker is not None and marker.exists():
-        try:
-            restored = int(marker.read_text().strip()) >= store.epoch
-        except ValueError:
-            restored = True
-    desk.run_system("process_started", {"epoch": store.epoch, "restored_from_backup": restored},
-                    command_id=f"process.{deployment_id}.{store.epoch}")
+    origin = store.backup_origin()
+    if origin is not None:
+        evidence.append(f"database is a backup copy taken at epoch {origin['source_epoch']}, seq {origin['source_max_seq']}")
+    if marker is not None:
+        if marker.exists():
+            try:
+                if int(marker.read_text().strip()) >= store.epoch:
+                    evidence.append("writer epoch not above the last recorded start")
+            except ValueError:
+                evidence.append("epoch marker unreadable")
+        elif store.event_count() > 0:
+            evidence.append("non-empty database without its epoch marker (moved or restored)")
+    restored = bool(evidence)
+    result = desk.run_system("process_started", {"epoch": store.epoch, "restored_from_backup": restored,
+                                                 "restore_evidence": evidence},
+                             command_id=f"process.{deployment_id}.{store.epoch}.{ids.new()}")
+    if not result.accepted:
+        raise RuntimeError(f"process start was not recorded: {result.body}")
+    if origin is not None:
+        store.clear_backup_origin()  # the restore is now an event; later restarts are ordinary
     if marker is not None:
         tmp = marker.with_suffix(".epoch.tmp")
-        tmp.write_text(str(store.epoch))
+        with open(tmp, "w") as fh:
+            fh.write(str(store.epoch))
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp, marker)
     return desk

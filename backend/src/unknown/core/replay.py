@@ -11,23 +11,32 @@ from pathlib import Path
 from ..store.db import Tx, connect, migrate
 from ..store.schema import PROJECTION_TABLES
 from .projector import apply_changes
-from ..domain.canonical import sha256_hex
+from ..domain.canonical import canonical_json, sha256_hex
 import json
 
 GENESIS = "0" * 64
+# Every column of an event except the chain fields themselves: re-attributing an event (its command,
+# principal, account, session, order, times or writer epoch) breaks the chain, not only editing its payload.
+CHAINED_COLUMNS = ("seq", "event_id", "type", "schema_version", "command_id", "correlation_id", "causation_id",
+                   "principal_id", "account_key", "session_id", "order_id", "instrument_id", "event_time_ns",
+                   "receipt_time_ns", "recorded_time_ns", "writer_epoch", "payload_hash")
+
+
+def chain_hash(prev_hash: str, fields: dict) -> str:
+    return sha256_hex(prev_hash + canonical_json({c: fields[c] for c in CHAINED_COLUMNS}))
 
 
 def verify_chain(conn: sqlite3.Connection) -> list[str]:
     """Recompute the hash chain; return problems (diagnostic, not a security boundary)."""
     problems = []
     prev = GENESIS
-    for r in conn.execute("SELECT seq, event_id, type, payload, payload_hash, prev_hash, chain_hash FROM events ORDER BY seq"):
+    cols = ", ".join(CHAINED_COLUMNS)
+    for r in conn.execute(f"SELECT {cols}, payload, prev_hash, chain_hash FROM events ORDER BY seq"):
         if sha256_hex(r["payload"]) != r["payload_hash"]:
             problems.append(f"event {r['seq']} payload hash mismatch")
         if r["prev_hash"] != prev:
             problems.append(f"event {r['seq']} prev_hash mismatch")
-        expected = sha256_hex(prev + r["event_id"] + r["type"] + r["payload_hash"])
-        if r["chain_hash"] != expected:
+        if r["chain_hash"] != chain_hash(prev, dict(r)):
             problems.append(f"event {r['seq']} chain hash mismatch")
         prev = r["chain_hash"]
     return problems

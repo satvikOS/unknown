@@ -15,11 +15,13 @@ from datetime import date
 
 from ...domain.calendar import local_date
 from ...domain.errors import Rejected
-from ...domain.fixed import Fixed
+from ...domain.fixed import Fixed, Rounding
 from ...domain.money import currency
 from .. import ledger, state
 from ..desk import Context
-from .broker import _find_order, apply_status, finalize
+from .broker import WORKING_STATUSES, _find_order, apply_status, finalize
+from .control import latch_stop
+from .orders import cancel_order
 from .common import (CASH_MISMATCH, FOREIGN_ACTIVITY, POSITION_MISMATCH, RECONCILIATION_INCOMPLETE, SETTLEMENT_LATE,
                      UNKNOWN_ORDER, control_update, new_exception)
 
@@ -41,9 +43,11 @@ def reconciliation_result(ctx: Context, p: dict) -> dict:
                              detail={"run_id": run_id, "snapshot_complete": snap.get("complete"),
                                      "orders_complete": oo.get("complete"), "executions_complete": p.get("executions_complete")},
                              key=f"recon-incomplete:{ctx.epoch}")
+        # An incomplete run proves nothing: entries stay blocked until a complete clean run (REC-01).
         ctx.emit("ReconciliationIncomplete", {"run_id": run_id, "note": "partial broker data never proves absence"},
                  {"reconciliations": [_run_row(ctx, key, run_id, "INCOMPLETE", [], [], p, seq_at_start)],
-                  "exceptions": [case] if case else []}, account_key=key)
+                  "exceptions": [case] if case else [],
+                  "control": [control_update(ctx, key, needs_reconciliation=True)]}, account_key=key)
         return {"run_id": run_id, "status": "INCOMPLETE"}
 
     c = state.control(ctx.tx, key)
@@ -60,15 +64,23 @@ def reconciliation_result(ctx: Context, p: dict) -> dict:
                                  detail={"open_order": row, "reason": foreign or "order not placed by this deployment"},
                                  key=f"foreign-order:{row.get('broker_order_id')}")
             if case:
-                ctl = state.control(ctx.tx, key)
-                latch = ctl if ctl["stop_latched"] else {**ctl, "stop_latched": True, "latch_reason": "FOREIGN_ACTIVITY",
-                                                          "latched_by": ctx.principal.id, "latched_at_ns": ctx.now_ns,
-                                                          "latch_command_id": ctx.command.command_id}
-                ctx.emit("ForeignOrderObserved", {"open_order": row}, {"exceptions": [case], "control": [latch]}, account_key=key)
+                ctx.emit("ForeignOrderObserved", {"open_order": row}, {"exceptions": [case]}, account_key=key)
+            latch_stop(ctx, key, "FOREIGN_ACTIVITY")
             continue
         broker_open[order["order_id"]] = row
-        apply_status(ctx, state.order(ctx.tx, order["order_id"]), row["status"], Fixed.parse(row["filled_quantity"]), "",
+        before = state.order(ctx.tx, order["order_id"])
+        if before["state"] in state.TERMINAL_ORDER_STATES and row["status"] in WORKING_STATUSES:
+            differences.append({"kind": "TERMINAL_ORDER_WORKING", "blocking": True,
+                                "detail": {"order_id": order["order_id"], "local_state": before["state"], "broker_status": row["status"]}})
+        apply_status(ctx, before, row["status"], Fixed.parse(row["filled_quantity"]), "",
                      row.get("broker_order_id"), via="reconciliation")
+        after = state.order(ctx.tx, order["order_id"])
+        if (after["state"] not in state.TERMINAL_ORDER_STATES and after["cancel_state"] in ("SENT", "ACKED", "UNKNOWN")
+                and row["status"] != "PENDING_CANCEL" and not _live_cancel(ctx, after["order_id"])):
+            # Our cancel did not take effect at the broker (lost in a crash or a timeout): send it again.
+            differences.append({"kind": "CANCEL_NOT_EFFECTIVE", "blocking": False,
+                                "detail": {"order_id": after["order_id"], "cancel_state": after["cancel_state"]}})
+            cancel_order(ctx, after, "reconciliation: earlier cancel not effective at the broker")
         local = Fixed.parse(state.order(ctx.tx, order["order_id"])["cum_qty"])
         if Fixed.parse(row["filled_quantity"]) > local:
             differences.append({"kind": "EXECUTIONS_MISSING", "blocking": True,
@@ -132,14 +144,35 @@ def reconciliation_result(ctx: Context, p: dict) -> dict:
     for cash in snap["cash"]:
         ccy = cash["currency"]
         scale = currency(ccy).ledger_scale
-        broker_settled = Fixed.parse(cash["settled"]).rescale(scale) if Fixed.parse(cash["settled"]).scale <= scale else Fixed.parse(cash["settled"])
+        # Broker amounts finer than the ledger scale are rounded explicitly (ADR-0004 #3); the sub-unit
+        # residual is reported, never silently dropped and never treated as unexplained cash.
+        raw_settled = Fixed.parse(cash["settled"])
+        broker_settled = raw_settled.rescale(scale, Rounding.HALF_EVEN)
+        if raw_settled != broker_settled:
+            differences.append({"kind": "SUB_LEDGER_SCALE_RESIDUAL", "blocking": False, "detail": {
+                "currency": ccy, "raw_broker_settled": raw_settled.to_str(), "rounded": broker_settled.to_str(),
+                "residual": (raw_settled - broker_settled).to_str()}})
         ledger_cash = ledger.code_total(ctx.tx, key, ledger.CASH, ccy)
         expected = [r for r in state.settlements(ctx.tx, key, status="EXPECTED") if r["currency"] == ccy]
         due = [r for r in expected if date.fromisoformat(r["expected_date"]) <= as_of_date]
         due_net = sum((_signed(r) for r in due), Fixed(0, scale))
-        if broker_settled == ledger_cash + due_net:
+        gap = broker_settled - (ledger_cash + due_net)
+        allowance = _rounding_allowance(ctx, due, scale)
+        if gap.is_zero():
             if due:
                 settled_rows.extend(_confirm(ctx, key, due))
+        elif due and not allowance.is_zero() and abs(gap) <= allowance:
+            # The difference is fully explained by recorded per-trade rounding of broker notionals:
+            # book it to ROUNDING for the owner of the largest due item, then confirm.
+            target = max(due, key=lambda r: abs(Fixed.parse(r["amount"])))
+            e = ledger.entry(ctx.new_id("je-"), key, "ROUNDING", f"broker rounding on settlement ({gap})",
+                             [ledger.Line(ledger.CASH, target["owner"], ccy, gap),
+                              ledger.Line(ledger.ROUNDING, target["owner"], ccy, -gap)])
+            ctx.emit("SettlementRoundingBooked", {"gap": gap.to_str(), "allowance": allowance.to_str(), "owner": target["owner"]},
+                     {"journal": [e]}, account_key=key)
+            differences.append({"kind": "ROUNDING_BOOKED", "blocking": False, "detail": {
+                "currency": ccy, "gap": gap.to_str(), "allowance": allowance.to_str()}})
+            settled_rows.extend(_confirm(ctx, key, due))
         elif broker_settled == ledger_cash:
             for r in due:
                 late_after = cal.add_business_days(date.fromisoformat(r["expected_date"]), SETTLEMENT_GRACE_BUSINESS_DAYS)
@@ -155,7 +188,7 @@ def reconciliation_result(ctx: Context, p: dict) -> dict:
                 "currency": ccy, "broker_settled": broker_settled.to_str(), "ledger_cash": ledger_cash.to_str(),
                 "due_settlements_net": due_net.to_str(),
                 "unexplained": (broker_settled - ledger_cash - due_net).to_str()}})
-        unsettled_broker = Fixed.parse(cash["total"]) - Fixed.parse(cash["settled"])
+        unsettled_broker = (Fixed.parse(cash["total"]) - raw_settled).rescale(scale, Rounding.HALF_EVEN)
         unsettled_ledger = sum((_signed(r) for r in state.settlements(ctx.tx, key, status="EXPECTED") if r["currency"] == ccy), Fixed(0, scale))
         if unsettled_broker != unsettled_ledger:
             differences.append({"kind": "UNSETTLED_DIFFERENCE", "blocking": False, "detail": {
@@ -191,11 +224,29 @@ def reconciliation_result(ctx: Context, p: dict) -> dict:
                                          "settlements_confirmed": [r["settlement_id"] for r in settled_rows]},
              {"reconciliations": [_run_row(ctx, key, run_id, status, differences, settled_rows, p, seq_at_start)],
               "exceptions": exceptions + resolved, "control": [new_ctl]}, account_key=key)
+    if status != "CLEAN":
+        # Unexplained differences need an owner green start, not just an acknowledgement (ADR-0010).
+        latch_stop(ctx, key, "RECONCILIATION_FAILURE")
     from .sessions import mark_settled_sessions, retry_waiting_funding
     mark_settled_sessions(ctx, key)
     if status == "CLEAN":
         retry_waiting_funding(ctx, key)
     return {"run_id": run_id, "status": status, "differences": differences}
+
+
+def _live_cancel(ctx: Context, order_id: str) -> bool:
+    return any(b["action"] == "CANCEL" and b["state"] in ("PENDING", "SENDING") for b in state.outbox_for_order(ctx.tx, order_id))
+
+
+def _rounding_allowance(ctx: Context, rows: list[dict], scale: int) -> Fixed:
+    """Sum of |raw broker notional - booked notional| for the executions behind these settlement rows,
+    rounded up to whole ledger units: the most rounding that recorded trades can explain."""
+    total = Fixed(0)
+    for r in rows:
+        ex = state.execution(ctx.tx, r["exec_key"]) if r.get("exec_key") else None
+        if ex and ex.get("raw_notional") and ex.get("notional"):
+            total = total + abs(Fixed.parse(ex["raw_notional"]) - Fixed.parse(ex["notional"]))
+    return total.rescale(scale, Rounding.CEILING)
 
 
 def _dkey(d: dict) -> str:
@@ -212,16 +263,17 @@ def _confirm(ctx: Context, key: str, rows: list[dict]) -> list[dict]:
     out = []
     lines: list[ledger.Line] = []
     for r in rows:
-        a = Fixed.parse(r["amount"])
-        if r["direction"] == "RECEIVE":
-            lines += [ledger.Line(ledger.CASH, r["owner"], r["currency"], a), ledger.Line(ledger.RECEIVABLE, r["owner"], r["currency"], -a)]
-        else:
-            lines += [ledger.Line(ledger.PAYABLE, r["owner"], r["currency"], a), ledger.Line(ledger.CASH, r["owner"], r["currency"], -a)]
+        # Cash moves by the signed amount; the claim the row records (``relieves``) moves the other way.
+        cash = _signed(r)
+        relieves = r.get("relieves") or (ledger.RECEIVABLE if r["direction"] == "RECEIVE" else ledger.PAYABLE)
+        if not cash.is_zero():
+            lines += [ledger.Line(ledger.CASH, r["owner"], r["currency"], cash), ledger.Line(relieves, r["owner"], r["currency"], -cash)]
         out.append({**r, "status": "SETTLED", "settled_at_ns": ctx.now_ns})
-    e = ledger.entry(ctx.new_id("je-"), key, "SETTLEMENT", f"settlement confirmed by broker settled cash ({len(rows)} items)", lines)
+    journal = [ledger.entry(ctx.new_id("je-"), key, "SETTLEMENT", f"settlement confirmed by broker settled cash ({len(rows)} items)",
+                            lines)] if lines else []
     ctx.emit("SettlementConfirmed", {"items": [r["settlement_id"] for r in rows],
                                      "note": "settlement changes availability, not P&L"},
-             {"journal": [e], "settlements": out}, account_key=key)
+             {"journal": journal, "settlements": out}, account_key=key)
     return out
 
 
@@ -237,8 +289,15 @@ def _import_opening(ctx: Context, key: str, acct: dict, snap: dict) -> None:
     for cash in snap["cash"]:
         ccy = cash["currency"]
         scale = currency(ccy).ledger_scale
-        settled = Fixed.parse(cash["settled"]).rescale(scale)
-        unsettled = (Fixed.parse(cash["total"]) - Fixed.parse(cash["settled"])).rescale(scale)
+        raw_settled = Fixed.parse(cash["settled"])
+        raw_unsettled = Fixed.parse(cash["total"]) - raw_settled
+        # Explicit rounding (ADR-0004 #3): settled cash never rounds up (FLOOR); the residual is recorded.
+        settled = raw_settled.rescale(scale, Rounding.FLOOR)
+        unsettled = raw_unsettled.rescale(scale, Rounding.HALF_EVEN)
+        if settled != raw_settled or unsettled != raw_unsettled:
+            problems.append({"currency": ccy, "raw_settled": raw_settled.to_str(), "raw_unsettled": raw_unsettled.to_str(),
+                             "booked_settled": settled.to_str(), "booked_unsettled": unsettled.to_str(),
+                             "note": "sub-ledger-scale residual not booked"})
         if not settled.is_zero():
             lines += [ledger.Line(ledger.CASH, ledger.OUTSIDE, ccy, settled), ledger.Line(ledger.OPENING, ledger.OUTSIDE, ccy, -settled)]
         if not unsettled.is_zero():
@@ -281,6 +340,4 @@ def _run_row(ctx: Context, key: str, run_id: str, status: str, differences: list
             "event_seq_at_start": seq_at_start}
 
 
-from ...domain.fixed import Rounding as _R  # noqa: E402
-
-_HALF_EVEN = _R.HALF_EVEN
+_HALF_EVEN = Rounding.HALF_EVEN

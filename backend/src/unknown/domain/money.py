@@ -39,7 +39,7 @@ CURRENCIES: dict[str, Currency] = {
         Currency("CHF", 6, 2, "Swiss franc"),
         Currency("CAD", 6, 2, "Canadian dollar"),
         Currency("HKD", 6, 2, "Hong Kong dollar"),
-        Currency("JPY", 4, 0, "Japanese yen"),
+        Currency("JPY", 6, 0, "Japanese yen"),
     )
 }
 

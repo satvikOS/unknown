@@ -65,6 +65,7 @@ class PretradeInput:
     average_daily_volume: Fixed | None
     max_participation_bps_of_adv: int
     require_liquidity_data: bool
+    would_self_cross: bool = False
 
 
 @dataclass
@@ -146,6 +147,7 @@ def evaluate(i: PretradeInput) -> Decision:
         check("GROSS_EXPOSURE", i.gross_exposure_after <= i.max_gross_exposure,
               f"{i.gross_exposure_after} > {i.max_gross_exposure}")
     check("ORDER_RATE", i.orders_last_minute < i.max_orders_per_minute, f"{i.orders_last_minute} in last 60s")
+    check("SELF_CROSS", not i.would_self_cross, "limit would cross one of our own working orders on the other side")
     if i.average_daily_volume is None:
         check("LIQUIDITY", not i.require_liquidity_data, "not evaluated: no average daily volume data")
     else:

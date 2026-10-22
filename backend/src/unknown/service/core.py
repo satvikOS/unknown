@@ -75,7 +75,8 @@ class CoreService:
     def health(self) -> HealthSnapshot:
         s = self.broker.session()
         free_mb = shutil.disk_usage(self.paths.data).free // (1024 * 1024)
-        return HealthSnapshot(s.connected, s.authenticated, s.server_time_ns, free_mb, s.detail)
+        return HealthSnapshot(s.connected, s.authenticated, s.server_time_ns, free_mb, s.detail,
+                              self.broker.capabilities().account_mode.value)
 
     def _handle(self, req: dict, roles: frozenset[str]) -> dict:
         desk = self.desk
