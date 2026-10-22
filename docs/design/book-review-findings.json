@@ -4445,7 +4445,7 @@
     "verifier_note": "Quotes verified. Grep finds no purge or embargo length anywhere in the book. Chapter 7 does say which samples to purge (overlapping label windows), so the gap is lengths, placement and execution delay.",
     "disposition": {
       "status": "RESOLVED_IN_CODE",
-      "resolution": "Resolved. The spec refuses purge_sessions below label_horizon_sessions + execution_delay_sessions; the purge and embargo are part of the hashed spec and manifest, and the evaluator applies them on both sides of every test run (walk-forward, purged k-fold, CPCV).",
+      "resolution": "Resolved. The spec refuses purge_sessions below label_horizon_sessions + execution_delay_sessions; the purge and embargo are part of the hashed spec and manifest, and the evaluator (walk-forward, purged k-fold, CPCV) purges training whose label interval meets a test run's label span on either side of the run, and embargoes training that follows a test run.",
       "where": [
         "backend/src/unknown/research/folds.py:48-63",
         "backend/src/unknown/research/spec.py:381-382"
