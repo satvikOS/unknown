@@ -25,10 +25,19 @@ ACTIVE = ("RUNNING", "SUSPENDED", "WINDING_DOWN", "RECONCILING", "FAILED_REVIEW"
 # uncertainty (UNKNOWN_ORDER) already blocks entries account-wide and clears through
 # reconciliation, so it does not by itself move a session to FAILED_REVIEW.
 REVIEW_KINDS = frozenset({"EXECUTION_ANOMALY", "OVERCOMMITTED"})
+# Preflight checks only an owner can satisfy; automatic starts run the rest (ADR-0010).
+OWNER_ACTION_CHECKS = frozenset({"OWNER_REQUIRED", "OWNER_REAUTHENTICATION_REQUIRED"})
 
 
 def _refs(s: dict) -> dict:
     return dict(account_key=s["account_key"], session_id=s["session_id"])
+
+
+def _merge(*lists: list[str]) -> list[str]:
+    out: list[str] = []
+    for items in lists:
+        out += [x for x in items if x not in out]
+    return out
 
 
 def attributed_exceptions(ctx: Context, s: dict, kinds: frozenset[str] | None = None) -> list[dict]:
@@ -47,6 +56,16 @@ def sessions_of_case(case: dict) -> list[str]:
     if hint.startswith("session:") and hint.split(":", 1)[1] not in ids:
         ids.append(hint.split(":", 1)[1])
     return ids
+
+
+def preflight_blockers(ctx: Context, account_key: str, *, owner_decision: bool) -> tuple[list[str], dict]:
+    """ADR-0010 green preflight for a session start or resume (review finding 45). An automatic start
+    runs the subset that needs no owner action, as ADR-0010 defines for automatic resumption."""
+    from .control import preflight
+    blockers, evidence = preflight(ctx, account_key)
+    if not owner_decision:
+        blockers = [b for b in blockers if b not in OWNER_ACTION_CHECKS]
+    return blockers, evidence
 
 
 def _cancel_open_buys(ctx: Context, s: dict, reason: str) -> None:
@@ -138,27 +157,31 @@ def start_session(ctx: Context, p: dict) -> dict:
     m = state.mandate(ctx.tx, s["mandate_hash"])
     if ctx.principal.role is Role.SYSTEM and not m.auto_start:
         raise Rejected("AUTO_START_NOT_PERMITTED", "mandate does not allow automatic start")
-    blockers = start_blockers(ctx, s)
+    blockers, evidence = start_blockers(ctx, s, owner_decision=ctx.principal.role is Role.OWNER)
     if blockers:
-        raise Rejected("START_BLOCKED", ", ".join(blockers), blockers=blockers)
-    _start(ctx, s)
+        raise Rejected("START_BLOCKED", ", ".join(blockers), blockers=blockers, evidence=evidence)
+    _start(ctx, s, evidence)
     return {"session_id": s["session_id"], "state": "RUNNING"}
 
 
-def start_blockers(ctx: Context, s: dict) -> list[str]:
+def start_blockers(ctx: Context, s: dict, *, owner_decision: bool) -> tuple[list[str], dict]:
+    """Entry gates plus the ADR-0010 preflight (full for an owner start, the no-owner-action subset for an
+    automatic one), execution ownership and the one-active-session limit. Returns (blockers, evidence)."""
     ok, blockers = entries_permitted(ctx, s["account_key"])
+    checks, evidence = preflight_blockers(ctx, s["account_key"], owner_decision=owner_decision)
+    blockers = _merge(blockers, checks)
     own = state.ownership(ctx.tx, s["account_key"])
     if not (own and own["status"] == "HELD" and own["deployment_id"] == ctx.desk.deployment_id):
-        blockers.append("EXECUTION_OWNERSHIP_NOT_HELD")
+        blockers = _merge(blockers, ["EXECUTION_OWNERSHIP_NOT_HELD"])
     active = [x for x in state.sessions(ctx.tx, s["account_key"], ACTIVE) if x["session_id"] != s["session_id"]]
     if len(active) >= MAX_ACTIVE_SESSIONS:
         blockers.append(f"ACTIVE_SESSION_LIMIT:{active[0]['session_id']}")
-    return blockers
+    return blockers, evidence
 
 
-def _start(ctx: Context, s: dict) -> None:
-    ctx.emit("SessionStarted", {"by": ctx.principal.id}, {"sessions": [{**s, "state": "RUNNING", "started_at_ns": ctx.now_ns,
-                                                                        "blockers": []}]}, **_refs(s))
+def _start(ctx: Context, s: dict, evidence: dict) -> None:
+    ctx.emit("SessionStarted", {"by": ctx.principal.id, "preflight": evidence},
+             {"sessions": [{**s, "state": "RUNNING", "started_at_ns": ctx.now_ns, "blockers": []}]}, **_refs(s))
 
 
 def suspend_session(ctx: Context, p: dict) -> dict:
@@ -176,13 +199,20 @@ def suspend(ctx: Context, s: dict, reason: str, evidence: dict | None = None) ->
 
 
 def resume_session(ctx: Context, p: dict) -> dict:
+    """SUSPENDED -> RUNNING (OWNER only): preflight passes and the session's own budgets are not breached
+    on fresh marks (ADR-0008; review findings 34 and 45)."""
+    from .valuation import session_budget_breaches
     s = state.session(ctx.tx, p.get("session_id", ""))
     if s["state"] != "SUSPENDED":
         raise Rejected("INVALID_STATE", f"session is {s['state']}")
     ok, blockers = entries_permitted(ctx, s["account_key"])
-    if not ok:
-        raise Rejected("RESUME_BLOCKED", ", ".join(blockers), blockers=blockers)
-    ctx.emit("SessionResumed", {"by": ctx.principal.id}, {"sessions": [{**s, "state": "RUNNING", "suspend_reason": None}]}, **_refs(s))
+    checks, evidence = preflight_blockers(ctx, s["account_key"], owner_decision=True)
+    breaches, valued = session_budget_breaches(ctx, s)
+    blockers = _merge(blockers, checks, breaches)
+    if blockers:
+        raise Rejected("RESUME_BLOCKED", ", ".join(blockers), blockers=blockers, evidence=evidence, valuation=valued)
+    ctx.emit("SessionResumed", {"by": ctx.principal.id, "preflight": evidence, "valuation": valued},
+             {"sessions": [{**s, "state": "RUNNING", "suspend_reason": None}]}, **_refs(s))
     return {"session_id": s["session_id"], "state": "RUNNING"}
 
 
@@ -234,12 +264,12 @@ def maybe_auto_start(ctx: Context, s: dict) -> None:
     m = state.mandate(ctx.tx, s["mandate_hash"])
     if not m.auto_start:
         return
-    blockers = start_blockers(ctx, s)
+    blockers, evidence = start_blockers(ctx, s, owner_decision=False)
     if blockers:
         if s.get("blockers") != blockers:
             ctx.emit("SessionStartDeferred", {"blockers": blockers}, {"sessions": [{**s, "blockers": blockers}]}, **_refs(s))
         return
-    _start(ctx, s)
+    _start(ctx, s, evidence)
 
 
 def retry_waiting_funding(ctx: Context, account_key: str) -> None:

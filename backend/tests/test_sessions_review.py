@@ -401,5 +401,131 @@ class WindDownTest(unittest.TestCase):
         self.assertEqual(h.verify(), [])
 
 
+# ---------------------------------------------------------------- resume and start
+class ResumeBudgetTest(unittest.TestCase):
+    def test_resume_refused_while_the_session_drawdown_is_breached(self):
+        """Finding 34, ADR-0008 (SUSPENDED -> RUNNING: budgets not breached).
+
+        A was suspended at equity 98.00 <= floor 98.00. Before the fix the owner could resume it at once (the
+        next valuation would suspend it again, after any entry it allowed). Now resume values the session on
+        fresh marks and refuses while the drawdown holds or the marks are stale."""
+        h = _harness(self)
+        h.bootstrap()
+        _create(h, "A")
+        _buy_fill(h, "A", "B1", "5", "9.00")
+        h.quote("8.80", "8.82")
+        h.tick()
+        self.assertEqual(h.row("sessions", "session_id", "A")["suspend_reason"], "SESSION_DRAWDOWN")
+
+        h.quote("8.80", "8.82")
+        r = h.owner_cmd("resume_session", session_id="A")
+        self.assertEqual(r.rejected_code, "RESUME_BLOCKED")
+        self.assertIn("SESSION_DRAWDOWN", r.body["details"]["blockers"])
+        self.assertEqual(h.session_state("A"), "SUSPENDED")
+
+        h.clock.advance(6 * SEC)  # quote older than quote_max_age_ms
+        r = h.owner_cmd("resume_session", session_id="A")
+        self.assertEqual(r.rejected_code, "RESUME_BLOCKED")
+        self.assertIn("SESSION_MARKS_STALE:FIX-EQ-1", r.body["details"]["blockers"])
+
+        h.quote("8.81", "8.83")  # 54.00 + 44.05 = 98.05 > 98.00
+        r = h.owner_cmd("resume_session", session_id="A")
+        self.assertTrue(r.accepted, r.body)
+        self.assertEqual(h.session_state("A"), "RUNNING")
+        info = _events(h, "SessionResumed", "A")[-1]["info"]
+        self.assertEqual(F(info["valuation"]["equity"]), F("98.05"))
+        self.assertEqual(h.verify(), [])
+
+    def test_resume_refused_while_the_session_max_loss_is_breached(self):
+        """Finding 34: seed - equity >= session_max_loss (5.00) refuses resume (drawdown widened to 1000 bps
+        and the daily trigger to 10.00 to isolate the max-loss budget)."""
+        policy = load_policy(session_template__session_drawdown_trigger_bps=1000, account_limits__daily_loss_trigger="10.00")
+        h = _harness(self, policy=policy)
+        h.bootstrap()
+        _create(h, "A")
+        _buy_fill(h, "A", "B1", "5", "9.00")
+        h.quote("8.20", "8.22")  # equity 95.00: loss 5.00
+        h.tick()
+        self.assertEqual(h.row("sessions", "session_id", "A")["suspend_reason"], "SESSION_MAX_LOSS")
+        h.quote("8.20", "8.22")
+        r = h.owner_cmd("resume_session", session_id="A")
+        self.assertEqual(r.rejected_code, "RESUME_BLOCKED")
+        self.assertIn("SESSION_MAX_LOSS", r.body["details"]["blockers"])
+        h.quote("8.21", "8.23")  # equity 95.05: loss 4.95
+        self.assertTrue(h.owner_cmd("resume_session", session_id="A").accepted)
+        self.assertEqual(h.verify(), [])
+
+
+class StartPreflightTest(unittest.TestCase):
+    def test_owner_start_session_runs_the_green_preflight(self):
+        """Finding 45, ADR-0008 (READY -> RUNNING: preflight passes, ADR-0010).
+
+        Before the fix an owner start checked only the entry gates, so a session started on a reconciliation
+        older than max_reconciliation_age_s (300 s) or with an owner authentication older than
+        reauth_max_age_s (900 s). Now both are refused by name and SessionStarted records the evidence."""
+        h = _harness(self, policy=load_policy(session_template__auto_start=False))
+        h.bootstrap()
+        _create(h, "A")
+        self.assertEqual(h.session_state("A"), "READY")
+        h.clock.advance(301 * SEC)
+        h.quote("8.99", "9.01")
+        r = h.owner_cmd("start_session", session_id="A")
+        self.assertEqual(r.rejected_code, "START_BLOCKED")
+        self.assertIn("RECONCILIATION_STALE", r.body["details"]["blockers"])
+
+        rec = h.reconcile()
+        self.assertEqual(rec.body["status"], "CLEAN")
+        r = h.cmd("start_session", _stale_owner(h, 901), session_id="A")
+        self.assertEqual(r.rejected_code, "START_BLOCKED")
+        self.assertIn("OWNER_REAUTHENTICATION_REQUIRED", r.body["details"]["blockers"])
+        self.assertEqual(h.session_state("A"), "READY")
+
+        r = h.owner_cmd("start_session", session_id="A")
+        self.assertTrue(r.accepted, r.body)
+        info = _events(h, "SessionStarted", "A")[-1]["info"]
+        self.assertEqual(info["preflight"]["reconciliation"], rec.body["run_id"])
+        self.assertEqual(h.verify(), [])
+
+    def test_system_auto_start_waits_for_a_fresh_preflight(self):
+        """Finding 45, ADR-0010 (automatic actions use the preflight subset that needs no owner action).
+
+        Before the fix a funded auto_start session started on a 301 s old reconciliation. Now it stays READY
+        with RECONCILIATION_STALE recorded, and starts when the next clean reconciliation retries it."""
+        h = _harness(self)
+        h.bootstrap()
+        h.clock.advance(301 * SEC)
+        h.quote("8.99", "9.01")
+        _create(h, "A")
+        a = h.row("sessions", "session_id", "A")
+        self.assertEqual(a["state"], "READY")
+        self.assertIn("RECONCILIATION_STALE", a["blockers"])
+        self.assertNotIn("OWNER_REAUTHENTICATION_REQUIRED", a["blockers"])
+        self.assertEqual(h.reconcile().body["status"], "CLEAN")
+        self.assertEqual(h.session_state("A"), "RUNNING")
+        info = _events(h, "SessionStarted", "A")[-1]["info"]
+        self.assertIn("preflight", info)
+        self.assertEqual(h.verify(), [])
+
+    def test_resume_runs_the_green_preflight(self):
+        """Finding 45, ADR-0008 (SUSPENDED -> RUNNING: resume (OWNER only), preflight passes)."""
+        h = _harness(self)
+        h.bootstrap()
+        _create(h, "A")
+        self.assertTrue(h.owner_cmd("suspend_session", session_id="A").accepted)
+        h.clock.advance(301 * SEC)
+        r = h.owner_cmd("resume_session", session_id="A")
+        self.assertEqual(r.rejected_code, "RESUME_BLOCKED")
+        self.assertIn("RECONCILIATION_STALE", r.body["details"]["blockers"])
+        self.assertEqual(h.reconcile().body["status"], "CLEAN")
+        r = h.cmd("resume_session", _stale_owner(h, 901), session_id="A")
+        self.assertEqual(r.rejected_code, "RESUME_BLOCKED")
+        self.assertIn("OWNER_REAUTHENTICATION_REQUIRED", r.body["details"]["blockers"])
+        r = h.owner_cmd("resume_session", session_id="A")
+        self.assertTrue(r.accepted, r.body)
+        self.assertEqual(h.session_state("A"), "RUNNING")
+        self.assertIn("preflight", _events(h, "SessionResumed", "A")[-1]["info"])
+        self.assertEqual(h.verify(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

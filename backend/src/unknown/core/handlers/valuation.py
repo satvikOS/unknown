@@ -42,6 +42,33 @@ def _marked(ctx: Context, key: str, owner: str, ccy: str, max_age_ns: int) -> tu
     return value, sorted(set(stale)), marks
 
 
+def _drawdown_floor(high_water: Fixed, trigger_bps: int) -> Fixed:
+    return (high_water * (10_000 - trigger_bps)).div(10_000, high_water.scale, Rounding.CEILING)
+
+
+def session_budget_breaches(ctx: Context, s: dict) -> tuple[list[str], dict]:
+    """The session's own budgets on fresh marks, as ``valuation`` measures them: (breaches, evidence).
+
+    Used by resume (ADR-0008: SUSPENDED -> RUNNING needs budgets not breached; review finding 34).
+    Incomplete marks cannot show a budget is intact, so they count as a breach (fail closed)."""
+    key = s["account_key"]
+    policy = state.active_policy(ctx.tx, key)
+    m = state.mandate(ctx.tx, s["mandate_hash"])
+    equity, stale, marks = _marked(ctx, key, ledger.session_owner(s["session_id"]), policy.currency,
+                                   policy.limits.quote_max_age_ms * 1_000_000)
+    evidence = {"equity": equity.to_str(), "marks": marks, "high_water": s["high_water"], "stale": stale}
+    if stale:
+        return [f"SESSION_MARKS_STALE:{','.join(stale)}"], evidence
+    floor = _drawdown_floor(fmax(Fixed.parse(s["high_water"]), equity), m.session_drawdown_trigger_bps)
+    evidence.update(drawdown_floor=floor.to_str(), session_max_loss=m.session_max_loss.amount.to_str())
+    breaches = []
+    if equity <= floor:
+        breaches.append("SESSION_DRAWDOWN")
+    if m.seed.amount - equity >= m.session_max_loss.amount:
+        breaches.append("SESSION_MAX_LOSS")
+    return breaches, evidence
+
+
 def valuation(ctx: Context, p: dict) -> dict:
     key = p["account_key"]
     policy = state.active_policy(ctx.tx, key)
@@ -70,7 +97,7 @@ def valuation(ctx: Context, p: dict) -> dict:
             continue
         if s["state"] != "RUNNING":
             continue
-        dd_floor = (hw * (10_000 - m.session_drawdown_trigger_bps)).div(10_000, hw.scale, Rounding.CEILING)
+        dd_floor = _drawdown_floor(hw, m.session_drawdown_trigger_bps)
         if equity <= dd_floor:
             suspend(ctx, s, "SESSION_DRAWDOWN", {**evidence, "drawdown_floor": dd_floor.to_str()})
             continue
