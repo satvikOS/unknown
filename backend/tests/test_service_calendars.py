@@ -35,5 +35,28 @@ class ServiceCalendarTests(unittest.TestCase):
         self.assertEqual(WEEKDAYS_ONLY.add_business_days(date(2026, 11, 25), 1), date(2026, 11, 26))
 
 
+class ServiceDeskCalendarTests(unittest.TestCase):
+    def test_the_service_desk_settles_on_xnys_business_days(self):
+        """The desk the running service opens (CoreService.open_desk, used by run) carries the sourced calendars,
+        so a paper policy's settlement_calendar XNYS settles a 2026-11-25 trade on 2026-11-27, not Thanksgiving."""
+        import tempfile
+        from unknown.broker.simulated import SimulatedBroker
+        from unknown.domain.clock import ManualClock
+        from unknown.domain.fixed import Fixed
+        from unknown.service.core import CoreService
+        from unknown.service.paths import Paths
+        with tempfile.TemporaryDirectory() as tmp:
+            clock = ManualClock(1_792_504_800_000_000_000)
+            svc = CoreService(paths=Paths(Path(tmp)), account_key="IBKR-PAPER-1", deployment_id="t", clock=clock,
+                              broker=SimulatedBroker(clock, initial_settled_cash=Fixed.parse("1000"), calendar=WEEKDAYS_ONLY))
+            desk = svc.open_desk()
+            try:
+                self.assertIn("XNYS", desk.calendars)
+                self.assertEqual(desk.calendars["XNYS"].add_business_days(date(2026, 11, 25), 1), date(2026, 11, 27))
+                self.assertEqual(set(desk.calendars), set(load_calendars(CALENDAR_DIR)))
+            finally:
+                desk.store.close()
+
+
 if __name__ == "__main__":
     unittest.main()

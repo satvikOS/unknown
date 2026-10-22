@@ -323,11 +323,15 @@ class CoreService:
                                                          "authenticated": s.authenticated, "detail": s.detail})
             self._last_connectivity = observed
 
-    def run(self) -> None:
+    def open_desk(self) -> Desk:
+        """Open this service's core database with every sourced calendar (config/calendars) and its quote book."""
         self.paths.ensure()
         ids = IdGenerator(lambda: self.clock.now_ns() // 1_000_000)
-        self.desk = open_desk(self.paths.db(self.account_key), self.clock, ids, deployment_id=self.deployment_id,
-                              health=self.health, calendars=load_calendars(CALENDAR_DIR), quotes=self.quotes)
+        return open_desk(self.paths.db(self.account_key), self.clock, ids, deployment_id=self.deployment_id,
+                         health=self.health, calendars=load_calendars(CALENDAR_DIR), quotes=self.quotes)
+
+    def run(self) -> None:
+        self.desk = self.open_desk()
         if self.fixture_market is not None:
             self.fixture_market.quotes = self.desk.quotes
         tokens = {self.paths.token(name, create=True): roles for name, roles in SOCKET_ROLES.items()}
