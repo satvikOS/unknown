@@ -291,6 +291,32 @@ class CancelTransmissionTests(_Base):
         self.assertEqual(order(h, "B1")["state"], "CANCELED")
         self.assertSound(h)
 
+    @unittest.expectedFailure
+    def test_f18_acked_cancel_that_never_took_effect_is_resent(self):
+        """STILL WRONG (finding 18; also 2/14): a cancel the broker ACKNOWLEDGED but that did not take effect
+        (IBKR: PendingCancel reverting to Submitted when the venue refuses the cancel) is never sent again.
+
+        Reconciliation records CANCEL_NOT_EFFECTIVE for cancel_state ACKED (recon.py:78-83) and calls
+        cancel_order, but cancel_order returns a no-op whenever cancel_state == "ACKED" (orders.py:210).
+        A second red stop is a no-op for the same reason. The buy keeps working at the broker for good
+        while reconciliation reports CLEAN (the difference is non-blocking)."""
+        h = self.harness()
+        running(h)
+        buy_acked(h, "B1", "2", "10.00")
+        h.broker.defer_cancel_confirmation(True)
+        self.assertTrue(h.owner_cmd("stop", account_key=ACCOUNT).accepted)
+        h.pump()
+        self.assertEqual(order(h, "B1")["cancel_state"], "ACKED")
+        self.assertEqual(broker_status(h, "B1"), "PENDING_CANCEL")
+        h.broker._orders["B1"].status = BrokerOrderStatus.ACKNOWLEDGED  # the venue refused the cancel
+        h.broker.defer_cancel_confirmation(False)
+        rec = h.reconcile()
+        self.assertIn("CANCEL_NOT_EFFECTIVE", [d["kind"] for d in rec.body["differences"]])
+        h.pump()
+        h.owner_cmd("stop", account_key=ACCOUNT)
+        h.pump()
+        self.assertEqual(broker_status(h, "B1"), "CANCELED")
+
     def test_f35_cancel_timeout_blocks_entries_and_stays_reissuable(self):
         """Finding 35: a cancel whose outcome is UNKNOWN opens a blocking UNKNOWN_ORDER case, green start is
         refused, and a later stop re-sends the cancel; the broker's terminal report clears the case."""
@@ -315,6 +341,33 @@ class CancelTransmissionTests(_Base):
         self.assertEqual(order(h, "B1")["state"], "CANCELED")
         self.assertEqual(cases(h, "UNKNOWN_ORDER"), [])
         self.assertSound(h)
+
+    @unittest.expectedFailure
+    def test_f35_green_start_is_refused_while_a_buy_cancel_outcome_is_unknown(self):
+        """STILL WRONG (finding 35, partial fix): the only thing that blocks a green start after a cancel
+        timeout is the UNKNOWN_ORDER case, and apply_status resolves that case on ANY broker status for the
+        order (broker.py:115), including a working ACKNOWLEDGED report that says nothing about the cancel
+        (the cancel timed out before reaching the broker, so the broker truly still works B1). Preflight
+        checks only order state UNKNOWN (control.py:121-122), never cancel_state UNKNOWN, and needs no new
+        reconciliation while the last clean one is fresh. So the green start passes, the stop is cleared,
+        the cancel is never re-sent (its outbox row is UNKNOWN, not PENDING) and B1 keeps working while the
+        terminal still shows it as CANCEL_PENDING. The finding asked preflight to block on unresolved
+        cancels of buys. Fix: add an UNRESOLVED_CANCELS blocker for open buys whose cancel_state is UNKNOWN
+        (or SENT/ACKED with no live row), and resolve the case only on a terminal or PENDING_CANCEL status."""
+        h = self.harness()
+        running(h)
+        buy_acked(h, "B1", "2", "10.00")
+        h.broker.script_cancel(CancelBehavior.TIMEOUT)
+        self.assertTrue(h.owner_cmd("stop", account_key=ACCOUNT).accepted)
+        h.pump()
+        self.assertEqual(order(h, "B1")["cancel_state"], "UNKNOWN")
+        h.desk.run_system("broker_order_status", {"account_key": ACCOUNT, "client_order_id": "B1", "order_ref": None,
+                                                  "broker_order_id": order(h, "B1")["broker_order_id"],
+                                                  "status": "ACKNOWLEDGED", "filled_quantity": "0",
+                                                  "remaining_quantity": "2", "reason": ""})
+        h.quote("9.99", "10.01")
+        start = h.owner_cmd("start", account_key=ACCOUNT)
+        self.assertFalse(start.accepted, "a buy whose cancel outcome is unknown must block green start")
 
     def test_f35_cancel_timeout_then_reconciliation_resends_the_cancel(self):
         """Finding 35: reconciliation after a timed-out cancel finds the buy still working, reports
@@ -568,6 +621,23 @@ class RestoreDetectionTests(_Base):
         self.assertEqual(order(h, "B1")["state"], "CANCELED", rec.body)
         self.assertSound(h)
 
+    @unittest.expectedFailure
+    def test_f04_restore_in_place_of_an_online_backup_made_without_store_backup_to(self):
+        """STILL WRONG (finding 4, residual): detection relies on a marker that only Store.backup_to writes
+        (db.py:171-183) plus the lease epoch (desk.py:262-266). A copy made with the SQLite online backup
+        API by another tool (ADR-0003 #6 names that API, not Store.backup_to; the sqlite3 shell's .backup
+        uses it) or a file-system snapshot, taken in the current epoch and restored in place, is opened as
+        an ordinary restart: the owner's stop latched after the backup is lost.
+
+        The finding's suggested fix (a high-water marker off the data volume compared with max(events.seq)
+        or the last chain hash) was not implemented: <db>.epoch holds only the epoch."""
+        h = self.harness()
+        backup = self.scratch() / "backup.sqlite"
+        self._trade_then_stop(h, lambda hh: sqlite_online_backup(hh.db_path, backup))
+        restore_in_place(h, backup)
+        c = h.control()
+        self.assertEqual((c["stop_latched"], c["latch_reason"]), (True, "RESTORED_FROM_BACKUP"))
+
 
 # ============================================================ authority (5, 19, 21, 22, 23, 40, 41, 52, 54)
 class AuthorityTests(_Base):
@@ -695,6 +765,20 @@ class AuthorityTests(_Base):
         self.assertIn("BROKER_REPORTS_LIVE_ACCOUNT", blockers)
         self.assertIn("BROKER_ACCOUNT_MODE_MISMATCH:LIVE", blockers)
 
+    @unittest.expectedFailure
+    def test_f21_submit_is_refused_when_the_broker_mode_changes_after_green_start(self):
+        """STILL WRONG (finding 21): the broker-reported mode is checked only at green start (control.py:99-104).
+        Pretrade compares the REGISTERED mode (orders.py:104) and outbox_begin (orders.py:247-301) and the
+        gateway (runner.py:56-66) never look at the connection's mode, so after a start in SIMULATED a gateway
+        that reconnects to a LIVE account transmits the next buy. The finding asked outbox_begin or the
+        gateway to refuse to send when the live broker mode differs from the registered mode."""
+        h = self.harness()
+        running(h)
+        self._health(h, broker_account_mode="LIVE")
+        self.assertTrue(h.intent("B1", "BUY", "1", "10.00", "A").accepted)
+        h.pump()
+        self.assertIsNone(broker_status(h, "B1"), "nothing may be transmitted to a broker reporting LIVE")
+
     def test_f41_preflight_fails_closed_without_broker_server_time(self):
         """Finding 41: missing broker server time is CLOCK_SKEW_UNKNOWN, never a pass."""
         h = self._ready_to_start()
@@ -713,6 +797,19 @@ class AuthorityTests(_Base):
                         attest_no_other_deployment=True)
         self.assertTrue(r.accepted, r.body)
         self.assertTrue(h.row("control", "account_key", "PAPER-1")["needs_reconciliation"])
+
+    @unittest.expectedFailure
+    def test_f22_release_certificate_content_is_validated(self):
+        """STILL WRONG (finding 22, partial fix): admin.py:121-123 accepts ANY dict that has the three keys,
+        whatever their values. A certificate with non-string ids, a non-integer epoch and no reconciliation
+        run grants HELD ownership. The finding asked for a verified certificate (naming the releasing
+        deployment, its epoch and its final reconciliation)."""
+        h = self.harness()
+        self.assertTrue(h.owner_cmd("register_account", account_key="PAPER-1", provider="simulated", mode="PAPER",
+                                    base_currency="USD").accepted)
+        r = h.owner_cmd("acquire_execution_ownership", account_key="PAPER-1", deployment_id=DEPLOYMENT,
+                        release_certificate={"deployment_id": None, "epoch": "not-an-epoch", "reconciliation_run": None})
+        self.assertFalse(r.accepted, "a certificate with no releasing deployment, epoch or run must be refused")
 
     def test_f23_strategy_cannot_borrow_an_eligible_strategy_id(self):
         """Finding 23: a STRATEGY principal naming another (eligible) strategy id is refused; its own id is
@@ -904,6 +1001,27 @@ class ExecutionLedgerTests(_Base):
         self.assertEqual(rec.body["status"], "CLEAN", rec.body)
         self.assertSound(h)
 
+    @unittest.expectedFailure
+    def test_f26_external_commission_that_arrives_before_its_execution_is_booked(self):
+        """STILL WRONG (finding 26 edge; also 7/17): a commission that arrives before its execution is deferred
+        (broker.py:689-693), but only apply_order_execution applies deferred commissions (broker.py:421-423).
+        _external_execution (broker.py:496-548), and therefore every manual trade and every correction booked
+        through it, never looks at pending_commissions. When the manual buy arrives, EXTERNAL is not charged
+        the commission, cover_external is not run for it, and 'outside' shows 1.00 more available cash than
+        the broker holds. Nothing corrects this until a later reconciliation re-ingests the report from the
+        broker's execution history (it then books it as a fresh report), and the pending row is never deleted.
+        Fix: in _external_execution, apply a pending commission for the exec_key exactly as
+        apply_order_execution does."""
+        h = self.harness(initial_cash="400.00")
+        running(h)
+        h.broker.external_trade(INST, "BUY", F("2"), F("10.00"), commission=F("1.00"))
+        self.assertEqual(h.broker.pending_event_count(), 2)
+        h.broker.shuffle_pending_events([1, 0])   # commission report first (the TWS API does not order them)
+        h.pump()
+        self.assertFixed(h.balance("COMMISSION", "external"), "1.00")
+        self.assertFixed(h.available("outside"), "79.00")
+        self.assertEqual(h.desk.store.query("SELECT COUNT(*) AS n FROM pending_commissions")[0]["n"], 0)
+
     def test_f15_late_commission_for_a_corrected_execution_is_booked_once(self):
         """Finding 15: with commissions delayed, the broker corrects B1's price; the original's late report is
         redirected to the replacement once, the replacement's own report is a duplicate, the estimate is
@@ -976,6 +1094,30 @@ class ExecutionLedgerTests(_Base):
         self.assertFixed(code_total(h, "COMMISSION"), "1.00")
         self.assertFixed(code_total(h, "FEE_ESTIMATE"), "0")
         self.assertSound(h)
+
+    @unittest.expectedFailure
+    def test_f15_redelivered_commission_of_a_corrected_execution_is_a_duplicate(self):
+        """STILL WRONG (finding 15 edge): B1's commission (1.00) was booked on B1 before the correction. The
+        replacement is re-reported with 1.20 (the corrected quantity costs more). A redelivery of B1's own
+        1.00 report (the Reconciler re-ingests every commission since the last clean watermark) is compared
+        only with the ACTIVE revision (broker.py:699-710), never with what B1 itself already booked
+        (fee_final 1.00), so a pure duplicate opens a blocking EXECUTION_ANOMALY ("late commission differs
+        from the active revision's") and halts entries. Fix: when the corrected execution's own fee_final
+        equals the report, return duplicate before redirecting."""
+        h = self.harness()
+        running(h)
+        ex = bought(h, "B1", "2", "10.00", commission=F("1.00"))
+        self.assertEqual(executions(h, "B1")[0]["fee_status"], "FINAL")
+        h.broker.correct_execution(ex["exec_key"], F("2"), F("9.90"))
+        h.broker.drain_events()   # deliver the replacement by hand with its own commission
+        (correction,) = [r for r in h.broker._executions if r.row.correction_of == ex["exec_key"]]
+        h.desk.run_system("broker_execution", execution_payload(ACCOUNT, correction.row))
+        h.desk.run_system("broker_commission", {"account_key": ACCOUNT, "exec_key": correction.row.exec_key,
+                                                "amount": "1.20", "currency": "USD"})
+        redelivered = h.desk.run_system("broker_commission", {"account_key": ACCOUNT, "exec_key": ex["exec_key"],
+                                                              "amount": "1.00", "currency": "USD"})
+        self.assertTrue(redelivered.body.get("duplicate"), redelivered.body)
+        self.assertEqual([c for c in cases(h, "EXECUTION_ANOMALY") if c["blocking"]], [])
 
 
 # ============================================================ settlement and fee estimates (24, 25, 37)
@@ -1055,6 +1197,42 @@ class SettlementAndFeeTests(_Base):
         self.assertEqual(rec.body["status"], "CLEAN", rec.body)
         self.assertFixed(h.balance("CASH", "session:A"), "97.91")   # 100 - 99.10 + 98.01 - 1.00 (sim default)
         self.assertSound(h)
+
+    @unittest.expectedFailure
+    def test_f25_sell_whose_fees_exceed_its_proceeds_never_overstates_available_cash(self):
+        """STILL WRONG (finding 25/37 edge; pre-existing, not introduced by c41a505, which extended the same
+        pattern to sell estimates): a 1-share sale at 0.50 with a 1.00 commission nets -0.50. Sell fees post
+        against RECEIVABLE (broker.py:321 estimate, broker.py:722 final), so the excess fee becomes a NEGATIVE
+        receivable, which available_cash ignores (ledger.py:158-166 counts CASH, PAYABLE and FEES_ACCRUED only).
+        Available cash is overstated by 0.50 until settlement; the session spends it (pretrade approves a buy
+        against 98.50), and settlement confirmation then drives session:A's available cash to -0.291: the
+        reconciliation trips ledger.verify, opens a critical LEDGER_INVARIANT case and latches the stop.
+        Fix: count min(RECEIVABLE, 0) per owner in available_cash (a net-negative sale is a payable), or book
+        the part of a sell fee that exceeds proceeds against PAYABLE."""
+        h = self.harness()
+        running(h)
+        h.quote("0.49", "0.51")
+        bought(h, "B1", "1", "0.50", commission=F("1.00"))
+        h.quote("0.49", "0.51")
+        self.assertTrue(h.intent("S1", "SELL", "1", "0.50", "A").accepted)
+        h.pump()
+        h.broker.fill("S1", F("1"), F("0.50"), commission=F("1.00"))
+        h.pump()
+        self.assertFixed(h.balance("RECEIVABLE", "session:A"), "-0.50")
+        self.assertFixed(h.available("session:A"), "98.50")   # true spendable cash is 100 - 1.50 - 0.50 = 98.00
+        h.quote("0.49", "0.51")
+        self.assertTrue(h.intent("B2", "BUY", "194", "0.5015", "A").accepted)   # 97.291 + 1.20 envelope <= 98.50
+        h.pump()
+        h.broker.fill("B2", F("194"), F("0.5015"), commission=F("1.00"))
+        h.pump()
+        self.assertEqual(h.verify(), [])
+        h.clock.advance(DAY)
+        h.broker.advance_settlement()
+        h.quote("0.49", "0.51")
+        rec = h.reconcile()
+        self.assertEqual(rec.body["status"], "CLEAN", rec.body)
+        self.assertEqual(cases(h, "LEDGER_INVARIANT"), [], "a routine settlement must not break the ledger invariants")
+        self.assertEqual(h.verify(), [])
 
 
 # ============================================================ corrections (11, 27, 29)
