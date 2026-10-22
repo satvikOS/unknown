@@ -425,6 +425,25 @@ PYTHONPATH=src ~/.unknown/venvs/ibkr/bin/python -m unknown.broker.ibkr.serve --a
   - `python -m unknown.cli alerts` lists adapter anomalies and entry blocks.
 - **Order ids.** `submit()` allocates the IBKR orderId and fsyncs it before `placeOrder`. A crash therefore never reuses an id, and a re-submission of a transmitted client order id is reported UNKNOWN, never re-sent.
 
+## 7a. Paper bootstrap (after the paper account is live and IB Gateway is logged in)
+
+```bash
+cd backend
+PYTHONPATH=src ~/.unknown/venvs/ibkr/bin/python -m unknown.broker.ibkr.serve --account IBKR-PAPER-1 --deployment mac-dev &
+PYTHONPATH=src ~/.unknown/venvs/ibkr/bin/python -m unknown.broker.ibkr.bootstrap_paper --account IBKR-PAPER-1 \
+    --deployment mac-dev --universe AAPL:NASDAQ,MSFT:NASDAQ --dry-run      # resolve only
+PYTHONPATH=src ~/.unknown/venvs/ibkr/bin/python -m unknown.broker.ibkr.bootstrap_paper --account IBKR-PAPER-1 \
+    --deployment mac-dev --universe AAPL:NASDAQ,MSFT:NASDAQ
+```
+
+Bootstrap checks the passphrase first. It then:
+1. registers the PAPER account and activates `config/policies/paper-default.v1.json`;
+2. resolves each listing by symbol and primary exchange on the read-only market-data connection, and registers only VERIFIED contracts with their conId mapping;
+3. asks you to attest that no other deployment trades the account, then acquires ownership;
+4. waits for the opening reconciliation and authorizes the policy's capital.
+
+It never starts trading. Green start is yours, in the terminal after reviewing preflight. Then work through the evidence checklist in section 5.
+
 ## 8. Tests
 
 ```bash
