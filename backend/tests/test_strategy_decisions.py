@@ -83,5 +83,65 @@ class StrategyDecisionTests(unittest.TestCase):
         self.assertEqual([e["outcome"] for e in self.events()], ["NO_TRADE", "BLOCKED"])
 
 
+class StrategyTokenBindingTests(unittest.TestCase):
+    """Review 2026-10-22: a strategy token must decide the principal id, not just the role; reserved ids such
+    as owner-manual and the owner's or the system's ids can never be asserted as STRATEGY; a strategy cancels only
+    orders that a STRATEGY principal with its id placed."""
+
+    def setUp(self):
+        import tempfile
+        from unknown.service.core import CoreService
+        from unknown.service.ipc import Grant
+        from unknown.service.paths import Paths
+        self.Grant = Grant
+        self.h = Harness()
+        self.addCleanup(self.h.close)
+        self.h.bootstrap()
+        self.assertTrue(self.h.owner_cmd("create_session", account_key=ACCOUNT, session_id="A").accepted)
+        self.h.quote("8.99", "9.01")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.paths = Paths(Path(tmp.name))
+        self.svc = CoreService(paths=self.paths, account_key=ACCOUNT, deployment_id="test", broker=self.h.broker)
+        self.svc.desk = self.h.desk
+
+    def cmd(self, grant, principal_id, kind, command_id, **payload):
+        req = {"op": "command", "command_id": command_id, "kind": kind, "payload": {"account_key": ACCOUNT, **payload},
+               "principal": {"id": principal_id, "role": "STRATEGY"}}
+        return self.svc._handle(req, grant)
+
+    def test_unbound_or_mismatched_strategy_tokens_are_refused(self):
+        with self.assertRaises(PermissionError):
+            self.cmd(frozenset({"STRATEGY"}), "owner-manual", "request_cancel", "s.1", order_id="X")
+        bound = self.Grant({"STRATEGY"}, "TREND_DAILY@0123456789abcdef")
+        with self.assertRaises(PermissionError):
+            self.cmd(bound, "owner-manual", "request_cancel", "s.2", order_id="X")
+
+    def test_reserved_ids_cannot_be_asserted_as_strategy(self):
+        for reserved in ("owner-manual", "owner", "system.sim-desk", "agent.research"):
+            r = self.h.cmd("request_cancel", Principal(reserved, Role.STRATEGY), account_key=ACCOUNT, order_id="X")
+            self.assertEqual(r.rejected_code, "UNAUTHORIZED", reserved)
+
+    def test_strategy_with_the_owners_id_string_cannot_cancel_owner_orders(self):
+        h = self.h
+        sess = h.row("sessions", "session_id", "A")
+        mandate = json.loads(h.desk.store.query("SELECT body FROM mandates WHERE mandate_hash=?", (sess["mandate_hash"],))[0]["body"])
+        o = h.cmd("submit_intent", h.owner, account_key=ACCOUNT, session_id="A", order_id="O1", instrument_id="FIX-EQ-1",
+                  side="BUY", quantity="1", limit_price="9.00", deadline_ns=h.clock.now_ns() + 60 * NS,
+                  policy_hash=mandate["policy_hash"])
+        self.assertTrue(o.accepted, o.body)
+        # a non-reserved id that happens to equal some other principal's id still needs the same ROLE
+        r = h.cmd("request_cancel", Principal("strategy.fixture", Role.STRATEGY), account_key=ACCOUNT, order_id="O1")
+        self.assertEqual(r.rejected_code, "UNAUTHORIZED")
+        self.assertEqual(h.row("orders", "order_id", "O1")["state"], "RESERVED")
+
+    def test_issued_token_is_bound_to_its_artifact(self):
+        path = self.paths.create_strategy_token("TREND_DAILY@0123456789abcdef")
+        self.assertEqual(oct(path.stat().st_mode & 0o777), "0o600")
+        self.assertEqual(list(self.paths.strategy_tokens()), ["TREND_DAILY@0123456789abcdef"])
+        with self.assertRaises(ValueError):
+            self.paths.create_strategy_token("owner-manual")
+
+
 if __name__ == "__main__":
     unittest.main()

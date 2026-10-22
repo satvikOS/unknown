@@ -29,14 +29,14 @@ from ..domain.ids import IdGenerator
 from ..domain.principal import Principal, Role
 from ..gateway.runner import GatewayRunner
 from ..reconcile.reconciler import Reconciler
-from .ipc import CoreSocketServer
+from .ipc import CoreSocketServer, Grant
 from .paths import Paths
 
 log = logging.getLogger("unknown.core")
 
-# Each token may assert only these roles. The strategy token belongs to strategy runners (ADR-0017): research-side
-# processes without broker credentials that submit intents and decision records as their artifact id.
-SOCKET_ROLES = {"api": frozenset({"OWNER"}), "agent": frozenset({"AGENT"}), "strategy": frozenset({"STRATEGY"})}
+# Each token may assert only these roles. Strategy runners (ADR-0017) get one token per artifact, created by the
+# owner (``unknown.cli strategy-token``) and bound to that artifact id: see ``Paths.strategy_tokens``.
+SOCKET_ROLES = {"api": frozenset({"OWNER"}), "agent": frozenset({"AGENT"})}
 RECONNECT_MIN_S = 5.0
 RECONNECT_MAX_S = 300.0
 
@@ -101,6 +101,13 @@ class CoreService:
             role = p.get("role")
             if role not in roles:
                 raise PermissionError(f"token may not assert role {role}")
+            bound = getattr(roles, "principal_id", None)
+            if role == Role.STRATEGY.value and bound is None:
+                raise PermissionError("STRATEGY may be asserted only with a token bound to one artifact")
+            if bound is not None and str(p.get("id")) != bound:
+                raise PermissionError(f"this token may assert only principal {bound}")
+            if req.get("kind") == "broker_admin_action" and (req.get("payload") or {}).get("account_key") != self.account_key:
+                raise ValueError(f"broker_admin_action must name this core's account ({self.account_key})")
             principal = Principal(str(p.get("id")), Role(role), p.get("authenticated_at_ns"))
             result = desk.execute(Command(req["command_id"], req["kind"], principal, req.get("payload") or {}))
             body = result.body
@@ -127,6 +134,8 @@ class CoreService:
             if name == "quotes":
                 return {k: q.to_json(self.clock.now_ns()) for k, q in desk.quotes.snapshot().items()}
             if name == "broker_alerts":
+                if "OWNER" not in roles:
+                    raise PermissionError("broker alerts require the owner token")
                 anomalies = getattr(self.broker, "anomalies", None)
                 blocks = getattr(self.broker, "entry_blocks", None)
                 return {"anomalies": anomalies() if anomalies else [], "entry_blocks": blocks() if blocks else {}}
@@ -169,20 +178,26 @@ class CoreService:
         if connect is None:
             return
         s = self.broker.session()
+        was_connected = getattr(self, "_was_connected", False)
+        self._was_connected = s.connected
         if s.connected and s.authenticated:
             self._reconnect_backoff_s = RECONNECT_MIN_S
             return
         if (s.auth_required_reason or "").startswith("DISCONNECTED_UNSAFE"):
             return   # identity mismatch is latched in the adapter; only the owner can clear it
+        if s.connected:
+            return   # socket up but not ready (e.g. AUTH_REQUIRED): reconnecting cannot help; the adapter finishes late
         now = time.monotonic()
+        if was_connected:
+            # A fresh disconnect: try promptly, whatever backoff an earlier outage had reached.
+            self._next_reconnect_at, self._reconnect_backoff_s = 0.0, RECONNECT_MIN_S
         if now < getattr(self, "_next_reconnect_at", 0.0):
             return
-        if not s.connected:
-            log.info("broker not connected (%s); connecting", s.auth_required_reason)
-            try:
-                connect()
-            except Exception:
-                log.exception("broker connect failed")
+        log.info("broker not connected (%s); connecting", s.auth_required_reason)
+        try:
+            connect()
+        except Exception:
+            log.exception("broker connect failed")
         backoff = getattr(self, "_reconnect_backoff_s", RECONNECT_MIN_S)
         self._next_reconnect_at = now + backoff
         self._reconnect_backoff_s = min(backoff * 2, RECONNECT_MAX_S)
@@ -213,6 +228,7 @@ class CoreService:
         if self.fixture_market is not None:
             self.fixture_market.quotes = self.desk.quotes
         tokens = {self.paths.token(name, create=True): roles for name, roles in SOCKET_ROLES.items()}
+        tokens.update({token: Grant({"STRATEGY"}, artifact) for artifact, token in self.paths.strategy_tokens().items()})
         self.server = CoreSocketServer(self.paths.socket, tokens, self._enqueue)
         self.server.start()
         runner = GatewayRunner(self.desk, self.broker, self.account_key)

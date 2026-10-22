@@ -71,13 +71,17 @@ def record_strategy_decision(ctx: Context, p: dict) -> dict:
         raise Rejected("INVALID_FIELD", "INTENT_SUBMITTED names the order ids it submitted")
     for oid in order_ids:
         o = state.order(ctx.tx, oid)
-        if o is None or o["session_id"] != session_id or (ctx.principal.role is Role.STRATEGY and o["principal_id"] != ctx.principal.id):
+        if o is None or o["session_id"] != session_id or (ctx.principal.role is Role.STRATEGY and (
+                o["principal_id"], o.get("principal_role")) != (ctx.principal.id, Role.STRATEGY.value)):
             raise Rejected("UNKNOWN_ORDER", f"{oid} is not an order of this strategy in this session")
+    instrument_id = p.get("instrument_id")
+    if instrument_id is not None and (not isinstance(instrument_id, str)
+                                      or state.instrument(ctx.tx, validate_id(instrument_id, "instrument id")) is None):
+        raise Rejected("INVALID_FIELD", "instrument_id must name a registered instrument")
     record = {"artifact_id": artifact, "mode": mode, "outcome": outcome, "inputs_digest": digest,
-              "observation_time_ns": observed, "instrument_id": p.get("instrument_id"),
+              "observation_time_ns": observed, "instrument_id": instrument_id,
               "score": _decimal(p, "score", required=False), "target_quantity": _decimal(p, "target_quantity", required=False),
               "current_quantity": _decimal(p, "current_quantity", required=False), "reason": reason, "order_ids": order_ids}
-    ctx.emit("StrategyDecisionRecorded", record, account_key=key, session_id=session_id,
-             instrument_id=p.get("instrument_id") if isinstance(p.get("instrument_id"), str) else None,
+    ctx.emit("StrategyDecisionRecorded", record, account_key=key, session_id=session_id, instrument_id=instrument_id,
              event_time_ns=observed)
     return {"recorded": True}

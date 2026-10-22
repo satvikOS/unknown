@@ -194,7 +194,10 @@ def _backup(source: sqlite3.Connection, target: str | Path, epoch: int, now_ns: 
     dest = sqlite3.connect(str(target))
     try:
         source.backup(dest)
-        seq = source.execute("SELECT COALESCE(MAX(seq), 0) FROM events").fetchone()[0]
+        # Read the marker facts from the copy itself, so they describe exactly the snapshot it holds.
+        seq = dest.execute("SELECT COALESCE(MAX(seq), 0) FROM events").fetchone()[0]
+        row = dest.execute("SELECT epoch FROM writer_lease WHERE id=1").fetchone()
+        epoch = row[0] if row else epoch
         dest.execute("CREATE TABLE IF NOT EXISTS backup_origin (source_epoch INTEGER NOT NULL, "
                      "source_max_seq INTEGER NOT NULL, taken_at_ns INTEGER NOT NULL)")
         dest.execute("INSERT INTO backup_origin VALUES (?,?,?)", (epoch, seq, now_ns))
@@ -209,7 +212,18 @@ def backup_database(source_path: str | Path, target: str | Path, now_ns: int) ->
     """Online backup taken by another process (WAL allows it while the core writes). Never takes the lease."""
     src = connect(source_path, readonly=True)
     try:
-        row = src.execute("SELECT epoch FROM writer_lease WHERE id=1").fetchone()
-        return _backup(src, target, row["epoch"] if row else 0, now_ns)
+        return _backup(src, target, 0, now_ns)
     finally:
         src.close()
+
+
+def lease_alive(path: str | Path, now_ns: int) -> bool:
+    """Whether a core process currently holds the writer lease of ``path`` (heartbeat newer than the stale bound)."""
+    conn = connect(path, readonly=True)
+    try:
+        row = conn.execute("SELECT heartbeat_at_ns FROM writer_lease WHERE id=1").fetchone()
+    except sqlite3.OperationalError:
+        return False
+    finally:
+        conn.close()
+    return row is not None and now_ns - row["heartbeat_at_ns"] < Store.LEASE_STALE_AFTER_NS

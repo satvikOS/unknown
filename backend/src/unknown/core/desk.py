@@ -20,7 +20,7 @@ from ..domain.canonical import canonical_json, sha256_hex
 from ..domain.clock import Clock
 from ..domain.errors import CommandConflict, InvariantViolation, Rejected
 from ..domain.ids import IdGenerator, validate_id
-from ..domain.principal import Principal, Role, permitted
+from ..domain.principal import Principal, Role, permitted, strategy_id_reserved
 from ..market.quotes import QuoteBook
 from ..store.db import Store, Tx
 from . import ledger
@@ -147,11 +147,14 @@ class Desk:
             raise ValueError(f"unknown command kind {command.kind!r}")
         payload_hash = sha256_hex(canonical_json({"kind": command.kind, "payload": command.payload}))
         reserved = command.command_id.startswith(RESERVED_ID_PREFIXES) and command.principal.role is not Role.SYSTEM
-        if reserved or not permitted(command.principal.role, command.kind):
+        reserved_principal = command.principal.role is Role.STRATEGY and strategy_id_reserved(command.principal.id)
+        if reserved or reserved_principal or not permitted(command.principal.role, command.kind):
             # Authorization precedes dedup, and a refused command is never stored under its id, so no
             # principal can pre-claim (or probe) another principal's command ids.
-            body = Rejected("UNAUTHORIZED", "command id prefix reserved for the system" if reserved else
-                            f"role {command.principal.role.value} may not issue {command.kind}").to_json()
+            why = ("command id prefix reserved for the system" if reserved else
+                   f"principal id {command.principal.id!r} is reserved and may not be asserted by a strategy"
+                   if reserved_principal else f"role {command.principal.role.value} may not issue {command.kind}")
+            body = Rejected("UNAUTHORIZED", why).to_json()
             with self.store.write() as tx:
                 key = command.payload.get("account_key") if isinstance(command.payload, dict) else None
                 seq = Context(self, tx, command, payload_hash).emit("CommandRejected", {
@@ -254,6 +257,10 @@ def open_desk(path: str | Path, clock: Clock, ids: IdGenerator, *, deployment_id
     marker = Path(f"{path}.epoch") if str(path) != ":memory:" else None
     origin = store.backup_origin()
     if origin is not None:
+        check = store.conn.execute("PRAGMA quick_check").fetchone()[0]
+        if check != "ok":
+            store.close()
+            raise RuntimeError(f"restored database fails quick_check ({check}); refusing to start")
         evidence.append(f"database is a backup copy taken at epoch {origin['source_epoch']}, seq {origin['source_max_seq']}")
     if marker is not None:
         if marker.exists():

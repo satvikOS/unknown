@@ -10,7 +10,7 @@ Status (ADR-0001): **implemented, exercised locally with the simulated broker**.
 | `com.unknown.api` | Terminal API on `127.0.0.1:8765` (owner login, CSRF, step-up) | Restarted after a crash. |
 | `com.unknown.backup` | `unknown.cli backup` every 15 minutes, keeping 96 copies (24 h) | Periodic. |
 
-A second core process on the same database cannot write: the writer lease fences it (ADR-0011). A crashed core's lease goes stale after 30 s, so launchd's 30 s throttle lets the restart take it cleanly.
+A second core process on the same database cannot write: the writer lease fences it (ADR-0011). A crashed core's lease goes stale 30 s after its last heartbeat. The first restart after a crash can therefore find the lease still fresh and exit with `LeaseHeld`. launchd retries after its 30 s throttle, and that attempt takes the stale lease. A clean shutdown releases the lease, so the next start is immediate.
 
 ## Install
 

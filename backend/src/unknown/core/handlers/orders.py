@@ -192,7 +192,8 @@ def request_cancel(ctx: Context, p: dict) -> dict:
     order = state.order(ctx.tx, p.get("order_id", ""))
     if order is None:
         raise Rejected("UNKNOWN_ORDER", str(p.get("order_id")))
-    if ctx.principal.role is Role.STRATEGY and order["principal_id"] != ctx.principal.id:
+    if ctx.principal.role is Role.STRATEGY and (order["principal_id"], order.get("principal_role")) != (
+            ctx.principal.id, Role.STRATEGY.value):
         raise Rejected("UNAUTHORIZED", "a strategy may cancel only its own orders")
     return cancel_order(ctx, order, p.get("reason") or "requested")
 

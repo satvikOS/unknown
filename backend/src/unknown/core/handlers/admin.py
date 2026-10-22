@@ -295,8 +295,9 @@ def broker_admin_action(ctx: Context, p: dict) -> dict:
             day = date.fromisoformat(p.get("through_day"))
         except (TypeError, ValueError):
             raise Rejected("INVALID_FIELD", "through_day must be YYYY-MM-DD") from None
-        if day > local_date(ctx.now_ns, policy.limits.risk_day_timezone):
-            raise Rejected("INVALID_FIELD", "through_day cannot be in the future")
+        if day >= local_date(ctx.now_ns, policy.limits.risk_day_timezone):
+            # Today is still trading: attesting it would hide later gaps (the adapter re-checks its host day).
+            raise Rejected("INVALID_FIELD", "through_day must be a completed day before today")
         args = {"through_day": day.isoformat()}
         # The attested history must be confirmed against the broker again before new exposure.
         changes["control"] = [control_update(ctx, key, needs_reconciliation=True)]

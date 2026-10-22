@@ -64,6 +64,35 @@ class Paths:
             d.mkdir(parents=True, exist_ok=True)
             os.chmod(d, 0o700)
 
+    def strategy_tokens(self) -> dict[str, str]:
+        """{artifact id: token} for every owner-issued strategy token (``secrets/strategy/<artifact>.token``)."""
+        from ..domain.principal import ARTIFACT_ID
+        d = self.secrets / "strategy"
+        out: dict[str, str] = {}
+        if not d.is_dir():
+            return out
+        for f in sorted(d.glob("*.token")):
+            artifact = f.name[:-len(".token")]
+            if not ARTIFACT_ID.match(artifact):
+                raise ValueError(f"{f}: not an ADR-0017 artifact id")
+            if f.stat().st_mode & 0o077:
+                raise PermissionError(f"{f} is readable by others; chmod 600")
+            out[artifact] = f.read_text().strip()
+        return out
+
+    def create_strategy_token(self, artifact: str) -> Path:
+        from ..domain.principal import ARTIFACT_ID
+        if not ARTIFACT_ID.match(artifact):
+            raise ValueError("artifact id must be <CLASS>@<16 lowercase hex> (ADR-0017)")
+        d = self.secrets / "strategy"
+        d.mkdir(parents=True, exist_ok=True)
+        os.chmod(d, 0o700)
+        path = d / f"{artifact}.token"
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(secrets.token_urlsafe(32))
+        return path
+
     def token(self, name: str, *, create: bool = False) -> str:
         path = self.secrets / f"{name}_token"
         if not path.exists():

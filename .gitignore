@@ -8,3 +8,6 @@ __pycache__/
 output/
 build/
 .DS_Store
+
+# agent worktrees and local tooling state
+.claude/

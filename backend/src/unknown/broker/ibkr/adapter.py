@@ -84,6 +84,10 @@ INSTALL_HELP = ("Install the official TWS API from https://download2.interactive
 
 SERVER_TIME_REFRESH_NS = 30 * 1_000_000_000    # re-ask the host clock when the last answer is older
 SERVER_TIME_MAX_AGE_NS = 120 * 1_000_000_000   # beyond this a measurement is not evidence of current skew
+SERVER_TIME_RETRY_NS = 10 * 1_000_000_000      # an unanswered clock query is re-sent after this
+SERVER_TIME_MAX_RTT_NS = 250_000_000           # a sample with a longer round trip bounds skew too loosely
+# ibapi/server_versions.py (TWS API 10.51.01): reqCurrentTimeInMillis needs server version >= 197.
+MIN_SERVER_VER_CURRENT_TIME_IN_MILLIS = 197
 
 
 class IbkrSdkUnavailable(ImportError):
@@ -372,7 +376,10 @@ class IbkrAdapter:
         self._co_end = False
         self._coverage_start_day: date | None = None
         self._down_since_day: date | None = None
-        self._server_time: tuple[int, int] | None = None   # (host ns, local ns at receipt) from currentTimeInMillis
+        self._server_time: tuple[int, int] | None = None   # (host ns, local monotonic ns at the round-trip midpoint)
+        self._time_req_sent: int | None = None              # monotonic ns of the clock query in flight
+        self._server_time_unsupported = False
+        self._late_handshake = False                        # connect() timed out before nextValidId/managedAccounts
 
     # ======================================================================= lifecycle
     def connect(self) -> BrokerSessionState:
@@ -387,6 +394,7 @@ class IbkrAdapter:
             self._next_valid_id = None
             self._managed = None
             self._mode_verified = False
+            self._late_handshake = False
             self._auth_reason = None
             self._last_connect_error = None
             self._upstream_down = None
@@ -433,8 +441,15 @@ class IbkrAdapter:
             if not got:
                 self._auth_reason = (f"{M.AUTH_REQUIRED_REASON} (no nextValidId/managedAccounts within "
                                      f"{cfg.connect_timeout_s}s)")
+                # If they arrive later on this socket, verification completes then (no reconnect needed).
+                self._late_handshake = True
                 self._emit(ConnectivityEvent(True, False, self._auth_reason, self._clock.now_ns()))
                 return self._session_locked()
+        return self._verify_identity(client)
+
+    def _verify_identity(self, client) -> BrokerSessionState:
+        """R2 identity check once nextValidId and managedAccounts are both known; READY or latched unsafe."""
+        with self._cv:
             problems = self._identity_problems(client)
             if problems:
                 self._unsafe = "DISCONNECTED_UNSAFE: " + "; ".join(problems)
@@ -448,6 +463,7 @@ class IbkrAdapter:
                 return self._session_locked()
         with self._cv:
             self._mode_verified = True
+            self._auth_reason = None
             today = self._host_day()
             if self._coverage_start_day is None or (self._down_since_day is not None and today > self._down_since_day):
                 self._coverage_start_day = today
@@ -555,19 +571,36 @@ class IbkrAdapter:
     def session(self) -> BrokerSessionState:
         with self._cv:
             state = self._session_locked()
-            now = self._clock.now_ns()
-            stale = self._server_time is None or now - self._server_time[1] > SERVER_TIME_REFRESH_NS
+            mono = self._clock.monotonic_ns()
+            stale = self._server_time is None or mono - self._server_time[1] > SERVER_TIME_REFRESH_NS
             client = self._client if (stale and self._socket_up and self._mode_verified) else None
         if client is not None:
-            self._request_server_time(client)   # the next call sees the fresh measurement
+            self._request_server_time(client)   # never blocks; the next call sees the fresh measurement
         return state
 
     def _request_server_time(self, client) -> None:
-        """Ask the host for its clock (reqCurrentTimeInMillis, server version >= 197 in TWS API 10.51.01)."""
-        err = self._send("query", client.reqCurrentTimeInMillis)
-        if err:
+        """Ask the host for its clock (reqCurrentTimeInMillis). Never blocks the caller (the core loop): it is
+        skipped when pacing has no room, when a query is already in flight, or when the host is too old."""
+        with self._cv:
+            if self._server_time_unsupported:
+                return
+            version = self._server_version
+            if version is not None and int(version) < MIN_SERVER_VER_CURRENT_TIME_IN_MILLIS:
+                self._server_time_unsupported = True
+                self._anomaly("SERVER_TIME_UNSUPPORTED", f"server version {version} < "
+                              f"{MIN_SERVER_VER_CURRENT_TIME_IN_MILLIS}; clock skew stays unknown (preflight fails closed)")
+                return
+            mono = self._clock.monotonic_ns()
+            if self._time_req_sent is not None and mono - self._time_req_sent < SERVER_TIME_RETRY_NS:
+                return
+            if not self._pacer.try_acquire("query"):
+                return
+            self._time_req_sent = mono
+        try:
+            client.reqCurrentTimeInMillis()
+        except Exception as exc:
             with self._cv:
-                self._anomaly("SERVER_TIME_UNAVAILABLE", err)
+                self._anomaly("SERVER_TIME_UNAVAILABLE", f"{type(exc).__name__}: {exc}")
 
     def _session_locked(self) -> BrokerSessionState:
         client = self._client
@@ -590,10 +623,11 @@ class IbkrAdapter:
                 reason = "MODE_UNVERIFIED"
         server_time_ns = None
         if self._server_time is not None and alive:
-            host_ns, at_ns = self._server_time
-            age = self._clock.now_ns() - at_ns
+            host_ns, at_mono = self._server_time
+            age = self._clock.monotonic_ns() - at_mono
             if 0 <= age <= SERVER_TIME_MAX_AGE_NS:
-                # Host clock carried forward on our monotonic offset: skew = host - local at receipt.
+                # The host clock carried forward on the monotonic clock: preflight compares it with the current
+                # wall clock, so a local clock step after the measurement shows up as skew.
                 server_time_ns = host_ns + age
         return BrokerSessionState(connected=alive, authenticated=authenticated, auth_required_reason=reason,
                                   server_time_ns=server_time_ns, last_heartbeat_ns=self._last_message_ns,
@@ -625,6 +659,8 @@ class IbkrAdapter:
 
     def acknowledge_history_gap(self, through_day: date, *, by: str, note: str) -> None:
         """Owner attests that executions up to ``through_day`` were reconciled from statements/Flex (R5)."""
+        if through_day >= self._host_day():
+            raise ValueError(f"{through_day} is not a completed day on the host calendar ({self._cfg.host_time_zone})")
         self._store.acknowledge_history_gap(through_day.strftime("%Y%m%d"), by, note)
 
     # ======================================================================= port: orders
@@ -1276,6 +1312,8 @@ class IbkrAdapter:
             return
         self._socket_up = False
         self._mode_verified = False
+        self._late_handshake = False
+        self._time_req_sent = None
         self._down_since_day = self._host_day()
         self._emit(ConnectivityEvent(False, False, f"SOCKET_DOWN: {detail}", self._clock.now_ns()))
         self._cv.notify_all()
@@ -1322,7 +1360,17 @@ class IbkrAdapter:
 
     def _on_currentTimeInMillis(self, time_in_millis: int) -> None:
         with self._cv:
-            self._server_time = (int(time_in_millis) * 1_000_000, self._clock.now_ns())
+            recv = self._clock.monotonic_ns()
+            sent, self._time_req_sent = self._time_req_sent, None
+            if sent is None:
+                self._anomaly("SERVER_TIME_UNSOLICITED", "currentTimeInMillis without a pending query; ignored")
+                return
+            rtt = recv - sent
+            if rtt > SERVER_TIME_MAX_RTT_NS:
+                self._anomaly("SERVER_TIME_SLOW", f"clock round trip {rtt // 1_000_000} ms; sample discarded")
+                return
+            # The host read its clock somewhere inside the round trip: take the midpoint (error <= rtt / 2).
+            self._server_time = (int(time_in_millis) * 1_000_000, sent + rtt // 2)
             self._cv.notify_all()
 
     def _on_nextValidId(self, order_id: int) -> None:
@@ -1330,6 +1378,19 @@ class IbkrAdapter:
             self._next_valid_id = int(order_id)
             self._nvid_seq += 1
             self._cv.notify_all()
+        self._maybe_finish_late_handshake()
+
+    def _maybe_finish_late_handshake(self) -> None:
+        """A slow host sent nextValidId/managedAccounts after connect() gave up waiting: verify now."""
+        with self._cv:
+            ready = (self._late_handshake and self._socket_up and self._unsafe is None and not self._mode_verified
+                     and self._next_valid_id is not None and self._managed is not None)
+            if not ready:
+                return
+            self._late_handshake = False
+            client = self._client
+        if client is not None:
+            self._verify_identity(client)
 
     def _on_managedAccounts(self, accounts_list: str) -> None:
         accounts = tuple(a.strip() for a in (accounts_list or "").split(",") if a.strip())
@@ -1345,6 +1406,8 @@ class IbkrAdapter:
             self._cv.notify_all()
         if disconnect is not None:
             _safe_call(disconnect.disconnect)
+            return
+        self._maybe_finish_late_handshake()
 
     def _on_connectionClosed(self) -> None:
         with self._cv:

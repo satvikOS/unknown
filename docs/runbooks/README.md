@@ -113,7 +113,7 @@ Conventions:
   - writes `<UNKNOWN_HOME>/backups/<key>-<UTC time>.sqlite` (mode 600);
   - writes a JSON sidecar with the source epoch, last event sequence, integrity check and SHA-256;
   - keeps the newest `--keep` copies.
-  - On the Mac, `scripts/deploy/macos/com.unknown.backup.plist.template` runs it every 15 minutes (docs/deploy/macos.md). Copy backups off-host encrypted, e.g. to an encrypted volume; this tool does not encrypt.
+  - On the Mac, the `com.unknown.backup` launchd agent written by `scripts/deploy/macos/render_launchd.py` runs it every 15 minutes (docs/deploy/macos.md). Copy backups off-host encrypted, e.g. to an encrypted volume; this tool does not encrypt.
 - **Why a backup cannot be mistaken for the live database:** every copy is marked inside itself (`backup_origin`). Opening it anywhere is detected as a restore. A database whose `<db>.epoch` marker is missing or not older is also treated as restored (fail closed).
 - **Restore drill:** run `python -m unknown.cli restore-drill --account <key> [--backup FILE]`. It works in a temporary directory, so live state is never touched, and exits non-zero on any problem. It checks:
   - the copy matches its recorded SHA-256;
@@ -121,10 +121,13 @@ Conventions:
   - replaying the event log into an empty database reproduces every projection;
   - opening the copy is detected as a restore, with the stop latched (`RESTORED_FROM_BACKUP`), in-flight orders `UNKNOWN` and a blocking exception;
   - the ledger invariants hold.
-- **Real restore:** put the backup at `<UNKNOWN_HOME>/data/<key>.sqlite` and start the core. Then:
-  1. Reconcile against broker activity that happened after the backup.
-  2. Resolve the `RESTORED_FROM_BACKUP` case.
-  3. Green start (RB-02).
+- **Real restore:**
+  1. Stop the core and the API (`launchctl bootout gui/$(id -u)/com.unknown.core`, and the same for `.api`).
+  2. Run `python -m unknown.cli restore --account <key> --backup FILE`. It refuses while a core holds the writer lease. It moves the current `<key>.sqlite` together with its `-wal` and `-shm` into `data/replaced-<key>-<time>/`, so a stale write-ahead log can never be replayed onto the restored file. It then copies the backup with the SQLite backup API, checks integrity, fsyncs and renames it into place.
+  3. Start the core. It runs `quick_check` on the restored database, detects the restore and latches the stop (`RESTORED_FROM_BACKUP`, in-flight orders `UNKNOWN`).
+  4. Reconcile against broker activity that happened after the backup, resolve the `RESTORED_FROM_BACKUP` case, then green start (RB-02).
+
+  Never copy a backup over `<key>.sqlite` by hand while `-wal` or `-shm` files exist beside it.
 - **Record:** the drill date, backup age, problems found and recovery time.
 - **Production rule:** a restored ledger trades only after a clean reconciliation and an owner green start.
 - **Note:** databases written before commit `c41a505` use the earlier hash-chain formula, and `verify_chain` reports them as mismatched. That is development data only; recreate it.

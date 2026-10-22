@@ -391,6 +391,7 @@ if HAVE_IBAPI:
             self.positions: list[tuple] = []       # (account, contract, position, avgCost)
             self.silent = set()                    # request names that never get their End callback
             self.server_time_ms = server_time_ms   # host clock answer to reqCurrentTimeInMillis (None: no answer)
+            self.on_time_query = None              # hook run before answering (e.g. to advance the clock)
 
         def connect(self, host, port, clientId):
             self.calls.append(("connect", host, port, clientId))
@@ -437,6 +438,8 @@ if HAVE_IBAPI:
 
         def reqCurrentTimeInMillis(self):
             self.calls.append(("reqCurrentTimeInMillis",))
+            if self.on_time_query:
+                self.on_time_query(self)
             if self.server_time_ms is not None:
                 self.wrapper.currentTimeInMillis(self.server_time_ms)
 
@@ -605,6 +608,60 @@ class ConnectionTests(AdapterCase):
     def test_host_that_never_reports_its_clock_gives_no_server_time(self):
         state = self.adapter.connect()
         self.assertIsNone(state.server_time_ns)
+        for _ in range(5):                                                  # in flight: not re-sent on every call
+            self.adapter.session()
+        self.assertEqual(self.host.names().count("reqCurrentTimeInMillis"), 1)
+        self.clock.advance(11 * 1_000_000_000)
+        self.adapter.session()                                              # unanswered for > 10 s: asked again
+        self.assertEqual(self.host.names().count("reqCurrentTimeInMillis"), 2)
+
+    def test_slow_clock_answer_is_discarded_and_midpoint_is_used(self):
+        adapter = self.make_adapter(host_kwargs={"server_time_ms": T0 // 1_000_000})
+        adapter.connect()                                                   # instant READY answer: a valid sample
+        delay = {"ns": 300_000_000}
+        self.host.on_time_query = lambda host: self.clock.advance(delay["ns"])
+        adapter._server_time = None                                         # force a fresh measurement
+        adapter.session()
+        self.assertIsNone(adapter._server_time, "a 300 ms round trip is too loose a bound: discarded")
+        self.assertIn("SERVER_TIME_SLOW", [a["kind"] for a in adapter.anomalies()])
+        delay["ns"] = 100_000_000
+        adapter.session()                                                   # re-asked: 100 ms round trip
+        # The host said T0 and read its clock at the round-trip midpoint, 50 ms before now.
+        self.assertEqual(adapter.session().server_time_ns, T0 + 50_000_000)
+
+    def test_old_host_without_the_clock_query_is_asked_once(self):
+        adapter = self.make_adapter()
+        adapter.connect()
+        adapter._server_version = 180
+        adapter._server_time = None
+        adapter._time_req_sent = None
+        n = self.host.names().count("reqCurrentTimeInMillis")
+        for _ in range(3):
+            self.clock.advance(60 * 1_000_000_000)
+            self.assertIsNone(adapter.session().server_time_ns)
+        self.assertEqual(self.host.names().count("reqCurrentTimeInMillis"), n)
+        self.assertEqual([a["kind"] for a in adapter.anomalies()].count("SERVER_TIME_UNSUPPORTED"), 1)
+
+    def test_late_handshake_completes_verification_without_reconnecting(self):
+        adapter = self.make_adapter(host_kwargs={"handshake": False}, connect_timeout_s=0.2)
+        state = adapter.connect()
+        self.assertFalse(state.authenticated)
+        host = self.host
+        host.wrapper.connectAck()
+        host.wrapper.managedAccounts(host.accounts)
+        host.wrapper.nextValidId(host.nvid)                                  # the slow host finally answers
+        state = adapter.session()
+        self.assertTrue(state.connected and state.authenticated, state.auth_required_reason)
+        self.assertEqual(len(self.hosts), 1, "no new socket was needed")
+
+    def test_late_handshake_with_wrong_account_latches_unsafe(self):
+        adapter = self.make_adapter(host_kwargs={"handshake": False}, connect_timeout_s=0.2)
+        adapter.connect()
+        self.host.wrapper.managedAccounts("DUFIXTURE9")
+        self.host.wrapper.nextValidId(100)
+        state = adapter.session()
+        self.assertFalse(state.authenticated)
+        self.assertTrue(state.auth_required_reason.startswith("DISCONNECTED_UNSAFE"))
 
     def test_unexpected_managed_accounts_latch_disconnected_unsafe(self):
         adapter = self.make_adapter(host_kwargs={"accounts": f"{ACCOUNT},DUFIXTURE2"})

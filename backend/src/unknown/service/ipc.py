@@ -25,6 +25,16 @@ class IpcError(RuntimeError):
     pass
 
 
+class Grant(frozenset):
+    """The roles a token may assert. If ``principal_id`` is set, the token may assert only that principal id:
+    strategy tokens are bound to one artifact (ADR-0017), so a runner cannot act as anyone else."""
+
+    def __new__(cls, roles, principal_id: str | None = None):
+        grant = super().__new__(cls, roles)
+        grant.principal_id = principal_id
+        return grant
+
+
 class CoreClient:
     def __init__(self, socket_path: Path, token: str, timeout_s: float = 30.0):
         self.socket_path = str(socket_path)
@@ -83,6 +93,7 @@ class CoreSocketServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServe
     daemon_threads = True
 
     def __init__(self, socket_path: Path, tokens: dict[str, frozenset[str]], dispatch: Callable[[dict, frozenset[str]], dict]):
+        # values are frozensets of roles, or Grants that also bind a principal id
         socket_path = Path(socket_path)
         if socket_path.exists():
             socket_path.unlink()

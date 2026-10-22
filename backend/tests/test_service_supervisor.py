@@ -73,6 +73,18 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(self.broker.connects, 1)
         self.assertEqual(self.svc._reconnect_backoff_s, RECONNECT_MIN_S)
 
+    def test_fresh_disconnect_after_a_long_outage_reconnects_promptly(self):
+        for _ in range(8):                                    # a long earlier outage: backoff at the cap
+            self.clock.t = self.svc._next_reconnect_at if hasattr(self.svc, "_next_reconnect_at") else self.clock.t
+            self.svc._supervise_connection()
+        self.assertEqual(self.svc._reconnect_backoff_s, RECONNECT_MAX_S)
+        self.broker.state = BrokerSessionState(True, True, None, None, None)
+        self.svc._supervise_connection()                      # connected again
+        self.broker.state = BrokerSessionState(False, False, "SOCKET_DOWN", None, None)
+        n = self.broker.connects
+        self.svc._supervise_connection()                      # the very next cycle after the drop tries at once
+        self.assertEqual(self.broker.connects, n + 1)
+
     def test_identity_unsafe_latch_is_never_retried(self):
         self.broker.state = BrokerSessionState(False, False, "DISCONNECTED_UNSAFE: managed accounts differ", None, None)
         for _ in range(3):

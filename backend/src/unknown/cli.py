@@ -8,6 +8,8 @@
   python -m unknown.cli alerts
   python -m unknown.cli backup --account SIM-1 [--keep 96]
   python -m unknown.cli restore-drill --account SIM-1 [--backup FILE]
+  python -m unknown.cli restore --account SIM-1 --backup FILE        (core stopped)
+  python -m unknown.cli strategy-token --artifact TREND_DAILY@0123456789abcdef
   python -m unknown.cli broker-admin --account IBKR-PAPER-1 clear-entry-block SHORT_SALE_SIGNAL --note "..."
   python -m unknown.cli broker-admin --account IBKR-PAPER-1 ack-history-gap 2026-10-20 --note "..."
 
@@ -64,15 +66,21 @@ def main(argv: list[str] | None = None) -> int:
     bk = sub.add_parser("backup", help="online backup of the core database (safe while the core runs)")
     bk.add_argument("--account", required=True)
     bk.add_argument("--keep", type=int, default=96)
+    stt = sub.add_parser("strategy-token", help="issue a token bound to one strategy artifact (ADR-0017); restart the core")
+    stt.add_argument("--artifact", required=True, help="<CLASS>@<16 hex>; the mandate must also list it")
     rd = sub.add_parser("restore-drill", help="prove a backup restores (temporary copy; live state untouched)")
     rd.add_argument("--account", required=True)
     rd.add_argument("--backup", default=None, help="backup file (default: the newest for the account)")
+    rd.add_argument("--no-sidecar", action="store_true", help="accept a backup without its SHA-256 sidecar")
+    rs = sub.add_parser("restore", help="put a backup in place (core must be stopped); the next start latches")
+    rs.add_argument("--account", required=True)
+    rs.add_argument("--backup", required=True)
     args = ap.parse_args(argv)
     paths = Paths(Path(args.home).expanduser()) if args.home else Paths.default()
 
     if args.cmd == "init":
         paths.ensure()
-        for name in ("api", "agent", "strategy"):
+        for name in ("api", "agent"):
             paths.token(name, create=True)
         print(f"initialized {paths.root} (tokens created with mode 600)")
         return 0
@@ -85,17 +93,24 @@ def main(argv: list[str] | None = None) -> int:
         write_owner_record(paths.secrets / "owner.json", p1)
         print("owner passphrase stored as an scrypt hash")
         return 0
-    if args.cmd in ("backup", "restore-drill"):
-        from .ops.backup import backups_for, restore_drill, take_backup
+    if args.cmd == "strategy-token":
+        path = paths.create_strategy_token(args.artifact)
+        print(f"created {path} (mode 600); hand it only to the runner of {args.artifact}; restart the core to load it")
+        return 0
+    if args.cmd in ("backup", "restore-drill", "restore"):
+        from .ops.backup import backups_for, restore_backup, restore_drill, take_backup
         if args.cmd == "backup":
             print(json.dumps(take_backup(paths, args.account, keep=args.keep), indent=2))
+            return 0
+        if args.cmd == "restore":
+            print(json.dumps(restore_backup(paths, args.account, Path(args.backup)), indent=2))
             return 0
         found = backups_for(paths, args.account)
         target = Path(args.backup) if args.backup else (found[-1] if found else None)
         if target is None:
             print(f"no backups for {args.account} in {paths.backups}", file=sys.stderr)
             return 1
-        report = restore_drill(target, args.account)
+        report = restore_drill(target, args.account, require_sidecar=not args.no_sidecar)
         print(json.dumps(report, indent=2, default=str))
         return 0 if report["ok"] else 1
     client = _client(paths)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import enum
+import re
 from dataclasses import dataclass
 
 from .ids import validate_id
@@ -55,3 +56,14 @@ def permitted(role: Role, kind: str) -> bool:
     if role is Role.AGENT:
         return kind in AGENT_ALLOWED
     return False
+
+
+# ADR-0017 artifact ids: <CLASS>@<first 16 hex of the manifest SHA-256>.
+ARTIFACT_ID = re.compile(r"^[A-Z][A-Z0-9_]{0,31}@[0-9a-f]{16}\Z")
+# Principal ids a STRATEGY may never assert: they name the owner's manual trading or other roles.
+RESERVED_STRATEGY_IDS = frozenset({"owner", "owner-manual"})
+RESERVED_STRATEGY_PREFIXES = ("owner", "system.", "agent.")
+
+
+def strategy_id_reserved(principal_id: str) -> bool:
+    return principal_id in RESERVED_STRATEGY_IDS or principal_id.startswith(RESERVED_STRATEGY_PREFIXES)

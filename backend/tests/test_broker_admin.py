@@ -65,11 +65,14 @@ class CoreRecordTests(unittest.TestCase):
         h = self.h
         self.assertFalse(h.control()["needs_reconciliation"])
         r = h.owner_cmd("broker_admin_action", account_key=ACCOUNT, action="acknowledge_history_gap",
-                        through_day="2026-10-20", note="reconciled from the 2026-10-20 activity statement")
+                        through_day="2026-10-19", note="reconciled from the 2026-10-19 activity statement")
         self.assertTrue(r.accepted, r.body)
         self.assertTrue(h.control()["needs_reconciliation"])
         self.assertEqual(h.owner_cmd("broker_admin_action", account_key=ACCOUNT, action="acknowledge_history_gap",
                                      through_day="2099-01-01", note="n").rejected_code, "INVALID_FIELD")
+        # today (2026-10-20 in the risk-day zone) is still trading: attesting it would hide later gaps
+        self.assertEqual(h.owner_cmd("broker_admin_action", account_key=ACCOUNT, action="acknowledge_history_gap",
+                                     through_day="2026-10-20", note="n").rejected_code, "INVALID_FIELD")
         self.assertEqual(h.verify(), [])
 
     def test_only_the_owner_may_issue_it(self):
@@ -93,7 +96,7 @@ class ServiceApplyTests(unittest.TestCase):
     def send(self, command_id, **payload):
         req = {"op": "command", "command_id": command_id, "kind": "broker_admin_action",
                "principal": {"id": "owner", "role": "OWNER", "authenticated_at_ns": self.h.clock.now_ns()},
-               "payload": {"account_key": ACCOUNT, **payload}}
+               "payload": {"account_key": ACCOUNT, **payload} if "account_key" not in payload else payload}
         return self.svc._handle(req, frozenset({"OWNER"}))
 
     def test_applies_after_commit_and_not_on_duplicate(self):
@@ -113,9 +116,19 @@ class ServiceApplyTests(unittest.TestCase):
         self.assertIn("SHORT_SALE_SIGNAL", self.adapter.blocks)
 
     def test_history_gap_reaches_the_adapter_as_a_date(self):
-        r = self.send("cli.admin.3", action="acknowledge_history_gap", through_day="2026-10-20", note="statement")
+        r = self.send("cli.admin.3", action="acknowledge_history_gap", through_day="2026-10-19", note="statement")
         self.assertEqual(r["body"]["adapter"], {"applied": True})
-        self.assertEqual(self.adapter.acks, [(date(2026, 10, 20), "owner")])
+        self.assertEqual(self.adapter.acks, [(date(2026, 10, 19), "owner")])
+
+    def test_action_for_another_account_is_refused_before_recording(self):
+        with self.assertRaises(ValueError):
+            self.send("cli.admin.5", action="clear_entry_block", name="SHORT_SALE_SIGNAL", note="n",
+                      account_key="OTHER-ACCOUNT")
+        self.assertIn("SHORT_SALE_SIGNAL", self.adapter.blocks)
+
+    def test_alerts_require_the_owner_token(self):
+        with self.assertRaises(PermissionError):
+            self.svc._handle({"op": "query", "name": "broker_alerts"}, frozenset({"AGENT"}))
 
     def test_simulator_without_the_method_reports_not_applied(self):
         self.svc.broker = self.h.broker
