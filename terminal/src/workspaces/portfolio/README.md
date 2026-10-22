@@ -1,0 +1,29 @@
+# Portfolio workspace
+
+Read-only portfolio analytics from `/api/portfolio/*` (`backend/src/unknown/api/routes/portfolio.py` over `unknown/analytics`; CAP-PORT-01..13). Nothing on these pages reserves, orders or changes policy.
+
+Shortcut `g f`, nav order 45. Route: `#/portfolio/<tab>`. The palette lists every tab after Holdings. The scope (account, system, or one owner such as `owner:session:<id>`) is shared across tabs. Every result shows the backend's lineage block, which lists formula ids (with their definitions from `/api/portfolio/formulas`), units, source dates, missing inputs and notes. Results computed from fixture data carry the FIXTURE label.
+
+| Tab | Endpoint(s) | What it shows |
+|---|---|---|
+| Holdings | `holdings?scope=&basis=` (polled every 5 s: marks move without events) | NAV marked and fresh per currency, available cash, authorized capital, NAV by owner (exact share bars), the cash ladder, owners (settled, available, market value, NAV, valuation status), and positions with mark price, status, age and source. Unpriced positions are never valued at zero. |
+| Performance | `performance?scope=&convention=&periods_per_year=`, `pnl?scope=` | TWR (annualized only for periods of at least a year, otherwise with the reason), Modified Dietz, the money-weighted return with a **uniqueness flag**, drawdown, the unit-value line, volatility, Sharpe with its standard error, Sortino, and sub-period returns. Daily P&L has an exact bar chart, its components and the identity check (residual exactly zero). |
+| Exposure and VaR | `exposure?scope=`, `var?scope=&alpha=&horizon=`, `var/backtest?scope=&alpha=` | Gross, net, long and short exposure. Weights of scope NAV, HHI, effective N and top-k share. Exposure by instrument, owner or SIC sector, and coverage. Historical VaR and ES (statistical floats, loss positive; "VaR does not represent the worst-case loss"). The backtest chart shows the forecast line, realized-loss bars and **exceptions** marked with triangles, plus Kupiec POF in words and the skipped days. |
+| Stress | `stress/<overnight_gap\|correlated_selloff\|stale_quote\|fee_revision>?scope=&gap=\|shock=\|delay_s=\|factor=` | Runs only on demand. Shows the HYPOTHETICAL label, scenario P&L by currency and owner, positions revalued, loss thresholds (crossed, loss beyond), the core's reaction on its private copy, and the scenario-specific findings (orders refused on stale quotes, fee model now against revised). |
+| What-if | `whatif?session=&instrument=&side=&quantity=&limit=` | Runs only on demand. Shows the HYPOTHETICAL label, would-be approved or refused, every pretrade check (`orders/DecisionTable`), the quote evaluated, a reservation preview (nothing is held), cash and quantity impact, and figures if completely filled. |
+| Allocation | `allocation?scope=&cash_reserve=&floor=&cap=&eta=&tau=` | The PROPOSAL ONLY label. Current weights and the targets of equal weight, inverse volatility and mean-variance, plus covariance diagnostics. For a session scope, a whole-lot trade list per method with every constraint check. The page offers no way to send a trade. |
+| Snapshots | `snapshots?limit=` | The valuation runs the time series reads, as visible now (revisions and the FIXTURE flag). |
+
+## Rules this workspace keeps
+
+- **Money stays exact.** Amounts are the API's decimal strings, shown with `Money`. Bar lengths and shares use BigInt ratios (`exactBars`, `exactShares`, `weightPct`). Returns, volatilities, VaR/ES, optimiser weights and test statistics are floats that the backend computed from exact inputs. They are labelled as statistics and are never used as money.
+- **IRR uniqueness.** A money-weighted rate is shown only when exactly one root solves the cash-flow equation. "Not unique" (several sign changes) and "no solution" are flagged in red with the backend's reason. Periods under one year show only the period MWR (GIPS 2.A.12).
+- **Hypothetical results are not recomputed silently.** What-if and stress results are fetched once per run, not on every stream version bump. They show the core sequence they were computed on, and a "Stale" notice with a Re-run button once the core records a later event (`whatif.is_stale`).
+- **No snapshot history yet.** The tab shows the backend's own reason, including the `snapshots record` command, and no placeholder figures.
+- **Charts** are inline SVG with no dependency. Each one is a summary of a table on the same page. Sign and exceptions are shown by position and shape as well as colour.
+
+## API gaps found
+
+- The money-weighted result has no explicit uniqueness field. The terminal reads `irr_annualized`, `period_mwr` and the `reason` text (`irrStatus`). An explicit `roots` count would be sturdier.
+- There is no formula-to-capability link in the API, other than the `capabilities` field of `/api/portfolio/formulas` entries.
+- The icon is the generic one; `ui/Icon.tsx` has no portfolio glyph and is outside this workspace's scope.
