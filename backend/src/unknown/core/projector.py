@@ -13,6 +13,7 @@ from ..domain.errors import InvariantViolation
 from ..domain.fixed import Fixed
 from ..domain.money import currency
 from ..store.db import Tx
+from .ledger import Touched
 
 SECTION_ORDER = (
     "accounts", "control", "ownership", "policies", "policy_active", "instruments", "mappings",
@@ -45,12 +46,16 @@ def _upsert(tx: Tx, table: str, cols: tuple[str, ...], values: tuple) -> None:
     tx.run(sql, values)
 
 
-def apply_changes(tx: Tx, seq: int, changes: dict) -> None:
+def apply_changes(tx: Tx, seq: int, changes: dict, touched: Touched | None = None) -> None:
+    """Write one event's changes. ``touched`` (the command path passes one; replay does not) records
+    each row's pre-image before it is written, for the per-command ledger check (review finding 39)."""
     unknown = set(changes) - set(SECTION_ORDER)
     if unknown:
         raise InvariantViolation(f"unknown change sections {sorted(unknown)}")
     for section in SECTION_ORDER:
         for item in changes.get(section, ()):
+            if touched is not None:
+                touched.before(tx, section, item)
             _APPLIERS[section](tx, seq, item)
 
 

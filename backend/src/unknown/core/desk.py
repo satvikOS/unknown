@@ -23,7 +23,7 @@ from ..domain.ids import IdGenerator, validate_id
 from ..domain.principal import Principal, Role, permitted, strategy_id_reserved
 from ..market.quotes import QuoteBook
 from ..store.db import Store, Tx
-from . import ledger
+from . import ledger, state
 from .projector import apply_changes
 from .replay import CHAINED_COLUMNS, chain_hash
 
@@ -32,6 +32,10 @@ EVENT_SCHEMA_VERSION = 1
 # genuine broker facts (never discarded) and the red stop (never blocked) — ADR-0006, ADR-0010.
 RECORD_DESPITE_INVARIANTS = frozenset({"stop", "broker_execution", "broker_commission", "broker_order_status",
                                        "broker_connectivity", "reconciliation_result", "process_started"})
+# Every command checks the ledger keys it touched (ledger.verify_touched, review finding 39). These also re-check
+# the whole ledger, so damage that no command made (an edit outside the core) is found at process start, by
+# every reconciliation result and before a green start, as the per-command full check used to find it.
+FULL_VERIFY_KINDS = frozenset({"process_started", "reconciliation_result", "start"})
 GENESIS_HASH = "0" * 64
 RESERVED_ID_PREFIXES = ("process.", "sys.", "conflict.")
 
@@ -81,6 +85,7 @@ class Context:
         self.payload_hash = payload_hash
         self.now_ns = desk.clock.now_ns()
         self.event_seqs: list[int] = []
+        self.touched = ledger.Touched()  # what this command's events changed, for the per-command ledger check
         self.correlation_id = command.correlation_id or command.command_id
 
     @property
@@ -115,7 +120,7 @@ class Context:
                     f"({', '.join('?' * (len(CHAINED_COLUMNS) + 3))})",
                     tuple(fields[c] for c in CHAINED_COLUMNS) + (text, prev_hash, chain))
         seq = fields["seq"]
-        apply_changes(self.tx, seq, payload["changes"])
+        apply_changes(self.tx, seq, payload["changes"], self.touched)
         self.event_seqs.append(seq)
         return seq
 
@@ -191,8 +196,15 @@ class Desk:
                 if command.deadline_ns is not None and ctx.now_ns > command.deadline_ns:
                     raise Rejected("DEADLINE_EXPIRED", "command deadline passed before execution")
                 body = self._handlers[command.kind](ctx, command.payload) or {}
+                if command.kind in RECORD_DESPITE_INVARIANTS and ctx.event_seqs:
+                    # A broker fact that leaves working SELL holds above the shares owned is an exception
+                    # naming the owner, not a ledger-invariant alarm (ADR-0006, review finding 16).
+                    self._open_quantity_shortfalls(ctx, command)
                 if self.verify_each_command and ctx.event_seqs:
-                    problems = ledger.verify(tx)
+                    if command.kind in FULL_VERIFY_KINDS or ctx.touched.full:
+                        problems = ledger.verify(tx)
+                    else:
+                        problems = ledger.verify_touched(tx, ctx.touched)
                     if problems:
                         if command.kind not in RECORD_DESPITE_INVARIANTS:
                             raise InvariantViolation("; ".join(problems[:5]))
@@ -205,6 +217,7 @@ class Desk:
                 tx.run("ROLLBACK TO handler")
                 tx.run("RELEASE handler")
                 ctx.event_seqs.clear()
+                ctx.touched = ledger.Touched()
                 body = rejection.to_json()
                 ctx.emit("CommandRejected", {"kind": command.kind, "rejection": body,
                                              "payload_hash": payload_hash},
@@ -229,6 +242,29 @@ class Desk:
                     "key": f"ledger-invariant:{command.command_id}", "resolution": None}
             ctx.emit("LedgerInvariantViolation", {"problems": problems[:20], "command_kind": command.kind},
                      {"control": [c], "exceptions": [case]}, account_key=key)
+
+    def _open_quantity_shortfalls(self, ctx: Context, command: Command) -> None:
+        """Open one blocking EXECUTION_ANOMALY per (owner, instrument) whose ACTIVE quantity holds now exceed
+        the shares it owns after this observation changed its lots or holds (review finding 16). The case
+        names the owner (owner_hint), so the ledger check treats the shortfall as covered: the fact is
+        recorded, new exposure is blocked, and the account is not latched by the generic invariant alarm."""
+        for s in ledger.quantity_shortfalls(ctx.tx, ctx.touched):
+            key = f"quantity-shortfall:{s['owner']}:{s['instrument_id']}"
+            if state.exception_by_key(ctx.tx, s["account_key"], key) is not None:
+                continue
+            owner = s["owner"]
+            session_id = owner.split(":", 1)[1] if owner.startswith("session:") else None
+            detail = {"issue": "active sell quantity holds exceed owned quantity", "instrument_id": s["instrument_id"],
+                      "held": s["held"], "owned": s["owned"], "orders": s["order_ids"], "command_kind": command.kind,
+                      "resolution": "cancel or reduce the working sells, then resolve after reconciliation"}
+            case = {"case_id": ctx.new_id("case-"), "account_key": s["account_key"], "kind": "EXECUTION_ANOMALY",
+                    "blocking": True, "status": "OPEN", "severity": "critical", "opened_at_ns": ctx.now_ns,
+                    "session_id": session_id, "order_id": s["order_ids"][0] if len(s["order_ids"]) == 1 else None,
+                    "owner_hint": owner, "detail": detail, "key": key, "resolution": None}
+            ctx.emit("QuantityHoldShortfall", {"owner": owner, "instrument_id": s["instrument_id"], "held": s["held"],
+                                               "owned": s["owned"]},
+                     {"exceptions": [case]}, account_key=s["account_key"], session_id=session_id,
+                     instrument_id=s["instrument_id"])
 
     # ------------------------------------------------------------- helpers
     def system(self) -> Principal:

@@ -12,7 +12,12 @@ Arrivals are issued back to back by one client (closed loop), so the numbers
 are service times of the single writer, not open-loop latency under load;
 coordinated omission does not apply to a closed-loop service-time measurement
 but it also means queueing delay under bursts is NOT measured here.
-Results include the per-command ledger verification that the core runs today.
+Results include the per-command ledger verification that the core runs today:
+the incremental check of the keys each command touched (``ledger.verify_touched``,
+review finding 39); the whole-ledger check runs only for process start,
+reconciliation results and green start, none of which is timed here. The host's
+load average is recorded before and after the run, because other processes on
+the machine change these numbers.
 
 Usage: PYTHONPATH=src:tests python3 benchmarks/bench_core.py [--n 300] [--no-fullfsync] [--json out.json]
 """
@@ -102,13 +107,18 @@ def main() -> None:
     ap.add_argument("--no-fullfsync", action="store_true")
     ap.add_argument("--json")
     a = ap.parse_args()
+    load_before = os.getloadavg()
+    measured = run(a.n, not a.no_fullfsync)
+    load_after = os.getloadavg()
     result = {
         "benchmark": "core command service time (closed loop, single writer, durable file DB)",
         "host": {"machine": platform.machine(), "platform": platform.platform(), "python": platform.python_version(),
-                 "sqlite": sqlite3.sqlite_version, "cpu_count": os.cpu_count()},
+                 "sqlite": sqlite3.sqlite_version, "cpu_count": os.cpu_count(),
+                 "load_avg_1_5_15_before": [round(x, 2) for x in load_before],
+                 "load_avg_1_5_15_after": [round(x, 2) for x in load_after]},
         "settings": {"n": a.n, "journal_mode": "WAL", "synchronous": "FULL", "fullfsync": not a.no_fullfsync,
-                     "ledger_verify_each_command": True},
-        **run(a.n, not a.no_fullfsync),
+                     "ledger_verify_each_command": "incremental (touched keys)"},
+        **measured,
     }
     text = json.dumps(result, indent=2)
     print(text)

@@ -141,8 +141,10 @@ def exception_by_key(tx: Tx, account_key: str, key: str) -> dict | None:
 
 
 def latest_reconciliation(tx: Tx, account_key: str) -> dict | None:
-    r = tx.one("SELECT row FROM reconciliations WHERE account_key=? ORDER BY completed_at_ns DESC, rowid DESC LIMIT 1",
-               (account_key,))
+    """The run recorded last. Runs are append-only rows inserted in event order (replay preserves the
+    rowid), so insertion order is the truth; wall-clock ``completed_at_ns`` can step back and is kept
+    for display and age checks only (review finding 51)."""
+    r = tx.one("SELECT row FROM reconciliations WHERE account_key=? ORDER BY rowid DESC LIMIT 1", (account_key,))
     return json.loads(r["row"]) if r else None
 
 

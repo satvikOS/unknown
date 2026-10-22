@@ -9,9 +9,14 @@ Algorithm (book Ch. 9, with the review's resolutions):
    ``max_rounds``) so the snapshot and the execution set describe one cut;
 5. look up every local open order the broker no longer lists;
 6. send one ``reconciliation_result``. Any broker read failure produces an
-   INCOMPLETE run: absence in partial data never proves anything.
+   INCOMPLETE run: absence in partial data never proves anything. So does any
+   other failure before the result (for example a broker event whose command
+   raises while queued events are drained): the run is recorded as INCOMPLETE,
+   and the unapplied events stay queued (review finding 58).
 """
 from __future__ import annotations
+
+from typing import Callable
 
 from ..broker.port import BrokerPort
 from ..core.desk import Desk, Result
@@ -19,18 +24,26 @@ from ..gateway.runner import GatewayRunner, commission_payload, execution_payloa
 
 
 class Reconciler:
-    def __init__(self, desk: Desk, broker: BrokerPort, account_key: str, *, max_rounds: int = 3):
+    def __init__(self, desk: Desk, broker: BrokerPort, account_key: str, *, max_rounds: int = 3,
+                 heartbeat: Callable[[], None] | None = None):
         self.desk = desk
         self.broker = broker
         self.account_key = account_key
-        self.runner = GatewayRunner(desk, broker, account_key)
+        self.runner = GatewayRunner(desk, broker, account_key, heartbeat=heartbeat)
         self.max_rounds = max_rounds
+        self.heartbeat = heartbeat  # keeps the writer lease fresh during a long run (review finding 57)
+
+    def _beat(self) -> None:
+        if self.heartbeat is not None:
+            self.heartbeat()
 
     def _ingest(self, batch) -> int:
         for e in batch.executions:
             self.desk.run_system("broker_execution", execution_payload(self.account_key, e))
+            self._beat()
         for c in batch.commissions:
             self.desk.run_system("broker_commission", commission_payload(self.account_key, c))
+            self._beat()
         return len(batch.executions)
 
     def run(self) -> Result:
@@ -63,6 +76,7 @@ class Reconciler:
                 if r["order_id"] in open_ids:
                     continue
                 lk = self.broker.lookup(r["order_id"])
+                self._beat()
                 lookups[r["order_id"]] = {
                     "found": lk.found, "status": lk.status.value if lk.status else None, "broker_order_id": lk.broker_order_id,
                     "filled_quantity": lk.filled_quantity.to_str() if lk.filled_quantity is not None else None,
@@ -81,7 +95,7 @@ class Reconciler:
                     "filled_quantity": o.filled_quantity.to_str(), "remaining_quantity": o.remaining_quantity.to_str()} for o in open_rows]},
                 "lookups": lookups,
             }
-        except (ConnectionError, TimeoutError, OSError) as exc:
+        except Exception as exc:  # broker read failure, or an event or ingest command that raised
             payload = {"account_key": key, "run_id": run_id, "executions_complete": False, "watermark": None,
                        "snapshot": {"as_of_ns": self.desk.clock.now_ns(), "complete": False, "cash": [], "positions": [],
                                     "error": f"{type(exc).__name__}: {exc}"},
