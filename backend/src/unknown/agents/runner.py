@@ -267,6 +267,11 @@ class JobRunner:
                 except (SendRefused, NotImplementedError) as exc:
                     self.d.ledger.release(adm, note=f"count not sent: {exc}")
                     self._rec(records, "count_not_sent", reason=str(exc))
+                except Exception:
+                    # Not classified by the adapter: the request may have left, so the admission stays UNCONFIRMED.
+                    if self.d.ledger.is_open(adm):
+                        self.d.ledger.mark_unconfirmed(adm, note="unclassified error during token counting; outcome unknown")
+                    raise
         tc = local_estimate(req, self.d.estimate)
         self._rec(records, "counted", method=tc.method, input_tokens=tc.input_tokens)
         return tc
@@ -420,6 +425,13 @@ class JobRunner:
                     self._rec(records, "fallback", from_provider=c.provider, cause=exc.cls.value)
                     policy_causes.append(False)
                     break
+                except Exception:
+                    # An error the adapter could not classify (e.g. an unexpected SDK exception). The request may have
+                    # been sent, so the reservation stays consumed as UNCONFIRMED until reconciled (unknown outcomes
+                    # stay reserved), and the exception propagates to the caller.
+                    if d.ledger.is_open(res):
+                        d.ledger.mark_unconfirmed(res, note="unclassified error during the provider call; outcome unknown")
+                    raise
                 d.breaker.record_success(key)
                 cost = self._settle(res, gen, records)
                 used = sum(u.prompt_tokens + u.output_tokens for u in gen.usages) if gen.usage_complete else tc.input_tokens + max_out

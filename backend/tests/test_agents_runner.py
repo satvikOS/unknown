@@ -355,6 +355,25 @@ class RunnerWorkerHooksTest(TempDirCase, unittest.TestCase):
         rows = self.deps.ledger.reservations("job-1")
         self.assertEqual([r["state"] for r in rows if r["purpose"] == "generate"], ["OPEN"])  # the worker marks it UNCONFIRMED
 
+    def test_an_unclassified_adapter_exception_keeps_the_reservation_unconfirmed(self):
+        runner = self.runner(FakeAdapter([RuntimeError("unexpected SDK failure")]))
+        with self.assertRaises(RuntimeError):
+            runner.run(envelope(), inputs(), [Candidate("anthropic", MODEL)])
+        rows = self.deps.ledger.reservations("job-1")
+        generate = [r for r in rows if r["purpose"] == "generate"]
+        self.assertEqual([r["state"] for r in generate], ["UNCONFIRMED"])
+        self.assertEqual(self.deps.ledger.consumed(job_id="job-1"), Fixed.parse(generate[0]["reserved"]))
+
+    def test_an_unclassified_count_exception_keeps_the_admission_unconfirmed(self):
+        fake = FakeAdapter([result()])
+        fake.count_tokens = lambda request, *, admission, gate: (_ for _ in ()).throw(RuntimeError("unexpected"))
+        runner = self.runner(fake)
+        with self.assertRaises(RuntimeError):
+            runner.run(envelope(), inputs(), [Candidate("anthropic", MODEL)])
+        self.assertEqual([(r["purpose"], r["state"]) for r in self.deps.ledger.reservations("job-1")],
+                         [("count_tokens", "UNCONFIRMED")])
+        self.assertEqual(fake.calls, [])
+
 
 if __name__ == "__main__":
     unittest.main()
