@@ -12,6 +12,9 @@ from dataclasses import dataclass
 from ..domain.fixed import Fixed, Rounding
 
 
+CONSOLIDATION_VALUES = frozenset({"consolidated", "non_consolidated", "unknown"})
+
+
 @dataclass(frozen=True)
 class Quote:
     instrument_id: str
@@ -24,6 +27,13 @@ class Quote:
     receipt_time_ns: int       # local first observation
     delayed: bool = False      # delayed data must never be presented or used as live
     fixture: bool = False      # deterministic test data; never product data
+    # consolidated (national best bid/offer) | non_consolidated (e.g. IBKR's free Cboe One + IEX feed,
+    # CAP-DATA-10) | unknown. Comes only from the owner's feed configuration, never inferred (CAP-MKT-02).
+    consolidation: str = "unknown"
+
+    def __post_init__(self) -> None:
+        if self.consolidation not in CONSOLIDATION_VALUES:
+            raise ValueError(f"consolidation must be one of {sorted(CONSOLIDATION_VALUES)}")
 
     def age_ns(self, now_ns: int) -> int:
         reference = self.event_time_ns if self.event_time_ns is not None else self.receipt_time_ns
@@ -43,6 +53,7 @@ class Quote:
             "currency": self.currency, "source": self.source,
             "event_time_ns": self.event_time_ns, "receipt_time_ns": self.receipt_time_ns,
             "age_ms": self.age_ns(now_ns) // 1_000_000, "delayed": self.delayed, "fixture": self.fixture,
+            "consolidation": self.consolidation,
         }
 
 

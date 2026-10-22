@@ -125,6 +125,10 @@ def evaluate(i: PretradeInput) -> Decision:
     fresh = q is not None and q.age_ns(i.now_ns) <= i.quote_max_age_ms * 1_000_000
     check("QUOTE_FRESH", fresh, "no quote" if q is None else f"age {q.age_ns(i.now_ns) // 1_000_000} ms, source {q.source}")
     check("QUOTE_NOT_DELAYED", q is None or not q.delayed, "delayed quote cannot validate an order")
+    # A non-consolidated or unlabelled feed may validate SIMULATED/PAPER orders (labelled in the decision record);
+    # LIVE requires the national best bid/offer (owner decision 2026-10-22, CAP-DATA-10).
+    check("QUOTE_CONSOLIDATED", q is None or q.consolidation == "consolidated",
+          f"{q.consolidation if q else 'no'} quote cannot validate a LIVE order", applies=i.account_mode == "LIVE")
     mid = q.mid() if q is not None else None
     check("QUOTE_TWO_SIDED", mid is not None, "bid/ask unavailable or crossed")
     if mid is not None:
