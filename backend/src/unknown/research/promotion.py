@@ -52,6 +52,23 @@ case the spec declares. Activation (by the owner or by automatic selection)
 refuses an expired artifact, and automatic selection ranks by the same
 conservative paired lower bound the gate uses.
 
+Evidence retention (BR-DAT-16). A manifest's dataset entry may state
+``retention_until``, the date by which licence terms require the raw data the
+run read to be deleted. An artifact's evidence datasets are those of its
+evaluation manifest and of the trials its passed evidence cites. Its expiry is
+bounded by them: registration refuses an ``expires_on`` later than the
+evaluation manifest's earliest retention date, and the effective expiry used by
+every expiry check (activation, automatic selection and shadow promotion, the
+strategy runner) is ``min(expires_on, retention_until of every evidence
+dataset)``. When the OWNER or the SYSTEM records that a dataset was deleted
+(``record_evidence_deletion``, append-only), every artifact resting on it is
+EVIDENCE_EXPIRED (``evidence_status``): it keeps its lifecycle status and may
+run until its effective expiry, but every upward transition (re-promotion,
+including the quarantined -> reproducible re-validation path, activation and
+automatic selection) is refused; quarantine and retirement still apply. The
+expiry is part of the immutable registration, so there is no renewal: new
+evidence on retained data is a new artifact.
+
 "Signed" in CAP-RES-12 is implemented as a hash chain over transition
 records (tamper evidence, not a cryptographic signature; no signing key
 infrastructure exists yet).
@@ -59,6 +76,7 @@ infrastructure exists yet).
 from __future__ import annotations
 
 import json
+import sqlite3
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -111,6 +129,25 @@ SHADOW_ENVELOPE_FIELDS = frozenset({"envelope_id", "strategy_id", "parameter_dom
                                     "protocol_hash", "max_promotions_per_period", "period_days"})
 # The risk budget bounds the spec's risk_limits: every value the spec declares must be at or below the budget's.
 RISK_BUDGET_FIELDS = ("max_gross_exposure", "max_single_name_weight", "max_drawdown_stop")
+EVIDENCE_STATUSES = ("CURRENT", "EVIDENCE_EXPIRED")     # BR-DAT-16
+
+
+def _upward(frm: str, to: str) -> bool:
+    """A promotion: up the ladder, or out of quarantine into the re-validation path."""
+    if frm == "quarantined":
+        return to in LADDER
+    return frm in LADDER and to in LADDER and LADDER.index(to) > LADDER.index(frm)
+
+
+def _retention(entry: Any) -> date | None:
+    """A manifest dataset entry's ``retention_until`` (ISO date), or None when it states no deletion deadline."""
+    value = entry.get("retention_until") if isinstance(entry, dict) else None
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except (TypeError, ValueError):
+        raise EvidenceError(f"manifest dataset retention_until {value!r} is not an ISO date") from None
 
 PROTOCOL_FIELDS = {
     "confidence": "decimal in (0.5, 1)", "replications": "int >= 200", "mean_block": "int >= 1 or null (round(n^(1/3)))",
@@ -306,6 +343,12 @@ class PromotionService:
         self.r.register_spec(spec, principal)
         if not self.r.exists("manifest", "manifest_hash", evaluation_manifest_hash):
             raise EvidenceError("evaluation manifest is not in the research registry")
+        # BR-DAT-16: the artifact may not outlive the evidence it rests on.
+        bound = self._retention_bound([evaluation_manifest_hash])
+        if bound is not None and expires_on > bound:
+            raise EvidenceError(f"expires_on {expires_on.isoformat()} is after {bound.isoformat()}, when the evaluation "
+                                "manifest's data must be deleted under its licence (BR-DAT-16): set the expiry on or "
+                                "before the retention date")
         bundle = {"spec_hash": spec.spec_hash, "strategy_id": spec.strategy_id, "parameters": {k: v.to_str() for k, v in
                   sorted(spec.parameters.items())}, "features": spec.body["features"], "code_hash": code_hash,
                   "dependency_lock": "standard library only (no third-party packages)", "schema": "strategy-spec@1"}
@@ -493,8 +536,11 @@ class PromotionService:
             raise AuthorityError("the evaluator must differ from the artifact's author (BR-OPS-10)")
         if not rule.owner_approval and principal.role not in (Role.SYSTEM, Role.OWNER):
             raise AuthorityError("only the SYSTEM evaluator or the OWNER may execute this transition")
-        if to in ("eligible", "active") and date.fromisoformat(art["body"]["expires_on"]) < self._today():
-            raise EvidenceError("artifact expired; it needs new evidence before promotion")
+        if to in ("eligible", "active") and self._expired(artifact_hash):
+            raise EvidenceError("artifact expired (registered expiry, or the retention of the data its evidence rests "
+                                "on); it needs new evidence before promotion")
+        if _upward(frm, to):
+            self._refuse_if_evidence_expired(artifact_hash, f"{frm} -> {to}")
         self._check_required(artifact_hash, self._required(art, rule), list(evidence_ids))
         if to == "active":
             if not slot:
@@ -549,12 +595,94 @@ class PromotionService:
         return row["artifact_hash"] if last["to_status"] == "active" and last["slot"] == slot else None
 
     def _expired(self, artifact_hash: str) -> bool:
-        return date.fromisoformat(self.artifact(artifact_hash)["body"]["expires_on"]) < self._today()
+        return self.effective_expiry(artifact_hash) < self._today()
+
+    # ------------------------------------------------- evidence retention (BR-DAT-16)
+    def _retention_bound(self, manifest_hashes: list[str]) -> date | None:
+        dates = [d for mh in manifest_hashes for d in (_retention(e) for e in (self.r.manifest(mh).get("datasets") or {}).values())
+                 if d is not None]
+        return min(dates) if dates else None
+
+    def evidence_datasets(self, artifact_hash: str) -> dict[str, dict]:
+        """{dataset: {retention_until, manifests}} over the evaluation manifest and the manifests of the trials that
+        the artifact's PASSED evidence cites (failed or agent-filed evidence supports nothing, so it bounds nothing)."""
+        art = self.artifact(artifact_hash)
+        manifests = [art["body"]["evaluation_manifest_hash"]]
+        for e in self.evidence(artifact_hash):
+            if not e["passed"]:
+                continue
+            for ref in e["refs"]:
+                if ref.get("type") == "trial":
+                    mh = self.r.trial(ref["id"])["manifest_hash"]
+                    if mh not in manifests:
+                        manifests.append(mh)
+        out: dict[str, dict] = {}
+        for mh in manifests:
+            for name, entry in (self.r.manifest(mh).get("datasets") or {}).items():
+                d = _retention(entry)
+                cur = out.setdefault(name, {"retention_until": None, "manifests": []})
+                cur["manifests"].append(mh)
+                if d is not None and (cur["retention_until"] is None or d < cur["retention_until"]):
+                    cur["retention_until"] = d
+        return out
+
+    def effective_expiry(self, artifact_hash: str) -> date:
+        """min(registered expires_on, retention_until of every evidence dataset): the date every expiry check uses."""
+        expiry = date.fromisoformat(self.artifact(artifact_hash)["body"]["expires_on"])
+        for ds in self.evidence_datasets(artifact_hash).values():
+            if ds["retention_until"] is not None and ds["retention_until"] < expiry:
+                expiry = ds["retention_until"]
+        return expiry
+
+    def _deletions(self) -> dict[str, dict]:
+        try:
+            rows = self.c.execute("SELECT * FROM evidence_deletion ORDER BY dataset").fetchall()
+        except sqlite3.OperationalError:     # a registry opened read-only before any deletion was ever recorded
+            return {}
+        return {r["dataset"]: dict(r) for r in rows}
+
+    def record_evidence_deletion(self, dataset: str, *, principal: Principal, reason: str,
+                                 deleted_at_ns: int | None = None) -> dict:
+        """Record (append-only, once per dataset) that a dataset named by research manifests was deleted, e.g. its
+        raw data at the end of its licence retention. Every artifact resting on it becomes EVIDENCE_EXPIRED."""
+        self._no_agents(principal, "record evidence deletions")
+        if principal.role not in (Role.OWNER, Role.SYSTEM):
+            raise AuthorityError("only the OWNER or the SYSTEM data-retention process records a deletion")
+        if not isinstance(dataset, str) or not dataset.strip() or not isinstance(reason, str) or not reason.strip():
+            raise RegistryError("a deletion names its dataset and a reason", "INVALID_DELETION")
+        existing = self._deletions().get(dataset)
+        if existing is not None:
+            return existing
+        now = self.r.now()
+        self.c.execute("INSERT INTO evidence_deletion VALUES (?,?,?,?,?,?)",
+                       (dataset, deleted_at_ns if deleted_at_ns is not None else now, reason, now, principal.id,
+                        principal.role.value))
+        return self._deletions()[dataset]
+
+    def evidence_status(self, artifact_hash: str) -> dict:
+        """BR-DAT-16: CURRENT, or EVIDENCE_EXPIRED once a dataset the artifact's evidence rests on was deleted."""
+        datasets = self.evidence_datasets(artifact_hash)
+        deleted = self._deletions()
+        hit = [{"dataset": name, "deleted_at_ns": deleted[name]["deleted_at_ns"], "reason": deleted[name]["reason"]}
+               for name in sorted(datasets) if name in deleted]
+        retention = [d["retention_until"] for d in datasets.values() if d["retention_until"] is not None]
+        return {"status": "EVIDENCE_EXPIRED" if hit else "CURRENT", "deleted": hit,
+                "retention_until": min(retention).isoformat() if retention else None,
+                "effective_expiry": self.effective_expiry(artifact_hash).isoformat(),
+                "datasets": {name: {"retention_until": d["retention_until"].isoformat() if d["retention_until"] else None}
+                             for name, d in sorted(datasets.items())}}
+
+    def _refuse_if_evidence_expired(self, artifact_hash: str, what: str) -> None:
+        st = self.evidence_status(artifact_hash)
+        if st["status"] == "EVIDENCE_EXPIRED":
+            raise EvidenceError(f"EVIDENCE_EXPIRED: {what} refused: the evidence rests on deleted data "
+                                f"{[d['dataset'] for d in st['deleted']]}; it needs new evidence (BR-DAT-16)")
 
     def _activate(self, artifact_hash: str, slot: str, principal: Principal, evidence_ids: list[str], approval: dict | None,
                   reason: str) -> dict:
         if self._expired(artifact_hash):   # every activation path, including automatic selection
             raise EvidenceError("artifact expired; it needs new evidence before activation")
+        self._refuse_if_evidence_expired(artifact_hash, "activation")     # BR-DAT-16, every activation path
         incumbent = self.active_in_slot(slot)
         if incumbent == artifact_hash:
             raise RegistryError("artifact is already active in this slot", "NOOP")
@@ -628,6 +756,8 @@ class PromotionService:
                 raise AuthorityError("automatic selection may choose only eligible artifacts")
             if self._expired(artifact_hash):
                 raise AuthorityError("automatic selection may not choose an expired artifact")
+            if self.evidence_status(artifact_hash)["status"] == "EVIDENCE_EXPIRED":
+                raise AuthorityError("automatic selection may not choose an artifact whose evidence was deleted (BR-DAT-16)")
             pool = [artifact_hash]
         else:
             pool = [r["artifact_hash"] for r in self.c.execute("SELECT artifact_hash FROM artifact WHERE strategy_id=? "
@@ -642,6 +772,9 @@ class PromotionService:
                 continue
             if self._expired(h):
                 refused[h] = ["artifact expired"]
+                continue
+            if self.evidence_status(h)["status"] == "EVIDENCE_EXPIRED":
+                refused[h] = ["EVIDENCE_EXPIRED: the evidence rests on deleted data"]
                 continue
             score = None
             for e in self.evidence(h):
@@ -745,6 +878,7 @@ class PromotionService:
             raise AuthorityError(f"automatic shadow promotion outside the approved envelope refused: {why}")
         if self._expired(artifact_hash):
             raise EvidenceError("artifact expired; it needs new evidence before promotion")
+        self._refuse_if_evidence_expired(artifact_hash, "automatic shadow promotion")
         evidence_ids = list(evidence_ids)
         protocols = self._check_required(artifact_hash, self._required(art, RULES[("validated", "shadow")]), evidence_ids)
         if protocols != {body["protocol_hash"]}:

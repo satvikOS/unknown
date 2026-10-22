@@ -23,7 +23,9 @@ A runner loads the artifact from the research registry (read-only) on every cycl
 * the stored bundle still hashes to the artifact hash and names the stored spec (tamper evidence);
 * the registry status permits the requested mode (``MODE_MIN_STATUS`` in the ADR-0017 order
   proposed < reproducible < validated < shadow < paper < eligible < active; quarantined and retired never run);
-* the artifact has not expired (``expires_on``);
+* the artifact has not expired: its registered ``expires_on``, bounded by the ``retention_until`` of every dataset
+  its evidence rests on (``PromotionService.effective_expiry``, BR-DAT-16). An artifact whose evidence data was
+  deleted (EVIDENCE_EXPIRED) still runs until then and says so in every cycle's summary;
 * the code that would run is the code that was registered: the bundle's ``code_hash`` equals
   ``research.manifest.code_hash()`` of this checkout (research/, domain/, data/pit.py);
 * an implementation exists for the spec, the spec is schema v2 (it declares the submission window, the risk budget
@@ -108,9 +110,12 @@ class LoadedArtifact:
     status: str
     spec: StrategySpec
     bundle: dict
-    expires_on: date
+    expires_on: date                   # the effective expiry: registered, bounded by evidence retention (BR-DAT-16)
     dataset_id: str
     fixture_allowed: bool
+    # CURRENT, or EVIDENCE_EXPIRED: data the evidence rests on was deleted. The artifact still runs until its
+    # expiry (book ch. 11 / BR-DAT-16) but can never be promoted again; the runner reports it every cycle.
+    evidence_status: str = "CURRENT"
 
     @property
     def strategy_class(self) -> str:
@@ -151,9 +156,11 @@ def load(registry: ResearchRegistry, aid: str, *, mode: str, today: date, code_h
         raise ArtifactRefused("STATUS_NOT_PERMITTED",
                               f"{aid} is '{status}'; {mode} mode needs '{need}' or later in {' < '.join(STATUS_ORDER)}"
                               + ("" if status not in NEVER_RUN else " (quarantined and retired artifacts never run)"))
-    expires = date.fromisoformat(art["body"]["expires_on"])
+    # BR-DAT-16: the registered expiry, bounded by the retention of the data the evidence rests on
+    expires = promo.effective_expiry(h)
     if expires < today:
         raise ArtifactRefused("ARTIFACT_EXPIRED", f"{aid} expired on {expires.isoformat()}")
+    evidence = promo.evidence_status(h)["status"]
     running = code_hash if code_hash is not None else current_code_hash()
     if bundle.get("code_hash") != running:
         raise ArtifactRefused("CODE_DRIFT", f"registered code hash {str(bundle.get('code_hash'))[:16]}... differs from this "
@@ -170,4 +177,5 @@ def load(registry: ResearchRegistry, aid: str, *, mode: str, today: date, code_h
     if len(reqs) != 1 or len(daily) != 1:
         raise ArtifactRefused("DATA_REQUIREMENTS", "the runner reads exactly one DAILY point-in-time bar dataset")
     return LoadedArtifact(artifact_id=aid, artifact_hash=h, status=status, spec=spec, bundle=bundle, expires_on=expires,
-                          dataset_id=daily[0]["dataset_id"], fixture_allowed=bool(daily[0]["fixture_allowed"]))
+                          dataset_id=daily[0]["dataset_id"], fixture_allowed=bool(daily[0]["fixture_allowed"]),
+                          evidence_status=evidence)
