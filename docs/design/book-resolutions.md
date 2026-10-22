@@ -5,6 +5,13 @@ lens reviewers on 2026-10-22, each finding re-checked by an adversarial verifier
 134 findings were confirmed; refuted findings are not listed. The book itself is preserved unchanged on
 `docs/technical-book-v1`; resolutions are adopted through ADRs and code on the implementation branch.
 
+Dispositions: `RESOLVED_IN_CODE` (cited code plus at least one test that exercises it), `RESOLVED_BY_ADR` (decided in
+the cited ADR section), `ACCEPTED_LIMITATION` (stated limitation and where it is documented) or `OPEN` (what is
+missing and the increment that owns it; increments are those of `docs/requirements/dependency-graph.md`). A
+residual is a gap recorded inside an otherwise resolved finding. Tests marked (IBKR venv) run only where the
+official `ibapi` client is installed and are skipped elsewhere. Passing offline tests is evidence of offline
+behaviour only (ADR-0001).
+
 Disposition summary: pending triage: 134
 
 | ID | Severity | Kind | Finding | Resolution (adopted, or reviewer proposal when untriaged) | Disposition | Where |
@@ -157,6 +164,8 @@ There are three conflicts. (1) Approval unit: Chapter 10 limits automatic promot
 
 Verifier: All quotes verified verbatim. I strengthened the case with the status-ladder conflict (validated comes before paper and eligible), which the original did not cite. One softening: the original said the automated evaluator assigns 'validated'. The book does not say that. Chapter 20 line 29 gives the evaluator write access to evidence, and the promotion service records transitions. Chapter 10 line 31 also uses an envelope ('If any of these change beyond the envelope, it is a new approval object'), so the two chapters partly agree; the conflict is the approval unit, the status rung and the timing. ADR-0007 (STRATEGY may act only for a session whose mandate lists its artifact) already addresses point 3 in the implementation, but the book remains contradictory.
 
+**Disposition: pending triage.** Reviewer proposal: (1) An artifact hash may enter `eligible` only by owner signature, or under an owner-signed AutoPromotionEnvelope that lists strategy class, numeric parameter bounds, instrument set, risk budget, evaluation-protocol hash and a maximum number of promotions per period. The promotion service re-verifies the envelope hash. (2) Automatic selection may choose only artifacts in status `eligible` or `active`, never `validated`. (3) The session mandate snapshot holds the exact eligible artifact hashes and their parameters. Automatic promotion takes effect only when a session is created. Inside a running session, automatic moves are allowed only between artifacts already in that session's snapshot, or toward tightening (cash, entries disabled). (4) Rewrite Chapter 10 line 31 and Chapter 20 lines 3 and 27 to say this. Add a test that a running session refuses an intent from an artifact outside its snapshot.
+
 ### BR-DAT-02: A15 never defines which order states count as 'pending exposure', and decisions have no deterministic command identity, so a decision can be duplicated
 
 - `docs/book/15-trend-and-cross-sectional-strategies.md`:45: "map score to desired portfolio exposure; subtract current and pending exposure; apply no-trade and minimum-size rules; create a typed intent with expiry; submit to the common risk pipeline."
@@ -168,6 +177,8 @@ A15 subtracts 'pending exposure' but no chapter defines which states count or at
 
 Verifier: Quotes verified. Grep confirms the book never defines pending exposure or ties a command ID to a decision. Severity lowered from critical to high. ADR-0009 already blocks new entries on any UNKNOWN order and keeps holds through CANCEL_PENDING. Under ADR-0009's cash-only, limit-only eligibility, the duplicate buy stays funded and bounded by the session seed, so the residual harm is concentration and duplicated intent, not unfunded exposure. The gaps in the pending-quantity definition and the decision-derived identity are real.
 
+**Disposition: pending triage.** Reviewer proposal: Define PendingExposure(session, instrument) as the remaining quantity of every non-terminal order: RESERVED, SUBMIT_PENDING, ACKNOWLEDGED, PARTIALLY_FILLED, CANCEL_PENDING and UNKNOWN. For buys, count it as fully filling when testing exposure increases. For sells, count it as reserved when computing sellable inventory. Use the same definition in the pretrade concentration and aggregate checks. A15 emits no new intent for an instrument with any UNKNOWN or CANCEL_PENDING order. Derive the command ID deterministically from (artifact hash, session id, instrument id, decision bar id), so that reprocessing a bar returns the original command result. Allow at most one live parent intent per (session, strategy, instrument).
+
 ### BR-DAT-03: Eq. 7.1 implementation shortfall: the reported execution component is wrong whenever an order partially fills
 
 - `docs/book/07-research-and-backtesting.md`:21: "IS=s\left(\sum_j q_jp_j-Qp_0\right)+fees+opportunity\ cost"
@@ -178,6 +189,8 @@ The execution term subtracts Q·p0 for the whole parent quantity, but only Σq_j
 
 Verifier: Quote and arithmetic verified in scratch Python: −495 execution term, −469 conventional total, 31 correct; sell execution term +505. I added the one reading under which the total is correct (opportunity cost defined as the unfilled shares' full mark value). Under that reading the separately reported execution component is still wrong, so the error stands.
 
+**Disposition: pending triage.** Reviewer proposal: Replace with IS = s·(Σ_j q_j p_j − (Σ_j q_j)·p0) + fees + s·(Q − Σ_j q_j)·(p_mark − p0). p_mark is an opportunity mark declared in the manifest, for example the mid at parent expiry or at cancel confirmation. Report the execution, fee and opportunity components separately, and in bps as IS/(Q·p0). Add unit tests for full, partial and zero fill on both sides, including the $31 buy example and its sell mirror.
+
 ### BR-DAT-04: Eq. 6.4 sizing leaves fixed and minimum fees out of the risk term; the worked example permits a trade whose loss at the stop is 3.5x its budget
 
 - `docs/book/06-portfolio-and-risk.md`:35: "\frac{B_{risk}}{d+c},\frac{C_{available}-f}{p_{limit}}"
@@ -187,6 +200,8 @@ Verifier: Quote and arithmetic verified in scratch Python: −495 execution term
 The example's arithmetic is right: floor(0.50/0.25) = 2 and floor((100−f)/60) = 1. The formula is the problem. The fixed or minimum fee f appears only in the cash term, so the risk term ignores per-order charges. With the book's own numbers and a $0.75 minimum commission on entry and exit, the 1 share the formula permits loses 0.25 + 1.50 = $1.75 at the stop, which is 3.5x the $0.50 budget. If cash allowed 2 shares, the loss would be $2.00 (4x), which equals the whole 2% session drawdown trigger (paper_defaults: 200 bps of a $100 seed). The text only says the commission 'might' make the strategy unsuitable, when the sizer should output zero. The cash term also subtracts only the fixed allowance f, not per-share variable fees, so it can disagree with the Chapter 9 reservation (limit × quantity + fee envelope). The order then fails at reservation instead of being sized correctly.
 
 Verifier: Quotes verified and arithmetic recomputed. I corrected the original: the cash term binds in the worked example, so q = 1 and the loss is $1.75 (3.5x). The 4x / $2.00 figure applies only if cash allowed 2 shares. I also removed the original's claim that the cash term disagrees with Chapter 9 on the exit fee: the Chapter 9 reservation covers only the entry fee envelope.
+
+**Disposition: pending triage.** Reviewer proposal: Define q_risk as the largest lot-multiple q with q·(d + c_var) + Fee_entry(q) + Fee_exit(q) ≤ B_risk. Define q_cash as the largest q with q·p_limit + Fee_entry(q) ≤ C_available. Fee_*(q) is the versioned fee-schedule function, including minimums and per-order charges, and is the same function the reservation fee envelope uses. Set q = min(q_risk, q_cash, q_conc, q_liq); zero means no order. Rewrite the example to show that a $0.75 minimum commission gives q_risk = 0.
 
 ### BR-DAT-05: No rule for assigning availability time to backfilled or date-only historical data
 
@@ -199,6 +214,8 @@ Availability is defined by when 'the system could actually use it', which is a r
 
 Verifier: Quotes verified. Grep finds no rule for receipt-less or date-only data anywhere in the book. This also covers which host's capture is canonical (the reason I refuted the separate Mac/AWS ingestion-writer issue).
 
+**Disposition: pending triage.** Reviewer proposal: Store availability_time together with an availability_basis enum. CAPTURED: live first observation on the canonical production host. PUBLISHED_PLUS_ALLOWANCE: the provider's publication timestamp plus a conservative per-source latency allowance from the source registry. DATE_ONLY_NEXT_SESSION: available at the next regular-session open of the instrument's primary venue after that date ends in the source's timezone. For EDGAR, use acceptanceDateTime, not the filing date. Each strategy artifact declares which bases it accepts. Replay tests shift publication times and assert that features move only at availability_time.
+
 ### BR-DAT-06: The point-in-time store has no knowledge-time or supersedes fields, and no rule for datasets that lack vintages
 
 - `docs/book/11-data-platform.md`:13: "Corrections create new versions; they do not silently alter a historical experiment."
@@ -209,6 +226,8 @@ Verifier: Quotes verified. Grep finds no rule for receipt-less or date-only data
 The book states the as-of principle: Chapter 3 line 47, Chapter 7 line 29, and Chapter 11 line 35 ('Trailing figures must use reports available at the decision time'). It gives no data model to implement it. The feature contract has no recorded or knowledge time and no supersedes link, so the store cannot answer 'value as known at T' for a corrected or restated key. Line 13 also leaves open whether a correction becomes a new dataset version (system time) or a new row available at the correction's own publication time. The book also never says what to do with a dataset bought today that has only restated values and no vintages, which is common for fundamentals. One engineer will use it, with leakage; another will bar it.
 
 Verifier: Quotes verified. I narrowed the claim and lowered severity from high to medium. The original said the book never states what a backtest should see, which is wrong: it does state the as-of principle in three places. What is missing is the bitemporal fields and the rule for restated-only datasets.
+
+**Disposition: pending triage.** Reviewer proposal: Make the normalized and derived layers bitemporal. Each row carries (entity, event_time, availability_time, recorded_time, version, supersedes_id, dataset_version). A correction is a new row whose availability_time is the correction's own publication time. as_of(T) returns, for each key, the latest version with availability_time ≤ T. Experiment manifests pin a content hash or recorded_time ceiling. The registry tags each dataset with pit_grade ∈ {VENDOR_VINTAGE, CAPTURED_FORWARD, RESTATED_ONLY}. RESTATED_ONLY data may appear in labelled research views but is barred from promotion evidence.
 
 ### BR-DAT-07: The 'untouched' holdout has no access control, reuse limit or consumption rule, so repeated agent candidates overfit it
 
@@ -221,6 +240,8 @@ Agents generate candidates autonomously, and Chapter 20 allows automatic promoti
 
 Verifier: Quotes verified. Grep for holdout, held-out and untouched finds no access, reuse or consumption rule anywhere in the book.
 
+**Disposition: pending triage.** Reviewer proposal: Register holdouts as access-controlled date ranges per hypothesis family (strategy class + universe + label). Only the evaluator service reads holdout data, and research workers and agents never see per-period holdout results. Each holdout evaluation needs a frozen artifact hash, is written to the trial register, and is allowed once per hash. After K family-level evaluations (owner-set, default 1) the holdout is marked CONSUMED, and the next holdout is forward data recorded after that time (shadow or paper). Promotion evidence must cite an unconsumed holdout result.
+
 ### BR-DAT-08: No canonical strategy-spec and evidence schema: four partial field lists, none matching requirement RES-01
 
 - `docs/book/20-promotion-and-governance.md`:7: "Its registry entry includes author, training interval, evaluation manifest, allowed markets, expected horizon, capacity estimate, expiration and rollback predecessor."
@@ -232,6 +253,8 @@ The repository's requirement RES-01 (docs/requirements/register.md line 123) ask
 
 Verifier: Quotes verified, and the RES-01 text was found in docs/requirements/register.md. I corrected two overstatements and lowered severity from high to medium. Chapter 7 line 45 does name the list whose absence makes a candidate 'incomplete'. Chapter 20 lines 15 and 17 independently require stress outcomes and robustness to parameter perturbation, so a promotion service following Chapter 20 would not pass a candidate with no stress or sensitivity evidence. What remains is that no single schema exists.
 
+**Disposition: pending triage.** Reviewer proposal: Define two hashed, versioned schemas. StrategySpec holds: hypothesis; equation IDs plus code hash; features (id, version, availability_basis, freshness budget); universe rule; entry, exit and invalidation rules; sizing rule; execution rule (timing, order type, price-bound source, expiry); cost-model version; capacity method and estimate; risk limits; data dependencies with rights references. EvidenceBundle holds: train, validation and holdout intervals; trial-register reference; baselines (cash, buy-and-hold, volatility-capped passive, rules-only ablation); sensitivity grid; stress results; uncertainty records; shadow and paper results. The promotion service rejects any status transition while a required field is missing, and the terminal labels such candidates 'incomplete'.
+
 ### BR-DAT-09: Bar interval convention and cross-market 'rebalance date' alignment are undefined
 
 - `docs/book/05-time-series-and-features.md`:9: "Record the bar construction version and how incomplete bars are treated. A strategy cannot use the final high or close of a bar before the bar is complete."
@@ -241,6 +264,8 @@ Verifier: Quotes verified, and the RES-01 text was found in docs/requirements/re
 The book never says whether a bar's timestamp is its start or its end, and never gives a bar record its own availability time. Eq. 15.2 and Chapter 15 line 23 ('Rank only instruments eligible at that date') define cross-sectional momentum at a rebalance 'date'. For a US, India and EU universe, a date-keyed join at an Indian or EU decision instant picks up the same date's US close, which is still in the future. Chapter 7 line 7 ('only data whose availability time precedes its decision') would prevent this if bars carried an availability time, but the bar definition never connects to that rule.
 
 Verifier: Quotes verified. Grep finds no bar start/end convention. Severity lowered from high to medium: Chapter 7 line 7's availability rule already forbids the leak if applied to bars. The gap is the bar record fields and the per-market meaning of 'date' in Eq. 15.2.
+
+**Disposition: pending triage.** Reviewer proposal: Store bars as [start_utc, end_utc) with availability_time = end + the venue's official-close publication lag, or the capture time if later. Forbid calendar-date joins in research and live code: every join is 'latest row with availability_time ≤ decision instant (UTC)'. Define each rebalance as a UTC instant per market. FX rates used in a decision must also have availability ≤ the decision instant. Add a fixture with US, NSE and EU instruments on one date asserting that no US close is visible at an earlier-closing market's decision instant.
 
 ### BR-DAT-10: Promotion-gate parameters have no home or unset behaviour, and the gate utility does not say whether it is net of trading costs or all-in
 
@@ -253,6 +278,8 @@ Chapter 20 requires the gate parameters to be fixed in advance but gives them no
 
 Verifier: Quotes verified. Narrowed and lowered from high to medium. The book deliberately leaves threshold values to the owner ('example protocol'), and it already names cash and passive exposure as baselines (Chapter 7 line 35), which answers the original's 'no incumbent' question. The real gaps are where the parameters live, fail-closed behaviour when they are unset, and trading-net versus all-in.
 
+**Disposition: pending triage.** Reviewer proposal: Make the promotion protocol an owner-signed policy object with required fields: confidence level, block-length rule, hurdle in bps per period net of trading costs, minimum n_eff and its estimator, minimum calendar span and regime coverage, trial-correction method, utility coefficients, stress thresholds, and an all-in gate (expected contribution after strategy-attributable data, model and compute costs must be > 0). If any field is unset, automatic promotion is disabled and promotion is owner-only. Compute utility on each resampled full path. Compute Sharpe on returns in excess of the cash alternative, with K taken from the instrument's calendar. With no incumbent, compare against cash and the passive baseline (Chapter 7 line 35).
+
 ### BR-DAT-11: Corporate-action handling in research is undefined: 'causally adjusted', 'corporate-action version', delisting exits, and actions between decision and transmission
 
 - `docs/book/05-time-series-and-features.md`:7: "Use total-return prices when the research question includes distributions. Use unadjusted execution prices for order and ledger reconstruction."
@@ -263,6 +290,8 @@ Verifier: Quotes verified. Narrowed and lowered from high to medium. The book de
 The book never defines 'causally adjusted' or 'corporate-action version'. Vendor back-adjusted series apply factors from later actions. Return ratios survive that, but price levels do not, so minimum-price universe filters, breakout levels compared with live quotes, and lot-affordability checks all leak. Delisted names must be included, but nothing says how a held position exits: delisting proceeds, last trade, or dropped. Dropping it reintroduces survivorship bias. Total-return series do not say whether dividends are gross or net of the owner's withholding. A split taking effect between decision (after the close) and next-session transmission leaves the intent's quantity and limit in pre-split units, because A15 checks the corporate-action version only at decision time.
 
 Verifier: Quotes verified. Severity lowered from high to medium. I checked numerically that a uniform future back-adjustment factor leaves the TREND_DAILY_V1 score (difference of log-price EMAs) and log-return volatility unchanged (max difference 1e-15), so the first strategy's signal is unaffected. Leakage is confined to level-based features and filters, delisting exits and the split window. For buys, the Chapter 13 price collar would partly catch a pre-split limit.
+
+**Disposition: pending triage.** Reviewer proposal: Store raw prices plus point-in-time corporate-action events (announcement availability_time, ex-date, factor or cash amount, successor instrument). Compute features by adjusting only within the lookback window, using actions with ex-date ≤ decision time; never read stored back-adjusted levels. Total-return series apply the withholding rate implied by the deployment record's owner residency. For delistings, use actual proceeds or successor terms from the corporate-action feed; if unknown, apply a conservative haircut recorded in the manifest. Each intent carries its corporate-action version, and pretrade rejects it if any action's ex-date falls between decision and transmission.
 
 ### BR-DAT-12: The research-proposal contract has no typed evidence, instrument identity or timestamps, so the validation Chapter 19 requires cannot be performed
 
@@ -275,6 +304,8 @@ The only machine contract for agent output has free-text evidence strings, no in
 
 Verifier: Quotes verified. Reclassified from contradiction to omission. Chapter 4 line 54 is consistent with the schema (a proposal without these fields simply is not quantified confidence), and Chapter 19 line 15 says 'useful', not 'required'. The model ID and input artifact hashes can be recovered through job_id from the job record (Chapter 19 line 9), so I dropped that part. What holds is the Chapter 19 line 13 validation gap.
 
+**Disposition: pending triage.** Reviewer proposal: Publish schema_version 2. Evidence becomes typed references {source_id, dataset_version, locator/span, content_hash}. Add instrument_ids and an observation-time window. Add an optional forecast block; if present, it requires every Chapter 4 uncertainty-record field plus invalidation_conditions. Add if/then rules: abstain=true forbids a forecast block and relaxes hypothesis and horizon; abstain=false requires a hypothesis and at least one evidence reference. A proposal without a forecast block is labelled QUALITATIVE and cannot feed a strategy feature.
+
 ### BR-DAT-13: Eq. 4.2 n_eff is undefined or unbounded for negative autocorrelation sums, and its estimator is unspecified where it feeds the promotion gate
 
 - `docs/book/04-probability-and-estimation.md`:17: "n_{\mathrm{eff}}\approx\frac{n}{1+2\sum_{k=1}^{K}\rho_k}"
@@ -285,6 +316,8 @@ When the estimated Σρ̂_k ≤ −0.5, the denominator is zero or negative, so 
 
 Verifier: Formula and arithmetic verified (1/(1−0.6) = 2.5). Severity lowered from medium to low, and the explanation corrected: n_eff > n is not by itself an error, since the formula is the standard variance-of-the-mean correction. The book also labels it a diagnostic needing 'sensible truncation'. What holds is the undefined region and the unspecified estimator for gate use.
 
+**Disposition: pending triage.** Reviewer proposal: For gate use: n_eff = min(n, n_nonoverlap, n / max(1, 1 + 2·Σ_{k=1}^{K} ρ̂_k)), with K from Geyer's initial-positive-sequence rule, or K = label horizon in bars. n_nonoverlap = n / label_horizon. Report it next to the block-bootstrap interval, and gate on the more conservative of the two.
+
 ### BR-DAT-14: Purge and embargo lengths and placement are not specified
 
 - `docs/book/07-research-and-backtesting.md`:27: "Purge overlapping label windows at boundaries; add an embargo when adjacent examples share future outcomes."
@@ -293,6 +326,8 @@ Verifier: Formula and arithmetic verified (1/(1−0.6) = 2.5). Severity lowered 
 The book does not say how long the embargo is or on which side of the test segment it sits, and does not say whether execution delay extends the purge. In walk-forward, the last training labels (t_end + h_label) reach into the test period unless purged by at least h_label + execution delay. For a 20-day label on daily bars, that is up to 20 days of leakage. Engineers will pick different gaps, and promotion evidence will differ with them.
 
 Verifier: Quotes verified. Grep finds no purge or embargo length anywhere in the book. Chapter 7 does say which samples to purge (overlapping label windows), so the gap is lengths, placement and execution delay.
+
+**Disposition: pending triage.** Reviewer proposal: Purge every training sample whose interval [t, t + h_label + execution_delay] intersects the evaluation segment's label span [start, end + h_label]. In walk-forward, require a gap between train end and test start of at least h_label + execution_delay. In any split where training data follows a test segment, add a post-test embargo of max(h_label, lookback of the longest autocorrelated feature). Record both lengths in the manifest, and have the evaluator reject manifests below these minimums.
 
 ### BR-DAT-15: Trend weight mapping has no aggregate cap or session-level denominator, and 'unallocated cash' collides with the ledger bucket name
 
@@ -305,6 +340,8 @@ Weights are computed per instrument. Over TREND_DAILY_V1's multi-name universe, 
 
 Verifier: Quotes verified. Chapter 15 line 25's projection onto the feasible set applies to the cross-sectional inverse-volatility weights, not to the time-series mapping, so the aggregate-cap gap holds for TREND_DAILY_V1. The terminology collision is real but minor; ADR-0008 already uses `unallocated` only for the account bucket.
 
+**Disposition: pending triage.** Reviewer proposal: Weights are fractions of session marked equity, valued at the executable bid, minus the operational buffer. After computing raw w_i, apply per-name caps, then scale proportionally so that Σw_i ≤ 1 − cash_reserve, before diffing against current-plus-pending holdings. Rename the Chapter 15 term to 'session idle cash', and reserve `unallocated` in domain types for the account-level bucket.
+
 ### BR-DAT-16: Licence-driven raw-data deletion conflicts with 'replay must reproduce', and artifact status after deletion is unspecified
 
 - `docs/book/11-data-platform.md`:41: "Deleting expired raw data may affect reproducibility; preserve allowed hashes, manifests and derived evidence where the license permits."
@@ -314,6 +351,8 @@ Verifier: Quotes verified. Chapter 15 line 25's projection onto the feasible set
 Chapter 7 makes manifest replay an absolute requirement, and `reproducible` is a promotion status. Chapter 11 accepts that licence-driven deletion can break replay. The book does not say whether an active or eligible artifact whose evidence can no longer be replayed keeps its status, can be renewed, or loses `reproducible`.
 
 Verifier: Quotes verified. Severity lowered from medium to low: this is a governance gap with no immediate effect on money, and Chapter 20's registry 'expiration' field already gives the needed hook.
+
+**Disposition: pending triage.** Reviewer proposal: The source registry records retention_end per dataset. Promotion sets artifact expiration ≤ min(retention_end) over its evidence datasets, unless the required derived features are licensed for retention and stored with hashes. When evidence data is deleted, flag the artifact EVIDENCE_EXPIRED. It may run until its existing expiration but cannot be renewed or re-promoted without new evidence.
 
 ### BR-DAT-17: Source-registry 'allowed uses' and 'model-processing permission' are unenumerated, single-valued per source, and have no per-provider or per-host scope
 
@@ -325,6 +364,8 @@ Verifier: Quotes verified. Severity lowered from medium to low: this is a govern
 
 Verifier: Quotes verified. The registry does carry a per-source model-processing permission, so the global boolean is not the only control as written. The confirmed gap is the missing per-provider and per-host scope, the unenumerated uses, and lineage present in the prose but absent from the field list.
 
+**Disposition: pending triage.** Reviewer proposal: Registry fields: rights {display, non_display_trading, derived_data, redistribution, model_providers_allowed[], hosts_or_regions_allowed[]}; licence_start and licence_end; retention_end; upstream_lineage[]; timestamp_semantics and timezone; availability_latency_allowance; pit_grade; rate_limit_policy; cost. Gate each action per (source, use, host, model provider). Make the deployment boolean a derived value (AND over enabled sources) or remove it.
+
 ### BR-DAT-18: Feature contract lacks the validity window, warm-up state and freshness-budget owner that Chapters 5 and 26 check against; restart behaviour is unspecified
 
 - `docs/book/11-data-platform.md`:17: "The feature contract includes entity, event time, availability time, feature version, value, unit, missingness reason and provenance."
@@ -334,6 +375,8 @@ Verifier: Quotes verified. The registry does carry a per-source model-processing
 Chapter 5 requires rejecting inputs by validity window and recording warm-up status, but the Chapter 11 feature contract has neither field, and 'validity window' is never defined. Chapter 11 line 25 says freshness budgets 'depend on strategy horizon' without saying where they are declared. Missingness reasons appear only as examples. On restart, one engineer persists EWMA state and another re-warms from live data. Re-warming a slow daily EMA from live data would keep the strategy disabled for months.
 
 Verifier: Quotes verified. Chapter 5 line 3 lists 'warm-up condition' as part of each feature's definition, but the per-row contract the strategy checks lacks warm-up state and validity window, so the mismatch is real.
+
+**Disposition: pending triage.** Reviewer proposal: Add valid_from/valid_until, warm_up_state {COLD, WARMING, WARM} with min_observations, and an enumerated missingness_reason {NOT_REPORTED, PROVIDER_DELAY, SOURCE_GAP, NOT_APPLICABLE, QUARANTINED}. Declare freshness budgets per feature in the StrategySpec, and check them at decision and at transmission. On restart, rebuild feature state by deterministic replay from the point-in-time store over at least the warm-up length, then compare with the persisted snapshot. A mismatch blocks entries.
 
 ### BR-DAT-19: TREND_DAILY_V1, the book's own worked candidate, omits the execution rule that Chapter 15 says every candidate needs
 
@@ -346,6 +389,8 @@ The first strategy, the one the I5 critical path builds, decides on a completed 
 
 Verifier: Quotes verified. ADR-0009 already fixes limit-only, TIF DAY and regular-hours-only for initial eligibility. What remains open is the submission window, the price-bound reference and the carry-over rule.
 
+**Disposition: pending triage.** Reviewer proposal: Specify the rule as follows. Decide after the official close becomes available. Submit in the next regular session, between open + N minutes and close − M minutes, with no auctions. At transmission, set the limit to min(model bound, collar around a fresh validated quote). Use TIF DAY, expiring at the end of that window. Cancel any unfilled remainder and never carry it over; the next decision recomputes from current-plus-pending holdings. The backtest applies the identical rule to next-session data.
+
 ### BR-DAT-20: The cost model has no schema: side- and jurisdiction-specific charges and the units of the impact model are unspecified
 
 - `docs/book/07-research-and-backtesting.md`:15: "Net P&L includes commissions, venue fees, spread, slippage, market impact, borrow where permitted, financing, currency conversion and applicable transaction taxes."
@@ -356,6 +401,8 @@ The book lists cost categories but gives no functional form. Real charges are as
 
 Verifier: Quotes verified. √252 = 15.87 recomputed. ADR-0007 names a 'fee model reference' in the policy but defines no schema.
 
+**Disposition: pending triage.** Reviewer proposal: Define a versioned CostModel keyed by (jurisdiction, venue, broker, account tier, effective_from). It is a function of (side, qty, price, notional, order_count) that returns itemized charges. Measure σ and V over the same interval as the parent order's horizon, and record Y with its calibration source. Use one implementation for the backtest, sizing, the reservation fee envelope and expected-fee reconciliation.
+
 ### BR-DAT-21: The order_intent schema cannot link orders to their strategy artifact, decision evidence, currency, TIF or policy as Chapter 30 requires, and there is no table for no-trade decision events
 
 - `contracts/ledger_schema.sql`:21: "CREATE TABLE order_intent ("
@@ -365,6 +412,8 @@ Verifier: Quotes verified. √252 = 15.87 recomputed. ADR-0007 names a 'fee mode
 order_intent (lines 21-29) has command_id, payload_hash, session_id, instrument_id, side, quantity_units, limit_price_units, deadline_utc_ns and state. It has no currency, time_in_force, strategy artifact, decision evidence or policy hash, all of which Chapter 30 line 7 lists for a command or order. There is no decision-event table, so the no-trade decisions that Chapter 15 requires have no store. Rollback attribution (Chapter 20 line 33), live-versus-backtest comparison and drift-based quarantine all need every order and every no-trade decision tied to the exact artifact and feature snapshot.
 
 Verifier: Quote and schema columns verified. The outbox.payload_json column could carry some of these fields opaquely, but they are not first-class or queryable for attribution, and no decision-event store exists. The schema is labelled 'Proposed', but it still contradicts Chapter 30.
+
+**Disposition: pending triage.** Reviewer proposal: Add strategy_artifact_hash, decision_event_id, policy_hash, currency and time_in_force to order_intent as first-class columns. Add an append-only decision_event table keyed by the deterministic decision ID: artifact_hash, session_id, instrument_id, decision_bar_id, feature_snapshot_hash, score, desired, current and pending exposure, and outcome {INTENT, NO_TRADE(reason)}.
 
 ### BR-LED-01: Eq 9.1 leaves R and P undefined against the bucket list: on the Ch30 example its four readings give $104.10, $200, $4.10 or $100, and only the last is correct
 
@@ -377,6 +426,8 @@ Ch9 line 7 lists order reservations as a policy bucket next to session allocatio
 
 Verifier: Quotes and arithmetic re-checked. The original claimed that 'a second $100 allocation' would be wrongly approved. That was imprecise: under reading (a), F=$104.10 against a true $100, so a second $100 is actually fundable and the over-approval is $4.10. Under reading (b) the over-approval is unbounded, because repeated allocations all pass. Also, ADR-0006 (docs/adr) restates 9.1 as 'minus every non-outside claim'. That still needs the settled-cash-component restriction, or it reproduces readings (a) and (c).
 
+**Disposition: pending triage.** Reviewer proposal: Keep two books. (1) The economic journal holds cash, receivables, payables, accrued fees and inventory at cost. (2) The policy owner dimension holds Unallocated U, Session S_s, Protected P_s, ExternalOwner X, OperationalBuffer B and ReviewHold. Order reservations are holds inside S_s and never a peer bucket. Invariant per (account, currency): the sum over all owners of their economic balances equals the account's economic balance. Rewrite 9.1 as F = min(C_b, C_l) - H - B - sum over non-Unallocated owners of only the settled-cash component of each owner's claim. Equivalently, F = the settled cash owned by Unallocated, capped by broker settled cash net of holds. Seed allocation: seed <= F, using atomic compare-and-reserve. Buy order: p*q*M + fee_envelope <= S_s settled cash - open holds of S_s, and also <= F. Add a test that replays Ch30 and asserts F = $200 at A's completion and F = $100 after B is funded.
+
 ### BR-LED-02: Residual equity of stopped, below-target or risk-stopped sessions has no destination bucket, and the reference deadlocks permanently after RISK_STOP
 
 - `docs/book/10-sessions-and-capital.md`:9: "A session can terminate unsuccessfully, wait indefinitely for an admissible opportunity or be stopped by the owner."
@@ -387,6 +438,8 @@ Verifier: Quotes and arithmetic re-checked. The original claimed that 'a second 
 The book says what happens to a successful session's equity (it is protected). It never says where the cash and receivables of a STOPPED or FAILED_REVIEW session go, or of a session that wound down below target, and it never defines the transitions into those states. Engineers will diverge. One will return the residual, receivables included, to Unallocated at once; if availability does not exclude receivables, that breaks 'no funding from receivables'. Another will leave it in the dead session's bucket forever, so authorized capital leaks away. In the reference, a RISK_STOP session can never complete, because complete requires RUNNING (engine.py:293), so its cash is stranded. A probe on a temporary copy confirmed this. After RISK_STOP and a process restart, 'start' is rejected ('risk-stopped session requires review'), a risk-reducing SELL is rejected ('unreconciled or inactive session') because reconciled is only set by start, and a new session is rejected. No command leads out of that state. RISK_STOP is also not one of the book's ten states.
 
 Verifier: Confirmed in the book and by running a probe on a temporary copy of reference/engine.py. ADR-0008 already chooses to split STOPPED into SUSPENDED and CLOSED, and has CLOSED re-own the residual and its receivables to unallocated. That is consistent with this resolution provided receivables stay non-available.
+
+**Disposition: pending triage.** Reviewer proposal: Terminal accounting for unsuccessful sessions. (1) Termination needs the same evidence as completion: flat inventory, no open or UNKNOWN orders, final fees and a clean reconciliation. (2) STOPPED (owner end, or wound down below target): the residual is re-owned to Unallocated. Receivables keep their availability class, so only confirmed settlement makes them spendable. (3) FAILED_REVIEW (risk trigger, exception, the reference's RISK_STOP): the residual moves to ReviewHold and is released to Unallocated only by an authenticated owner command. (4) Unsuccessful sessions never get a successor. (5) Losses stay in the aggregate loss counters. (6) A risk-stopped account must still accept owner-authorized risk-reducing sells after reconciliation, without clearing the stop latch. Map the reference's RISK_STOP to FAILED_REVIEW.
 
 ### BR-LED-03: No rule for fee adjustments, corrections or busts that arrive after completion and protection, and 'sufficiently finalized' fees is undefined
 
@@ -399,6 +452,8 @@ Verifier: Confirmed in the book and by running a probe on a temporary copy of re
 
 Verifier: Quotes verified. The original said the reference 'would throw an AssertionError on (c)'. There is no reference command that can restore inventory, so that is true only of a direct port of the invariant at line 136; the wording has been tightened. Ch9 line 29 disclaims the simulator, but the book still gives no production rule. ADR-0008 decides 'late fees and corrections after completion post against protected:<id>; the completion stands'.
 
+**Disposition: pending triage.** Reviewer proposal: (1) Completion requires a final fee record for every execution of the session. For IBKR that means a commissionReport for every execId; an estimate-only fee blocks completion. (2) A later adjustment posts to the completed session's Protected bucket, linked to the original execution. (3) If corrected terminal equity falls below the goal, the session is flagged COMPLETED_RESTATED for owner review. The successor is not unwound: it was funded from independent unallocated cash, so no money was duplicated. (4) A bust that restores inventory moves that inventory and its cost into ReviewHold, not the completed session, freezes new entries and opens an exception. (5) If Protected would go negative, record the shortfall as an exception claim and halt. Never take it silently from Unallocated or from session buckets.
+
 ### BR-LED-04: The successor's seed, goal and policy snapshot appear only in examples, and 'limited seed recycle' has no amount or timing
 
 - `docs/book/10-sessions-and-capital.md`:13: "A successful transition has a single successor request keyed by the completed session identifier."
@@ -409,6 +464,8 @@ Verifier: Quotes verified. The original said the reference 'would throw an Asser
 No rule states the successor's seed and goal. They could be the parent's seed, the current policy default, or the parent's terminal equity (compounding, $105.80 in Ch30). Only the examples (B receives $100) and the reference (parent seed and goal) suggest an answer. It is also unclear whether a successor that waits in WAITING_FUNDS snapshots the policy at request time or at funding time, which may be weeks later after policy edits. 'Limited seed recycle' and automatic_seed_recycling have no amount (the seed? min(seed, settled protected)?), no timing (on completion or on settlement) and no frequency limit. The result is different allocation sizes, and possibly money taken from Protected.
 
 Verifier: Narrowed. The original also claimed that R06's word 'rollover' contradicts protection. Refuted: R06's evidence is 'Conservation and one-successor tests' (Ch30 line 46) and Ch10 defines the mechanism, so 'rollover' means successor creation. The '$105.80 taken from protected funds' reading is excluded by Ch10 line 25. Severity lowered to medium: every reading still funds from Unallocated.
+
+**Disposition: pending triage.** Reviewer proposal: The successor request records an immutable mandate: seed = parent seed, goal = parent goal, same currency, plus the policy hash current when the request was created. At funding, re-validate against the current policy. Emergency restrictions always apply. Any other policy difference keeps the request in WAITING_FUNDS with the blocker 'policy changed: owner re-approval required'. Seed recycling, only when automatic_seed_recycling=true, moves exactly min(parent seed, settled protected value) from Protected to Unallocated after COMPLETED_SETTLED, at most once per parent. The profit always stays protected.
 
 ### BR-LED-05: The execution table has no provider revision or group key, so a related-identifier correction is stored as a second independent fill (double count) unless an unspecified rule sets correction_of
 
@@ -421,6 +478,8 @@ Ch9 requires provider version/correction fields and warns that identifiers alone
 
 Verifier: Reframed. The original's 'contradiction ... genuine corrections are discarded' rested on engine.py:217. Ch9 line 29 and Ch31 line 13 explicitly disclaim that as simulator-only behaviour. The real defect is the missing revision and group key, which makes a related-id correction look like a new fill (over-count). Kind changed to omission.
 
+**Disposition: pending triage.** Reviewer proposal: Execution key = (provider, account_key, provider_execution_id), plus provider_revision and execution_group_id, both derived by documented per-provider rules (IBKR: group = execId without its final revision segment; revision = that segment). Canonicalize the economic fields: qty, price, scales, side, currency, fees, trade and settlement dates. Same key with identical canonical content is a duplicate and a no-op. A new revision in an existing group inserts a row, then posts one journal transaction that reverses the prior revision's lines and books the replacement; it also opens an exception and freezes new exposure for the owner. Ingestion never rejects or drops a broker execution. Add a test in which an IBKR-style .01 to .02 correction leaves the position at the corrected quantity, not double.
+
 ### BR-LED-06: Ch9 says the appendix schema specifies lots and fees, but it has no lot, fee, reservation, settlement-obligation, policy-bucket or successor-request tables
 
 - `docs/book/09-ledger-and-settlement.md`:11: "The production schema in the appendix specifies journal entries, lots and fees. Its implementation remains a required gate"
@@ -431,6 +490,8 @@ Verifier: Reframed. The original's 'contradiction ... genuine corrections are di
 The appendix schema (Appendix B includes contracts/ledger_schema.sql) has only these tables: policy_version, instrument, session, order_intent, execution, journal_transaction, journal_posting and outbox. It has no lot or lot-disposal table and no fee table with separate estimated and final amounts. It has no reservation table, although Ch13 requires the reservation and the outbox row to commit in one transaction. It also has no settlement-obligation table and nothing for policy buckets or successor requests. Implementers will invent incompatible shapes, or keep reservations only in memory, where a restart loses them.
 
 Verifier: Confirmed by listing every CREATE TABLE in contracts/ledger_schema.sql. Ch31 line 13 also concedes that 'the average-cost pool is not tax-lot accounting'.
+
+**Disposition: pending triage.** Reviewer proposal: Add these tables to the foundation schema. reservation(reservation_id, command_id, session_id, account_key, currency, cash_units, cash_scale, fee_envelope_units, qty_units, qty_scale, state, released_by_event_id). fee(execution_id, component, currency, estimated_units, final_units, scale, status, source_event_id). lot(lot_id, account_key, instrument_id, owner, acquired_execution_id, trade_date, qty_units, qty_scale, cost_units, fee_units, cost_scale, currency) and lot_disposal(lot_id, disposal_execution_id, qty, relieved_cost). settlement_obligation(obligation_id, source_transaction_id, direction, account_key, currency, amount_units, scale, expected_date, calendar_version, state). policy_movement(movement_id, from_owner, to_owner, currency, amount_units, scale, command_id). successor_request(parent_session_id UNIQUE, mandate_json, policy_hash, state). Write the reservation and the outbox row in the same SQL transaction.
 
 ### BR-LED-07: Money and price columns have no scale or currency, and the scale sits on a single mutable instrument row
 
@@ -443,6 +504,8 @@ session.seed_units and goal_units have no scale. order_intent stores quantity_un
 
 Verifier: Columns checked line by line. The arithmetic (900 units at scale 2 = $9.00, at scale 4 = $0.09) is correct.
 
+**Disposition: pending triage.** Reviewer proposal: Every money or quantity column carries its own scale column, and money carries its currency on the row: seed_units/seed_scale, goal_units/goal_scale, and on order_intent: currency, price_scale, quantity_scale and instrument_metadata_version. Version instrument metadata in instrument_version(instrument_id, version, effective_from, effective_to, price_scale, quantity_scale, multiplier_num, multiplier_den), with non-overlapping intervals. Choose a storage price scale at least as fine as any tick the instrument can ever have (US equities: 4) and never reduce it. Validate tick size and quantity increment separately from storage scale.
+
 ### BR-LED-08: Buys have no unsettled payable, so ledger 'settled cash' falls on trade date and cannot be reconciled exactly against broker settled cash
 
 - `docs/book/09-ledger-and-settlement.md`:7: "Track settled cash, unsettled receivables, fee liabilities, position inventory and external capital flows."
@@ -454,6 +517,8 @@ Sales create an unsettled receivable, but purchases reduce cash on trade date; n
 
 Verifier: Confirmed. Eq 9.1's min(C_b,C_l) masks this for availability, but not for reconciliation. ADR-0006 already adds a PAYABLE liability with buy settlement Dr PAYABLE / Cr CASH.
 
+**Disposition: pending triage.** Reviewer proposal: Add an unsettled-payable account. A buy posts on trade date: Dr inventory (p*q*M), Dr fee expense, Cr payable. Buy settlement posts Dr payable, Cr settled cash. Availability subtracts payables at once, so settled cash - payables - holds gives the same conservative $209.90 as Ch30. Reconciliation compares two projections per currency, exactly: ledger settled cash against broker settlement-date cash, and ledger trade-date cash (settled + receivables - payables) against broker trade-date cash. For IBKR these are the SettledCash and TotalCashValue account values. Both payables and receivables are settlement_obligation rows.
+
 ### BR-LED-09: Deposits, withdrawals, interest, account-level charges and external trades have no bucket assignment or authorization rule
 
 - `docs/book/09-ledger-and-settlement.md`:49: "Unknown external trades are assigned to an external-owner bucket until attributed; they still reduce available capital."
@@ -463,6 +528,8 @@ Verifier: Confirmed. Eq 9.1's min(C_b,C_l) masks this for availability, but not 
 Ch30 promises 'explicit conservation rules' for external flows, but none are written. The book does not say whether a deposit the broker reports raises Unallocated, which would bypass the owner action Ch10 requires. When a manual withdrawal, a market-data charge, debit interest or an external manual buy reduces broker cash, the book says it 'reduces available capital' but not which bucket shrinks. If no bucket shrinks, the buckets add up to more than the real assets, and Protected or Session claims become unbacked. An external position in a stock a session also holds can be counted as session-owned sellable quantity.
 
 Verifier: Confirmed: there is no text anywhere in the book assigning these flows to buckets. ADR-0006 'External activity' already decides deposits to an 'outside' owner, withdrawals from outside first, and manual trades to 'external' funded from outside.
+
+**Disposition: pending triage.** Reviewer proposal: (1) A detected deposit credits an Outside (unauthorized) owner. Only an authenticated owner 'authorize capital' command moves value from Outside to Unallocated, up to the ceiling K. (2) Withdrawals and account-level charges (interest, data and platform fees) debit Outside, then OperationalBuffer, then Unallocated, in that order. Any remainder is booked to an AccountShortfall exception claim that halts new entries. It never silently reduces Protected or Session owners. (3) External trades post to ExternalOwner with their own lots, and their cash comes from Outside by owner transfer. Sessions can never sell ExternalOwner lots. A negative ExternalOwner cash balance is a shortfall and halts. (4) Credit interest and income on external holdings go to Outside. Conservation per currency includes all of these flows.
 
 ### BR-LED-10: The 'authorized-capital ceiling' could bound three different quantities, and each yields a different unallocated amount on the Ch10 example
 
@@ -475,6 +542,8 @@ Take K = $300 and Ch30's $105.80 protected. If the ceiling bounds all system-cla
 
 Verifier: Arithmetic re-checked (300 - 105.80 = 194.20; 194.20 - 100 = 94.20). Severity lowered to medium, because the separate cash check bounds the dangerous direction when it is implemented correctly.
 
+**Disposition: pending triage.** Reviewer proposal: K bounds cumulative net owner-authorized contributions: the sum of authorize-capital commands minus de-authorizations and withdrawals of authorized funds. Realized profits and protected proceeds never count toward or against K. Unallocated is a journaled owner balance: authorizations credit it, seed allocations debit it, and approved releases credit it. Every allocation also passes the settled-cash check F. In live mode a null K means zero authority. In paper mode K is the simulated initial deposit and must be an explicit config value.
+
 ### BR-LED-11: The fee envelope's composition, size and release time are undefined, and the reference releases it on fill or cancel before fees are final
 
 - `docs/book/09-ledger-and-settlement.md`:25: "Before a buy, reserve limit price times remaining quantity plus a conservative fee envelope."
@@ -485,6 +554,8 @@ Verifier: Arithmetic re-checked (300 - 105.80 = 194.20; 194.20 - 100 = 94.20). S
 Ch9 line 27 releases reservations at terminal broker confirmation, and Ch13 line 7 says terminal status does not mean the fees have arrived. Whether the fee part of a reservation is released at order-terminal or at fee-final is therefore open. The reference zeroes fee_left on FILLED (line 254) and on confirmed cancel (line 272). IBKR delivers commissionReport separately from, and after, execDetails. A commission booked after release is taken from session cash that may already back other holds, which pushes session cash below its reservations. The envelope's contents are also unspecified: minimum per-order commission, per-share rate, caps, SEC/FINRA sale fees, India STT, stamp duty and GST, EU FTT, and FX fees. The deployment record also folds Ch9's fee buffer and Ch6's 'separate operational buffer' into one field.
 
 Verifier: Confirmed; also checked engine.py:272, which zeroes fee_left on confirmed cancel too. Ch30's table admits the reference has only a 'fill-time envelope', but the book never states the production release rule. The overlap with the deployment-record buffer issue is intentional; that issue covers the config side.
+
+**Disposition: pending triage.** Reviewer proposal: Size the envelope per order as the sum over a versioned fee schedule: max(min commission, rate*qty), capped as the schedule specifies, plus exchange and regulatory fees, transaction taxes and any FX fee. Each part is in the currency it is charged in and rounded up to cash precision. Release the quantity part of the hold when the order is terminal. Release the fee part only when a final fee record exists for every execution of the order. If a fee is still missing after a configured interval, move the remainder into a session-level PendingFeeHold that end-of-day fee reconciliation clears. A final fee above the envelope posts in full, opens an exception and freezes the session. Configure fee_buffer and operational_buffer as separate values.
 
 ### BR-LED-12: Multicurrency session accounting is undefined: session currency vs foreign holdings, valuing the target, FX P&L, and per-currency conservation
 
@@ -497,6 +568,8 @@ A session has one currency (schema line 17), but the owner targets US, India and
 
 Verifier: Confirmed. Ch30 line 61 and Ch31 line 15 defer multicurrency to 'production' rather than marking it a later track. The per-currency conservation rule shapes the foundation journal.
 
+**Disposition: pending triage.** Reviewer proposal: Each session has one mandate currency. Foreign balances arise only from explicit FX conversion executions. Each conversion is booked as one journal transaction with lines in both currencies, through an FX clearing account; realized FX P&L is booked on conversion back. Conservation holds per (account, currency): cash + receivables - payables + inventory cost = authorized flows + realized P&L + FX transfers in - FX transfers out. Marks, drawdown and target observation are valued in the mandate currency on the conservative side (the bid for converting foreign assets back), recording rate source and timestamp. Completion requires every non-mandate balance to be converted back, so terminal equity is an exact mandate-currency amount. Fees are reserved in the currency they are charged in.
+
 ### BR-LED-13: The journal balancing rule (sign, scale normalization, per currency) is unspecified, journal_transaction lacks account, dates and owner, and UNIQUE(source_event_id) forces a correction's reversal and replacement into one transaction
 
 - `contracts/ledger_schema.sql`:44: "amount_units INTEGER NOT NULL, scale INTEGER NOT NULL CHECK(scale >= 0),"
@@ -508,6 +581,8 @@ Each posting carries its own scale, but nothing defines the debit/credit sign, n
 
 Verifier: Narrowed. The original title said UNIQUE(source_event_id) 'blocks a correction from posting both'. It only blocks posting them as two transactions; a single transaction can carry both. The other points are verified against the schema.
 
+**Disposition: pending triage.** Reviewer proposal: Sign convention: debit is positive, credit is negative. A transaction is valid if and only if, for each currency, the sum of amount_units * 10^(S_max - scale) is 0. The single writer checks this in the same SQL transaction, and a test-time trigger asserts it. A correction posts one transaction containing both the reversal and the replacement lines. Add account_key, trade_date, settlement_date, reverses_transaction_id to journal_transaction, and an owner column to journal_posting. Journal rows are never updated or deleted.
+
 ### BR-LED-14: No rounding mode for journal postings, fees or cost relief, and the book does not say whether the computed or the broker-reported amount is booked
 
 - `docs/book/03-instruments-and-time.md`:23: "Represent accounting money as integer minor units or exact decimals with declared rounding."
@@ -517,6 +592,8 @@ Verifier: Narrowed. The original title said UNIQUE(source_event_id) 'blocks a co
 Ch3 line 31 declares two rules: buy commitments round up, sellable quantity rounds down. No rounding mode (half-even, half-up or floor) is declared for journal postings, fee and tax computation, receivable estimates or cost relief. Line 29 can be read two ways: book the calculated amount and adjust to the broker's at reconciliation, or book the broker amount and record the computed one as a memo. It also does not say whether a rounding difference belongs to the session or the account. Booking the computed amount lets session cash drift from broker cash until reconciliation. The reference floors relieved cost on partial disposals, which overstates realized P&L by less than one minor unit at each partial sale and gives it back at the final disposal (a timing bias).
 
 Verifier: Narrowed. The original said 'No chapter declares the rounding rule', but Ch3 line 31 declares two. It also called the floor a lasting upward bias, but because the final disposal relieves all remaining cost it is only a timing bias. Cost relief does not move session cash, so the goal decision is affected only through the computed-vs-broker posting choice.
+
+**Disposition: pending triage.** Reviewer proposal: (1) The economic posting uses the broker-reported cash amount. The unrounded p*q*M is stored as a memo, and any difference posts in the same transaction to a RoundingAdjustment line owned by the session. (2) Reservations and funding estimates are computed at full precision and rounded up per order; receivable estimates are rounded down. (3) Cost relief on a partial disposal is round-half-even(cost*q/Q), with the remainder kept in the lot, and the final disposal takes all remaining cost. (4) FX funding estimates use the adverse side, then round up. Add property tests for each rule.
 
 ### BR-LED-15: The settlement state machine has no transitions, no rule for matching aggregate broker settled cash to individual obligations, and no outcome for an exception
 
@@ -528,6 +605,8 @@ The book names four states but no transitions. Broker settled cash is an aggrega
 
 Verifier: Confirmed: Ch9 line 43 is the only settlement-state text in the book.
 
+**Disposition: pending triage.** Reviewer proposal: Each settlement_obligation moves EXPECTED (booked, with its expected date computed under a recorded calendar version) -> PENDING (on or after the expected date) -> CONFIRMED, or to EXCEPTION. Confirm all obligations for one (account, currency, settle_date) together, and only when the projected ledger settled balance equals broker settled cash exactly; never pro-rate a partial match. Raise EXCEPTION if an obligation is not confirmed within N business days (configurable, default 2), if amounts differ, or if a correction arrives. Under EXCEPTION, funds stay non-spendable, new entries for that account halt, and the session stays COMPLETED_UNSETTLED. Close-out or auction differences post as adjustments to the owning bucket (Protected for completed sessions).
+
 ### BR-LED-16: Corporate actions are not specified for session ownership, reservations, lots or completion
 
 - `docs/book/09-ledger-and-settlement.md`:35: "Corporate actions can alter quantities and basis without an ordinary trade."
@@ -538,6 +617,8 @@ Stocks-first paper sessions that hold positions overnight will meet dividends an
 
 Verifier: Confirmed. The book defers corporate actions to 'production' (Ch30 line 61, Ch31 line 15) but does not mark them as a later track, and paper reconciliation will meet them.
 
+**Disposition: pending triage.** Reviewer proposal: Book each corporate action as its own journal kind. A cash dividend is a receivable from ex-date, owned by whoever holds the lot on ex-date, with gross income and withholding as separate lines, settling on pay date. Completion may include pending dividend receivables at gross minus estimated withholding, rounded down; they become protected receivables and are trued up when paid. A split multiplies lot quantity by the ratio with basis unchanged. Open orders are re-reserved from the broker's adjusted order (qty*r rounded down, limit/r rounded up for buys), or stay fully reserved until the broker confirms a cancel. Cash-in-lieu is a disposal of the fractional lot. Mergers, delistings and untradeable residue move to ReviewHold and freeze the session.
+
 ### BR-LED-17: A WAITING_FUNDS successor is never re-evaluated: no trigger, ordering or stop-latch rule in the book, and in the reference it stays waiting forever
 
 - `docs/book/10-sessions-and-capital.md`:21: "If cash is insufficient, the request remains `WAITING_FUNDS`."
@@ -547,6 +628,8 @@ Verifier: Confirmed. The book defers corporate actions to 'production' (Ch30 lin
 The flow diagram loops from waiting back to the funding check, but the book never says which events trigger that check. It does not say how several waiting requests are ordered, or whether funding (a policy move, not exposure) is allowed while the red latch is set or reconciliation is stale. The reference attempts funding only inside _cmd_complete, a repeated complete returns early (lines 291-292), and there is no fund or authorize-capital command. A probe on a temporary copy confirmed this. Completing A while the latch was red gave WAITING_FUNDS. After a green start with $200 unallocated, re-sending complete still returned WAITING_FUNDS, and the request never changed.
 
 Verifier: Confirmed by running a probe on a temporary copy of the reference. ADR-0008 already decides 'retried after every settlement, capital authorization, or session close/cancel'.
+
+**Disposition: pending triage.** Reviewer proposal: A funding evaluator runs after every event that can raise the available unallocated amount: settlement confirmed, owner capital authorization, residual release, hold release, and green start. Waiting requests are served FIFO by parent completion time. Funding is blocked while the latch is red or reconciliation is stale. A funded request goes to READY, and to RUNNING only within max_active_sessions. Add fund_waiting and authorize_capital commands to the reference, with tests, including 'complete while halted, then start: the request is funded'.
 
 ### BR-LED-18: BrokerPort balances are an untyped dict, and OrderIntent lacks currency, time-in-force, account and strategy evidence that Ch30 requires
 
@@ -559,6 +642,8 @@ Eq 9.1 needs, per currency, broker settled cash C_b and holds H, whether H is al
 
 Verifier: Confirmed field by field against contracts/broker_port.py. Strategy artifact and decision evidence are also missing, which the original did not mention.
 
+**Disposition: pending triage.** Reviewer proposal: Define a typed AccountSnapshot: account_key, broker_time, receipt_time, complete: bool, and per currency settled_cash, trade_date_cash and holds as Money, plus holds_deducted_from_settled: bool and the source broker field name for each value. Any missing field means zero availability. Add currency, time_in_force, account_key, strategy_artifact_hash, decision_evidence_ref, fee_envelope: Money and instrument_metadata_version to OrderIntent. Money arithmetic raises on a currency mismatch and rescales exactly before adding.
+
 ### BR-LED-19: The deployment record uses currency-less '_cents' fields, omits most of Ch1's required fields (including base_currency), has no risk calendar, merges two buffers, and the paper daily-loss denominator is undefined
 
 - `config/deployment_record.example.json`:13: ""authorized_capital_cents": null,"
@@ -570,6 +655,8 @@ The deployment record carries no currency at all, so authorized_capital_cents = 
 
 Verifier: Confirmed by listing every key in deployment_record.example.json. The original named only base_currency as missing; six more Ch1 fields are absent. The INR ratio depends on the exchange rate (about 83 to 88 rupees per dollar) and has been stated as approximate.
 
+**Disposition: pending triage.** Reviewer proposal: Replace every *_cents field with an account-scoped Money object {currency, units, scale}. Add every Ch1 field (base_currency, owner_residency, permissions, operating_budget, policy_version, verified_at, evidence_reference), a risk_calendar (IANA zone, day-boundary time and calendar version), and separate fee_buffer and operational_buffer fields. The daily-trigger denominator is K at the start of the risk day; in paper mode it is an explicit paper_authorized_capital. A null required field fails validation and keeps the record BLOCKED_FOR_LIVE; it is never defaulted.
+
 ### BR-LED-20: The cumulative loss allowance has no defined measure; the reference measures lifetime net P&L, so prior session profits silently enlarge the remaining loss allowance
 
 - `docs/book/10-sessions-and-capital.md`:9: "no automatic replenishment of an exhausted loss budget"
@@ -579,6 +666,8 @@ Verifier: Confirmed by listing every key in deployment_record.example.json. The 
 The book never says whether the cumulative allowance is lifetime net P&L, the sum of losing sessions' losses, or the peak-to-trough of non-protected equity. Each gives a different halt point. The reference uses lifetime realized_net, which includes completed sessions' already-protected profits. After A's +580 cents, the 200-cent limit fires only after 780 cents of further losses (580 + x <= -200). A probe on a temporary copy confirmed this: after A completed, a 100-cent mark-down on the successor reported net_marked_pnl = +480 and no halt. Under a net measure, the agent's own wins restore allowance it has already consumed, which Ch6 line 45 forbids.
 
 Verifier: Confirmed by running a probe on a temporary copy of the reference. Tightened the original wording that 'protected money funds the loss allowance': losses are paid from session or unallocated cash, and the defect is that protected gains offset the loss measure. In the reference, the 2% per-session drawdown (200 cents on a $100 seed) masks this for $100 sessions; it bites for larger seeds.
+
+**Disposition: pending triage.** Reviewer proposal: Lifetime allowance consumed = the sum over terminated sessions of max(0, -session net P&L), plus the current marked loss of active sessions. Protected gains never offset it, and only an owner command raises it. The daily trigger is the net marked P&L of non-protected capital over the configured risk day, measured against K. Change the reference so completed sessions' P&L is excluded from the aggregate trigger, and add a test: profit in A, then a 200-cent loss in B halts.
 
 ### BR-OPS-01: Mac/AWS single-writer fencing has no authoritative ownership record, epoch or transfer protocol, and the book leaves automatic fenced replacement and manual transfer both open
 
@@ -591,6 +680,8 @@ The book requires one fenced execution leader per account (Ch 8 l.37, Ch 28 l.30
 
 Verifier: All quotes verified. Two sub-claims were overstated and are removed. Ch 24 l.19 says SQLite is not a shared network-filesystem database; it does not say each host keeps its own ledger. Ch 24's paper-only Mac does not contradict Ch 8, because paper orders are still orders. Kind changed from contradiction to ambiguity. Branch ADR-0011 (docs/adr/0011-execution-ownership-and-split-brain.md) already adopts manual transfer, an execution_ownership record with epoch, deployment:epoch order tagging and one credential per account. Three gaps remain open in both the book and the ADR: (a) there is no transfer path when the old host is unreachable or terminated, because ADR-0011 step 2.1 requires the releasing side to emit a signed certificate, so the Ch 24 l.25 termination case can only be fenced by rotating the credential; (b) contracts/ledger_schema.sql and OrderIntent have no epoch or deployment columns; (c) the book text still allows automatic fenced replacement.
 
+**Disposition: pending triage.** Reviewer proposal: 1) The foundation and first live release have no automatic failover. 2) Each broker account (paper and live separately) has one durable execution_ownership record {account_key, deployment_id, epoch (monotonic), credential_fingerprint, granted_at, granted_by}. 3) Every order_intent and outbox row, and the broker orderRef, carry deployment_id:epoch:command_id, so reconciliation can attribute any order a stale host sent. 4) Transfer is an owner-authorized command: latch the stop on the old host if it is reachable, cancel entries, reconcile, then epoch+1 and green preflight on the new host. If the old host is unreachable or terminated, rotate the broker API credential before granting the new epoch, so the old host physically cannot authenticate. 5) The gateway refuses to start if its credential fingerprint or epoch differs from the record. The outbox refuses to transmit a row with a stale epoch. 6) Live credentials exist only on the deployment the deployment record names. 7) Mac paper and AWS paper use distinct paper accounts, or the same ownership protocol. Tests: a second gateway on the same account refuses to start; a stale-epoch send is rejected; an old-epoch order found at the broker is ingested and attributed as foreign.
+
 ### BR-OPS-02: A restore from backup silently rolls back the stop latch, command-ID dedup, outbox and successor state, enabling duplicate orders and unlatched trading
 
 - `docs/book/24-mac-and-aws-operations.md`:21: "A restored ledger must reconcile with broker activity that occurred after the backup before it can resume trading."
@@ -601,6 +692,8 @@ Verifier: All quotes verified. Two sub-claims were overstated and are removed. C
 A restore returns the ledger to backup time, and everything recorded after the backup is lost. A stop latch set after the backup is gone, so the restored ledger is unlatched, which breaks the invariant that the stop persists. Command IDs and payload hashes recorded after the backup are gone, so a resent command with such an ID is accepted as new and can send a duplicate order. Outbox rows for orders sent after the backup are gone, so reconciliation finds those broker orders and files them in the external-owner bucket (Ch 9 l.49) instead of under their sessions. Reservations and successor allocations recorded after the backup are lost too. The book requires only reconciliation with post-backup broker activity. It does not say the restored state boots latched, how lost orders are re-attributed, or how command-ID reuse is prevented. It also sets no RPO value or economic-journal retention period: Ch 24 l.21 leaves RPO and RTO for the owner to define.
 
 Verifier: Quotes verified. Branch ADR-0003 item 6 only restates Ch 24 l.21. Under ADR-0010 the recovery gate does not auto-clear by default (auto_resume_after_clean_reconciliation=false), which limits automatic resumption. The latch history, command-ID dedup and outbox attribution are still lost on restore. The retention figure in the resolution is a policy choice, not a legal finding.
+
+**Disposition: pending triage.** Reviewer proposal: 1) A restore always boots STOP_LATCHED with reason RESTORED, whatever the backup's latch state. Only an owner green after review clears it. 2) Ship the append-only economic journal and the command table off-host on every commit, to object storage with object lock. Snapshots then only speed up recovery, and the RPO for economic events and command IDs is effectively zero. Retain the economic journal for at least 7 years after the relevant tax year. 3) Every broker order carries the local command_id in orderRef. After a restore, broker orders and executions are re-attributed to their command and session through that tag. Executions are re-ingested with executions_since from the backup watermark with overlap. If the gap exceeds the API lookback, ingest broker statements and open an exception. 4) Add a ledger incarnation_id to the command-ID namespace and increment it on restore. Tombstone any command ID found at the broker but missing locally, so it cannot be reused. 5) Recompute successor requests from their deterministic keys. Restore drill: back up; submit an order and set the stop; restore; assert the latch is set, the order is attributed, a resend creates no duplicate and there is exactly one successor.
 
 ### BR-OPS-03: Owner identity and step-up authentication are never defined; R13 'signed policy' contradicts the unsigned schema, and agents on the Mac can act as the owner
 
@@ -613,6 +706,8 @@ Every authority rule in the book depends on an owner identity the book never spe
 
 Verifier: Quotes verified; engine.py l.155 is the _cmd_start check. Ch 30 l.29 already labels the reference's owner=True as 'Synthetic assertions', so it is evidence of the gap, not a separate defect. The R13-versus-schema conflict is real. Branch ADR-0007 defines Principal roles and ADR-0010 a reauth_max_age. Neither names the authenticator or signing-key custody, or protects the localhost API from same-user processes.
 
+**Disposition: pending triage.** Reviewer proposal: Owner authority is a WebAuthn/passkey assertion with user verification (Touch ID or hardware key). Its challenge is the canonical payload hash of the specific command. The server verifies it, and it is valid for that one command only, for at most 60 s. Sensitive commands are listed: green/clear latch, policy create or widen, budget change, deployment-record change, execution-ownership transfer, out-of-envelope promotion, live-mode enable and credential rotation. Add signature, signer_key_id and signed_payload_hash to policy_version and to the deployment record. Services verify them against pinned owner public keys at load and at every activation. The control API validates Host and Origin and binds to loopback or a unix socket, or uses mTLS. No bearer token grants owner authority. Negative test: a same-OS-user process holding the session cookie cannot green or widen a policy without a fresh assertion.
+
 ### BR-OPS-04: Agent and research credential custody is unspecified: who holds model/data provider keys is never said, and the Mac setup gives workers no separate OS identity from the gateway
 
 - `CLAUDE.md`:25: "Research code runs without production secrets or network authority."
@@ -623,6 +718,8 @@ Verifier: Quotes verified; engine.py l.155 is the _cmd_start check. Ch 30 l.29 a
 Source and research workers must call OpenAI, xAI and data vendors, which needs network access and provider keys. CLAUDE.md's 'without ... network authority' fits generated experiment code (Ch 23 l.13) but not these workers, and the book never says which principal holds the provider keys. Those keys are spending authority. If workers hold them, an injected document can exfiltrate a key or spend outside any budget. Ch 19 l.15 requires the planner's OS identity to lack broker credentials. That needs separate OS users on the Mac, but the Mac layout (Ch 24 l.3-9) runs everything as the developer's user, alongside Claude Code. Same-user processes can read credentials kept in files, in environment variables, or in keychain items created through the security CLI.
 
 Verifier: Quotes verified. The original 'contradiction' depended on reading CLAUDE.md's 'research code' as all research workers; it can also mean generated experiment code, which agrees with Ch 23 l.13. Kind changed to omission. The keychain claim is narrowed: keychain items carry per-app ACLs. Severity lowered from critical to high because the Mac holds paper-only credentials (Ch 24 l.3) and paid calls are disabled by default.
+
+**Disposition: pending triage.** Reviewer proposal: Define three principals. (a) Execution gateway: a dedicated macOS user or launchd daemon with its own keychain; on AWS, its own instance role and Secrets Manager path. It is the only holder of broker credentials. (b) Model/data gateway: holds provider and vendor keys, enforces per-job allowances, and has egress only to allowlisted provider endpoints. (c) Research sandbox: a container or VM with no host keychain, no ledger socket and read-only datasets. Its only egress is the model/data gateway, and generated code inside it runs with no network. Workers receive short-lived, per-job_id capability tokens scoped to allowance and tools. Claude Code runs as a user that cannot read the gateway user's files and holds only paper credentials. Reword CLAUDE.md: 'Research code holds no broker, ledger or provider credentials and reaches the network only through the model/data gateway.' Set provider-side hard spend limits per key as a second layer. Negative tests: the sandbox cannot read the keychain or Secrets Manager, and direct egress to provider APIs is blocked.
 
 ### BR-OPS-05: Stop and condition-block clearance is ambiguous: runbook 'latches' and the auth-expiry/restart flows auto-resume, while the green rules say only the owner clears a latch
 
@@ -635,6 +732,8 @@ The book uses 'latch' and 'resume' loosely across five situations: the owner red
 
 Verifier: Quotes verified. Branch ADR-0010 resolves part of this: a recovery gate, auto-resume defaulting to off, and a risk stop for reconciliation failure that sets the owner-only latch. It does not classify AUTH_EXPIRED or define the unknown-order runbook's account-scoped 'latch', so Ch 12 l.17 and Ch 26 l.19/l.23 remain open. That IBKR allows one session per username is an external fact; check it against S04/S06 before relying on it.
 
+**Disposition: pending triage.** Reviewer proposal: Use two durable mechanisms. (1) STOP latches, scoped global, account or session. They are set by owner red, loss or drawdown triggers, security incidents, restore, exception-accounting freezes, or an UNKNOWN order still unresolved after N minutes. Only an owner-authenticated green plus preflight clears them. (2) CONDITION blocks, scoped account, strategy or instrument, with a typed reason: AUTH_EXPIRED, PROCESS_RESTART, RECON_PENDING, DATA_STALE, MODEL_OUTAGE or UNKNOWN_ORDER. Each reason has a machine-checked clearing predicate. A block auto-clears only when its predicate passes, no latch is set in scope, and reconciliation shows no unexplained quantity or cash difference and no UNKNOWN order. A block whose resolution required a corrective economic event escalates to a latch. A scheduled IBKR restart raises AUTH_EXPIRED, which auto-clears after reconciliation. Weekly 2FA needs the owner but is not a latch. A crash restart that finds SUBMIT_PENDING or UNKNOWN escalates to a latch. Use a dedicated broker API username, so the owner's manual logins never evict the gateway. Test each reason.
+
 ### BR-OPS-06: Whether red triggers liquidation is ambiguous across chapters; who may set a latch is unspecified and paper_defaults.json has no emergency-policy field
 
 - `docs/book/00-reading-guide.md`:19: "A red stop latches a durable prohibition on new exposure and invokes a defined cancellation/reduction policy."
@@ -646,6 +745,8 @@ Ch 0 l.19 says red invokes a 'cancellation/reduction policy'. Ch 22 l.28 says st
 
 Verifier: Quotes verified. Ch 0 versus Ch 22 is not a strict contradiction, because a 'cancellation/reduction policy' can be cancel-only. Kind changed to ambiguity. config/paper_defaults.json has no emergency or liquidation field. Branch ADR-0010 sets on_stop_liquidation default NONE. ADR-0007 limits red to OWNER and SYSTEM, and denies AGENT stop/start. The book text and paper defaults still need to match those decisions.
 
+**Disposition: pending triage.** Reviewer proposal: Default red blocks entries and cancels open entry orders, and sells nothing. Liquidation happens only through a separate owner command (red + reduce) or a signed-policy action tied to a deterministic risk trigger. Add to the policy and to paper_defaults.json: emergency_policy {owner_stop: CANCEL_ENTRIES, loss_trigger: CANCEL_ENTRIES|REDUCE_LIMIT, reduce: {only_reconciled_unreserved_long: true, collar_bps, max_child_qty, max_duration_s}}. The default is no automatic reduction. Principals that may set a latch: owner, risk supervisor, reconciliation service, security monitor. Agents and workers may only raise an alert, which the risk supervisor converts to a latch only by deterministic rule. The terminal shows the active emergency_policy next to the red control.
+
 ### BR-OPS-07: No out-of-band stop path, no rule for a red received by a non-owning deployment, and no rule for broker-side cancels found on reconnect
 
 - `docs/book/22-terminal-and-controls.md`:24: "The red control is always reachable and uses a short authenticated command path."
@@ -655,6 +756,8 @@ Verifier: Quotes verified. Ch 0 versus Ch 22 is not a strict contradiction, beca
 If the control host is hung or partitioned, or the owner is off the private network, a stop is needed most and the book gives no path to issue one. It has no runbook for stopping at the broker itself: broker cancel-all, disabling API access, or rotating the password. With two deployments, a red pressed in a terminal attached to the non-owning deployment latches a ledger that does not own the account, and still appears to succeed. On reconnect, the book does not say how to treat broker-side cancellations or position changes the system did not command. Ch 9 l.49 covers unknown external trades, not external cancels.
 
 Verifier: Quotes verified. 'Always reachable' in Ch 22 l.24 is plausibly a UI statement, so the claimed conflict with Ch 24 l.13 is dropped. The confirmed defects are omissions. Under ADR-0011 each deployment has its own database, so a red sent to the wrong deployment lands in the wrong ledger.
+
+**Disposition: pending triage.** Reviewer proposal: 1) The terminal always shows the owning deployment and epoch, and routes red to it. A non-owner receiving red latches locally, forwards the command, and returns NOT_OWNER_FORWARDED or FAILED, never plain success. 2) Provide a private path usable from a phone: VPN or a zero-trust overlay with passkey. 3) Write and drill an out-of-band runbook: in the broker UI or app, cancel all orders, then disable API access or rotate the password. 4) On reconnect, treat unexplained broker-side cancellations and position changes as external events and latch STOP automatically, so trading resumes only through owner green. Test: partition the control host, cancel at the broker, reconnect, and assert the latch is set.
 
 ### BR-OPS-08: Agent budget authority is open: model escalation, child-job allowances, pre-call reservation and exhaustion semantics are undefined
 
@@ -667,6 +770,8 @@ Jobs carry a 'token/cost allowance', but the book does not say who sets it. It d
 
 Verifier: Quotes verified. The price ratio is 5x on both input and output ($10/$2 and $50/$10). Ch 27 schedules cost-capped cloud jobs for days 13-14, so this is in scope rather than a later track. It does not block the ledger and order foundation, and paid calls default to disabled (budget 0), so severity is lowered from high to medium. ADR-0007 bars AGENT from raising budgets but does not cover router escalation, child allowances or pre-call reservation.
 
+**Disposition: pending triage.** Reviewer proposal: Budgets are owner-signed policy. A deterministic scheduler assigns each job's allowance from a per-class quota, and workers cannot set or change it. Child jobs debit the parent's remaining allowance, with depth at most 1. Model escalation follows a router table (job class -> ordered model list with a per-class cost cap) and is never a worker decision. Before each call, the model gateway atomically reserves the worst-case cost (input x p_in + max_output_tokens including reasoning x p_out) against the daily and monthly caps. It releases the reservation against provider-reported usage. A timeout keeps the worst-case reservation, mirroring the order rule. Exhaustion rejects new paid jobs only and never touches execution, reconciliation or risk. Cloud-budget enforcement may stop research workers but only alerts for the execution host. Agents may emit only a BudgetRecommendation object. Tests: an allowance increase is rejected; a spawn chain is capped; a timeout keeps the reservation.
+
 ### BR-OPS-09: Budget fields disagree on period, type and scale, and integer cents cannot account per-call model costs
 
 - `config/paper_defaults.json`:19: ""paid_model_daily_budget_cents": 0,"
@@ -677,6 +782,8 @@ Verifier: Quotes verified. The price ratio is 5x on both input and output ($10/$
 The model budget appears in four forms: daily in the config, monthly in Ch 29, a boolean approval in the deployment record, and a single 'operating_budget' in Ch 1. Cents are also too coarse for per-call cost. At the book's GPT-6-luna rates, a 2,000-input/200-output job costs $0.0002 + $0.0001 = $0.0003 (0.03 cents). The sol job costs $0.004 + $0.002 = $0.006 (0.6 cents). Booking each call in integer cents either floors it to 0, so spend goes unrecorded and a positive budget never binds, or rounds it up, overcounting a luna call about 33x.
 
 Verifier: Arithmetic re-done: luna 2,000 x $0.10/1e6 + 200 x $0.50/1e6 = $0.0003; sol $0.006; Grok $0.0052. At 1,000 jobs/day that is $6.00 and $5.20, as the book states. The book does not require per-call booking in cents, so the cents problem is a risk of the obvious implementation, not a stated formula error. Kind is set to contradiction for the period and type mismatch. Severity is lowered to medium because every budget is 0 or disabled today.
+
+**Disposition: pending triage.** Reviewer proposal: Store cost and budget amounts in integer micro-USD (scale 6) with an explicit currency. In one signed record, give each category (model, data, cloud) both a daily cap (UTC day) and a monthly cap (UTC calendar month). Replace paid_service_budgets_approved and operating_budget with these non-null signed amounts; null means disabled. Accumulate actual per-call cost at micro scale and round only for display.
 
 ### BR-OPS-10: The promotion transition authority matrix is undefined: the author can be its own evaluator, and production learning can change parameters without a new hashed artifact
 
@@ -689,6 +796,8 @@ The book lists eight statuses but not which principal may perform each transitio
 
 Verifier: Quotes verified. The claim that bounded learning contradicts hash identity is overstated, because Ch 20 l.27 allows choosing a validated parameter artifact inside a domain. The defect is that production learning never says it produces such artifacts. Promotion is outside the first foundation; severity lowered to medium.
 
+**Disposition: pending triage.** Reviewer proposal: Transition matrix. proposed->reproducible->validated: evaluator principal only; it must differ from the author principal and runs a pinned manifest it cannot edit. validated->paper: the promotion service if the class is inside the owner envelope, otherwise an owner signature. paper->eligible: an owner signature for the first artifact in a class, then the promotion service within the same envelope. eligible->active: promotion service. any->quarantined: any service. quarantined->eligible: owner only. Evidence is append-only, keyed by (candidate_hash, manifest_hash), and only the evaluator principal may write it. The critic uses a different provider family when one is available. Each online parameter update is a new parameter artifact with its own hash. The promotion service checks it against the approved domain before use and journals it.
+
 ### BR-OPS-11: Nothing stops the coding agent from merging or deploying production code, and release-signing key custody is unspecified
 
 - `docs/book/27-claude-code-build-sequence.md`:35: "Research-generated code runs in an isolated environment. It may produce a candidate artifact and tests, but cannot merge itself or deploy to production."
@@ -699,6 +808,8 @@ Verifier: Quotes verified. The claim that bounded learning contradicts hash iden
 The no-merge, no-deploy rule covers only research-generated code. Claude Code writes all the production code. The book requires no branch protection, no owner review, no signing-key custody outside agent reach, and no deploy path that accepts only owner-signed artifacts. A coding agent holding push and deploy credentials could change hard-coded risk checks, bypassing signed policy, and ship them. R13's 'unauthorized mutation tests' would not catch this.
 
 Verifier: Quotes verified. CLAUDE.md l.8 and Ch 27 l.35 say the owner controls production code but specify no mechanism that enforces it. The defect gates production and live releases, not the offline foundation.
+
+**Disposition: pending triage.** Reviewer proposal: 1) Protect main: merges need approval from the owner's account with hardware-key 2FA, and agent tokens can push only to feature branches. 2) Only the owner holds the release-signing key (hardware key or Secure Enclave), on no path agents can read. 3) Before activation, the execution host verifies the signature and the approved-registry entry. 4) Changes to risk, ledger or authority code paths are marked authority-sensitive and need explicit owner sign-off. 5) Claude Code sessions hold no deploy credentials.
 
 ### BR-OPS-12: There is no model-egress data policy: licensed-data rights are one global boolean, provider fallback can leak licensed content, and account data can reach third-party models
 
@@ -711,6 +822,8 @@ Processing rights depend on the dataset, the provider and the retention mode, bu
 
 Verifier: Quotes verified. Partly addressed: Ch 23 l.31 says to keep entitlement evidence 'per deployment and provider', and Ch 17 l.39 puts deletion obligations in the source registry. The book specifies neither a fallback rights re-check nor classification of account data. Outside foundation scope; severity lowered to medium.
 
+**Disposition: pending triage.** Reviewer proposal: Source-registry entries carry model_processing {allowed_providers[], require_zero_retention, allow_derived_cache}. Before every dispatch, including each fallback, the model gateway checks every input artifact's rights against the chosen provider and retention mode. If no provider is permitted, the job fails closed and abstains. Data classes: SECRET (never sent); ACCOUNT_IDENTIFIER (never sent; replaced with aliases); POSITION/BALANCE (sent only if signed policy allow_portfolio_context[provider] is true); LICENSED (per the rights record); PUBLIC. Remove the global boolean. Tests: a licensed document routed to a disallowed provider is blocked, and every fallback re-checks rights.
+
 ### BR-OPS-13: The deployment record has three different shapes: per-account-and-market (Ch 25), a different field list (Ch 1) and one global record with a single residence boolean (example JSON)
 
 - `docs/book/25-law-and-account-eligibility.md`:7: "For each account and market, store the relevant legal entity, residence classifications supplied by the owner, account type, enabled products, broker confirmations, applicable rule sources, effective dates and review dates."
@@ -722,6 +835,8 @@ Built from the example, one boolean flip clears residence eligibility for every 
 
 Verifier: Quotes verified; the three shapes differ as described. This gates live only, since the example is BLOCKED_FOR_LIVE, but it is the main legal control and the domain types need one shape.
 
+**Disposition: pending triage.** Reviewer proposal: Publish contracts/deployment_record.schema.json. owner_facts: {physical_location, tax_residence[], exchange_control_residence, immigration_status?, effective_from, evidence_ref, review_due}. accounts[]: {account_alias (never the real ID in the repo), broker_legal_entity, account_type, base_currency, mode PAPER|LIVE, permitted_markets[], permitted_instrument_classes[] (residence-filtered), api_conditions {static_ip_required, registered_ips[], algo_registration_id, order_tag_required, rate_limit_ref, verified_at}, market_data_entitlements[], authorized_capital, cumulative_loss_allowance, budgets, open_blockers[], evidence_refs[], review_due, owner_signature}. An account passes the live gate only when its record has no open_blockers, every required field is non-null, review_due is in the future and the signature verifies. Real values live outside the public repo.
+
 ### BR-OPS-14: Alerting has no channel, acknowledgment, escalation timer or dead-man's switch, and no defined behaviour when the owner is unreachable
 
 - `docs/book/24-mac-and-aws-operations.md`:33: "Rate-limit duplicate alerts and attach a runbook. The owner remains the escalation endpoint when a provider requires human authentication or a policy decision."
@@ -731,6 +846,8 @@ Verifier: Quotes verified; the three shapes differ as described. This gates live
 The book defines alert severities but not how an alert reaches the owner. It does not say how acknowledgment is recorded, how often an immediate alert repeats, or what the system does while an immediate unknown-exposure alert goes unacknowledged. A host that dies, or a Mac that sleeps, cannot raise its own alert, and no external heartbeat is specified.
 
 Verifier: Quotes verified; every listed element is absent from the book. This is operations scope (the day 13-14 drills), not the ledger foundation; severity lowered to medium.
+
+**Disposition: pending triage.** Reviewer proposal: Alerts go through at least two independent channels (push plus SMS or email) via a provider off the execution host. Immediate alerts repeat every 5 minutes until the authenticated owner acknowledges them; acknowledgment does not clear the underlying condition. The execution host sends a heartbeat to an external monitor, which alarms after 2 missed intervals. While an immediate alert is unacknowledged, the account stays entries-blocked. The system never auto-liquidates because an acknowledgment is missing. Alert payloads carry no account IDs or secrets. Dedup key: (condition_type, scope).
 
 ### BR-OPS-15: CLAUDE.md's reading list and 'next milestone' order conflict with the reading guide and the Ch 27 build sequence
 
@@ -743,6 +860,8 @@ CLAUDE.md puts the broker adapter first. Ch 27 puts domain types, ledger and ord
 
 Verifier: Quotes verified. Speculative parts were removed: reading 'minimal terminal' as a scope ceiling, and the owner's parity goal, which comes from the task brief, not the book (Ch 0 l.27 already says scope exceeds the first release). Severity lowered to medium because the money and authority effect is indirect.
 
+**Disposition: pending triage.** Reviewer proposal: Rewrite the CLAUDE.md milestone to match Ch 27. Phase F, the foundation, comes first: domain types (Money with currency and scale, account_key, execution epoch, actor_id), journal and projections, policy, session and order state machines, the latch and condition-block model, BrokerPort with a deterministic fake adapter, and reconciliation. Then the IBKR paper adapter, then the terminal overview. Say that 'no distributed infrastructure' means no multi-host deployment yet; it does not mean leaving out ownership, epoch or fencing fields. Reading list: Ch 1, 8-14, 20, 22-25 and the contracts.
+
 ### BR-OPS-16: Model IDs and prices sit in Ch 19 prose, and the 'versioned provider registry' has no schema, signer, effective dating or pinning rule
 
 - `docs/book/19-agents-and-model-routing.md`:21: "include GPT-6.1-sol at $2/$10, GPT-6-luna at $0.10/$0.50, GPT-6-astra at $10/$50 and Grok 4.7 at $2/$6."
@@ -752,6 +871,8 @@ Verifier: Quotes verified. Speculative parts were removed: reading 'minimal term
 Routing choices and cost reservations depend on the provider registry, but the book gives it no field set, no effective dating, no data-terms fields and no rule on who may edit it. Nothing requires production job classes to use pinned snapshots rather than aliases.
 
 Verifier: Quotes verified. The book already labels the prices as examples (Ch 19 l.21) and treats aliases as insufficient identity (Ch 20 l.7). The defect left is the missing registry schema and edit authority. Severity low: paid calls are disabled.
+
+**Disposition: pending triage.** Reviewer proposal: Add contracts/model_registry.schema.json: {provider, model_id (pinned snapshot; aliases rejected for production job classes), capabilities, tariffs [{input, cached_input, output, reasoning_billed_as_output, tool_fees, currency, scale: micro, effective_from, source_url, retrieved_at}], data_terms {retention, training_use, zero_retention_available, regions}, evaluation_artifacts {job_class: artifact_hash}, status (default DISABLED)}. Entries are owner-signed data. A CI check rejects model-ID literals in code. If provider-billed cost drifts from computed cost by more than a set percentage, alert and disable the entry.
 
 ### BR-OPS-17: No state transition is defined for relocation or a lapsed legal review; block, liquidate or continue is unspecified
 
@@ -763,6 +884,8 @@ The owner may move from the US to India. Ch 25 l.41 implies live orders stop whi
 
 Verifier: Quotes verified. This affects live operation only; nothing in the book covers the transition itself.
 
+**Disposition: pending triage.** Reviewer proposal: An owner command record_residence_change(effective_date), or the automatic expiry of any review_due, sets the affected account records to REVIEW_REQUIRED. That raises an account-scoped STOP latch on new entries, with no automatic liquidation. Risk-reducing sells remain allowed under the emergency policy. Clearing requires a new signed account record. Alert 30 days before review_due. Never infer residence from IP address or host region.
+
 ### BR-OPS-18: OrderIntent lacks the currency, time-in-force, strategy artifact and decision evidence Ch 30 requires, and has no field for Indian algo/order tags
 
 - `contracts/broker_port.py`:14: "class OrderIntent:"
@@ -773,6 +896,8 @@ OrderIntent has command_id, session_id, instrument_id, policy_hash, side, quanti
 
 Verifier: Verified against contracts/broker_port.py lines 14-24. The resolution is tightened: actor and expected state version belong to the command envelope, not the broker-facing payload.
 
+**Disposition: pending triage.** Reviewer proposal: OrderIntent v2 adds currency; time_in_force (an explicit enum with no default; the foundation allows only DAY); strategy_artifact_hash; decision_evidence_ref; execution_epoch; and regulatory_tags {algo_id?, order_tag?}, which are required when the account's api_conditions demand them. Adapters reject an intent that lacks a required tag. Authenticated actor_id and expected_state_version go on the command envelope that wraps the intent, as Ch 30 l.7's first sentence specifies.
+
 ### BR-OPS-19: The pretrade sequence has no self-cross/wash-trade check, although Ch 25 requires preventing self-crossing
 
 - `docs/book/25-law-and-account-eligibility.md`:17: "The system should prevent self-crossing where controllable, retain order intent and detect suspicious cancel/order patterns."
@@ -781,6 +906,8 @@ Verifier: Verified against contracts/broker_port.py lines 14-24. The resolution 
 The Ch 13 checklist has no self-cross item. Even the first single-session account can send a marketable buy against its own resting sell. With several accounts and brokers, a buy in one account can cross the owner's resting sell in another, which is a wash-trade risk under US rules and MAR. Cancel-pattern detection has no metric, threshold or consequence.
 
 Verifier: Quotes verified; the gap is real even with one active session per account (Ch 10 l.37).
+
+**Disposition: pending triage.** Reviewer proposal: Add a self_cross pretrade check. Reject any order whose limit would be marketable against one of the owner's resting opposite-side orders on the same economic instrument (same ISIN across venues where routing allows), across all owner accounts. In the foundation the action is reject. Record per-strategy order-to-trade and cancel ratios. Above a configured threshold, quarantine the strategy and alert the owner. Do not rely on broker self-trade prevention unless verified for the account.
 
 ### BR-OPS-20: It is unstated whether model, data and cloud operating costs hit session equity, protected proceeds or broker cash
 
@@ -792,6 +919,8 @@ Ch 26 l.13 says 'per-job costs can be charged directly' without saying charged t
 
 Verifier: Quotes verified; the two readings lead to different completion and successor-funding outcomes.
 
+**Disposition: pending triage.** Reviewer proposal: Book operating costs in a separate operating-expense journal with its own account codes, funded from the owner's external payment method. Never post them to broker cash, session allocations, protected proceeds or availability formula 9.1. Session targets and completion use trading equity net of direct execution costs only. All-in P&L is a derived report. If the owner pays services from the brokerage account, record it as an external withdrawal.
+
 ### BR-OPS-21: The two 'first complete workflow' acceptance lists (Ch 27 and Ch 1) differ, and CLAUDE.md gates expansion on an undefined one
 
 - `docs/book/27-claude-code-build-sequence.md`:43: "The first paper desk is complete when it can ingest eligible data, generate one approved strategy intent, reserve resources, submit to paper, reconcile fills, display state, stop durably, restart through preflight and reproduce its experiment."
@@ -800,6 +929,8 @@ Verifier: Quotes verified; the two readings lead to different completion and suc
 Ch 27's list leaves out session completion, the unsettled-proceeds delay, successor funding, the cancel race and rejection of an unfunded order. Ch 1's list leaves out broker-paper submission and experiment reproduction. Ch 29 l.40 calls the milestone an 'integrated paper desk', which merges the two names. CLAUDE.md gates scope expansion on 'the first complete paper workflow' without saying which list defines it.
 
 Verifier: Quotes verified. Severity lowered to low because Ch 10 l.41 independently requires the one-successor, no-receivable-funding and conservation tests, so the invariants are not left untested. Kind changed to ambiguity, since the two lists can both hold.
+
+**Disposition: pending triage.** Reviewer proposal: The acceptance list is the union of both, stored as requirement IDs (R06, R08, R14 and so on), each mapped to a named test. The successor/unsettled-delay and cancel-race tests must pass before the gate passes.
 
 ### BR-OPS-22: A tax reserve is introduced as policy funds but is missing from the bucket list and availability formula 9.1
 
@@ -810,6 +941,8 @@ Verifier: Quotes verified. Severity lowered to low because Ch 10 l.41 independen
 Ch 25 allows a tax reserve held as policy funds, but Ch 9's bucket list and formula 9.1 have no term for it. If one engineer funds it from unallocated capital and another from protected proceeds, successor funding and protected amounts differ. A reserve left out of 9.1 overstates availability; one counted twice understates it.
 
 Verifier: Quotes verified. The reserve is optional ('may be reserved'), so it does not block the foundation. It is recorded so the bucket enum and formula have a defined term before the feature exists.
+
+**Disposition: pending triage.** Reviewer proposal: No tax reserve in the foundation (feature off), but close the bucket enum now. If the owner enables it, T is a distinct policy bucket moved only out of protected proceeds, never out of unallocated. Formula 9.1 becomes A = max{0, min(C_b,C_l) - H - R - P - B - T}, with P and T disjoint.
 
 ### BR-ORD-01: Outbox sender never says the attempt is persisted BEFORE transmission; a crash in that window resends a live order
 
@@ -822,6 +955,8 @@ Verifier: Quotes verified. The reserve is optional ('may be reserved'), so it do
 
 Verifier: All four quotes verified. ADR-0009 (docs/adr/0009-order-lifecycle-and-outbox.md) already commits SUBMIT_PENDING before the broker call and recovers SUBMIT_PENDING by lookup, so the write-ahead decision exists outside the book. The book and the schema still lack per-attempt rows and a persisted broker correlation id. I softened the original IBKR id-reuse claim: TWS's nextValidId advances past ids it has received, so the real need is to persist the id/orderRef before the send so lookup can correlate.
 
+**Disposition: pending triage.** Reviewer proposal: Use a write-ahead attempt protocol. Outbox states are READY -> SENDING -> {BROKER_ACKED, REJECTED, UNKNOWN}, and a separate outbox_attempt table holds (attempt_id, command_id, broker_correlation_id, broker_order_id, sent_at, result, raw_ref). Txn A, committed durably: re-check the stop latch, ownership epoch, transmit deadline and policy hash; allocate the broker correlation id (IBKR: orderId = max(nextValidId, stored high-water + 1), orderRef = command_id/attempt_id); insert the attempt row; set the outbox row to SENDING. Then transmit. Txn B records the result. On restart, every SENDING attempt without a result becomes UNKNOWN and goes to lookup. Only READY rows with zero attempts may be transmitted. An attempt's broker order id is never reused for a new order.
+
 ### BR-ORD-02: Reservation can be released on terminal broker status before the executions that status reports are ingested
 
 - `docs/book/09-ledger-and-settlement.md`:27: "Remaining reservations are released only after terminal broker confirmation or conclusive reconciliation."
@@ -832,6 +967,8 @@ Verifier: All four quotes verified. ADR-0009 (docs/adr/0009-order-lifecycle-and-
 Positions are derived from executions, but reservations are released on terminal status, and the book never says whose 'remaining' quantity governs the release: the broker-reported cumulative fill or the locally ingested executions. IBKR orderStatus carries filled/remaining, and execDetails can arrive later or only through a later query. If Cancelled(filled=6) arrives while 4 executions are ingested, releasing order_qty minus the ingested quantity frees cash for 2 shares that were bought. That cash can be spent before the late executions land, which overcommits the account. The worked example at 2:43 ('final remaining quantity is confirmed zero') and the fault-matrix row ('release only remainder') do not say which source defines the remainder.
 
 Verifier: Quotes verified, and I added the 28:23 fault-matrix row. Reference probe (temp copy of reference/engine.py): when the cancel acknowledgment arrives before the final fill, `canceled` zeroes the hold based on local remaining and the late fill is then rejected. ADR-0009 releases `leaves_qty` without saying whether it is broker-reported or derived from ingested executions, so the gap remains open.
+
+**Disposition: pending triage.** Reviewer proposal: Store broker_reported_cum_qty separately from ingested_exec_qty. On a terminal broker status, release only (order_qty - broker_reported_cum_qty) x limit plus the proportional fee share. Keep (broker_reported_cum_qty - ingested_exec_qty) x limit plus fees as an EXECUTIONS_PENDING hold. The order is economically closed only when ingested_exec_qty == broker_reported_cum_qty and every execution has a final commission. If the gap persists past a configured window, run executions_since with overlap. If the gap is still open after that, raise a reconciliation exception and block entries. Never reduce a hold on ingested quantity alone.
 
 ### BR-ORD-03: UNKNOWN has no exit rule: broker 'not found', retry identity and owner resolution are all unspecified
 
@@ -844,6 +981,8 @@ The book says to query before resubmitting but never says which query result per
 
 Verifier: Quotes verified. ADR-0009 permits a retry only after the broker 'conclusively reports that the order does not exist', and ADR-0012 gives lookup a found / not-found / unknown tri-state, but neither defines 'conclusive' or an owner resolution path. I softened one original claim: reusing an IBKR orderId the broker never received is technically allowed, but a new correlation id is still the safer rule.
 
+**Disposition: pending triage.** Reviewer proposal: lookup(order_key) returns a typed LookupResult: FOUND(status, cum_qty, broker ids), NOT_FOUND_CONCLUSIVE or NOT_FOUND_INCONCLUSIVE, with as_of and coverage. NOT_FOUND_CONCLUSIVE is allowed only when three conditions hold: the adapter's client-correlation capability is GUARANTEED; the query covered open orders, completed orders and executions for the attempt's trading day, each complete; and now >= attempt.sent_at + a configured correlation_settle_window (at least 2x the measured p99.9 acknowledgment latency). The attempt then becomes NOT_RECEIVED (terminal). The order service either releases the reservation or, if the transmit deadline, latch, policy hash and ownership epoch are all still valid, creates a new attempt under the same command_id with a new broker correlation id. Otherwise the order stays UNKNOWN, keeps its hold and blocks entries for the account. The owner resolves a stuck UNKNOWN through an audited resolve_unknown command that requires attached broker evidence (statement, confirm or support reference). That command can never release a hold while any broker source shows the order working.
+
 ### BR-ORD-04: Red stop does not cover reserved-but-unsent outbox rows or SUBMIT_PENDING/UNKNOWN orders
 
 - `docs/book/13-order-execution.md`:21: "The red button first persists a global stop latch and prevents new exposure-increasing commands. It then requests cancellation of open entries and records each outcome."
@@ -853,6 +992,8 @@ Verifier: Quotes verified. ADR-0009 permits a retry only after the broker 'concl
 The outbox separates approval from transmission. If the latch is checked only when a command is evaluated ('prevents new ... commands'), rows already committed to the outbox are not 'new', so the sender can transmit them after the owner presses red, which adds exposure after a stop. 'Open entries' is undefined for SUBMIT_PENDING orders (possibly sent, broker id possibly unknown) and for UNKNOWN orders. An implementation that cancels only acknowledged or partially filled orders leaves those able to fill. The reference stop marks only OPEN/CANCEL_PENDING buys.
 
 Verifier: Quotes verified. ADR-0009 step 1 already withdraws an outbox row locally when a latch is set before the send, which closes part (a) outside the book. ADR-0010 still enqueues cancels only for 'every open buy order', so SUBMIT_PENDING and UNKNOWN coverage remains undefined in both documents.
+
+**Disposition: pending triage.** Reviewer proposal: The sender re-reads every applicable stop latch (global, account, session) inside Txn A. If any is set, the row moves to WITHDRAWN (terminal, never sent) and its hold is released in the same transaction. On stop: (a) withdraw every READY exposure-increasing row; (b) send a cancel for every buy in SENDING/SUBMIT_PENDING, ACKNOWLEDGED/WORKING, broker-held, PARTIALLY_FILLED and UNKNOWN, using the persisted broker correlation id, plus a broker-level global cancel (IBKR reqGlobalCancel) when the account is dedicated to the platform; (c) track each cancel in the stop progress record until the order is broker-terminal. A risk-reducing sell row is exempt only when the active liquidation policy explicitly allows it.
 
 ### BR-ORD-05: Deduplicating executions by provider_execution_id alone: no version field, so IBKR corrections double-count and same-id amendments collide
 
@@ -865,6 +1006,8 @@ Verifier: Quotes verified. ADR-0009 step 1 already withdraws an outbox row local
 
 Verifier: Quotes verified. Probe: re-sending fill id E1 with a changed price raises Rejected('execution identity changed'), and a fill under a new id on a FILLED order is rejected. 9:29 disclaims the reference's rejection as simulator-only, but the test that asserts it is one 27:29 says to preserve. ADR-0009 already links IBKR suffix corrections to the original. The schema still lacks the fields.
 
+**Disposition: pending triage.** Reviewer proposal: Store provider_execution_id, provider_execution_base_id (derived by the adapter; for IBKR, execId without its final dot-segment), provider_version (for IBKR, the final segment), a bust flag and a canonical economic-payload hash. Ingestion rules: (1) same (provider, account, exec_id) with the same hash is a no-op duplicate; (2) same exec_id with a different hash is stored as an AMENDED_SAME_ID exception, entries freeze, and the event is never rejected; (3) a new exec_id with an existing base_id and a higher version is a correction: reverse the currently effective version and post the replacement in one journal transaction, setting correction_of; (4) a lower or equal version arriving late is stored but not applied. A correction to an execution of a completed session posts an adjustment against the protected bucket and opens an owner review. It never reopens the session or claws back successor funding automatically.
+
 ### BR-ORD-06: Broker read results carry no completeness, as-of time or scope, and nothing forbids inferring 'canceled' from absence
 
 - `docs/book/12-broker-adapters.md`:7: "Each result includes broker time if present, receipt time, request identity, scope and pagination/completeness status."
@@ -875,6 +1018,8 @@ Verifier: Quotes verified. Probe: re-sending fill id E1 with a changed price rai
 The port returns untyped dicts and specifies none of the fields that 12:7 requires on every result. IBKR delivers open orders, executions, positions and account values as callback streams terminated by end markers (openOrderEnd, execDetailsEnd, positionEnd, accountDownloadEnd). A timeout before the marker yields a truncated list that looks valid. Compared against local state, it shows local working orders as missing at the broker. The book forbids marking everything canceled on a lost connection (8:31). It never forbids moving an order to a terminal state because it is absent from a list, so an implementer who maps 'missing' to CANCELED releases holds for orders that are still working and overcommits cash.
 
 Verifier: Quotes verified. ADR-0012 already notes that the book's port is untyped and adds a completeness flag. Neither the book nor the ADRs forbid inferring a terminal state from absence, and ADR-0009's 'conclusive reconciliation' remains undefined.
+
+**Disposition: pending triage.** Reviewer proposal: Every read returns a typed envelope: {items, complete, end_marker_seen, account_scope, request_id, broker_as_of, received_at_utc, received_at_monotonic, history_coverage_start}. Reconciliation aborts with no state changes, leaving entries blocked, if any required read is incomplete. A local working order absent from a complete open-orders list does not change state on that basis. Its absence triggers a lookup through completed orders and executions. Only an explicit broker terminal status, or owner-attested evidence, moves the order, and any release then follows the cumulative-quantity rule above.
 
 ### BR-ORD-07: Order state is one enum in one column although the same chapter forbids collapsing state into one status string; no transition table
 
@@ -887,6 +1032,8 @@ The enum mixes intent states (CREATED, RESERVED), transmission states (SUBMIT_PE
 
 Verifier: Quotes verified. I tightened the explanation: the original said the enum 'cannot represent' cancel-pending-with-fills and UNKNOWN-with-fills, which overstates the gap because 13:7 stores quantities independently. The confirmed defect is the single mixed column, the missing transition table and the missing held/inactive states. ADR-0009 adds a separate cancel_state but keeps the mixed enum.
 
+**Disposition: pending triage.** Reviewer proposal: Use three orthogonal fields plus quantities. intent_state: {CREATED, APPROVED_RESERVED, WITHDRAWN, EXPIRED_UNSENT, REJECTED_LOCAL}. transmission_state: {NOT_SENT, SENDING, WORKING, HELD, CANCEL_PENDING, REPLACE_PENDING, UNKNOWN, BROKER_TERMINAL}. broker_terminal_reason: {FILLED, CANCELED, REJECTED, EXPIRED, NOT_RECEIVED}. Quantities: broker_cum_qty, ingested_exec_qty, open_qty. Executions are accepted in every transmission_state. Publish the transition table as code, with an IBKR mapping: ApiPending/PendingSubmit -> SENDING, PreSubmitted -> HELD, Submitted -> WORKING, PendingCancel -> CANCEL_PENDING, ApiCancelled/Cancelled -> CANCELED, Filled -> FILLED, Inactive -> HELD until a reject reason makes it REJECTED. A cancel reject returns the order to its prior working state and keeps the stop progress item open. The single UI status is a derived projection only.
+
 ### BR-ORD-08: Amend/replace reservation rules cover only buy increases; there is no in-flight state and no execution attribution after a modify
 
 - `docs/book/13-order-execution.md`:9: "Store replacement chains for amendments. Increasing a buy's limit or quantity requires a new risk check and extra reservation before the change is sent. A cancel-and-replace can temporarily leave both orders exposed if the broker does not provide atomic replacement semantics."
@@ -896,6 +1043,8 @@ Verifier: Quotes verified. I tightened the explanation: the original said the en
 The book leaves five amendment cases undefined. (a) A decrease in quantity or limit: releasing the difference at send time is unsafe, because the old terms can still fill until the broker confirms the change. (b) A non-atomic cancel-and-replace: the hold must cover the old remaining quantity plus the new order, and the book does not say so. (c) An IBKR in-place modify (placeOrder with the same orderId): the hold must be max(old, new) until the change is confirmed. (d) Execution attribution after a modify: one broker order then serves several commands, but outbox and order_intent are keyed on command_id and execution.command_id is a single FK. (e) The amendment has no in-flight state. A sell-side quantity increase, which must reserve more inventory, is also missing. 13:41 nevertheless requires 'an amendment rejected after the old order filled' as acceptance evidence.
 
 Verifier: Quotes verified. ADR-0009 already bans cancel/replace in the initial eligibility ('no cancel/replace'), which conflicts with the book's 13:41 acceptance item. The resolution now names that choice explicitly.
+
+**Disposition: pending triage.** Reviewer proposal: Either (preferred for the foundation) exclude amendments from the first eligibility profile and remove the 13:41 amendment item from foundation acceptance, or adopt these rules. An amendment is a new command (amend_command_id, parent_command_id, broker_order_key) with its own payload hash and risk check, and transmission_state is REPLACE_PENDING while it is in flight. In-place modify: hold max(old_open_qty x old_limit, new_open_qty x new_limit) plus fees until the broker confirms, then shrink to the new terms; on reject, keep the old terms. Cancel-replace: hold the old open quantity plus the full new order until the old order is broker-terminal, then release the old remainder under the cumulative-quantity rule. A decrease releases nothing until confirmed. Executions attach to broker_order_key and are attributed to the version in force at the broker's execution time (fallback: the latest confirmed version). A sell quantity increase must reserve additional unreserved inventory before it is sent.
 
 ### BR-ORD-09: Reference engine rejects late fills after CANCELED/FILLED and rejects unsolicited broker cancels, and fails the book's own shuffled-delivery exercise
 
@@ -908,6 +1057,8 @@ _open() is true only for OPEN and CANCEL_PENDING. An execution delivered after t
 
 Verifier: Reproduced by running a probe against a temp copy of reference/ (python3 -I); repository untouched. 9:29 says the simulator 'rejects impossible synthetic fills', but a fill after a cancel acknowledgment is not impossible (2:25), so that disclaimer does not cover this case. I tightened 'reservation stays held forever' to 'until a local cancel command is issued'.
 
+**Disposition: pending triage.** Reviewer proposal: Label these behaviors simulator-only and do not port them. Production rules: ingest executions in every order state; if a late execution exceeds the released hold, book it and raise an exception that freezes entries, never reject it; accept broker-initiated terminal statuses without a local cancel request. Add fixtures for a cancel acknowledgment before the final fill, an unsolicited DAY expiry, a fill on a CANCELED order and a correction on a FILLED order, and assert identical holdings under every delivery order.
+
 ### BR-ORD-10: BrokerPort lacks the methods and result fields the book requires (auth state, stream, completed orders, commissions, amend, account scope, global cancel)
 
 - `contracts/broker_port.py`:35: "async def capabilities(self) -> dict: ..."
@@ -918,6 +1069,8 @@ Verifier: Reproduced by running a probe against a temp copy of reference/ (pytho
 12:7 requires a method to establish an authenticated session; the port has none and exposes no connection or auth state. It also has no event stream for order status, executions and commissions (polling only), no completed-orders query, no commission reports (IBKR delivers commission per execId, separately), no amend, no account identity on any call, no global cancel for the red stop, and no way to cancel by client correlation id an UNKNOWN order whose broker_order_id was never learned. In cancel(), command_id can mean either the cancel's own id or the original order's id. cancel() returns the same ACCEPTED/REJECTED/UNKNOWN as submit, so 'cancel request accepted' can be misread as 'canceled' and trigger a release. raw_event_id is a mandatory str even after a timeout, when no raw event exists. capabilities() -> dict cannot enforce 'unknown defaults to disabled'. IBKR placeOrder has no synchronous reply, so ACCEPTED is undefined (PendingSubmit? Submitted?).
 
 Verifier: Quotes verified against contracts/broker_port.py:29-42. ADR-0012 already concedes most of this and defines a typed production port with session state, commissions and drain_events(). It still has no amend, no global cancel, no cancel by client id, and cancel semantics that do not separate 'requested' from 'confirmed'.
+
+**Disposition: pending triage.** Reviewer proposal: Define one typed port instance per account. connection_state() returns {DISCONNECTED, CONNECTING, AUTH_REQUIRED, READY, PACING_LIMITED, DEGRADED}. capabilities() returns a frozen Capabilities dataclass in which every field is an explicit enum, UNKNOWN included and treated as disabled. stream() is an async iterator of OrderStatusEvent, ExecutionEvent, CommissionEvent and AccountEvent with source sequence. open_orders(), completed_orders(since), executions_since(cursor), positions() and balances() each return the completeness envelope. submit() returns SubmitAck {SENT_NO_ACK, BROKER_ACCEPTED, REJECTED(reason)}; a timeout maps to UNKNOWN in the attempt record. Add amend(order_key, ...). cancel(order_key, cancel_command_id) returns CancelAck {CANCEL_REQUESTED, CANCEL_REJECTED(reason), UNKNOWN}, and only a later broker terminal status confirms the cancel. cancel_all(account) serves the stop. lookup(order_key) returns LookupResult. raw_event_id is optional. Every result carries account_scope, request_id, optional broker_time and received_at.
 
 ### BR-ORD-11: OrderIntent and the order_intent table disagree with each other and with the command contract (missing TIF, session eligibility, account; scales dropped)
 
@@ -930,6 +1083,8 @@ OrderIntent (broker_port.py:14-24) lacks the currency, time-in-force, strategy a
 
 Verifier: Field-by-field comparison of broker_port.py:14-24, ledger_schema.sql:21-29 and 30:7 confirms every mismatch listed. The 5-vs-0.5 share arithmetic is correct.
 
+**Disposition: pending triage.** Reviewer proposal: Add the same fields to OrderIntent and order_intent: account_id, currency, order_type (LIMIT only in the foundation), time_in_force {DAY, IOC, GTD}, good_till_utc_ns, session_eligibility {RTH_CONTINUOUS (default), EXTENDED, OPEN_AUCTION, CLOSE_AUCTION}, quantity_scale, price_scale, instrument_metadata_version, policy_hash, strategy_artifact_hash, expected_allocation_version, held_amount_units/scale and transmit_deadline_utc_ns. The payload hash covers all of them. The adapter rejects any field value its capabilities do not support and never substitutes a broker default.
+
 ### BR-ORD-12: Intent deadline is undefined: last transmit time vs working-order expiry; EXPIRED is overloaded
 
 - `docs/book/08-runtime-architecture.md`:19: "Commands include a deadline and expected policy version. An expired intent is rejected even if it was profitable when generated."
@@ -939,6 +1094,8 @@ Verifier: Field-by-field comparison of broker_port.py:14-24, ledger_schema.sql:2
 The deadline could mean (a) the last time the intent may be transmitted, (b) the time by which a working order must be canceled, or (c) a GTD value sent to the broker. The book's single EXPIRED state could mean either a local deadline miss or broker TIF expiry. Under (a) alone, an order sent 1 ms before its deadline rests for the whole DAY and can fill hours after its signal has died. It is also unclear whether a retry after an UNKNOWN resolves is bound by the original deadline. The deadline is compared against a wall clock that can step, so an expired intent can look fresh.
 
 Verifier: Quotes verified. ADR-0009 fixes TIF to DAY but does not define the intent deadline, so case (a) is the live risk.
+
+**Disposition: pending triage.** Reviewer proposal: Use two fields. transmit_deadline_utc_ns is checked in Txn A against an NTP-disciplined clock, and sending is refused while clock-sync health is bad; expiry yields EXPIRED_UNSENT and releases the hold. good_till_utc_ns is sent as GTD where supported; otherwise the order service schedules a cancel at good_till and treats the order as working until it is broker-terminal. A retry after NOT_RECEIVED is allowed only before transmit_deadline. Broker TIF expiry maps to BROKER_TERMINAL/EXPIRED, which is distinct from EXPIRED_UNSENT.
 
 ### BR-ORD-13: Reconciliation tolerances have no values: 'material', 'clean' and 'approved tolerances' gate trading but are never defined
 
@@ -950,6 +1107,8 @@ Positions, cash and open orders are fetched by separate requests at different in
 
 Verifier: Quotes verified. I retitled the issue: the book explicitly allowing either a cut or a loop is not unsafe by itself. The confirmed defect is that the thresholds that gate trading have no values in the book, config/paper_defaults.json or the ADRs.
 
+**Disposition: pending triage.** Reviewer proposal: Use a convergence loop. (1) E1 = executions_since(watermark - overlap), complete. (2) S = positions, balances and open_orders, each complete, with broker_as_of recorded. (3) E2 = executions_since(same cursor). Ingest E1 and E2. If E2 holds executions not in E1, or any open order's cum_qty changed, repeat, up to 5 times with backoff. If the loop does not converge, report NOT_CONVERGED, which keeps entries blocked but is not a mismatch. Comparison is per (account, instrument). Quantity tolerance is exactly zero in the quantity scale. Cash tolerance is at most 1 minor unit per execution in the window, and any nonzero cash difference is booked as an explicit ROUNDING adjustment with a reason. Differences in the order or execution sets are never covered by a tolerance. Classify results as MISSING_LOCAL_EXECUTION, MISSING_BROKER_ORDER, EXTERNAL_TRADE, EXTERNAL_ORDER, FEE_DIFF, VALUATION_ONLY or CORPORATE_ACTION_SUSPECT. Tolerance values live in the versioned policy.
+
 ### BR-ORD-14: Execution watermark has no type or advance rule, and nothing covers a broker history window shorter than the outage
 
 - `contracts/broker_port.py`:38: "async def executions_since(self, watermark: str | None) -> dict: ..."
@@ -959,6 +1118,8 @@ Verifier: Quotes verified. I retitled the issue: the book explicitly allowing ei
 The book does not define the watermark (broker cursor, execution time or receipt time), the overlap size, or what happens when the broker cannot serve history back to the watermark. IBKR's API execution query covers a limited recent window, the current day by default (TWS can extend it to a few days). After a weekend outage, a multi-day authentication lapse or a restore from backup (24:21), executions_since cannot reach the watermark, and an implementation that treats the returned set as complete silently loses fills. 12:41 names 'missing execution history' as a test case but specifies no behavior. Advancing the watermark to the maximum execution time can also skip late-reported executions that carry earlier timestamps.
 
 Verifier: Quotes verified. ADR-0012 adds an 'execution-history depth' capability but defines no behavior when the depth is shorter than the gap.
+
+**Disposition: pending triage.** Reviewer proposal: The watermark is the adapter's broker cursor when one exists. Otherwise it is receipt-ordered, with overlap >= a configured max_report_delay (default at least one full trading day). executions_since returns history_coverage_start. If coverage_start > watermark - overlap, the result is HISTORY_GAP: entries for the account are blocked, a statement-based backfill (for IBKR, a Flex/activity-statement import) or an owner-attested acceptance is required, and the gap is recorded in the reconciliation report. The watermark advances to min(max ingested receipt time, broker_as_of - overlap), and only after the report commits.
 
 ### BR-ORD-15: External or foreign open orders, and external sells of session-held shares, are unhandled
 
@@ -970,6 +1131,8 @@ The book covers only external executions; a search of docs/book for 'external' f
 
 Verifier: Quotes verified, and the grep found no book text on external working orders. ADR-0011 latches on foreign-tagged or untagged activity, which covers (c) and partly (a). ADR-0006 routes manual trades to the `external` owner but does not handle an external sell of shares a session holds.
 
+**Disposition: pending triage.** Reviewer proposal: Reconciliation creates an EXTERNAL_ORDER record for each unmatched broker open order. It reserves the full notional plus a fee envelope (buys) or the quantity (sells) against the EXTERNAL owner and blocks entries in that instrument until the order is terminal or the owner attributes it. External executions post to EXTERNAL inventory and cash. If EXTERNAL quantity would go negative, the deficit becomes a SESSION_INVENTORY_DEFICIT exception against the session(s) holding the instrument: their sellable quantity drops immediately and their entries freeze until the owner attributes the trade. Unmatched items with this platform's orderRef prefix or clientId trigger the split-brain path (red latch).
+
 ### BR-ORD-16: Risk reduction is allowed during reconciliation failure, but 'confirmed' inventory is then undefined
 
 - `docs/book/09-ledger-and-settlement.md`:49: "Reconciliation failure blocks new entries but permits appropriately controlled risk reduction."
@@ -978,6 +1141,8 @@ Verifier: Quotes verified, and the grep found no book text on external working o
 When reconciliation has failed, inventory is by definition not confirmed, and the book does not say which quantity bounds a reduction sell. Using the local ledger quantity oversells when the broker holds fewer shares (after an external sale or a missed correction), which creates a short in a cash account. Using the broker quantity can sell shares that belong to the external owner or to another session. 'Appropriately controlled' is undefined.
 
 Verifier: Both quotes verified, and the two sentences do conflict as written. ADR-0010 defaults on_stop_liquidation to NONE but does not define sellable quantity during a reconciliation failure.
+
+**Disposition: pending triage.** Reviewer proposal: While reconciliation is not clean: sellable(session, instrument) = floor_to_increment(min(local session qty - that session's held sell qty, fresh complete broker qty - all held sell qty across owners - EXTERNAL claims)). If broker positions are stale or incomplete, sellable = 0. Reduction orders must be limit orders inside the collar, require an enabled liquidation policy and are journaled as REDUCTION.
 
 ### BR-ORD-17: Clearing authority for the different blocks and latches (unknown order, auth, reconciliation, restart) is undefined
 
@@ -990,6 +1155,8 @@ The book defines several blocks: the owner red stop, the account unknown-order '
 
 Verifier: Quotes verified. I added the 22:26 quote, which sharpens the 12:17 tension. ADR-0010 covers the restart recovery gate (auto-resume off by default) and makes reconciliation failure a latch that needs green. AUTH_REQUIRED and UNKNOWN_ORDER clearing are still unmapped.
 
+**Disposition: pending triage.** Reviewer proposal: Represent blockers as durable rows: {kind, scope (global/account/session/instrument), raised_by, reason, raised_at, clear_policy}. OWNER_STOP is cleared only by an authenticated owner green action after full preflight. RISK_STOP requires owner review followed by green. System blocks (UNKNOWN_ORDER, RECON_FAILED, AUTH_REQUIRED, HISTORY_GAP, QUEUE_OVERFLOW, STALE_DATA, RESTART_RECON_REQUIRED) are cleared only by the writer, and only when their specific recovery evidence is recorded, such as the id of a converged clean reconciliation report. A restart never clears a blocker, and process start always inserts RESTART_RECON_REQUIRED. Entries are permitted only when no blocker applies in scope.
+
 ### BR-ORD-18: Retained fee buffer has no size, duration or release trigger
 
 - `docs/book/09-ledger-and-settlement.md`:33: "Commissions can arrive after fills. Maintain estimated and final amounts separately."
@@ -1000,6 +1167,8 @@ Verifier: Quotes verified. I added the 22:26 quote, which sharpens the 12:17 ten
 
 Verifier: Quotes verified (also engine.py:272). I changed the kind from contradiction to omission: chapter 30's reference-to-production map already labels the reference's fees 'Fill-time envelope', with 'Delayed finalization and adjustments' as the required extension, so the reference does not contradict the book. The confirmed defect is that the book never sizes or times the retained buffer.
 
+**Disposition: pending triage.** Reviewer proposal: Store fee_estimate and a nullable fee_final per execution. After an order is terminal, its fee hold = sum over executions with fee_final null of (fee_estimate x a configured safety factor), plus any order-level minimum-commission exposure. Each part is released when that execution's final commission arrives. An execution still lacking a commission after a configured window (for example, the T+1 statement) is reconciled from the statement. A session cannot complete while any fee hold remains.
+
 ### BR-ORD-19: On disconnect, 'mark affected orders unknown' conflates an uncertain submit with a stale view of a working order
 
 - `docs/book/24-mac-and-aws-operations.md`:25: "On lost internet, block new entries and mark affected order outcomes unknown."
@@ -1009,6 +1178,8 @@ Verifier: Quotes verified (also engine.py:272). I changed the kind from contradi
 
 Verifier: Quotes verified. ADR-0009 makes a disconnect during submit UNKNOWN but says nothing about already-acknowledged orders.
 
+**Disposition: pending triage.** Reviewer proposal: A disconnect never changes the transmission_state of an acknowledged order. It sets account-level status_stale_since and raises a CONNECTION/AUTH blocker. Only commands with an attempt in SENDING (submit, cancel or amend) at the moment of disconnect become UNKNOWN. On reconnect, a full converged reconciliation refreshes every order before the blocker clears.
+
 ### BR-ORD-20: 'Fail closed' on lossless queue overflow is undefined for inbound broker events
 
 - `docs/book/08-runtime-architecture.md`:33: "If a lossless queue exceeds its capacity, fail closed and preserve diagnostic state."
@@ -1017,6 +1188,8 @@ Verifier: Quotes verified. ADR-0009 makes a disconnect during submit UNKNOWN but
 For inbound execution, order-status and commission callbacks, 'fail closed' could mean dropping the event, rejecting it at enqueue or crashing. Each of these removes the event from the live path, because the socket callback has nowhere else to go and IBKR does not redeliver callbacks. Recovery then depends on a later re-query, which works only within the broker's execution-history window. The book also does not say whether order-status events may be coalesced.
 
 Verifier: Quotes verified. I tightened the original 'all three lose fills': dropped executions can be re-queried, but only inside the broker's history window, which makes the gap real but conditional.
+
+**Disposition: pending triage.** Reviewer proposal: Every inbound broker event is first appended to a durable raw-event journal, before processing, so the in-memory queue can be bounded without loss. If the journal append fails or lags beyond a bound: raise QUEUE_OVERFLOW, disconnect the API session, and after reconnect recover through a full reconciliation using executions_since with overlap. Order-status events may be coalesced per order only to the latest non-terminal status. Terminal statuses, executions and commissions are never coalesced.
 
 ### BR-ORD-21: Three versions of the optimistic check (expected policy version, expected state version, policy hash) with no scope for automated intents
 
@@ -1029,6 +1202,8 @@ Verifier: Quotes verified. I tightened the original 'all three lose fills': drop
 
 Verifier: Quotes verified, and the reference does increment state['version'] on every command (engine.py:88). I added 22:26 and 8:15 as further variants.
 
+**Disposition: pending triage.** Reviewer proposal: Orders carry policy_hash, which must equal the session's snapshot hash, and expected_allocation_version, scoped to the (session, account) allocation record. That version changes only on allocation actions by the owner or coordinator, not on fills or holds. Risk is always re-evaluated inside the writer transaction against current state, and a mismatch in either field gives REJECTED_LOCAL with reason STALE_CONTEXT. Both fields are part of the payload hash, and an identical retry returns the original recorded decision. Control commands (green) use the account control-state version.
+
 ### BR-ORD-22: Parent/child schedule reservation: the book does not say whether a child's reservation transfers from the parent or adds to it
 
 - `docs/book/13-order-execution.md`:29: "It must reserve the full economic commitment, not only the current child order, unless the allocator explicitly controls the remainder."
@@ -1036,6 +1211,8 @@ Verifier: Quotes verified, and the reference does increment state['version'] on 
 If the child's reservation is added on top of the parent's, cash is double-reserved and funding stalls. If a terminal child releases its unfilled amount to free cash instead of back to the parent, the parent's remainder is under-reserved and another strategy can claim that cash. The price at which the parent reserves, and whether a repriced child may exceed the parent's price bound, are also unspecified.
 
 Verifier: Quote verified, and the ambiguity is real. This is not on the 14-day critical path: ADR-0009's initial eligibility allows only plain DAY limit orders. The book does not mark schedules as a later track, so the issue stays at medium with a 'keep out of eligibility until implemented' rule.
+
+**Disposition: pending triage.** Reviewer proposal: The parent holds a PARENT reservation = parent_open_qty x parent_price_bound + fee envelope. Creating a child atomically transfers child_qty x child_limit (child_limit <= parent bound) from the parent reservation to the child. A terminal child returns its unfilled part to the parent, not to free cash. The parent's remainder is released only when the parent is terminal, all its children are broker-terminal, and the cumulative-quantity rule is satisfied. A child limit above the parent bound is rejected locally. Until this is implemented, parent schedules stay out of the eligibility profile.
 
 ### BR-ORD-23: Split-brain fencing cannot be enforced at IBKR, and the book does not say where the token is checked
 
@@ -1047,6 +1224,8 @@ Verifier: Quote verified, and the ambiguity is real. This is not on the 14-day c
 IBKR's TWS API checks no client-supplied token. Any process that can reach a logged-in TWS or IB Gateway with a free clientId can place orders, and orderId sequences are per API client. The fault-matrix row expects a 'rejected stale leader', but no IBKR component will reject one. 24:27 leaves the design as 'Prefer ... or ...': one engineer builds automatic database-lease failover, which 24:27 itself says can fail during a partition, and another builds manual transfer. The ledger writer and the broker adapter are separate processes in 8:9, and no rule says the sender re-checks the writer's epoch inside its send transaction. A stale gateway can therefore transmit outbox rows that a new writer considers unsent. Two hosts on the same paper username also contend, because IBKR allows one session per username.
 
 Verifier: Quotes verified, and I added 28:30. I lowered severity from critical to high: the book does state the safe fallback (8:37) and defers automatic multi-region failover (8:39). The residual defects are the open 'prefer ... or' choice and a fault-matrix expectation IBKR cannot meet. I dropped the original 'Mac logs in with the live username' scenario because 24:3 already restricts the Mac to paper credentials. ADR-0011 adopts manual transfer, order tagging and a fixed clientId.
+
+**Disposition: pending triage.** Reviewer proposal: Foundation decisions: (1) Broker credentials for a given account live on exactly one host. IB Gateway binds to localhost, the API trusted-IP list is 127.0.0.1, and one fixed clientId is allowed for order entry. The Mac uses a distinct paper username. (2) A monotonically increasing ownership epoch row in the ledger DB. Every send transaction (Txn A) and every ledger mutation compares the epoch inside the same transaction and aborts on mismatch. (3) No automatic failover. Ownership transfer is an owner command that increments the epoch, requires evidence that the old host is stopped or its broker session terminated, and requires a full converged reconciliation before green. (4) An order or execution whose orderRef/clientId was not issued under the current epoch is split-brain evidence and automatically sets the red latch. Change the 28:30 fault-matrix evidence to 'stale host cannot transmit (local epoch check) and foreign-tagged activity latches the stop'.
 
 ### BR-REF-01: Reservation is released on terminal cancel confirmation even though earlier fills can still arrive, so the freed cash is reused before the late fill lands
 
@@ -1060,6 +1239,8 @@ Reproduced on a scratch copy: BUY B 10@900 with fee budget 10; cancel then cance
 
 Verifier: Reproduction matched the claim exactly. I downgraded critical to high and reframed it. The book explicitly marks fill rejection as simulator-only (Ch.9 l.29, Ch.31 l.13: 'Unexpected real broker events require exception ingestion rather than the simulator's synthetic-input rejection'), so 'built as written, the platform loses track' overstates the case. The release-timing omission is real: Ch.28 l.23 says 'release only remainder' but never defines remainder against broker cum-filled.
 
+**Disposition: pending triage.** Reviewer proposal: A terminal cancel/expiry/reject confirmation releases only (order qty minus broker-reported cum_filled_qty) times limit, plus the unused fee envelope. It releases even that only when cum_filled_qty equals the sum of ingested executions for the order. Any shortfall stays reserved as 'awaiting executions' until the missing executions are ingested or reconciliation proves them absent. Execution ingestion never checks order status, fee envelope or reservation sufficiency. It journals the fact, deduplicated by scoped execution id. If the fact overdraws the session, post it, open an exception record, charge the deficit to the operational buffer and then unallocated, and set the global new-exposure halt. 'Cash >= reservations' is an acceptance rule for commands, not an invariant enforced on ingestion.
+
 ### BR-REF-02: Chapter 27's 'preserve behavioral tests' would carry the simulator's fill-rejection test into production, and the book never specifies per-partial fees or negative net proceeds
 
 - `reference/engine.py`:225: "raise Rejected("invalid simulated fill or exceeded fee envelope")"
@@ -1070,6 +1251,8 @@ Verifier: Reproduction matched the claim exactly. I downgraded critical to high 
 Reproduced three ordinary broker patterns. (a) BUY 10@900 with fee budget 10: a 1-share partial with fee 10 is accepted, then the 9-share remainder with fee 1 is rejected for exceeding the fee envelope. (b) SELL 10@100 with fee budget 500: a 1-share partial with fee 150 is rejected as 'negative synthetic proceeds'. (c) Re-sending E1 with amended price is rejected as 'execution identity changed'. Ch.9 l.29 and Ch.31 l.13 disclaim this as simulator behaviour. Ch.27 l.29, however, tells implementers to 'preserve its behavioral tests' with no exemption. test_invalid_fill_rolls_back asserts that over-quantity, over-limit and over-fee fills leave state unchanged, which is a discard. One engineer ports that test as a production requirement; another drops it. Separately, the book never says how a fee envelope is consumed across partials (minimum commissions), nor what happens when a partial's fee exceeds its notional.
 
 Verifier: All three probes reproduced. I reframed the issue from a 'contradiction' to an unsafe ambiguity and downgraded it from critical: the book does say the rejection is simulator-only, so the conflict is only with Ch.27's unconditional 'preserve' instruction. The fee-allocation and negative-proceeds omissions are not addressed anywhere in Ch.9 or Ch.13.
+
+**Disposition: pending triage.** Reviewer proposal: Amend Ch.27: tests that encode the simulator's rejection of observed broker facts (test_invalid_fill_rolls_back, the 'corrupted-duplicate' branch of test_execution_retry_across_command_ids) are exempt, and production replaces them with exception-ingestion tests. In those tests an over-quantity, over-limit or over-fee execution is journaled, an exception record is opened and new exposure halts. Fees become separate events (estimated, then final) linked to the execution, and a fee overrun never blocks posting quantity and price. A partial whose fee exceeds its notional posts a negative receivable or fee payable, not a rejection. Amended content is stored as a new version with correction_of, keyed by (provider, account_key, provider_execution_id, provider_version).
 
 ### BR-REF-03: After a restart, a risk-stopped system has no path to reconciliation, so it can never reduce positions; start is forbidden and no review command exists
 
@@ -1083,6 +1266,8 @@ Reproduced: after a fill at 900, mark X=870 sets RISK_STOP (value 9,690 <= 98% o
 
 Verifier: Reproduced exactly as stated.
 
+**Disposition: pending triage.** Reviewer proposal: Add a `reconcile` command run under the system identity. It persists a reconciliation report and a durable reconciliation epoch, and it never touches the stop latch. Allow risk-reducing SELLs whenever the latest reconciliation is clean and current for the leader epoch, regardless of the stop latch or a risk stop. Per Ch.13 l.25, a risk-reducing SELL means confirmed, unreserved long inventory inside the price collar. Add an owner command review_risk_stop(session, decision in {RESUME, CLOSE_FAILED}) as the only exit from FAILED_REVIEW. Extend the restart test to place the reducing SELL after reopen and reconcile.
+
 ### BR-REF-04: Reconciliation status is a process-local boolean outside the journal: a stale process keeps order authority across another process's stop and start, and replay is non-deterministic
 
 - `reference/engine.py`:63: "# Reopening a process never establishes broker reconciliation.
@@ -1095,6 +1280,8 @@ Reproduced with two Engine objects on one SQLite file. 'mac' runs start. 'aws' o
 
 Verifier: Both halves reproduced. Downgraded from critical to high: the book already mandates a fenced single writer (Ch.8 l.37, Ch.28 l.30), so this is mainly a reference defect plus an under-specified mechanism. A shared SQLite file is an illustration; the stated Mac/AWS scenario would share a database, not a file.
 
+**Disposition: pending triage.** Reviewer proposal: Remove the process-local boolean. Persist a leader/fencing epoch in a lease row incremented atomically on takeover. Every mutating command and every outbox send carries that epoch and is rejected when it is stale. Persist a control_epoch that every stop and start increments, and record each reconciliation as an event carrying (leader_epoch, control_epoch). Order acceptance requires a clean reconciliation whose epochs equal the current ones. The single credential-owning broker gateway rejects any token below the highest it has seen.
+
 ### BR-REF-05: The red stop never reaches the broker, and the contracts cannot express the cancels it needs
 
 - `reference/engine.py`:166: "order["status"] = "CANCEL_PENDING""
@@ -1105,6 +1292,8 @@ Verifier: Both halves reproduced. Downgraded from critical to high: the book alr
 _cmd_stop changes only local status. It creates no cancel command id and no outbox row; in a simulator this is expected, but the contracts that production is meant to build on cannot do better. The outbox primary key is a foreign key to order_intent(command_id). A cancel either needs its own command id, which is not an order_intent and fails the FK, or reuses the order's id, which collides with the SUBMIT row on the primary key. A cancel therefore cannot be queued durably. BrokerPort.cancel takes a non-optional broker_order_id, which does not exist for orders still SUBMIT_PENDING or UNKNOWN after a timeout, and those are the orders a stop most needs to catch. Neither the book nor the contracts say whether the sender re-checks the latch before transmitting already-queued SUBMITs.
 
 Verifier: Confirmed from the schema and protocol text. The FK/PK conflict follows directly from line 48. The reference's local-only stop is a simulator property; the contract gap is the substantive part.
+
+**Disposition: pending triage.** Reviewer proposal: Make stop one transaction: set the latch and, for every non-terminal BUY intent including SUBMIT_PENDING and UNKNOWN, insert an outbox row with kind=CANCEL, its own command_id and target_command_id. The outbox becomes keyed by command_id with kind in {SUBMIT, CANCEL} and target_command_id referencing order_intent. BrokerPort.cancel takes the original client order id, with broker_order_id optional. The sender re-checks the latch immediately before every SUBMIT send. If an UNKNOWN order is not resolved by cancel-by-client-id followed by lookup, it stays UNKNOWN and reserved, and the terminal shows it as 'outstanding unknown' (Ch.22 l.24).
 
 ### BR-REF-06: BrokerPort's lookup cannot say 'conclusively not received', and no call carries a fencing token, account scope or completeness fields
 
@@ -1117,6 +1306,8 @@ lookup, submit and cancel all return the same three-valued SubmissionResult. A l
 
 Verifier: Confirmed from contracts/broker_port.py. Every return type is either SubmissionResult or a bare dict.
 
+**Disposition: pending triage.** Reviewer proposal: Use separate typed results. SubmitResult {ACCEPTED, REJECTED_CONCLUSIVE, UNKNOWN}. CancelResult {CANCEL_REQUESTED, CANCEL_REJECTED, UNKNOWN}; none of them is a terminal order state. LookupResult {FOUND(order_state, broker_order_id, cum_filled_qty), NOT_FOUND_CONCLUSIVE(as_of_watermark), INDETERMINATE}. Resubmit only with the same client id, only after NOT_FOUND_CONCLUSIVE and only before the intent deadline. Every mutating call takes fencing_epoch and account_key, and the adapter refuses any epoch below the highest it has seen. Snapshots and execution pages are typed records carrying scope, broker_time, receipt_time, as_of, a complete flag and a next cursor.
+
 ### BR-REF-07: The aggregate loss halt is cleared by an ordinary start, nets against lifetime profits, and mark fails open when one held price is missing
 
 - `reference/engine.py`:328: "if state["realized_net"] + unrealized <= -state["loss_limit"]:"
@@ -1127,6 +1318,8 @@ Verifier: Confirmed from contracts/broker_port.py. Every return type is either S
 Reproduced with seed 50,000: marked P&L of -299 (at or below -200) gives halted=True, while the session stays RUNNING because the 200 bps drawdown is not hit. start then succeeds at once and a new BUY is accepted, which Ch.10 l.41 calls a hidden budget reset. The latch only reappears on the next mark. The trigger uses lifetime realized_net, so the 580 profit of a completed session raises the effective allowance to 780 (-200 - 580). Units are an absolute 200 cents, while the config says 100 bps of authorized capital. A mark with one held symbol's price missing raises Rejected('invalid integer or outside reference range'), so no drawdown or loss evaluation runs and halted stays False. The book (Ch.6 l.45) lets 'a human' replenish a budget, but does not say whether pressing green counts as that, which leaves the reset path ambiguous.
 
 Verifier: All parts reproduced (-299, start accepted, BUY accepted; missing price leaves halted False). Ch.31 l.15 admits the reference 'omits ... a complete daily loss policy', but the start-reset and the fail-open on a missing price are not admitted and contradict Ch.10 l.35/41 and Ch.28 l.28 ('Data gap | Dependent entries blocked').
+
+**Disposition: pending triage.** Reviewer proposal: Persist loss latches (reason, risk-calendar trading day, value) separately from the manual stop latch. Start's preflight refuses while a loss latch is set for the current day unless the owner issues an audited acknowledge_loss_latch, which is a different action from pressing green. Daily loss is computed in bps of authorized capital from the session's policy snapshot: equity at day open (adjusted for external flows) minus current marked equity. Protected gains never enlarge the allowance. A cumulative loss allowance is tracked separately and never auto-replenished. A held symbol with a missing or stale price sets a DATA_STALE new-entry halt and evaluates the remaining symbols; it does not reject the mark.
 
 ### BR-REF-08: Rejected commands leave no durable record, so the same command id is accepted later against newer state
 
@@ -1141,6 +1334,8 @@ Reproduced: cmd-Z (BUY 2@600) was rejected with 'insufficient session cash' and 
 
 Verifier: Reproduced exactly.
 
+**Disposition: pending triage.** Reviewer proposal: Record every outcome (ACCEPTED, or REJECTED with a reason code) in the command log. A rejection is written in its own transaction after the domain rollback, and an identical replay returns that stored rejection; a command id is terminal once decided. Every command carries deadline_utc_ns, expected_state_version and policy_hash, and is rejected, durably, when it has expired or does not match.
+
 ### BR-REF-09: A successor that misses funding at completion is stuck forever, and completion does not require reconciliation
 
 - `reference/engine.py`:307: "if not state["halted"] and self.reconciled and state["unallocated"] >= session["seed"]:"
@@ -1151,6 +1346,8 @@ Verifier: Reproduced exactly.
 Reproduced: stop pressed, sale filled; complete returns WAITING_FUNDS although unallocated is 20,000 (it was halted). After start, a retried complete with a new command id still returns WAITING_FUNDS, because the early return re-reads the request. No command re-evaluates requests and there is no deposit command, so the diagram's wait-then-fund loop (Q --> F) does not exist. complete is accepted with reconciled=False (shown in the replay probe), so 'reconciled net proceeds' (Ch.10 l.7) is not enforced. The owner can also create a session named 'A:next' while the request still reads WAITING_FUNDS, which breaks the lineage.
 
 Verifier: Every sub-claim reproduced, including the 'A:next' name collision.
+
+**Disposition: pending triage.** Reviewer proposal: Add a coordinator command fund_successor(request_id). It does an atomic compare-and-reserve from eligible unallocated funds and moves the request from WAITING_FUNDS to READY. It runs after start, after settlement, after capital changes and on a timer. Add an owner command authorize_capital(delta, currency), recorded as an external flow. Completion requires a clean, current reconciliation epoch. Successor sessions get generated ids linked by parent_session_id, and owner-created sessions can never take a request's id.
 
 ### BR-REF-10: There is no unsuccessful terminal state: a below-goal or risk-stopped session keeps its seed forever and blocks all new sessions
 
@@ -1163,6 +1360,8 @@ Reproduced: a flat, settled session at 9,900 (goal 10,500) gets 'net goal not re
 
 Verifier: Reproduced. The command list was confirmed by introspecting Engine._cmd_*.
 
+**Disposition: pending triage.** Reviewer proposal: Add an owner command close_session(session_id). Once the session is flat and reconciled, a below-goal session goes to STOPPED and a risk-triggered one goes to FAILED_REVIEW. Remaining session cash and receivables return to unallocated (not protected), with receivables still unsettled and therefore not spendable. No successor is created, and final equity against the target is recorded. Default per Ch.10 l.15: a session that falls below its goal after the target was observed goes to STOPPED, not back to RUNNING.
+
 ### BR-REF-11: The reference session state machine does not match the book's ten states, the book gives no transition table, and the target is never observed
 
 - `reference/engine.py`:326: "session["state"] = "RISK_STOP""
@@ -1173,6 +1372,16 @@ Verifier: Reproduced. The command list was confirmed by introspecting Engine._cm
 The reference uses RUNNING, RISK_STOP and COMPLETED for sessions, plus WAITING_FUNDS and FUNDED for requests. The book lists ten states, none of them RISK_STOP, and gives no transition table. The reference marks a session COMPLETED while its receivables are unsettled and never moves it when they settle. Reproduced: mark at X=1000 (session value 11,000 against a 10,500 goal) leaves the session RUNNING, and a further BUY is accepted, contrary to Ch.10 l.15. Two engineers would map RISK_STOP differently (STOPPED or FAILED_REVIEW), with different start and funding consequences.
 
 Verifier: The above-goal BUY was reproduced. Everything else was confirmed from the code and Ch.10 text.
+
+**Disposition: pending triage.** Reviewer proposal: Adopt one transition table.
+- REQUESTED to WAITING_FUNDS or READY, by an atomic funding transaction.
+- READY to RUNNING.
+- RUNNING to WINDING_DOWN when the target is observed on marked equity, the owner stops the session, or a session risk trigger fires. BUYs are blocked and entry cancels are outboxed.
+- WINDING_DOWN to RECONCILING once flat with no non-terminal orders.
+- RECONCILING to COMPLETED_UNSETTLED if net equity is at or above the goal (protect the proceeds and create the successor request); otherwise to STOPPED.
+- COMPLETED_UNSETTLED to COMPLETED_SETTLED when every receivable is confirmed.
+- A risk-triggered wind-down ends in FAILED_REVIEW, which only an owner review can exit.
+- WINDING_DOWN to RUNNING is forbidden by default.
 
 ### BR-REF-12: ledger_schema.sql cannot hold the foundation's state, and its single order state column contradicts Chapter 13
 
@@ -1194,6 +1403,17 @@ order_intent has one state column and no cumulative filled quantity, remaining q
 
 Verifier: Confirmed against the full 52-line schema. One item was dropped from the original claim: successor requests in WAITING_FUNDS can be stored as session rows (state=WAITING_FUNDS, parent_session_id UNIQUE), which is how Ch.10's state list models them.
 
+**Disposition: pending triage.** Reviewer proposal: Add these tables:
+- claim_bucket, plus an append-only claim_movement (per currency)
+- reservation (order, amount, release event)
+- receivable (execution, expected settle date, state)
+- fee_event (estimated/final, execution link)
+- control_latch_event (with epoch)
+- reconciliation_run (scope, watermark, report hash, status)
+- command_log (every command with its outcome)
+- leader_lease (epoch)
+Split order_intent into intent_state, transmission_state and economic columns: cum_filled, remaining, avg_price, reserved_amount, broker_order_id, tif, currency, fee_envelope, strategy_artifact_hash. Add triggers that reject UPDATE of session seed, goal, policy_hash, eligibility and loss budget.
+
 ### BR-REF-13: The order lifecycle lacks REJECTED, EXPIRED and UNKNOWN, so a broker-initiated cancel or expiry leaves the reservation stuck
 
 - `reference/engine.py`:268: "if order is None or order["status"] not in ("CANCEL_PENDING", "CANCELED", "FILLED"):"
@@ -1202,6 +1422,8 @@ Verifier: Confirmed against the full 52-line schema. One item was dropped from t
 Reproduced: a broker-reported cancellation of an OPEN order, such as a DAY order expiring or a broker risk cancel, is refused with 'no cancellation in progress', and the 9,010 reservation stays. There is no REJECTED state (Ch.9 l.27 allows a release only on unambiguous rejection) and no UNKNOWN state. One status string mixes intent, transmission and economic state.
 
 Verifier: Reproduced: canceled on an OPEN order raised Rejected, and reserved stayed at 9010.
+
+**Disposition: pending triage.** Reviewer proposal: Implement Chapter 13's states as separate fields. Accept broker-originated terminal events (CANCELED, EXPIRED, REJECTED) from any non-terminal state. Release only the remaining reservation, under the terminal-plus-matching-cum_filled rule from the first finding. UNKNOWN keeps the full reservation until lookup resolves it.
 
 ### BR-REF-14: The successor copies its predecessor's seed and goal, and the book does not say when a successor snapshots policy
 
@@ -1213,6 +1435,8 @@ Sessions in the reference carry no policy hash, eligibility or loss budget, and 
 
 Verifier: Confirmed from the code and Ch.10 l.29. I sharpened the ambiguity to the request-time versus funding-time snapshot.
 
+**Disposition: pending triage.** Reviewer proposal: The successor request snapshots the owner's active default policy version at completion time (seed, terminal-equity goal, eligibility, risk policy, policy_hash) and stores it immutably on the request. Funding uses that snapshot. A change made while the request is WAITING_FUNDS applies only if the owner explicitly re-issues the request, except that emergency restrictions (Ch.10 l.29) apply immediately. Every session row stores its full mandate, and risk checks read the session's snapshot, never global state.
+
 ### BR-REF-15: Successor ids grow by ':next' and _create skips id validation, so the 33rd session in a chain is funded but cannot be addressed
 
 - `reference/engine.py`:290: "request_id = sid + ":next""
@@ -1221,6 +1445,8 @@ Verifier: Confirmed from the code and Ch.10 l.29. I sharpened the ambiguity to t
 Reproduced by looping round-trip completions from 'A'. After 32 successful completions, the successor id is 161 characters long (1 + 5*32). It is funded, but order and complete on it both fail with 'invalid identifier', because _create never calls identity() while every later command does. New sessions are then blocked as 'one active session', so capital stays locked.
 
 Verifier: Confirmed, with one arithmetic correction: the claim said capital locks 'after 31 successful generations', but the lock happens after 32 completions (the 33rd session, generation index 32), which matches the title's '32nd generation' only if 'A' is counted as generation 0. Downgraded to low: this is a reference-only artifact, and production uses generated ids.
+
+**Disposition: pending triage.** Reviewer proposal: Give successors opaque fixed-length ids (for example UUIDv7) and keep the lineage in parent_session_id. Validate every id at creation with the same validator used by later commands.
 
 ### BR-REF-16: A fee adjustment arriving after completion has no defined bucket to absorb it, and protected proceeds lose their session attribution
 
@@ -1233,6 +1459,8 @@ At completion, each pending receivable's owner is overwritten from the session i
 
 Verifier: Narrowed. The original claim that per-session protected amounts 'cannot be reconstructed' is wrong: complete's result, including protected_value, is stored durably in the commands table. Delayed fee finalization is also listed as a reference limitation in Ch.30's map. What survives is the book's silence on which bucket absorbs a post-completion fee.
 
+**Disposition: pending triage.** Reviewer proposal: Use a per-session claim bucket protected_<session_id>. Receivables keep their origin session and gain a separate claim_owner field. A late fee adjustment posts a fee payable linked to its execution and debits protected_<session> (or the cash of a session still running). If that is insufficient, it debits the operational buffer and opens an exception. At completion, retain the policy's fee buffer inside protected_<session> until fees are final. fees_final is derived from broker-statement coverage of every execution in the session.
+
 ### BR-REF-17: Initial capital is not an event and the state projection is not bound to the chain, so state cannot be rebuilt or checked by replay
 
 - `reference/engine.py`:334: "def verify_audit(self) -> bool:"
@@ -1242,6 +1470,8 @@ Verifier: Narrowed. The original claim that per-session protected amounts 'canno
 Reproduced: adding 1,000,000 to deposits and unallocated in the state row still gives verify_audit() == True and check() passes. Deleting the last command and its audit row also gives True. The initial capital never passes through a command. Together with the in-memory reconciled flag, this means state cannot be rebuilt from the command log, so the replay comparisons in Ch.1 l.49 and Ch.28 l.44 ('compare restored state with a known event journal') are impossible.
 
 Verifier: Reproduced. The tamper and truncation parts are partly acknowledged ('Its hash chain is diagnostic, not protection against a database administrator', Ch.31 l.15; Ch.23 l.21). The unacknowledged part is non-reconstructibility: the deposit is outside the event history and no replay check exists.
+
+**Disposition: pending triage.** Reviewer proposal: Record initial capital as an external_flow command. Put a hash of the resulting state (or state version) in each audit event. At startup, rebuild projections from the journal and compare hashes, failing closed on mismatch. Anchor the chain head (seq, hash) in periodic signed checkpoints stored off-host, so truncation is detectable.
 
 ### BR-REF-18: Replaying a control command id returns its historical result: an old start says STARTED while halted, and an old stop says STOP_LATCHED while running
 
@@ -1254,6 +1484,8 @@ Reproduced: after start-2, a stop and a restart, re-sending start-2 returns {'st
 
 Verifier: Reproduced. I added the stop-replay variant, which is the safety-relevant direction.
 
+**Disposition: pending triage.** Reviewer proposal: Treat start and stop ids as single-use against control_epoch. If a later control command has superseded a command's effect, replaying it returns SUPERSEDED together with the current latch state and epoch. The terminal derives latch state only from the projection, never from a command result (Ch.22 l.44).
+
 ### BR-REF-19: The red stop runs through the global invariant check and the full-state rewrite, so a corrupt projection blocks the stop
 
 - `reference/engine.py`:89: "self.check(state)"
@@ -1264,6 +1496,8 @@ Reproduced: after unallocated is incremented by 1 in the state row, stop raises 
 
 Verifier: Reproduced the blocked stop. My latency numbers differ from the claim's (2.2 to 8.8 ms, 196 to 796 KB), but the growth trend is confirmed. The storage format is admitted in Ch.30's map ('Atomic JSON state'); stop being gated by invariants is not.
 
+**Disposition: pending triage.** Reviewer proposal: Store the control latch in its own append-only table, written in a minimal transaction that runs no economic invariants. An invariant failure on any other command sets the latch itself (fail closed) instead of only rolling back. Keep projections per entity (orders, positions, claims) instead of one JSON row.
+
 ### BR-REF-20: Pretrade rules are duplicated in Python and C++ with different meanings, and the native assert harness passes vacuously under NDEBUG
 
 - `reference/risk_kernel.cpp`:20: "if (notional > p.max_notional) return Reason::limit;"
@@ -1273,6 +1507,8 @@ Verifier: Reproduced the blocked stop. My latency numbers differ from the claim'
 Python checks cash net of reservations, with no freshness check or notional cap. C++ checks freshness and max_notional against a caller-supplied free_cash, with no reservations and no sell side. max_notional excludes fees while the cash check includes them, and the book never defines whether a notional cap includes fees. Reproduced: with the stop check deleted and compiled with -DNDEBUG, the harness still prints '11 native boundary checks passed' and exits 0. Without NDEBUG the same mutant aborts (rc=134). The overflow guard is exact: the condition is equivalent to q*l+f > INT64_MAX, and 0 mismatches were found in 500,000 random triples.
 
 Verifier: Reproduced the NDEBUG vacuous pass. Downgraded to low: the documented compile command (Ch.31 l.7) does not set NDEBUG, and Ch.31 l.23 says the kernel 'does not replace portfolio state, reservations or the complete risk service'.
+
+**Disposition: pending triage.** Reviewer proposal: Keep one authoritative pretrade function in C++, called from Python through a binding. Share a JSON file of golden vectors that both languages run in CI. Define free_cash = min(session cash minus session reservations, account availability A from formula 9.1), and state that max_notional is qty*limit, excluding fees. Replace assert with an always-on check that counts failures and returns a nonzero exit code.
 
 ### BR-REF-21: The journal and execution schema allow mixed-scale, unattributed postings and cannot store an amended execution under the same provider id
 
@@ -1285,6 +1521,8 @@ Scale is set per posting line, so one transaction can mix scales for the same cu
 
 Verifier: Confirmed from the schema text. The unbalanced-posting part is acknowledged on schema line 2 and Ch.31 l.41; the other gaps are not.
 
+**Disposition: pending triage.** Reviewer proposal: Fix the scale per currency in a currency table and drop per-line scale, or CHECK it against that table. Add session_id and claim-bucket attribution to postings. Verify balance per (transaction, currency) at commit in the single writer. Add provider_version to the execution key. The connection factory sets foreign_keys=ON, and a startup check asserts PRAGMA foreign_keys = 1.
+
 ### BR-REF-22: The average-cost partial-sale cost is floored, shifting realized P&L between partial fills
 
 - `reference/engine.py`:240: "cost = pos["cost"] if qty == pos["qty"] else pos["cost"] * qty // pos["qty"]"
@@ -1292,6 +1530,8 @@ Verifier: Confirmed from the schema text. The unbalanced-posting part is acknowl
 Reproduced: buy 3@1001 and 4@1000 (cost 7,003 for 7 shares), then sell seven single shares at 1000. Cumulative realized P&L reads [0, 0, 0, 0, -1, -2, -3]; the exact pro-rata values are [-0.43, -0.86, -1.29, -1.71, -2.14, -2.57, -3.00]. Early disposals overstate realized P&L, by up to 1.71 cents in this example. Each partial's floor error is under one unit, and the round-trip total is exact, but per-fill and per-session attribution is biased toward early gains.
 
 Verifier: Reproduced exactly.
+
+**Disposition: pending triage.** Reviewer proposal: Specify the rounding: either round half-even and carry the remainder, or hold cost at an extended scale (for example 1e-6 cents) and round only for reporting. Production uses lots per Chapter 9.
 
 ### BR-SES-01: Availability formula 9.1 has no session-allocation term, an undefined R, and a P that includes receivables, so it misstates fundable cash
 
@@ -1304,6 +1544,8 @@ Verifier: Reproduced exactly.
 
 Verifier: Quotes verified. Arithmetic re-done: 209.90 − 105.80 = 104.10 against a true $100. The opposite reading of R gives $4.10, so the formula is wrong either way. Narrowed one claim: the authorized-capital ceiling does exist (Ch.10:35); the defect is that 9.1 does not reference it. ADR-0006 line 59 has already re-interpreted 9.1 as 'minus every non-outside claim', which agrees with this resolution.
 
+**Disposition: pending triage.** Reviewer proposal: Make `unallocated` a ledger bucket, not a residual of broker cash. Only owner-signed capital authorizations and defined internal returns (closed-session residuals, an enabled seed recycle) credit it, and a successor is funded only from this bucket. Rewrite 9.1 as an account- and currency-level consistency check that runs before every funding commit: min(C_b, C_l) − H ≥ Σ session settled cash (including reservations) + P_settled + B + unallocated. Receivables never count. If the check fails, block funding and open a reconciliation exception. Cap unallocated so that Σ allocations + unallocated + protected ≤ authorized capital. Add the Ch.30 numbers as a test (expected available = 10,000 cents).
+
 ### BR-SES-02: No rule for an execution, bust or correction that arrives after a session is COMPLETED: session state, inventory owner and paying bucket are all unspecified
 
 - `docs/book/28-verification-and-fault-injection.md`:7: "A completed session has no position or open order."
@@ -1315,6 +1557,8 @@ The book requires such events to be ingested (Ch.28:9 and CLAUDE.md:21), so a pr
 
 Verifier: Reclassified from contradiction (critical) to omission (high). Ch.28:7 is scoped to 'the simplified reference', and Ch.28:9 explicitly mandates exception accounting in production, so the book does not tell implementers to reject the fill. The gap is session and bucket handling, which is real. ADR-0008 covers late fees and corrections against protected:<id> but not late fills that create inventory.
 
+**Disposition: pending triage.** Reviewer proposal: Completed sessions are never re-opened and never leave COMPLETED_*. Any execution, bust or correction linked to a completed session's order is journaled to an `exception:<case>` owner attributed to that session. Inventory is held there. Cash effects post against the session's protected bucket, and any shortfall becomes an exception claim against unallocated. Every such event sets an owner latch on the account. Residual inventory is reduced only under the Ch.13:25 narrow-reduction rule. The session gets a `post_completion_adjusted` flag; its success status and its successor are unchanged. Restate the Ch.28 invariant as 'no position or open order outside the exception owner'.
+
 ### BR-SES-03: Unsuccessful sessions have no terminal path, no rule for residual capital and no successor rule
 
 - `docs/book/10-sessions-and-capital.md`:9: "A session can terminate unsuccessfully, wait indefinitely for an admissible opportunity or be stopped by the owner."
@@ -1324,6 +1568,8 @@ Verifier: Reclassified from contradiction (critical) to omission (high). Ch.28:7
 The book never says what makes a session terminate unsuccessfully, which state it ends in (STOPPED or FAILED_REVIEW), where its remaining equity goes (unallocated, protected or held), or whether anything follows it automatically. A grep of docs/book finds no residual-capital rule. One engineer returns the residual to unallocated and lets the coordinator start a replacement, which is exactly the account-draining loop Ch.6:45 warns about. Another strands the residual inside a dead session. A third question is also open: if a session closes above seed but below target, is that profit protected like a successful session's, or recycled?
 
 Verifier: Confirmed: docs/book has no residual-capital or unsuccessful-terminal rule. Note that accepted ADR-0008 (docs/adr) already decided differently on two points. It splits STOPPED into SUSPENDED and CLOSED. On CLOSED it moves ALL cash and receivables to unallocated, with no seed/profit split. The orchestrator should reconcile the proposed above-seed→protected split against ADR-0008.
+
+**Disposition: pending triage.** Reviewer proposal: Unsuccessful terminal conditions are: session risk trigger, loss budget exhausted, owner end, eligibility or artifact revocation, optional max duration, and target observed but not realized. Path: → WINDING_DOWN(reason) → RECONCILING → STOPPED (terminal, flat). STOPPED never creates a successor request. Once the session is flat with no open or UNKNOWN orders and fees are final, return settled residual up to the seed to unallocated and send any amount above the seed to protected; receivables follow the same split when they settle. A new session after a STOPPED one needs an explicit owner command and must pass the cumulative-loss-allowance check.
 
 ### BR-SES-04: Cumulative and daily loss budgets are not defined as gross or net, and the reference nets lifetime profits, so protected gains refill the loss allowance
 
@@ -1336,6 +1582,8 @@ Verifier: Confirmed: docs/book has no residual-capital or unsuccessful-terminal 
 
 Verifier: Probe reproduced: realized_net = 600 after one completed session. The −800 threshold follows from line 328. In that probe the 2% session drawdown trigger fired first (at a 200-cent loss), so the inflation is in the aggregate allowance specifically. That matters across sessions and when drawdown is not the binding trigger.
 
+**Disposition: pending triage.** Reviewer proposal: Cumulative consumption = Σ over terminated sessions max(0, seed − final net value) + Σ over active sessions max(0, seed − current liquidation value) + unattributed losses (exception-ledger losses, unattributed fees). Profits of completed sessions never reduce consumption. Only an owner-signed BUDGET_REVISION policy version raises the allowance. A session may go to READY only when remaining allowance ≥ its loss budget; otherwise it stays WAITING_FUNDS with reason LOSS_ALLOWANCE. An exhausted allowance sets an owner latch.
+
 ### BR-SES-05: The 10-state session machine has no transitions, triggers, guards or terminal states, and the reference uses different states
 
 - `docs/book/10-sessions-and-capital.md`:13: "Use `REQUESTED`, `WAITING_FUNDS`, `READY`, `RUNNING`, `WINDING_DOWN`, `RECONCILING`, `COMPLETED_UNSETTLED`, `COMPLETED_SETTLED`, `STOPPED` and `FAILED_REVIEW`."
@@ -1347,6 +1595,8 @@ Only state names are given. The book never says which transitions are legal, who
 
 Verifier: Confirmed. The flows.md quote is at line 23 (cited as 22). ADR-0008 already adopts a transition table with SUSPENDED, CLOSED and CANCELLED replacing STOPPED, and allows FAILED_REVIEW→previous state. Align this resolution with that ADR rather than introduce a second table.
 
+**Disposition: pending triage.** Reviewer proposal: Adopt an explicit transition table, enforced by a CHECK constraint and a single transition function. REQUESTED→WAITING_FUNDS|READY|STOPPED(cancel or infeasible; no funds moved). WAITING_FUNDS→READY (atomic compare-and-reserve)|STOPPED. READY→RUNNING (account not latched; reconciliation clean)|STOPPED (allocation returned). RUNNING→WINDING_DOWN(reason ∈ TARGET, RISK, OWNER, ELIGIBILITY)|FAILED_REVIEW. WINDING_DOWN→RECONCILING (flat; no open or UNKNOWN orders)|FAILED_REVIEW. RECONCILING→COMPLETED_UNSETTLED (reason=TARGET, final net ≥ goal, fees final)|STOPPED|FAILED_REVIEW. COMPLETED_UNSETTLED→COMPLETED_SETTLED. FAILED_REVIEW→WINDING_DOWN|RECONCILING, by owner only. Terminal states: COMPLETED_SETTLED and STOPPED. Nothing returns to RUNNING from WINDING_DOWN or later. The stop latch is an account overlay, not a session state. One completion transaction sets the state, moves residual to protected and inserts the successor request.
+
 ### BR-SES-06: Target observed on marks but realized net below target: next state undefined; the reference stays RUNNING and accepts new buys
 
 - `docs/book/10-sessions-and-capital.md`:15: "If final net equity falls below target, record that fact; policy must explicitly decide whether the session resumes or stops. The proposed default is to stop and require the ordinary session evaluation path, rather than oscillating automatically between liquidation and re-entry."
@@ -1356,6 +1606,8 @@ Verifier: Confirmed. The flows.md quote is at line 23 (cited as 22). ADR-0008 al
 'The ordinary session evaluation path' is not defined anywhere, and no policy field chooses between resume and stop. Probe (temp copy): a session holding 100 shares marked at 106 (equity 10,600 ≥ goal 10,500), then liquidated at 104 (10,400), cannot complete ('net goal not reached'). It stays RUNNING and accepts a new BUY: the liquidate/re-enter oscillation the book's default forbids. Its capital is never released.
 
 Verifier: Probe reproduced (liquidated at 104 rather than 104.50; same outcome): complete rejected, state RUNNING, new BUY B3 accepted. ADR-0008 names the field `below_target_after_target_observed = CLOSE`.
+
+**Disposition: pending triage.** Reviewer proposal: Add policy field `below_target_after_wind_down` with STOP as the only v1 value. Once wind-down is flat, the session goes RECONCILING→STOPPED with outcome TARGET_OBSERVED_NOT_REALIZED, gets no successor, and its residual follows the unsuccessful-session rule. While a session is WINDING_DOWN, pretrade rejects its exposure-increasing intents. RESUME requires a separate owner-approved release.
 
 ### BR-SES-07: When a successor's mandate is frozen (request creation, funding or start) and whether it inherits the predecessor's terms is ambiguous
 
@@ -1368,6 +1620,8 @@ A successor request is created at predecessor completion and can sit in WAITING_
 
 Verifier: Reclassified from contradiction to ambiguity. Ch.1 (immutable after start) and Ch.10 (snapshot at creation) are logically compatible, since Ch.10 is stricter, but they leave the freeze point for a waiting request undefined. Conflict: accepted ADR-0007 freezes the successor mandate when the request is CREATED and allows an owner to amend a not-yet-running request. The proposed freeze-at-funding contradicts that ADR, so one of them must change.
 
+**Disposition: pending triage.** Reviewer proposal: Freeze the mandate (seed, goal, currency, eligibility, risk parameters, strategy envelope, policy_version_no, policy_hash, mandate_hash) inside the funding transaction (→READY), when money moves. A successor request stores only parent_session_id and creation time; its mandate comes from the default active at funding, never from the predecessor. The defaults editor's 'affected sessions' list is the REQUESTED and WAITING_FUNDS requests. Add mandate columns to the `session` table.
+
 ### BR-SES-08: Whether an ordinary (non-emergency) tightening reaches running sessions is contradictory, and the owner may apparently widen a 'immutable' running session
 
 - `docs/book/01-product-contract.md`:37: "Changes apply to future sessions, except a more restrictive emergency control can stop existing activity immediately."
@@ -1378,6 +1632,8 @@ Ch.1:37 says snapshots are immutable after start. Ch.10:29 implies the owner can
 
 Verifier: Quotes verified; the conflict between immutability and an owner changing running parameters is real, and so is the gap for ordinary tightening. Accepted ADR-0007 chose the opposite on (2): 'Activating a new default never changes an existing mandate', and emergency tightening happens only through the stop latch and account blocks. Reconcile with that ADR.
 
+**Disposition: pending triage.** Reviewer proposal: (1) A frozen mandate is never widened; to widen, the owner ends the session and a new one starts under the new version. (2) Every policy field declares its restrictive direction. When a new version is activated, the restrictive part of each changed field applies immediately to all non-terminal sessions as an overlay (effective = most restrictive of snapshot and overlay); the widening part applies only to future mandates. An 'emergency control' is an overlay with immediate effect. The terminal shows the split before the owner signs.
+
 ### BR-SES-09: Automatic parameter-artifact selection vs 'changing a running strategy's parameters requires an explicit owner action': in-session switching is undefined
 
 - `docs/book/10-sessions-and-capital.md`:29: "Widening limits, raising capital or changing a running strategy's parameters requires an explicit owner action with an audit record."
@@ -1387,6 +1643,8 @@ Verifier: Quotes verified; the conflict between immutability and an owner changi
 Read together, Ch.10:29-31 and Ch.20:3 suggest that owner approval of the envelope pre-authorizes selection inside it. Three things are still undefined. Does an automatic switch of a running session's parameter artifact count as 'changing a running strategy's parameters'? May an artifact approved after the session's immutable 'eligible strategies' snapshot be selected inside that session? What do expiry or quarantine do to a running session? One engineer blocks all in-session switches; another lets the promotion service change live behaviour.
 
 Verifier: Downgraded from contradiction/high to ambiguity/medium. Ch.10:31 and CLAUDE.md:8 make the envelope approval a plausible owner pre-authorization, so the texts are reconcilable. The residual in-session and late-approval question is still a real authority ambiguity.
+
+**Disposition: pending triage.** Reviewer proposal: The mandate snapshots an artifact allowlist (hashes) and its parameter domain. Within a running session, automatic selection may switch only among allowlisted artifacts, and only when the strategy is flat or via the Ch.20:33 rollback procedure. Artifacts approved later apply to future mandates only. Expiry, quarantine and retirement are restrictive overlays that disable new entries at once; existing positions follow their existing policy.
 
 ### BR-SES-10: The daily loss trigger has no day boundary, measure or reset rule, and its denominator is unset in simulation
 
@@ -1399,6 +1657,8 @@ No 'configured risk calendar' field exists: there is no timezone or roll time. T
 
 Verifier: Confirmed. Narrowed: the denominator IS named (authorized capital); the defect is that it has no value in SIMULATION and is null for live. Dropped the reference comparison (200 vs 300 cents): Ch.31:15 says the reference omits a complete daily loss policy, so loss_limit=200 is not claimed to be the daily trigger.
 
+**Disposition: pending triage.** Reviewer proposal: Add per-account `risk_day_timezone` and `risk_day_roll_local_time` (US default America/New_York 20:00). At the roll, persist a start-of-day liquidation value of the authorized pool: unallocated + session cash + receivables + Σ qty × bid − estimated exit fees, excluding protected and adjusted for external flows. Daily loss = SOD value − current value; denominator = authorized capital at SOD. A trip sets an owner latch: block and cancel entries, with no automatic liquidation. Consumption resets at the roll; the latch does not. If the system was down across a roll, take the snapshot at the first clean reconciliation and flag the day degraded. Compute per account in account currency.
+
 ### BR-SES-11: Green preflight predicates ('clean reconciliation', 'fresh policy', 'adequate funds') are undefined, and 'adequate funds' would wrongly keep the latch set
 
 - `docs/book/13-order-execution.md`:23: "The green button requires an explicit owner action, authenticated session, clean reconciliation, eligible account, adequate funds, fresh policy and healthy critical services. It clears the latch only after the checks pass."
@@ -1408,6 +1668,8 @@ Verifier: Confirmed. Narrowed: the denominator IS named (authorized capital); th
 'Clean' could mean zero differences or within tolerance. How recent the reconciliation must be is unstated: relative to the latch, to the last broker event, to process start? 'Fresh policy' could mean newest, signed or unexpired. 'Adequate funds' as a latch-clear condition keeps the account latched whenever all capital is protected or allocated, even though risk reduction needs no funds. Ch.22:26 and Ch.30:7 do require a fresh or expected state version on the command. But no rule ties the preflight report to that version, so a fill arriving between check and clear may be missed.
 
 Verifier: Confirmed for the undefined predicates and the funds-as-latch-gate problem. Narrowed the atomicity claim: the book does require a fresh or expected state version (Ch.22:26, Ch.30:7). What is missing is binding the preflight report to it. ADR-0010 already enumerates preflight checks; it drops 'adequate funds' and does not bind a report id.
+
+**Disposition: pending triage.** Reviewer proposal: Preflight produces a persisted report with enumerated predicates. The green command carries report_id and expected state_version, and the writer clears the latch by compare-and-set only if state_version is unchanged and the report is at most 60 s old. Predicates: owner step-up auth within 5 min; this gateway holds the fencing token; a reconciliation started after the latch epoch and after the latest execution watermark, completed with zero quantity, cash or order differences (valuation-only differences within typed tolerance); zero UNKNOWN orders; zero open exception items; broker account identity and mode match the deployment record; active policy version signed and equal to the version shown; every latch-originating trigger resolved; DB writable and fsync healthy; required market data fresh. Funds are informational and gate session READY, not the latch.
 
 ### BR-SES-12: Which blocks need owner green and which clear automatically (auth expiry, IBKR restart, mismatch, unknown order, risk triggers) is unspecified
 
@@ -1420,6 +1682,8 @@ The book uses 'latch', 'block' and 'resume' loosely. Ch.12:17 and Ch.26:23 read 
 
 Verifier: Quotes verified; the inconsistency between Ch.12 and Ch.26 'resume' and Ch.13 and CLAUDE.md 'owner green' is real. ADR-0010 partly decides this: auto-resume after a restart is allowed only with `auto_resume_after_clean_reconciliation=true` (default false), and every risk stop needs owner green. Under that default, the IBKR scheduled restart requires owner green. Reconcile.
 
+**Disposition: pending triage.** Reviewer proposal: Add a typed block registry. OWNER_LATCH is cleared only by green with preflight. It covers: owner red; account daily or cumulative loss trigger; unexplained quantity or cash difference; any exception-journal item; credential compromise; unclean crash restart, failover or restore; an UNKNOWN order unresolved after 60 s or resolved to a discrepancy. AUTO_CONDITION clears when its predicate holds and no OWNER_LATCH exists. It covers: market closed, stale data, rate limit, insufficient funds, broker auth expired (after re-auth plus a zero-difference reconciliation), clean planned restart including the IBKR scheduled restart (after a zero-difference reconciliation), and an UNKNOWN order resolved cleanly within 60 s. Journal every block and clear.
+
 ### BR-SES-13: The stop latch's scope, storage location, enforcement point and behaviour on persistence failure or failover are unspecified
 
 - `docs/book/13-order-execution.md`:21: "The red button first persists a global stop latch and prevents new exposure-increasing commands."
@@ -1431,6 +1695,8 @@ Ch.13 says 'global' and Ch.26 says 'affected account'. It is not said whether th
 
 Verifier: Confirmed. Added the Ch.26:19 'affected account' quote to show the global-versus-account inconsistency. ADR-0011 covers execution-ownership transfer but this verifier did not check whether it covers latch mirroring at the gateway.
 
+**Disposition: pending triage.** Reviewer proposal: Latches are per broker account, plus an installation-wide latch that sets every account latch. Store them in the fenced writer's ledger and mirror them in an fsync'd file at the credential-owning gateway. The gateway checks (fencing token, latch epoch) on every exposure-increasing submit. Red is accepted on any instance and routed to the gateway. If the journal write fails, the gateway latches in memory and in its file and still sends cancels; stop is never blocked by persistence. Any new leader after failover, restore or an unreadable ledger starts with OWNER_LATCH set.
+
 ### BR-SES-14: 'Sufficiently finalized fees' and the fee buffer are undefined, and fee adjustments after completion have no designated bucket
 
 - `docs/book/10-sessions-and-capital.md`:7: "Completion requires flat inventory, no unresolved orders, reconciled net proceeds and sufficiently finalized fees."
@@ -1441,6 +1707,8 @@ The goal test (net ≥ goal) depends on fees. One engineer completes on fill-tim
 
 Verifier: Confirmed. ADR-0008 already decides that late fees post against protected:<id> and completion stands, which agrees with this resolution. The definition of 'fees final' and the size and location of the buffer remain open.
 
+**Disposition: pending triage.** Reviewer proposal: 'Fees final' means every session execution has a broker-reported commission record and no estimate-only fee line remains. A policy `fee_holdback_bps` of sell notional is held in the session's protected bucket until statement reconciliation. The goal test uses net after broker-reported fees minus the holdback. Post-completion fee adjustments debit the holdback first, then the session's protected bucket, never the successor or unallocated, and never revoke completion. They set `post_completion_adjusted` and the terminal shows any resulting net below goal.
+
 ### BR-SES-15: A protected receivable that fails to settle after COMPLETED_UNSETTLED has no transition or accounting rule
 
 - `docs/book/09-ledger-and-settlement.md`:43: "The state machine is expected, pending, confirmed or exception."
@@ -1449,6 +1717,8 @@ Verifier: Confirmed. ADR-0008 already decides that late fees post against protec
 A receivable can reach 'exception' (failed delivery, broker reversal, bust), but the session machine only goes from COMPLETED_UNSETTLED to COMPLETED_SETTLED. The book does not say how long to wait before declaring the exception, whether the protected amount is reduced, whether the account latches, or whether a seed recycle (if enabled) may release money that never settled.
 
 Verifier: Confirmed against the book. ADR-0008 ('Failed settlement') already opens an exception after expected date plus a grace period and keeps the session COMPLETED_UNSETTLED. It does not say whether the account latches.
+
+**Disposition: pending triage.** Reviewer proposal: Each receivable gets an expected settlement date from the instrument calendar. If it is still unconfirmed one business day after that date, it moves to exception. That sets an OWNER_LATCH and leaves the session in COMPLETED_UNSETTLED with `settlement_exception=true`. Economic changes post as correction entries against that session's protected bucket, through the exception ledger. The independently funded successor is unaffected. COMPLETED_SETTLED requires every receivable confirmed and reconciled. Seed recycle and holdback release are allowed only from COMPLETED_SETTLED.
 
 ### BR-SES-16: A session drawdown's scope and action are undefined; in the reference, a target-level HWM plus normal give-back latches the whole account
 
@@ -1459,6 +1729,8 @@ Verifier: Confirmed against the book. ADR-0008 ('Failed settlement') already ope
 The book does not say whether a session drawdown stops only that session or latches the account (the reference sets halted=True), or whether 'requests exposure reduction' means automatic liquidation or only blocked entries. Probe (temp copy): 100 shares bought at 100, marked at 106 (HWM 10,600), then marked at 103 (10,300 ≤ 10,600 × 0.98 = 10,388). The session went to RISK_STOP and the account to halted=True. That happens during ordinary give-back after the target was observed, while the session is still above seed.
 
 Verifier: Probe reproduced: state RISK_STOP, halted True. Conflict: accepted ADR-0010 says a risk stop including drawdown 'sets the latch' (account-wide, owner green to clear), and ADR-0008 sends a session risk trigger to SUSPENDED (positions held). The proposed resolution (no account latch, auto-reduce) contradicts both ADRs, so reconcile.
+
+**Disposition: pending triage.** Reviewer proposal: A session drawdown moves the session to WINDING_DOWN(reason=RISK) with automatic reduction under the approved execution policy, then → RECONCILING → STOPPED. It does not set the account latch; account-level daily and cumulative triggers do that. During WINDING_DOWN(reason=TARGET), a drawdown breach only changes the reason to RISK and records the event. HWM and value use liquidation value (bid − estimated exit fees), adjusted for external flows.
 
 ### BR-SES-17: Neither the red stop nor wind-down says what happens to exits: resting sells, wind-down sells under a latch or after restart, and the default emergency policy
 
@@ -1471,6 +1743,8 @@ No config field holds the 'configured emergency policy'. Not stated: whether red
 
 Verifier: Confirmed: paper_defaults.json has no emergency or stop-liquidation field. ADR-0010 adds `on_stop_liquidation` (default NONE: working sells stay working, nothing new sold), and ADR-0008 continues wind-down after the recovery gate. Both are consistent with this resolution, except for the question of whether wind-down continues under an owner red latch.
 
+**Disposition: pending triage.** Reviewer proposal: Add a `stop_policy` enum {BLOCK_AND_CANCEL_ENTRIES (default), BLOCK_CANCEL_AND_FLATTEN}. Under the default, red cancels open buys, leaves resting sells working, and submits no new automatic sells, including wind-down child orders. FLATTEN submits price-collared limit sells only for confirmed unreserved long inventory. Under latches raised by a risk trigger, wind-down reduction continues. WINDING_DOWN and its reason persist across restarts. After any restart, nothing is sent until a reconciliation finishes with zero quantity differences. Then risk-reducing wind-down sells resume unless an owner red latch with BLOCK_AND_CANCEL_ENTRIES is set.
+
 ### BR-SES-18: The 'signed policy registry' (R13) has no signature, monotonic version, active pointer, status or verifier in the schema
 
 - `docs/book/01-product-contract.md`:21: "| R13 | Human controls settings and code | Signed policy registry | Unauthorized mutation tests |"
@@ -1482,6 +1756,8 @@ R13 promises a signed registry. The schema stores `authorized_by` as free text a
 
 Verifier: Confirmed. The schema header (line 2) says 'policy authorization ... require service logic', but a signature and an active pointer still need storage, and neither the book nor the schema specifies the signing scheme or ordering. ADR-0007 adds publish/activate as separate owner commands but no signature.
 
+**Disposition: pending triage.** Reviewer proposal: policy_version(version_no INTEGER PRIMARY KEY monotonic; policy_hash UNIQUE; supersedes_version_no; kind ∈ {DEFAULT, RESTRICTIVE_OVERLAY, BUDGET_REVISION}; status ∈ {PENDING, ACTIVE, SUPERSEDED, REVOKED}; signed_by_principal; signature, an owner WebAuthn assertion over the canonical hash; created_at; effective_at = commit time). Exactly one ACTIVE DEFAULT exists, and overlays stack. Verify the signature against an owner public key pinned in the deployment record before activation. Commands carry an expected version_no and are rejected if it is stale. Agent DB roles have no write grant on policy tables.
+
 ### BR-SES-19: Reference RISK_STOP is absorbing: after a drawdown the account can never restart and the session's cash is stranded
 
 - `reference/engine.py`:157: "if any(x["state"] == "RISK_STOP" for x in state["sessions"].values()):
@@ -1492,6 +1768,8 @@ Verifier: Confirmed. The schema header (line 2) says 'policy authorization ... r
 No command moves a session out of RISK_STOP. Probe (temp copy): buy 100 at 100, mark at 97 → RISK_STOP and halted. The flattening sell and its settlement succeed (session cash 9,700, flat). Then `complete` is rejected ('not flat, running and fee-finalized'), `start` is rejected permanently ('risk-stopped session requires review'), and a new session is rejected ('not started and reconciled'). The 9,700 cents stay locked and the account can never trade again. Ch.31 implies a non-ordinary path, but none exists.
 
 Verifier: Probe reproduced exactly. Downgraded to medium because it is offline reference code that Ch.31 partly acknowledges. It still matters because the reference is the executable model implementers port.
+
+**Disposition: pending triage.** Reviewer proposal: In production, map a risk stop to WINDING_DOWN(reason=RISK)→RECONCILING→STOPPED, with residual release per the unsuccessful-session rule, and clear any account latch through owner green with preflight. Add a test: drawdown → flatten → settle → STOPPED → owner green → new session funded from unallocated.
 
 ### BR-SES-20: WAITING_FUNDS re-evaluation triggers, ordering, partial funding, latch interaction and 'active' counting are unspecified; the reference never re-funds a waiting successor
 
@@ -1505,6 +1783,8 @@ Unstated: what event re-runs the funding check; in what order waiting and owner-
 
 Verifier: Probe reproduced: requests['A:next'].state stays WAITING_FUNDS after green with unallocated=20000; the retry returns WAITING_FUNDS. ADR-0008 sets the retry triggers (settlement, capital authorization, session close/cancel) but not ordering, the concurrency definition or latch interaction. ADR-0010 lists 'fundings that lead to entries' as blocked by the latch, which conflicts with 'allocation allowed while latched'.
 
+**Disposition: pending triage.** Reviewer proposal: Run the funding evaluator after every commit that increases unallocated, on green, on policy activation, and every 60 s. Fund FIFO by request time, with owner-marked priority as the only override. No partial funding. Allocation (→READY) is allowed while latched because it only moves policy money; READY→RUNNING is blocked while latched. Active states for the concurrency limit: READY, RUNNING, WINDING_DOWN, RECONCILING and FAILED_REVIEW. A successor may go READY while its predecessor is COMPLETED_UNSETTLED.
+
 ### BR-SES-21: Paper defaults lack fields the book requires, so a fail-closed loader blocks paper trading or engineers invent values
 
 - `config/paper_defaults.json`:18: ""live_authorized_capital_cents": null,"
@@ -1516,6 +1796,8 @@ In SIMULATION mode the daily trigger is a bps of authorized capital, yet there i
 
 Verifier: Confirmed by reading paper_defaults.json; none of those fields exist. The file's own note admits it is incomplete. ADR-0007 requires missing fields to fail validation, which makes this blocking.
 
+**Disposition: pending triage.** Reviewer proposal: Add `simulation_authorized_capital_cents` (30000, matching the worked examples), `cumulative_loss_allowance_cents`, `operational_buffer_cents`, `risk_day_timezone`, `risk_day_roll_local_time`, `fee_holdback_bps`, `stop_policy`, `below_target_after_wind_down`, `seed_recycle` (object, disabled) and `session_loss_budget_cents`. Validate with a strict JSON Schema that rejects missing or null fields for the active mode.
+
 ### BR-SES-22: 'Target observation' has no valuation basis or freshness rule, so an irreversible wind-down can fire on unexecutable mid or last prices
 
 - `docs/book/10-sessions-and-capital.md`:15: "At target observation, stop new entries for that session and cancel outstanding entry orders."
@@ -1524,6 +1806,8 @@ Verifier: Confirmed by reading paper_defaults.json; none of those fields exist. 
 Unstated: whether session equity uses last, mid or bid; whether estimated exit fees and any holdback are deducted; how fresh the quote must be. A mid or last basis triggers the wind-down, which under the default is effectively irreversible, whenever the spread alone separates the mark from achievable value. A bid-net-of-costs basis triggers later. The reference implements no target check at all (`mark` never compares to goal).
 
 Verifier: Confirmed: engine.py _cmd_mark has no goal comparison. ADR-0008 already chooses bid from a fresh quote.
+
+**Disposition: pending triage.** Reviewer proposal: Observed equity = settled session cash + session receivables − fee holdback + Σ qty × fresh best bid − estimated exit fees. An observation needs two consecutive fresh evaluations at least 5 s apart at or above goal, and is recorded with the quotes used. Stale quotes never produce an observation.
 
 ### BR-SES-23: Infeasible small sessions: whether a funded session is created (Ch.1) or the request is rejected (Ch.6) is ambiguous
 
@@ -1534,6 +1818,8 @@ In context, 'requests' in Ch.6 may mean order requests, which is consistent with
 
 Verifier: Reclassified from contradiction to ambiguity. A coherent reading (configuration accepted, orders rejected) exists, but it leaves capital and the single slot locked, and the alternative reading is equally available.
 
+**Disposition: pending triage.** Reviewer proposal: A policy version with an infeasible seed may be saved, with a terminal warning, because it is configuration. Feasibility is checked inside the funding transaction: at least one eligible instrument must satisfy min lot × fresh ask + round-trip fee envelope ≤ seed. Otherwise the request goes to STOPPED(INFEASIBLE) without moving funds or creating a successor.
+
 ### BR-SES-24: Deployment record fields in Ch.1 do not match deployment_record.example.json
 
 - `docs/book/01-product-contract.md`:43: "Create a deployment record with `owner_residency`, `broker_entity`, `account_type`, `base_currency`, `permissions`, `market_data_entitlements`, `authorized_capital`, `operating_budget`, `policy_version`, `verified_at` and `evidence_reference`."
@@ -1542,6 +1828,8 @@ Verifier: Reclassified from contradiction to ambiguity. A coherent reading (conf
 The JSON has no `owner_residency`, `base_currency`, `permissions`, `operating_budget`, `policy_version`, `verified_at` or `evidence_reference`. It names `broker_legal_entity` and `authorized_capital_cents` instead of `broker_entity` and `authorized_capital`, and adds fields Ch.1 never mentions (`status`, `cumulative_loss_allowance_cents`, `operational_fee_buffer_cents`, `residence_eligibility_confirmed` and others). A preflight validator built from one will not validate the other, and the policy binding has no field to live in.
 
 Verifier: Field-by-field comparison done; every claimed mismatch holds. `permissions` is also absent; the JSON has permitted_markets and permitted_instruments instead.
+
+**Disposition: pending triage.** Reviewer proposal: Publish one strict JSON Schema as the union, using unit-suffixed names (`*_cents`, `broker_legal_entity`). Required fields: `policy_version_no`, `verified_at`, `base_currency`, `evidence_reference` and `owner_policy_public_key`. Live-mode preflight requires status != BLOCKED_FOR_LIVE and every gate boolean true. Unknown fields are rejected.
 
 ### BR-SES-25: 'Limited seed recycle' is undefined: amount, timing and cap are unspecified
 
@@ -1552,6 +1840,8 @@ When the owner enables it, one engineer recycles the whole protected amount and 
 
 Verifier: Confirmed. ADR-0008 makes this moot for v1 (no reinvestment rule in the initial schema), so this is low severity.
 
+**Disposition: pending triage.** Reviewer proposal: Turn the flag into an object {enabled, max_recycles_per_chain}. Once enabled by an owner-signed policy, recycle only at COMPLETED_SETTLED after the fee holdback is released. Move min(seed, that session's settled protected amount) to unallocated in a journal entry; profit above seed stays protected.
+
 ### BR-SES-26: Reference successor ID is string-concatenated (sid + ':next'), so a session ID collision blocks completion
 
 - `reference/engine.py`:290: "request_id = sid + ":next""
@@ -1560,4 +1850,6 @@ Verifier: Confirmed. ADR-0008 makes this moot for v1 (no reinvestment rule in th
 Probe (temp copy): create session 'A:next', run it to profit, latch, and complete it, so 'A:next:next' waits. Green, then create 'A' and run it to a profitable flat state. Completing 'A' is rejected with 'session identity already exists' and the whole transaction rolls back; A stays RUNNING. While unlatched with funds available, a successful session can never complete.
 
 Verifier: Probe reproduced exactly: 'complete A: REJECTED: session identity already exists', state A RUNNING. If completed while latched, _create is skipped and completion succeeds, so the failure needs an unlatched account with funds.
+
+**Disposition: pending triage.** Reviewer proposal: Generate the successor ID as an opaque UUID, and enforce one successor per parent through `session.parent_session_id UNIQUE` (already in ledger_schema.sql line 15), inserted in the same completion transaction.
 
