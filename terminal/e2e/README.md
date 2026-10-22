@@ -60,3 +60,29 @@ The harness runs the real `unknown.service.core.main` and `unknown.api.server.ma
 It also checks five widths, from 390 px to 1600 px: no sideways page scroll, no header items drawn over each other, and STOP and the mode badge in view.
 
 `00-audit-selftest.spec.ts` gives each check a page with one known defect and requires it to be reported. A clean page must report nothing, so a silent check cannot pass the workspace audit vacuously.
+
+`03-research.spec.ts` covers the Company, Markets & macro and Research workspaces. It runs after the other files, on the same backend:
+
+1. **Before any research data:** each workspace shows the API's unavailable reason verbatim and the command that would populate it (`python -m unknown.data.sec ingest --cik <CIK>`, the Treasury and ECB ingest commands, `python -m unknown.research.study`). The formula registry, which is served from code, is available.
+2. **Seeding:** `support/seed_research.py --home <run home>` writes the run's research store and registry, where the API reads them. All of it is SYNTHETIC and labelled FIXTURE:
+   - the backend's fixture SEC issuers (`backend/tests/test_company_fixtures.py`), ingested through the real `unknown.data.sec.ingest` path with a fake opener;
+   - a Treasury par curve on 2026-10-20 and 2026-10-21 (the second without the 1.5M tenor) and ECB rates for four currencies, both through the real parsers with a stub fetcher;
+   - the fixture study (`unknown.research.study`).
+3. **Company** (every check uses a fixed as-of, so results do not depend on the run date):
+   - search, and the tearsheet blocks with their reasons;
+   - a restated FY2025 revenue whose original value is what an earlier as-of shows;
+   - MISSING, NO_PRICE and INCOMPLETE reasons verbatim, and a show-calculation with the EV bridge;
+   - the DCF recipe (WACC build-up from the Treasury 10Y), an UNAVAILABLE risk-free rate with its command, a REFUSED model (WACC <= g);
+   - peers.
+4. **Macro:** the curve with its missing tenor, a comparison date, a past as-of that hides the later curve, ECB rates and USD crosses.
+5. **Research:**
+   - experiments with FIXTURE labels and the holdout access log;
+   - trials filtered by segment, and a trial's return chart, money and manifest;
+   - an artifact's history and gate verdicts (PAIRED_BOOTSTRAP fails with its reason);
+   - a report, a specification and the formula filter.
+6. **Accessibility and layout:**
+   - the `support/a11y.ts` checks on 20 of these views and on a computed DCF, in both themes;
+   - keyboard focus indicators through the statements and the DCF form;
+   - no sideways page scroll at 390 px.
+
+Run it alone with `npx playwright test e2e/03-research.spec.ts`. Global setup still starts a fresh core and API.
