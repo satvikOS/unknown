@@ -394,6 +394,32 @@ class SizingTest(unittest.TestCase):
             self.assertTrue(set(o.values()).isdisjoint(a.values()))
 
 
+class JournalPerAccountTest(unittest.TestCase):
+    """Review fix: the journal and the runner lock were keyed by the artifact alone, so one home running the same
+    artifact for a second account found the first account's final rows and reported every instrument "already
+    decided": the second account's decisions were never made or recorded (and the lock refused the second runner)."""
+
+    def test_two_accounts_have_separate_journals_and_locks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = Paths(Path(tmp))
+            aid, day, clock = "TREND_DAILY_V1@0123456789abcdef", date(2026, 10, 21), ManualClock(utc_ns(2026, 10, 22, 12))
+            first = StrategyRunner(RunnerConfig(aid, "SIM-1", "live", paths), clock=clock)
+            self.addCleanup(lambda: first.lock.fd is not None and first.close())
+            first.journal.plan([{"artifact_id": aid, "session_date": day, "instrument_id": "FIX-EQ-1", "mode": "live",
+                                 "state": "RECORDED", **decision_ids(aid, day, "FIX-EQ-1"), "decision_payload": {}}], clock.now_ns())
+            second = StrategyRunner(RunnerConfig(aid, "SIM-2", "live", paths), clock=clock)   # same artifact, other account
+            self.addCleanup(lambda: second.lock.fd is not None and second.close())
+            self.assertNotEqual(first.cfg.journal_path, second.cfg.journal_path)
+            self.assertIsNone(second.journal.get(day, "FIX-EQ-1"))
+            self.assertEqual(first.journal.get(day, "FIX-EQ-1")["state"], "RECORDED")
+            with self.assertRaises(RunnerError) as cm:      # still one runner per (account, artifact)
+                StrategyRunner(RunnerConfig(aid, "SIM-1", "shadow", paths), clock=clock)
+            self.assertEqual(cm.exception.code, "RUNNER_ALREADY_RUNNING")
+            for bad in ("../SIM-1", "a/b", "", ".hidden"):
+                with self.assertRaises(ValueError):
+                    RunnerConfig(aid, bad, "live", paths)
+
+
 class ExcludedInstrumentKeepsItsShareOfTheCapTest(unittest.TestCase):
     """Review fix: an instrument the runtime may not trade at a decision (here: no bar for the session) keeps its
     share of the aggregate cap, as in the engine. It used to be dropped from the targets before sizing, so the
@@ -571,6 +597,15 @@ class RealCoreCase(unittest.TestCase):
         finally:
             conn.close()
 
+    def lose_journal(self, name: str) -> None:
+        """Delete the runner's journal (as a lost disk would); it must have existed."""
+        path = RunnerConfig(self.ids[name], ACCOUNT, "live", self.paths).journal_path
+        self.assertTrue(path.is_file(), path)
+        for suffix in ("", "-wal", "-shm"):
+            p = Path(str(path) + suffix)
+            if p.exists():
+                p.unlink()
+
     def runner(self, name: str, mode: str, **kw) -> StrategyRunner:
         r = StrategyRunner(RunnerConfig(self.ids[name], ACCOUNT, mode, self.paths), clock=self.clock, **kw)
         self.addCleanup(lambda: r.lock.fd is not None and r.close())
@@ -648,10 +683,7 @@ class LiveRunnerTest(RealCoreCase):
         self.assertEqual((len(self.orders(a)), len(self.decisions(a))), (1, 2))
 
         # lost journal: the core's stored commands are adopted instead of deciding again
-        for suffix in ("", "-wal", "-shm"):
-            p = Path(str(self.paths.root / "strategy" / f"{a}.journal.sqlite") + suffix)
-            if p.exists():
-                p.unlink()
+        self.lose_journal("A")
         with self.runner("A", "live") as r3:
             s3 = r3.run_once()
             adopted = r3.journal.rows(self.day)
@@ -729,10 +761,7 @@ class CrashResumeTest(RealCoreCase):
         with self.assertRaises(Crash):
             r.run_once()
         r.close()
-        for suffix in ("", "-wal", "-shm"):
-            p = Path(str(self.paths.root / "strategy" / f"{a}.journal.sqlite") + suffix)
-            if p.exists():
-                p.unlink()
+        self.lose_journal("A")
         with self.runner("A", "live") as again:
             s = again.run_once()
         one, two = s["instruments"]["FIX-EQ-1"], s["instruments"]["FIX-EQ-2"]

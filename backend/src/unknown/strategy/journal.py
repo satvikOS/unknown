@@ -12,8 +12,9 @@ States: PLANNED -> SUBMITTED (submit result stored; skipped in shadow mode or wi
 -> RECORDED (the core recorded the decision) or REFUSED (the core refused the record, e.g. an artifact that the
 session mandate does not list). RECORDED and REFUSED are final for that session and instrument.
 
-The journal lives beside the runtime state (``<UNKNOWN_HOME>/strategy/<artifact>.journal.sqlite``, 0700 dir). If
-it is lost, ``CoreView.commands`` is consulted before deciding again (see ``runner.StrategyRunner``)."""
+The journal lives beside the runtime state (``<UNKNOWN_HOME>/strategy/<account>/<artifact>.journal.sqlite``, 0700
+dir; one journal per account and artifact). If it is lost, ``CoreView.commands`` is consulted before deciding again
+(see ``runner.StrategyRunner``)."""
 from __future__ import annotations
 
 import hashlib

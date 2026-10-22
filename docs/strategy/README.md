@@ -104,7 +104,7 @@ strat.<artifact>.<YYYYMMDD>.<h16>.decision    record_strategy_decision command i
 sr-<YYYYMMDD>-<h16>                           client order id
 ```
 
-The journal, `<home>/strategy/<artifact>.journal.sqlite`, stores the exact payloads before anything is sent.
+The journal, `<home>/strategy/<account>/<artifact>.journal.sqlite`, stores the exact payloads before anything is sent. There is one journal per account and artifact, because what was decided is a fact of one account's core.
 
 | Failure | What happens (tested) |
 |---|---|
@@ -112,7 +112,7 @@ The journal, `<home>/strategy/<artifact>.journal.sqlite`, stores the exact paylo
 | Crash after the core accepted an intent, before the journal knew | The same command is resent under the same id. The core returns its stored result (`duplicate: true`), and the decision is recorded once. |
 | Core down | Decisions stay PLANNED. After the core is back (and the owner's green start), exactly the planned payloads are sent, once. |
 | Journal lost | The core's stored commands are adopted: a recorded decision is not decided again. A stored intent without a record is recorded from the core's stored result and never resubmitted. |
-| Two runners for one artifact | The second refuses (`RUNNER_ALREADY_RUNNING`, exclusive `flock`). |
+| Two runners for one artifact and account | The second refuses (`RUNNER_ALREADY_RUNNING`, exclusive `flock`). The same artifact may run for another account; it has its own journal. |
 
 The order id cannot be reused either: the core refuses `DUPLICATE_ORDER_ID`.
 

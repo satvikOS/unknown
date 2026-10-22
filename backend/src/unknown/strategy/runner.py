@@ -38,6 +38,7 @@ import errno
 import fcntl
 import logging
 import os
+import re
 import threading
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
@@ -66,6 +67,7 @@ log = logging.getLogger("unknown.strategy")
 MAX_REASON = 1000
 DEFAULT_GRACE_S = 600
 DEFAULT_POLL_S = 60
+_ACCOUNT_DIR = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")    # an account key usable as one path component
 
 
 class RunnerError(Exception):
@@ -191,16 +193,20 @@ class RunnerConfig:
     calendar: BusinessCalendar = WEEKDAYS_ONLY
     registry_path: Path | None = None           # default <home>/research/experiments.sqlite
     research_path: Path | None = None           # default <home>/research/research.sqlite (point-in-time store)
-    journal_path: Path | None = None            # default <home>/strategy/<artifact>.journal.sqlite
+    journal_path: Path | None = None            # default <home>/strategy/<account>/<artifact>.journal.sqlite
 
     def __post_init__(self) -> None:
         artifacts.split_id(self.artifact_id)
         if self.mode not in artifacts.MODES:
             raise ValueError(f"mode must be one of {artifacts.MODES}")
+        if not isinstance(self.account_key, str) or not _ACCOUNT_DIR.fullmatch(self.account_key) or ".." in self.account_key:
+            raise ValueError(f"account key {self.account_key!r} cannot name a journal directory")
         root = self.paths.root
         self.registry_path = Path(self.registry_path or root / "research" / "experiments.sqlite")
         self.research_path = Path(self.research_path or root / "research" / "research.sqlite")
-        self.journal_path = Path(self.journal_path or root / "strategy" / f"{self.artifact_id}.journal.sqlite")
+        # One journal (and one lock) per account AND artifact: decisions, ids and "already decided" are facts of one
+        # account's core, so a journal shared across accounts would skip the second account's decisions (review fix).
+        self.journal_path = Path(self.journal_path or root / "strategy" / self.account_key / f"{self.artifact_id}.journal.sqlite")
 
 
 @dataclass
@@ -218,7 +224,7 @@ class _Decision:
 
 
 class RunnerLock:
-    """One runner per artifact and journal: an exclusive ``flock`` held for the process's lifetime."""
+    """One runner per journal, i.e. per account and artifact: an exclusive ``flock`` held for the process's lifetime."""
 
     def __init__(self, path: Path):
         self.path = Path(str(path) + ".lock")
