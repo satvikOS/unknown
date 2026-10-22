@@ -2,6 +2,7 @@
  * Orders workspace model: routes, order-state classification, cancel eligibility, hold summaries and
  * timeline summaries. Pure functions (unit tested); the core remains the authority for every state.
  */
+import { isNsStringSibling } from '../../api/nsStrings';
 import type { EventRecord, Order, OrderDetail, OrderHold, OutboxRow } from '../../api/types';
 
 /** GET /api/orders/{id} (api/queries.py order_detail); the shared type now carries every named field. */
@@ -158,7 +159,7 @@ export function summarizeEventInfo(e: Pick<EventRecord, 'info'>): string {
   }
   if (typeof info.required_cash === 'string') parts.push(`required cash ${info.required_cash}`);
   const keys = Object.keys(info)
-    .filter((k) => !['decision', 'quote', 'required_cash'].includes(k))
+    .filter((k) => !['decision', 'quote', 'required_cash'].includes(k) && !isNsStringSibling(k, info))
     .sort();
   let nested = 0;
   for (const k of keys) {

@@ -17,20 +17,23 @@ import signal
 import threading
 import time
 from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from pathlib import Path
 
 from ..broker.port import BrokerPort
-from ..core.desk import Command, Context, Desk, HealthSnapshot, open_desk
+from ..api.queries import command_events, stored_command
+from ..core.desk import Command, Context, Desk, HealthSnapshot, Result, open_desk
 from ..core.handlers import control as control_handlers
 from ..domain.calendar import WEEKDAYS_ONLY, load_calendars
+from ..domain.canonical import canonical_json, sha256_hex
 from ..domain.clock import Clock, SystemClock, NS_PER_S
-from ..domain.errors import LeaseLost
+from ..domain.errors import CommandConflict, LeaseLost
 from ..domain.ids import IdGenerator
 from ..domain.principal import Principal, Role
 from ..gateway.runner import GatewayRunner
 from ..reconcile.reconciler import Reconciler
-from .ipc import CoreSocketServer, Grant
+from .ipc import CoreSocketServer, Grant, OutcomeUnknown, describe_request
 from .paths import Paths
 
 log = logging.getLogger("unknown.core")
@@ -75,6 +78,7 @@ class CoreService:
         self.instrument_map: dict[str, str] = {}
         self.instrument_details: dict[str, tuple[str, str]] = {}
         self.lease_lost = False
+        self.request_wait_s = 30.0   # how long a socket client waits for the loop to execute its request
         self._last_heartbeat = float("-inf")
 
     # ---------------------------------------------------------------- socket
@@ -83,8 +87,13 @@ class CoreService:
         try:
             self.requests.put_nowait((req, roles, fut))
         except queue.Full:
-            raise RuntimeError("core busy: request queue full") from None
-        return fut.result(timeout=30)
+            raise RuntimeError("core busy: request queue full") from None   # not queued: never executed
+        try:
+            return fut.result(timeout=self.request_wait_s)
+        except FutureTimeout:
+            # The request stays queued and may still run: its outcome is unknown, never "not executed".
+            raise OutcomeUnknown(f"the core did not finish {describe_request(req)} within {self.request_wait_s:g} s; "
+                                 "it is still queued and may yet run. Query its command id before resending.") from None
 
     def broker_provider(self) -> str | None:
         try:
@@ -117,11 +126,25 @@ class CoreService:
             if req.get("kind") == "broker_admin_action" and (req.get("payload") or {}).get("account_key") != self.account_key:
                 raise ValueError(f"broker_admin_action must name this core's account ({self.account_key})")
             principal = Principal(str(p.get("id")), Role(role), p.get("authenticated_at_ns"))
-            result = desk.execute(Command(req["command_id"], req["kind"], principal, req.get("payload") or {}))
+            command = Command(req["command_id"], req["kind"], principal, req.get("payload") or {})
+            started_ns = self.clock.now_ns()
+            post_commit_error = None
+            try:
+                result = desk.execute(command)
+            except CommandConflict:
+                raise   # decided before this command wrote anything
+            except Exception as exc:
+                stored = self._stored_after_failure(command, started_ns, exc)
+                if stored is None:
+                    raise   # rolled back (or refused before executing): the command was not executed
+                result, post_commit_error = stored, f"{type(exc).__name__}: {exc}"
             body = result.body
             if req["kind"] == "broker_admin_action" and result.accepted and not result.duplicate:
                 body = {**body, "adapter": self._apply_broker_admin(body, principal.id)}
-            return {"accepted": result.accepted, "duplicate": result.duplicate, "body": body, "events": result.events}
+            reply = {"accepted": result.accepted, "duplicate": result.duplicate, "body": body, "events": result.events}
+            if post_commit_error is not None:
+                reply["post_commit_error"] = post_commit_error
+            return reply
         if req.get("op") == "query":
             name = req.get("name")
             if name == "health":
@@ -147,8 +170,57 @@ class CoreService:
                 anomalies = getattr(self.broker, "anomalies", None)
                 blocks = getattr(self.broker, "entry_blocks", None)
                 return {"anomalies": anomalies() if anomalies else [], "entry_blocks": blocks() if blocks else {}}
+            if name == "command_result":
+                # Answered on the loop thread, after every request queued before it (the queue is FIFO), so
+                # "not found" here means the core never received the command or refused it before storing it.
+                if "OWNER" not in roles:
+                    raise PermissionError("command results require the owner token")
+                args = req.get("args") or {}
+                with desk.store.read() as tx:   # a primary-key read: cheap on the loop thread
+                    found = stored_command(tx.conn, str(args.get("command_id")), principal_id=str(args.get("principal_id")),
+                                           principal_role="OWNER")
+                return {"found": found is not None, "command": found}
             raise ValueError(f"unknown query {name}")
         raise ValueError("op must be command or query")
+
+    def _stored_after_failure(self, command: Command, started_ns: int, exc: Exception) -> Result | None:
+        """The stored result of ``command`` after ``desk.execute`` raised ``exc``, or None if it is not stored.
+
+        A failure after the commit (``Store.write`` writes the restore marker after every commit) leaves the
+        command executed and recorded; reporting it as an error would tell the client "not executed", and a
+        client that resends under a new id would execute it twice. The row must match this principal and
+        payload: another command holding the id (a conflict) is not this one's result. Raises OutcomeUnknown
+        when the store cannot be read to tell."""
+        try:
+            payload_hash = sha256_hex(canonical_json({"kind": command.kind, "payload": command.payload}))
+        except Exception:
+            return None   # Desk.execute hashes the payload (this same way) before any write: nothing was stored
+        store = self.desk.store
+        try:
+            if store.conn.in_transaction:
+                raise RuntimeError("the writer connection is still inside a transaction")
+            rows = store.query("SELECT principal_id, principal_role, payload_hash, status, result, recorded_time_ns "
+                               "FROM commands WHERE command_id=?", (command.command_id,))
+        except Exception as read_exc:
+            log.error("command %s failed (%s: %s) and the store cannot be read to tell whether it was recorded: %s",
+                      command.command_id, type(exc).__name__, exc, read_exc)
+            raise OutcomeUnknown(f"the core failed {command.kind} {command.command_id} ({type(exc).__name__}: {exc}) and "
+                                 f"cannot read its store to tell whether it was recorded ({type(read_exc).__name__}: "
+                                 f"{read_exc}). Query its command id before resending.") from exc
+        r = rows[0] if rows else None
+        if r is None or (r["principal_id"], r["principal_role"], r["payload_hash"]) != (
+                command.principal.id, command.principal.role.value, payload_hash):
+            return None
+        duplicate = r["recorded_time_ns"] < started_ns   # stored before this request began: an earlier execution
+        events: list[int] = []
+        if not duplicate:
+            try:
+                events = command_events(store.conn, command.command_id, principal_id=command.principal.id)
+            except Exception as events_exc:   # the result stands; its event seqs stay readable by command id
+                log.error("command %s: event seqs unreadable after the failure: %s", command.command_id, events_exc)
+        log.error("command %s was recorded (%s) but the core then failed: %s: %s", command.command_id, r["status"],
+                  type(exc).__name__, exc, exc_info=exc)
+        return Result(command.command_id, r["status"] == "ACCEPTED", duplicate, json.loads(r["result"]), events)
 
     def _apply_broker_admin(self, body: dict, by: str) -> dict:
         """Apply an owner broker-admin action that the core has just recorded (never on a duplicate)."""

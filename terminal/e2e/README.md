@@ -26,7 +26,7 @@ Environment: `UNKNOWN_E2E_ROOT`, `E2E_API_PORT`, `UNKNOWN_PYTHON` (default `pyth
 The harness runs the real `unknown.service.core.main` and `unknown.api.server.main`, with one change each:
 
 - **Core: the simulated broker survives a restart.** The simulator lives inside the core process, so a plain restart makes it forget every fill and cash movement while the ledger remembers them. Reconciliation then reports `POSITION_MISMATCH`, and start stays blocked: an acknowledgement cannot clear it, because the next run re-opens it. A real broker keeps the account when our process restarts. To model that, the harness pickles the simulator after a clean SIGTERM shutdown and restores it on the next start.
-- **API: a 12 s step-up window instead of 15 minutes.** This lets the suite exercise HTTP 428, the passphrase prompt and the retry with the same command id. The core's own `reauth_max_age_s` check is untouched.
+- **API: a 12 s step-up window instead of the policy's `reauth_max_age_s` (900 s in the default simulated policy).** The harness sets a cap that can only shorten the window. This lets the suite exercise HTTP 428, the passphrase prompt and the retry with the same command id. The core's own `reauth_max_age_s` check is untouched.
 
 ## Scenarios
 

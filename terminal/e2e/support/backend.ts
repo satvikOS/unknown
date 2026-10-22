@@ -22,7 +22,7 @@ const HARNESS = join(TERMINAL_DIR, 'e2e', 'support', 'harness.py');
 export const ACCOUNT = 'SIM-1';
 export const DEPLOYMENT = 'mac-dev';
 export const PASSPHRASE = 'correct horse battery staple';
-/** The API's step-up window for this run (the production API uses 15 minutes; see harness.py). */
+/** The API's step-up window cap for this run (the production API uses the policy's reauth_max_age_s; see harness.py). */
 export const STEP_UP_WINDOW_S = 12;
 
 export interface RunState {

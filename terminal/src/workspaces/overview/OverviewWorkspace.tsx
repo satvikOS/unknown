@@ -2,6 +2,7 @@
  * Overview (book Ch. 22): mode, account health, capital, exposure and stop state. Every figure comes
  * from GET /api/overview (and the active policy for limits); nothing is computed in floating point.
  */
+import { withoutNsStrings } from '../../api/nsStrings';
 import type { Bucket, ExceptionCase, Position, SessionSummary } from '../../api/types';
 import { useControl } from '../../controls/ControlProvider';
 import { entryState } from '../../controls/model';
@@ -278,7 +279,7 @@ const exceptionColumns: Column<ExceptionCase>[] = [
     id: 'detail',
     header: 'Detail',
     wrap: true,
-    cell: (e) => <span className="cmd-id">{JSON.stringify(e.detail).slice(0, 220)}</span>,
+    cell: (e) => <span className="cmd-id">{JSON.stringify(withoutNsStrings(e.detail)).slice(0, 220)}</span>,
   },
 ];
 

@@ -90,6 +90,15 @@ describe('ApiClient reads', () => {
     expect(encodePathSegment('ses:1@x+y')).toBe('ses:1@x+y');
     expect(encodePathSegment('a/b')).toBe('a%2Fb');
   });
+
+  it('looks up a stored command result by id, with "/" kept inside the segment', async () => {
+    const stored = { command_id: 'ui.start/1', kind: 'start', status: 'ACCEPTED', accepted: true, body: {}, events: [7] };
+    const { impl, calls } = fakeFetch([{ status: 200, body: stored }]);
+    const client = new ApiClient({ fetchImpl: impl });
+    const r = await client.commandResult('ui.start/1');
+    expect(calls[0]?.url).toBe('/api/commands/ui.start%2F1');
+    expect(r.status).toBe('ACCEPTED');
+  });
 });
 
 describe('ApiClient auth', () => {
@@ -253,6 +262,22 @@ describe('ApiClient commands: outcomes', () => {
     expect(err.outcomeUnknown).toBe(false);
     expect(err.status).toBe(403);
     expect(err.message).toContain('refused before reaching the core');
+  });
+
+  it('a 409 command id conflict reached the core: it says the core refused it, not that it never arrived', async () => {
+    const body = {
+      error: 'command id ui.stop.c reused with a different payload; the original command keeps its result',
+      code: 'COMMAND_ID_CONFLICT',
+      command_id: 'ui.stop.c',
+      outcome: 'NOT_EXECUTED',
+    };
+    const { impl } = fakeFetch([{ status: 409, body }]);
+    const client = new ApiClient({ fetchImpl: impl });
+    const err = (await client.sendCommand('stop', { account_key: 'SIM-1' }, { commandId: 'ui.stop.c' }).catch((e: unknown) => e)) as CommandTransportError;
+    expect(err).toBeInstanceOf(CommandTransportError);
+    expect(err.outcomeUnknown).toBe(false);
+    expect(err.message).toContain('refused by the core; not executed');
+    expect(err.message).not.toContain('before reaching the core');
   });
 
   it('a 401 on a command logs out', async () => {
