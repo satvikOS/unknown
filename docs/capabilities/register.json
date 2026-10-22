@@ -21454,12 +21454,23 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "implemented",
+        "evidence": [
+          "backend/src/unknown/agents/envelope.py (JobEnvelope, CAP-AGT-01 dedupe key, depth <= 1); tests/test_agents_envelope.py",
+          "backend/src/unknown/agents/jobstore.py: durable job store (QUEUED/RUNNING/SUCCEEDED/FAILED/CANCELLED/EXPIRED, idempotent submission, dedupe window, expiry, cancellation, crash recovery); tests/test_agents_jobstore.py",
+          "backend/src/unknown/agents/worker.py: one job at a time under the owner's concurrency limits; tests/test_agents_worker.py, tests/test_agents_worker_core.py",
+          "runner turn/tool/retry/token caps: tests/test_agents_runner.py (test_max_turns_stops_the_loop, test_max_tool_calls)"
         ],
-        "requirements": []
+        "gaps": [
+          "kill_grace_s is not in the envelope; a provider call in flight at the deadline is not interrupted (the output is discarded)",
+          "relevance_end is recorded but no order-intent service consumes proposals yet",
+          "child jobs: the envelope supports depth 1 but the durable job store accepts root jobs only"
+        ],
+        "requirements": [
+          "AI-01",
+          "AUT-04"
+        ],
+        "updated": "2026-10-22"
       }
     },
     {
@@ -21605,12 +21616,21 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "implemented",
+        "evidence": [
+          "backend/src/unknown/agents/budget.py: SQLite spend ledger, reserve-before-call in one BEGIN IMMEDIATE, lifetime/month/day/job/role/provider caps; tests/test_agents_budget.py",
+          "worker admission probe: an exhausted budget fails the job before any provider call; tests/test_agents_worker.py (test_budget_exhaustion_fails_the_job_without_any_network_call)",
+          "single owner budget source: <UNKNOWN_HOME>/config/agents.json caps (absent file or zero per_day/per_job = paid calls disabled); config/paper_defaults.json no longer carries paid_model_daily_budget_cents (docs/agents/README.md)"
         ],
-        "requirements": []
+        "gaps": [
+          "provider cost-report reconciliation is manual: reconcile() takes an owner evidence string; usage/cost APIs not integrated",
+          "the concurrency property test uses 10 threads, not the 10,000 randomized trials of the acceptance criterion",
+          "the acceptance criterion's 'paid_model_daily_budget_cents=0' maps to an absent agents.json or a zero caps.per_day"
+        ],
+        "requirements": [
+          "AI-05"
+        ],
+        "updated": "2026-10-22"
       }
     },
     {
@@ -22511,10 +22531,13 @@
         "status": "implemented",
         "evidence": [
           "hash-chained event log with principal, command and correlation ids",
-          "replay verification (core/replay.py)"
+          "replay verification (core/replay.py)",
+          "agent job lineage: backend/src/unknown/agents/audit.py, an append-only hash-chained trail of every runner record and worker action per job (evidence span hashes, envelope, reservations, gate decisions, proposal, core proposal id); tests/test_agents_audit.py, tests/test_agents_worker.py"
         ],
         "gaps": [
-          "agent job lineage not implemented (I6)"
+          "proposal-to-order lineage: no order intent consumes research proposals yet",
+          "tail truncation of a chain is detectable only against an externally recorded head",
+          "licensed-payload canary scan not implemented"
         ],
         "requirements": [
           "DOM-04"

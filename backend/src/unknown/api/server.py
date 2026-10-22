@@ -47,6 +47,7 @@ SECURITY_HEADERS = {
 
 
 _PLUGINS = None
+_POST_PLUGINS = None
 
 
 def _plugin_routes():
@@ -55,6 +56,14 @@ def _plugin_routes():
         from .routes import load
         _PLUGINS = load()
     return _PLUGINS
+
+
+def _plugin_post_routes():
+    global _POST_PLUGINS
+    if _POST_PLUGINS is None:
+        from .routes import load_post
+        _POST_PLUGINS = load_post()
+    return _POST_PLUGINS
 
 
 class ApiContext:
@@ -294,7 +303,29 @@ class Handler(BaseHTTPRequestHandler):
             except (IpcError, OSError) as exc:
                 return self._error(503, f"core unavailable; command not executed: {exc}")
             return self._send(200, {"command_id": command_id, **result})
+        if url.path.startswith("/api/"):
+            parts = [p for p in url.path.split("/") if p][1:]
+            for prefix, handler in _plugin_post_routes():
+                if parts[:len(prefix)] == list(prefix):
+                    return self._plugin_post(handler, parts, body, s)
         return self._error(404, "unknown endpoint")
+
+    def _plugin_post(self, handler, parts: list[str], body: dict, session) -> None:
+        """Owner POST to a plugin route; the caller has already checked the session and the CSRF token."""
+        from .routes import RouteConflict
+        try:
+            return self._send(200, handler(self.ctx, parts, body, session))
+        except LookupError as exc:
+            return self._error(404, str(exc))
+        except RouteConflict as exc:
+            return self._error(409, str(exc))
+        except PermissionError as exc:
+            return self._error(403, str(exc))
+        except ValueError as exc:
+            return self._error(400, str(exc))
+        except Exception:
+            log.exception("plugin POST %s failed", "/".join(parts))
+            return self._error(500, "internal error; see the API log")
 
     # ------------------------------------------------------------ static
     def _static(self, path: str) -> None:

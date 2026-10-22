@@ -215,6 +215,16 @@ class Catalog:
                          for k, r in snap.rows.items()}}
         (d / f"{snap.fetched_at_ns}.json").write_text(json.dumps(body, sort_keys=True, default=list))
 
+    def restore_persisted(self, provider: str) -> CatalogSnapshot | None:
+        """Adopt the newest snapshot this catalog persisted for ``provider`` (worker restart), so a refresh
+        is needed only when it is older than the maximum age. Approvals still come from approved.json."""
+        if self.store_dir is None:
+            return None
+        snap = load_persisted(self.store_dir, provider)
+        if snap is not None and (provider not in self.last_good or self.last_good[provider].fetched_at_ns < snap.fetched_at_ns):
+            self.last_good[provider] = snap
+        return snap
+
     def _approval(self, provider: str, model_id: str, role: str) -> Approval | None:
         for a in self.approvals:
             if a.provider == provider and a.model_id == model_id and role in a.roles:
@@ -261,3 +271,34 @@ class Catalog:
             if c is None or not c.value:
                 return False, f"capability_unverified:{cap}"
         return True, "ok"
+
+
+def load_persisted(store_dir: Path, provider: str) -> CatalogSnapshot | None:
+    """The newest snapshot written by ``Catalog._persist`` for ``provider``, or None. A file that does not
+    parse is skipped (the next refresh replaces it); nothing here can approve a model."""
+    directory = Path(store_dir) / provider
+    if not directory.is_dir():
+        return None
+    files = sorted((p for p in directory.glob("*.json") if p.stem.isdigit()), key=lambda p: int(p.stem), reverse=True)
+    for path in files:
+        try:
+            body = json.loads(path.read_text())
+            if body.get("provider") != provider or int(body["fetched_at_ns"]) != int(path.stem):
+                continue
+            rows = []
+            for mid, r in body["rows"].items():
+                caps = {name: Capability(bool(v[0]), v[1], v[2]) for name, v in (r.get("capabilities") or {}).items()}
+                rows.append(ModelRow(
+                    provider=provider, model_id=mid, aliases=tuple(r.get("aliases") or ()), display_name=r.get("display_name"),
+                    lifecycle=r.get("lifecycle") or "unknown", deprecated_at=r.get("deprecated_at"),
+                    retires_at=r.get("retires_at"), max_input_tokens=r.get("max_input_tokens"),
+                    max_output_tokens=r.get("max_output_tokens"), input_modalities=tuple(r.get("input_modalities") or ()),
+                    output_modalities=tuple(r.get("output_modalities") or ()), capabilities=MappingProxyType(caps),
+                    fingerprint=r.get("fingerprint"), version=r.get("version"),
+                    provider_prices=MappingProxyType(dict(r.get("provider_prices") or {})),
+                    provider_price_unit=r.get("provider_price_unit")))
+            return CatalogSnapshot(provider, int(body["fetched_at_ns"]), body.get("endpoint", ""), body.get("http_status"),
+                                   True, body.get("raw_sha256"), MappingProxyType({r.model_id: r for r in rows}))
+        except (OSError, ValueError, KeyError, TypeError, IndexError, AttributeError, CatalogError):
+            continue
+    return None

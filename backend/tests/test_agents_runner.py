@@ -306,5 +306,74 @@ class RunnerTest(TempDirCase, unittest.TestCase):
         self.assertIn("core down", r.submission_error)
 
 
+class RunnerWorkerHooksTest(TempDirCase, unittest.TestCase):
+    """The hooks the model worker relies on: live record streaming and deferred submission."""
+    runner = RunnerTest.runner
+
+    def test_deferred_submission_never_calls_the_core_and_streams_every_record(self):
+        streamed = []
+        runner = self.runner(FakeAdapter([result()]))
+        self.deps.defer_submission = True
+        self.deps.on_record = streamed.append
+        r = runner.run(envelope(prompt_template_hash=PROMPT_TEMPLATE_HASH), inputs(), [Candidate("anthropic", MODEL)])
+        self.assertEqual(r.status, JobState.SUCCEEDED)
+        self.assertEqual(self.core.commands, [])
+        self.assertIsNone(r.submitted)
+        self.assertEqual(streamed, r.records)
+        ready = [x for x in r.records if x["kind"] == "proposal_ready"]
+        self.assertEqual(len(ready), 1)
+        self.assertEqual(ready[0]["command_id"], "agent.proposal.job-1")
+        self.assertEqual(PROPOSAL.errors(r.proposal), [])
+
+    def test_deferred_submission_still_discards_output_after_cancellation(self):
+        cancelled = []
+        runner = self.runner(FakeAdapter([result()]))
+        self.deps.defer_submission = True
+        self.deps.is_cancelled = lambda job_id: bool(cancelled)
+        fake = self.deps.adapters["anthropic"]
+        original = fake.generate_structured
+        def generate_then_cancel(request, *, reservation, gate):
+            out = original(request, reservation=reservation, gate=gate)
+            cancelled.append(True)
+            return out
+        fake.generate_structured = generate_then_cancel
+        r = runner.run(envelope(), inputs(), [Candidate("anthropic", MODEL)])
+        self.assertEqual(r.status, JobState.CANCELLED_BY_OWNER)
+        self.assertIsNotNone(r.discarded_output_hash)
+        self.assertEqual([x["kind"] for x in r.records if x["kind"] in ("discarded", "proposal_ready")], ["discarded"])
+
+    def test_a_record_that_cannot_be_audited_stops_the_job_before_the_provider_call(self):
+        fake = FakeAdapter([result()])
+        runner = self.runner(fake)
+        def refuse_reserved(rec):
+            if rec["kind"] == "reserved":
+                raise OSError("audit disk full")
+        self.deps.on_record = refuse_reserved
+        with self.assertRaises(OSError):
+            runner.run(envelope(), inputs(), [Candidate("anthropic", MODEL)])
+        self.assertEqual(fake.calls, [])
+        rows = self.deps.ledger.reservations("job-1")
+        self.assertEqual([r["state"] for r in rows if r["purpose"] == "generate"], ["RELEASED"])   # provably never sent
+
+    def test_an_unclassified_adapter_exception_keeps_the_reservation_unconfirmed(self):
+        runner = self.runner(FakeAdapter([RuntimeError("unexpected SDK failure")]))
+        with self.assertRaises(RuntimeError):
+            runner.run(envelope(), inputs(), [Candidate("anthropic", MODEL)])
+        rows = self.deps.ledger.reservations("job-1")
+        generate = [r for r in rows if r["purpose"] == "generate"]
+        self.assertEqual([r["state"] for r in generate], ["UNCONFIRMED"])
+        self.assertEqual(self.deps.ledger.consumed(job_id="job-1"), Fixed.parse(generate[0]["reserved"]))
+
+    def test_an_unclassified_count_exception_keeps_the_admission_unconfirmed(self):
+        fake = FakeAdapter([result()])
+        fake.count_tokens = lambda request, *, admission, gate: (_ for _ in ()).throw(RuntimeError("unexpected"))
+        runner = self.runner(fake)
+        with self.assertRaises(RuntimeError):
+            runner.run(envelope(), inputs(), [Candidate("anthropic", MODEL)])
+        self.assertEqual([(r["purpose"], r["state"]) for r in self.deps.ledger.reservations("job-1")],
+                         [("count_tokens", "UNCONFIRMED")])
+        self.assertEqual(fake.calls, [])
+
+
 if __name__ == "__main__":
     unittest.main()

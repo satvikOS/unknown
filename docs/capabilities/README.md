@@ -23,7 +23,7 @@ each capability records lawful alternatives and what cannot be replicated.
 | strategy-research | 14 | 13 | 0 | 0 | 1 | 0 | 0 |
 | execution-oms | 14 | 7 | 0 | 7 | 0 | 0 | 0 |
 | workspace-ux | 12 | 12 | 0 | 0 | 0 | 0 | 0 |
-| agent-operations | 14 | 12 | 0 | 2 | 0 | 0 | 0 |
+| agent-operations | 14 | 10 | 0 | 4 | 0 | 0 | 0 |
 | ibkr-integration | 14 | 14 | 0 | 0 | 0 | 0 | 0 |
 | data-providers | 14 | 12 | 0 | 1 | 1 | 0 | 0 |
 | model-providers | 12 | 12 | 0 | 0 | 0 | 0 | 0 |
@@ -223,15 +223,15 @@ each capability records lawful alternatives and what cannot be replicated.
 
 | ID | Priority | Capability | Reference scope | Status | Main gap |
 |---|---|---|---|---|---|
-| CAP-AGT-01 | P0 | Bounded agent jobs: envelope, deadlines, turn/tool/retry caps, no unbounded spawning | Bloomberg Terminal, Claude Agent SDK, LSEG Workspace, OWASP Top 10 for LLM Appli | proposed | not yet implemented |
-| CAP-AGT-02 | P0 | Agent cost budgets: pre-call reservation, hierarchical caps, provider hard limits and billing reconciliation | Claude API (Anthropic), Claude Agent SDK, LSEG Workspace, OWASP Top 10 for LLM A | proposed | not yet implemented |
+| CAP-AGT-01 | P0 | Bounded agent jobs: envelope, deadlines, turn/tool/retry caps, no unbounded spawning | Bloomberg Terminal, Claude Agent SDK, LSEG Workspace, OWASP Top 10 for LLM Appli | implemented | kill_grace_s is not in the envelope; a provider call in flight at the deadline i |
+| CAP-AGT-02 | P0 | Agent cost budgets: pre-call reservation, hierarchical caps, provider hard limits and billing reconciliation | Claude API (Anthropic), Claude Agent SDK, LSEG Workspace, OWASP Top 10 for LLM A | implemented | provider cost-report reconciliation is manual: reconcile() takes an owner eviden |
 | CAP-AGT-03 | P0 | Per-role tool allowlists and capability manifests enforced outside the model | Bloomberg Terminal, FINRA 2026 Annual Regulatory Oversight Report, Model Context | implemented | per-tool allowlists for model calls not implemented (I6) |
 | CAP-AGT-04 | P0 | Human-in-the-loop approval queue binding owner decisions to exact proposals | FINRA 2026 Annual Regulatory Oversight Report, IBKR, Model Context Protocol spec | proposed | not yet implemented |
 | CAP-AGT-05 | P0 | Owner intervention controls: pause roles, cancel jobs, disable model-dependent decisions, red stop with order cancel | EU MiFID II RTS 6 (Delegated Regulation 2017/589), UK onshored copy, IBKR TWS AP | proposed | not yet implemented |
 | CAP-AGT-06 | P0 | Prompt-injection defence for filings, news, web pages, owner uploads and tool outputs | Bloomberg Terminal, Claude Agent SDK, NIST AI 600-1 Generative AI Profile, OWASP | proposed | not yet implemented |
 | CAP-AGT-07 | P0 | Secret and sensitive-data isolation for agents (credentials, account ids, owner data) | IBKR, IBKR TWS API, OWASP Top 10 for LLM Applications 2025, SEBI | proposed | not yet implemented |
 | CAP-AGT-08 | P0 | Data-rights gating before content enters a model context (licence, entitlement, retention, provider) | LSEG Workspace, NIST AI RMF 1.0 (AI 100-1), S&P Global / Kensho | proposed | not yet implemented |
-| CAP-AGT-09 | P0 | Agent audit trail: tamper-evident lineage from evidence to job to proposal to order | FINRA 2026 Annual Regulatory Oversight Report, Model Context Protocol specificat | implemented | agent job lineage not implemented (I6) |
+| CAP-AGT-09 | P0 | Agent audit trail: tamper-evident lineage from evidence to job to proposal to order | FINRA 2026 Annual Regulatory Oversight Report, Model Context Protocol specificat | implemented | proposal-to-order lineage: no order intent consumes research proposals yet |
 | CAP-AGT-10 | P1 | Grounded research Q&A over filings and permitted documents with span-level citations and generated query code | Bloomberg Terminal, LSEG Workspace, OWASP Top 10 for LLM Applications 2025, S&P  | proposed | not yet implemented |
 | CAP-AGT-11 | P1 | AI summaries of news and earnings events filtered to holdings and watchlists, with provenance | IBKR, LSEG Workspace, NIST AI 600-1 Generative AI Profile, OWASP Top 10 for LLM  | proposed | not yet implemented |
 | CAP-AGT-12 | P1 | Model/provider registry with version pinning, measured routing, fallback and change control | Bloomberg Terminal, LSEG Workspace, NIST AI 600-1 Generative AI Profile, NIST AI | proposed | not yet implemented |

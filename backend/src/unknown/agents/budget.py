@@ -308,3 +308,39 @@ class SpendLedger:
     def events(self) -> list[tuple]:
         with self._lock:
             return self._db.execute("SELECT reservation_id, kind, at_ns, detail FROM ledger_events ORDER BY seq").fetchall()
+
+    def reservations(self, job_id: str) -> list[dict]:
+        """Every reservation row of one job, oldest first (reporting and worker crash recovery)."""
+        with self._lock:
+            rows = self._db.execute(f"SELECT {', '.join(_ROW_COLUMNS)} FROM reservations WHERE job_id = ?"
+                                    " ORDER BY created_ns, rowid", (job_id,)).fetchall()
+        return [dict(zip(_ROW_COLUMNS, r)) for r in rows]
+
+
+_ROW_COLUMNS = ("reservation_id", "job_id", "role", "provider", "model_id", "purpose", "currency", "reserved", "actual",
+                "state", "created_ns", "closed_ns", "overrun", "note", "evidence")
+
+
+def read_job_spend(db_path: Path, job_id: str) -> dict:
+    """Read-only spend report for one job (the terminal API uses this; it opens the file read-only and never
+    creates it). ``consumed`` follows the ledger rule: OPEN and UNCONFIRMED rows count their reservation,
+    SETTLED rows their actual amount, RELEASED rows nothing."""
+    path = Path(db_path)
+    if not path.exists():
+        return {"ledger": "absent", "consumed": None, "currency": None, "reservations": []}
+    db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+    try:
+        rows = db.execute(f"SELECT {', '.join(_ROW_COLUMNS)} FROM reservations WHERE job_id = ? ORDER BY created_ns, rowid",
+                          (job_id,)).fetchall()
+    finally:
+        db.close()
+    out = [dict(zip(_ROW_COLUMNS, r)) for r in rows]
+    total = Fixed(0)
+    for r in out:
+        if r["state"] in ("OPEN", "UNCONFIRMED"):
+            total = total + Fixed.parse(r["reserved"])
+        elif r["state"] == "SETTLED":
+            total = total + Fixed.parse(r["actual"])
+    currencies = sorted({r["currency"] for r in out})
+    return {"ledger": "present", "consumed": total.to_str(), "currency": currencies[0] if len(currencies) == 1 else None,
+            "reservations": out}

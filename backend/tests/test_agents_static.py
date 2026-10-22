@@ -10,6 +10,13 @@ AGENTS = Path(__file__).resolve().parents[1] / "src" / "unknown" / "agents"
 MODEL_ID = re.compile(r"(gpt-|\bo[0-9]-|claude-|grok-|gemini-|mistral-|ministral-)", re.IGNORECASE)
 PRICE = re.compile(r"\$\s?\d")
 ALLOWED_INTERNAL = ("unknown.domain", "unknown.data.registry", "unknown.service.paths", "unknown.agents")
+# Narrow per-file additions: the worker talks to the core only through the socket client (with the AGENT
+# token), and the evidence builders read the point-in-time research store (read-only, research side).
+ALLOWED_PER_FILE = {
+    "worker.py": ("unknown.service.ipc", "unknown.data.pit"),
+    "pit_evidence.py": ("unknown.data.pit",),
+    "submission.py": ("unknown.data.pit",),
+}
 FORBIDDEN_INTERNAL = ("unknown.broker", "unknown.core", "unknown.gateway", "unknown.risk", "unknown.reconcile",
                       "unknown.policy", "unknown.store", "unknown.api", "unknown.market")
 
@@ -49,10 +56,19 @@ class StaticTest(unittest.TestCase):
                     names = [a.name for a in node.names]
                 else:
                     continue
+                allowed = ALLOWED_INTERNAL + ALLOWED_PER_FILE.get(p.name, ()) if p.parent == AGENTS else ALLOWED_INTERNAL
                 for n in names:
-                    if n.startswith(FORBIDDEN_INTERNAL) or (n.startswith("unknown") and not n.startswith(ALLOWED_INTERNAL)):
+                    if n.startswith(FORBIDDEN_INTERNAL) or (n.startswith("unknown") and not n.startswith(allowed)):
                         bad.append(f"{p.name}: {n}")
         self.assertEqual(bad, [])
+
+    def test_only_the_worker_reaches_the_core_socket_and_it_never_holds_the_owner_token(self):
+        for p in sources():
+            text = p.read_text()
+            if p.name != "worker.py":
+                self.assertIsNone(re.search(r"\bCoreClient\b", text), p.name)
+            self.assertNotIn('token("api")', text, p.name)
+        self.assertIn('token("agent")', (AGENTS / "worker.py").read_text())
 
     def test_sdk_import_is_lazy(self):
         for p in sources():

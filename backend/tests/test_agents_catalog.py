@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from test_agents_fixtures import SECOND, TempDirCase, write_private  # noqa: E402
 from unknown.agents.catalog import (Approval, Capability, Catalog, CatalogError, CatalogSnapshot, ModelRow,  # noqa: E402
-                                    diff, load_approvals)
+                                    diff, load_approvals, load_persisted)
 
 
 def snap(clock, *rows, provider="anthropic"):
@@ -105,6 +105,38 @@ class CatalogTest(TempDirCase, unittest.TestCase):
         cat.ingest(snap(self.clock, row("m", fingerprint="fp1")))
         cat.ingest(snap(self.clock, row("m", fingerprint="fp2")))
         self.assertTrue(any(a["kind"] == "fingerprint_changed" for a in cat.alerts))
+
+
+class PersistedSnapshotTest(TempDirCase, unittest.TestCase):
+    """A restarted worker adopts its newest persisted snapshot instead of refreshing at once."""
+
+    def test_round_trip_keeps_routing_fields_and_never_approves(self):
+        store = self.tmp / "catalog"
+        first = Catalog((approval("m"),), self.clock.now_ns, 24 * 3600 * SECOND, store_dir=store)
+        first.ingest(snap(self.clock, row("m", retires_at="2027-01-01", aliases=("m-alias",)), row("other")))
+        newest = self.clock.now_ns()
+        restarted = Catalog((), self.clock.now_ns, 24 * 3600 * SECOND, store_dir=store)
+        restored = restarted.restore_persisted("anthropic")
+        self.assertEqual(restored.fetched_at_ns, newest)
+        self.assertEqual(restored.rows["m"].comparable(), first.last_good["anthropic"].rows["m"].comparable())
+        self.assertEqual(restored.rows["m"].capabilities["structured_outputs"].verified_at, "2026-10-22")
+        self.assertEqual(restarted.routable("anthropic", "m", "research"), (False, "unreviewed"))   # approvals are not persisted
+        restarted.approvals = (approval("m"),)
+        self.assertEqual(restarted.routable("anthropic", "m", "research"), (True, "ok"))
+        self.clock.advance(25 * 3600 * SECOND)
+        self.assertEqual(restarted.routable("anthropic", "m", "research"), (False, "catalog_stale"))
+
+    def test_newest_parseable_file_wins_and_garbage_is_skipped(self):
+        store = self.tmp / "catalog"
+        cat = Catalog((), self.clock.now_ns, SECOND, store_dir=store)
+        cat.ingest(snap(self.clock, row("old")))
+        self.clock.advance(SECOND)
+        cat.ingest(snap(self.clock, row("new")))
+        (store / "anthropic" / f"{self.clock.now_ns() + 5}.json").write_text("{not json")
+        restored = load_persisted(store, "anthropic")
+        self.assertEqual(set(restored.rows), {"new"})
+        self.assertIsNone(load_persisted(store, "openai"))
+        self.assertIsNone(Catalog((), self.clock.now_ns, SECOND).restore_persisted("anthropic"))
 
 
 if __name__ == "__main__":

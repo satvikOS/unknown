@@ -248,3 +248,43 @@ def write_private(path: Path, text: str, mode: int = 0o600) -> Path:
     path.write_text(text)
     os.chmod(path, mode)
     return path
+
+
+# ---------------------------------------------------------------------------- research store fixture
+FIX_ENTITY = "SEC-CIK-0000000001"
+FIX_TICKER = "FIXA"
+INGESTED_AT = T0 - 86_400 * SECOND
+
+
+def fixture_observation(field, start, end, value, available, accn, *, form="10-K", unit="USD"):
+    from unknown.data.pit import Observation
+    return Observation(dataset="sec.companyfacts", entity_id=FIX_ENTITY, field=field, unit=unit,
+                       currency="USD" if unit == "USD" else None, period_start=start, period_end=end,
+                       period_kind="INSTANT" if start is None else "FY", value=Fixed.parse(value),
+                       receipt_time_ns=INGESTED_AT, available_time_ns=available, published_time_ns=available,
+                       publication_id=accn, source_ref=f"raw:fixture#{field}/{accn}", quality=(f"form:{form}",))
+
+
+def research_store(path: Path):
+    """A tiny point-in-time store (all values are fixtures): two annual revenues, one quarter, one 9-month
+    year-to-date value (never a span), one balance-sheet instant, and a 10-K/A restatement that becomes
+    available one day after T0."""
+    from unknown.data.pit import ResearchStore
+    from unknown.domain.clock import utc_ns
+    path.parent.mkdir(parents=True, exist_ok=True)
+    s = ResearchStore(path)
+    s.upsert_entity(FIX_ENTITY, "issuer", "Fixture Industries Inc.", {"cik": 1})
+    s.add_alias("ticker:Nasdaq", FIX_TICKER, FIX_ENTITY, INGESTED_AT, "fixture")
+    for o in (
+        fixture_observation("us-gaap:Revenues", "2023-10-01", "2024-09-28", "1000000", utc_ns(2024, 11, 1, 21), "0000000001-24-000010"),
+        fixture_observation("us-gaap:Revenues", "2024-09-29", "2025-09-27", "1200000", utc_ns(2025, 10, 31, 21), "0000000001-25-000010"),
+        fixture_observation("us-gaap:Revenues", "2025-03-30", "2025-06-28", "290000", utc_ns(2025, 8, 1, 21), "0000000001-25-000007",
+                            form="10-Q"),
+        fixture_observation("us-gaap:Revenues", "2024-09-29", "2025-06-28", "880000", utc_ns(2025, 8, 1, 21), "0000000001-25-000007",
+                            form="10-Q"),
+        fixture_observation("us-gaap:Assets", None, "2025-09-27", "5000000", utc_ns(2025, 10, 31, 21), "0000000001-25-000010"),
+        fixture_observation("us-gaap:Revenues", "2024-09-29", "2025-09-27", "1150000", T0 + 86_400 * SECOND, "0000000001-26-000001",
+                            form="10-K/A"),
+    ):
+        s.record(o, INGESTED_AT)
+    return s

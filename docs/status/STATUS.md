@@ -15,7 +15,7 @@ Status words follow ADR-0001. No capability is `paper-verified` or `live-verifie
 |---|---|---|---|
 | — | Architecture decisions | ADR-0001..0016 accepted | `docs/adr/` |
 | — | Requirement register, dependency graph | written | `docs/requirements/` |
-| — | Capability register | **217 capabilities, 16 areas**, primary-source and independently verified (929 URLs re-fetched); 19 capabilities above `proposed` | `docs/capabilities/register.json`, `README.md` |
+| — | Capability register | **217 capabilities, 16 areas**, primary-source and independently verified (929 URLs re-fetched); 21 capabilities above `proposed` (CAP-AGT-01 and CAP-AGT-02 `implemented` with evidence, 2026-10-22) | `docs/capabilities/register.json`, `README.md` |
 | — | Book review | **134 verified findings**; per-item dispositions pending | `docs/design/book-resolutions.md` |
 | I1 | Core: exact arithmetic, event store, journal with owner dimension, holds, lots, policy and mandates, session machine, orders and outbox, pretrade, stop/start/restart/restore, reconciliation, valuation, replay | implemented and tested offline: 258-test fault-matrix suite plus earlier suites, all passing on 3.12 and 3.14; 61 adversarial-review findings, 58 confirmed, about 40 fixed in `c41a505`; the rest in progress (session machine, incremental verification, heartbeat, drain) | `backend/src/unknown/{domain,store,core,risk,policy}` |
 | I1 | Simulated broker with fault injection | tested | `broker/simulated.py` |
@@ -26,6 +26,7 @@ Status words follow ADR-0001. No capability is `paper-verified` or `live-verifie
 | I4 | XNYS trading calendar 2026–2028 (NYSE page, retrieved 2026-10-22) | implemented | `config/calendars/XNYS.json` |
 | I5 | Research engine, company research, portfolio analytics, IBKR market data | in progress (workflow wave B) | `research/`, `analytics/`, `data/fundamentals/`, `broker/ibkr/marketdata.py` |
 | I6 | Bounded agents: envelopes, spend ledger, tariffs, provider adapters, data-use gate | implemented and tested offline (127 tests). Anthropic via the official SDK (`anthropic==1.12.1`); `claude-opus-5-5` tariff approved under the owner's authorization; other providers build only verified request fragments | `backend/src/unknown/agents/`, `docs/agents/README.md`, ADR-0016 |
+| I6 | Research jobs end to end: model worker (`python -m unknown.agents.worker`), durable job store, hash-chained agent audit trail, PIT evidence spans, terminal API routes `/api/research/jobs` (owner session + CSRF) | implemented and tested offline (branch `feat/agent-worker`): fake SDK client behind the real Anthropic adapter; the real core service over its socket with the AGENT token (crash after acceptance and core restart record one proposal); terminal API → worker → core → API. **No live job has run yet**: `approved.json` is still empty and no key is on this Mac. Single model-budget source: `~/.unknown/config/agents.json` (`paid_model_daily_budget_cents` removed from `config/paper_defaults.json`) | `agents/{worker,jobstore,audit,pit_evidence,submission}.py`, `api/routes/research_jobs.py`, `docs/agents/README.md` "Running research jobs on this Mac" |
 | ops | Runbooks RB-01..RB-11 | written | `docs/runbooks/README.md` |
 | perf | Core latency benchmark | v0 measured under heavy machine load; incremental verification in progress | `backend/benchmarks/bench_core.py` |
 
@@ -63,6 +64,10 @@ PYTHONPATH=src python3 -m unknown.cli init && PYTHONPATH=src python3 -m unknown.
 PYTHONPATH=src python3 -m unknown.service.core --account SIM-1 --deployment mac-dev --fixture-market &
 PYTHONPATH=src python3 -m unknown.cli bootstrap-sim --account SIM-1 --deployment mac-dev
 PYTHONPATH=src python3 -m unknown.api.server --account SIM-1 --port 8765 &   # then open http://127.0.0.1:8765
+# Research jobs (model worker; needs the agents venv, a key in ~/.unknown/secrets/anthropic_api_key mode 600 and an
+# owner approval in config/models/approved.json; see docs/agents/README.md "Owner steps for a live job"):
+PYTHONPATH=src ~/.unknown/venvs/agents/bin/python -m unknown.agents.worker --check   # local readiness, no network
+PYTHONPATH=src ~/.unknown/venvs/agents/bin/python -m unknown.agents.worker &          # then POST /api/research/jobs
 # IBKR PAPER (owner logged in to IB Gateway on 4002; config in ~/.unknown/ibkr.json):
 bash ../scripts/setup/ibkr_venv.sh
 PYTHONPATH=src ~/.unknown/venvs/ibkr/bin/python -m unknown.broker.ibkr.serve --account IBKR-PAPER-1 --deployment mac-dev
