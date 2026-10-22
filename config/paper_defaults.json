@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "mode": "SIMULATION",
+  "currency": "USD",
+  "session_seed_cents": 10000,
+  "session_terminal_equity_goal_cents": 10500,
+  "session_drawdown_trigger_bps": 200,
+  "daily_authorized_capital_loss_trigger_bps": 100,
+  "max_active_sessions": 1,
+  "protect_completed_proceeds": true,
+  "automatic_seed_recycling": false,
+  "allow_margin": false,
+  "allow_shorts": false,
+  "allow_derivatives": false,
+  "allow_leveraged_or_inverse_products": false,
+  "allow_automatic_fx_borrowing": false,
+  "allow_transfers": false,
+  "live_authorized_capital_cents": null,
+  "paid_model_daily_budget_cents": 0,
+  "paid_data_monthly_budget_cents": 0,
+  "cloud_monthly_budget_cents": 0,
+  "note": "Proposed paper defaults. The small reference does not load this complete production policy or implement every field."
+}

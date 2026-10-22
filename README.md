@@ -1,7 +1,9 @@
 # Project Unknown
 
-Personal AI-assisted research and trading desk.
+A personal research and trading desk: market data, quantitative research, cloud AI analysis, deterministic risk controls, broker integration and auditable session accounting.
 
-The technical book and offline implementation companion are being prepared on `docs/technical-book-v1`. The project is simulation-only; live trading, paid services, account eligibility and capital authorization remain separate gates.
+The engineering book and Claude Code implementation companion are the source of the proposed design. This repository starts in **simulation-only mode**. It does not contain a validated profitable strategy or authorization to trade a live account.
 
-Original project material is not automatically licensed as open source. Third-party software and data retain their own license terms.
+Read `docs/book/README.md`, then `CLAUDE.md`. Follow the implementation gates in order. Do not infer production readiness from an example, a passing unit test or a paper-trading profit.
+
+Original project material is not automatically placed under an open-source license. Dependency licenses and data/provider terms remain separate and must be respected. Public visibility does not transfer ownership of third-party material.

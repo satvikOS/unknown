@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ResearchProposalOnly",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "job_id", "hypothesis", "evidence", "horizon_seconds", "assumptions", "abstain", "reason"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "job_id": {"type": "string", "minLength": 1, "maxLength": 160},
+    "hypothesis": {"type": "string", "maxLength": 4000},
+    "evidence": {"type": "array", "maxItems": 50, "items": {"type": "string", "maxLength": 500}},
+    "horizon_seconds": {"type": "integer", "minimum": 1, "maximum": 31536000},
+    "assumptions": {"type": "array", "maxItems": 30, "items": {"type": "string", "maxLength": 500}},
+    "abstain": {"type": "boolean"},
+    "reason": {"type": "string", "maxLength": 2000}
+  }
+}

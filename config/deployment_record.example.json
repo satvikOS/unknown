@@ -1,0 +1,21 @@
+{
+  "status": "BLOCKED_FOR_LIVE",
+  "owner_reviewed_at": null,
+  "broker_legal_entity": null,
+  "account_type": null,
+  "residence_eligibility_confirmed": false,
+  "cash_only_restrictions_verified": false,
+  "permitted_markets": [],
+  "permitted_instruments": [],
+  "api_conditions_verified_at": null,
+  "market_data_entitlements": [],
+  "model_processing_rights_verified": false,
+  "authorized_capital_cents": null,
+  "operational_fee_buffer_cents": null,
+  "cumulative_loss_allowance_cents": null,
+  "paid_service_budgets_approved": false,
+  "reconciliation_evidence": null,
+  "recovery_evidence": null,
+  "strategy_promotion_evidence": null,
+  "tax_record_process_reviewed": false
+}
