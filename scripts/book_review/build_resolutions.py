@@ -194,7 +194,7 @@ def render(items: list[dict]) -> str:
     for it in sorted(items, key=lambda x: (SEVERITY_ORDER.get(x["severity"], 9), x["id"])):
         d = it.get("disposition", {})
         res = d.get("resolution") or ("Proposed: " + it["proposed_resolution"])[:400]
-        status = d.get("status", PENDING) + (f" (owner: {d['owner']})" if d.get("status") == "OPEN" else "")
+        status = d.get("status", PENDING) + (f"; owner: {d['owner']}" if d.get("status") == "OPEN" else "")
         where = "; ".join(f"`{w}`" for w in d.get("where", []))
         lines.append(f"| {it['id']} | {it['severity']} | {it['kind']} | {_cell(it['title'])} | {_cell(res)} | "
                      f"{_cell(status)} | {_cell(where)} |")
