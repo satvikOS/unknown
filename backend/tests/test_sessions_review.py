@@ -299,5 +299,107 @@ class ReconcilingTest(unittest.TestCase):
         self.assertEqual(h.verify(), [])
 
 
+# ---------------------------------------------------------------- wind-down
+class WindDownTest(unittest.TestCase):
+    def test_reprice_never_pulls_a_working_reduction_under_a_stop(self):
+        """Finding 32, ADR-0010 (on_stop_liquidation = NONE: sells already working stay working).
+
+        The wind-down sell is working when the owner latches the stop. Before the fix the reprice timer
+        canceled it and the stop then forbade a replacement, so the position was left with no sell at all.
+        Now it keeps working."""
+        h = _harness(self)
+        h.bootstrap()
+        _create(h, "A")
+        _buy_fill(h, "A", "B1", "5", "9.00")
+        h.quote("8.99", "9.01")
+        self.assertTrue(h.owner_cmd("end_session", session_id="A").accepted)
+        h.pump()
+        (wd,) = _working_wind_down(h, "A")
+        self.assertEqual(wd["state"], "ACKNOWLEDGED")
+        self.assertTrue(h.owner_cmd("stop", account_key=ACCOUNT).accepted)
+        h.clock.advance(301 * SEC)
+        h.quote("8.99", "9.01")
+        h.tick()
+        h.pump()
+        (still,) = _working_wind_down(h, "A")
+        self.assertEqual((still["order_id"], still["state"], still["cancel_state"]), (wd["order_id"], "ACKNOWLEDGED", "NONE"))
+        h.broker.fill(wd["order_id"], F("5"), F("8.94"))
+        h.pump()
+        self.assertEqual(h.row("orders", "order_id", wd["order_id"])["state"], "FILLED")
+        self.assertEqual(h.verify(), [])
+
+    def test_reprice_never_pulls_the_last_permitted_attempt(self):
+        """Finding 32 (same defect class), ADR-0008: with max_attempts reached the working sell is the last one
+        wind-down may place. Before the fix the reprice canceled it and MAX_ATTEMPTS then blocked any
+        replacement; now it keeps working."""
+        h = _harness(self, policy=load_policy(wind_down__max_attempts=1))
+        h.bootstrap()
+        _create(h, "A")
+        _buy_fill(h, "A", "B1", "5", "9.00")
+        h.quote("8.99", "9.01")
+        self.assertTrue(h.owner_cmd("end_session", session_id="A").accepted)
+        h.pump()
+        (wd,) = _working_wind_down(h, "A")
+        h.clock.advance(301 * SEC)
+        h.quote("8.99", "9.01")
+        h.tick()
+        h.pump()
+        (still,) = _working_wind_down(h, "A")
+        self.assertEqual((still["order_id"], still["cancel_state"]), (wd["order_id"], "NONE"))
+        self.assertEqual(h.verify(), [])
+
+    def test_wind_down_price_meets_the_pretrade_collar_on_a_wide_spread(self):
+        """Finding 46: bid 8.00 / ask 9.00 (mid 8.50). floor(8.00 x 0.995) = 7.96 is below the pretrade sell
+        floor ceil(8.50 x 0.99) = 8.415, so before the fix every wind-down attempt failed PRICE_COLLAR and
+        liquidation never started. Now the limit is raised to the collar floor on the tick grid, 8.42."""
+        h = _harness(self)
+        h.bootstrap()
+        _create(h, "A")
+        _buy_fill(h, "A", "B1", "5", "9.00")
+        h.quote("8.00", "9.00")
+        self.assertTrue(h.owner_cmd("end_session", session_id="A").accepted)
+        a = h.row("sessions", "session_id", "A")
+        self.assertEqual((a["state"], a["blockers"]), ("WINDING_DOWN", []))
+        (wd,) = _working_wind_down(h, "A")
+        self.assertEqual((wd["side"], F(wd["quantity"]), F(wd["limit_price"])), ("SELL", F("5"), F("8.42")))
+        self.assertEqual(h.verify(), [])
+
+    def test_below_target_resume_restarts_the_wind_down_attempt_budget(self):
+        """Finding 48, ADR-0008 (RESUME with max_resumes): a resumed session starts a new wind-down later.
+
+        With max_attempts = 1 the first wind-down used its attempt. Before the fix the RESUME kept the
+        counter, so the next target observation was immediately MAX_ATTEMPTS and never placed a sell."""
+        policy = load_policy(session_template__below_target_after_target_observed="RESUME", session_template__max_resumes=1,
+                             wind_down__max_attempts=1)
+        h = _harness(self, policy=policy)
+        h.bootstrap()
+        _create(h, "A")
+        _buy_fill(h, "A", "B1", "10", "9.00")
+        h.quote("9.70", "9.72")  # marks 9.00 + 97.00 >= 105.00
+        h.tick()
+        (wd,) = _working_wind_down(h, "A")
+        h.pump()
+        h.broker.fill(wd["order_id"], F("10"), F("9.65"))  # realized 104.50 < 105.00
+        h.pump()
+        h.tick()
+        h.reconcile()
+        h.tick()
+        a = h.row("sessions", "session_id", "A")
+        self.assertEqual((a["state"], a["resumes_used"], a["wind_down_attempts"]), ("RUNNING", 1, {}))
+
+        h.clock.advance(DAY)
+        h.broker.advance_settlement()
+        self.assertEqual(h.reconcile().body["status"], "CLEAN")
+        _buy_fill(h, "A", "B2", "10", "9.00")
+        h.quote("9.20", "9.22")  # 13.50 + 92.00 >= 105.00
+        h.tick()
+        a = h.row("sessions", "session_id", "A")
+        self.assertEqual(a["state"], "WINDING_DOWN")
+        self.assertNotIn("FIX-EQ-1:MAX_ATTEMPTS", a["blockers"])
+        (wd2,) = _working_wind_down(h, "A")
+        self.assertEqual((F(wd2["quantity"]), F(wd2["limit_price"])), (F("10"), F("9.15")))
+        self.assertEqual(h.verify(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

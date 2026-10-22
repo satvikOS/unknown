@@ -265,16 +265,21 @@ def advance_wind_down(ctx: Context, s: dict) -> None:
     policy = state.active_policy(ctx.tx, key)
     m = state.mandate(ctx.tx, s["mandate_hash"])
     open_orders = state.orders(ctx.tx, key, session_id=s["session_id"], open_only=True)
+    ctl = state.control(ctx.tx, key)
+    attempts = dict(s.get("wind_down_attempts") or {})
     for o in open_orders:
         if o["side"] == "BUY":
             cancel_order(ctx, o, "session winding down")
         elif o["purpose"] == WIND_DOWN and ctx.now_ns - o["accepted_at_ns"] > policy.wind_down.reprice_after_s * 1_000_000_000:
+            # A working reduction is pulled to reprice only if a replacement may follow. Under a stop, sells
+            # already working stay working (ADR-0010, on_stop_liquidation = NONE); after the last permitted
+            # attempt the working order is the last one (review finding 32).
+            if ctl["stop_latched"] or attempts.get(o["instrument_id"], 0) >= policy.wind_down.max_attempts:
+                continue
             cancel_order(ctx, o, "wind-down reprice")
     blockers: list[str] = []
-    ctl = state.control(ctx.tx, key)
     lots = ledger.owner_lots(ctx.tx, key, owner)
     instruments = sorted({l["instrument_id"] for l in lots})
-    attempts = dict(s.get("wind_down_attempts") or {})
     for inst_id in instruments:
         unreserved = ledger.owned_quantity(ctx.tx, key, owner, inst_id) - ledger.active_quantity_holds(ctx.tx, key, owner, inst_id)
         if not unreserved.is_positive():
@@ -292,6 +297,15 @@ def advance_wind_down(ctx: Context, s: dict) -> None:
             continue
         price = (q.bid * (10_000 - policy.wind_down.collar_bps)).div(10_000, q.bid.scale + 4, Rounding.FLOOR)
         price = inst.round_price(price, Rounding.FLOOR)
+        mid = q.mid()
+        if mid is not None:
+            # Never below the pretrade sell floor ceil(mid x (1 - price_collar_bps)): on a spread wider than
+            # about the two collars' difference the bid-based price would fail its own pretrade check on every
+            # attempt and liquidation would never start (review finding 46).
+            floor = (mid * (10_000 - policy.limits.price_collar_bps)).div(10_000, mid.scale + 4, Rounding.CEILING)
+            floor = inst.round_price(inst.round_price(floor, Rounding.CEILING), Rounding.CEILING)
+            if price < floor:
+                price = floor
         qty = unreserved.to_increment(inst.quantity_increment, Rounding.DOWN)
         if not qty.is_positive() or not price.is_positive():
             blockers.append(f"{inst_id}:BELOW_MINIMUM")
@@ -363,9 +377,11 @@ def evaluate_reconciling(ctx: Context, s: dict) -> None:
         if m.below_target_after_target_observed is BelowTarget.RESUME and s["resumes_used"] < m.max_resumes:
             ok, why = entries_permitted(ctx, key)
             if ok:
+                # A later target observation starts a new wind-down with its own attempt budget (finding 48).
                 ctx.emit("SessionResumedBelowTarget", {"terminal_equity": equity.to_str(), "target": m.target_terminal_equity.amount.to_str()},
                          {"sessions": [{**s, "state": "RUNNING", "resumes_used": s["resumes_used"] + 1, "wind_down_reason": None,
-                                        "wind_down_evidence": None, "ended_at_ns": None, "blockers": []}]}, **_refs(s))
+                                        "wind_down_evidence": None, "ended_at_ns": None, "blockers": [],
+                                        "wind_down_attempts": {}}]}, **_refs(s))
                 return
         close(ctx, s, "BELOW_TARGET", equity)
         return
