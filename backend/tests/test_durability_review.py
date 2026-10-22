@@ -11,7 +11,10 @@ Findings covered (numbers from the review's confirmed list):
   the owner-less ledger-invariant alarm;
 * 51 - the latest reconciliation is the last one recorded, not the one with the
   largest wall-clock time;
-* 53 - only an OPEN *blocking* case in the *same account* excuses an owner.
+* 53 - only an OPEN *blocking* case in the *same account* excuses an owner;
+* 58 - broker events popped from the broker but not applied are kept, in order,
+  and applied on the next drain; a reconciliation records INCOMPLETE instead of
+  losing the run.
 
 Every number is a TEST FIXTURE. The broker is the deterministic SimulatedBroker.
 """
@@ -35,6 +38,7 @@ from unknown.core import ledger, state  # noqa: E402
 from unknown.domain.clock import ManualClock  # noqa: E402
 from unknown.domain.errors import InvariantViolation  # noqa: E402
 from unknown.domain.fixed import Fixed  # noqa: E402
+from unknown.gateway.runner import event_backlog  # noqa: E402
 from unknown.store import db as db_module  # noqa: E402
 
 F = Fixed.parse
@@ -530,6 +534,88 @@ class ReconciliationOrderTest(unittest.TestCase):
                  (json.loads(x["row"]) for x in h.desk.store.query("SELECT row FROM reconciliations"))}
         self.assertNotEqual(marks[first.body["run_id"]], marks[second.body["run_id"]])
         self.assertEqual(h.runner.last_watermark(), marks[second.body["run_id"]])
+        self.assertEqual(h.verify(), [])
+
+
+# ============================================================ finding 58
+class FlakyCommands:
+    """Wraps ``Desk.run_system``: the first ``failures`` commands of ``kind`` raise; every kind is logged."""
+
+    def __init__(self, h: Harness, kind: str, failures: int = 1):
+        self.real = h.desk.run_system
+        self.kind = kind
+        self.failures = failures
+        self.applied: list[str] = []
+
+    def __call__(self, kind, payload, *args, **kwargs):
+        if kind == self.kind and self.failures:
+            self.failures -= 1
+            raise RuntimeError(f"transient failure applying {kind}")
+        result = self.real(kind, payload, *args, **kwargs)
+        self.applied.append(kind)
+        return result
+
+
+class EventBacklogTest(unittest.TestCase):
+    """Review finding 58: a failing event command never drops the broker events popped with it."""
+
+    def setUp(self):
+        self.h = Harness()
+        running_session(self.h)
+        self.assertTrue(self.h.intent("B1", "BUY", "5", "10.00", "A").accepted)
+        self.h.pump()
+
+    def tearDown(self):
+        self.h.close()
+
+    def queued_kinds(self) -> list[str]:
+        return [type(e).__name__ for e in self.h.broker._events]
+
+    def test_unapplied_events_are_kept_in_order_and_applied_on_the_next_drain(self):
+        """ADR-0006 (never discard a real execution), review finding 58: the broker emits the execution,
+        its commission and the FILLED status; applying the execution raises once. The pump raises, but
+        all three events stay queued in order, and the next pump applies them once, in broker order."""
+        h = self.h
+        h.broker.fill("B1", F("5"), F("10.00"))
+        queued = self.queued_kinds()
+        self.assertEqual(queued[0], "ExecutionEvent")
+        flaky = FlakyCommands(h, "broker_execution")
+        with mock.patch.object(h.desk, "run_system", flaky):
+            with self.assertRaises(RuntimeError):
+                h.pump()
+            self.assertEqual(h.broker.pending_event_count(), 0)  # popped from the broker...
+            self.assertEqual([type(e).__name__ for e in event_backlog(h.broker)], queued)  # ...but kept
+            self.assertEqual(h.desk.store.query("SELECT COUNT(*) AS n FROM executions")[0]["n"], 0)
+            stats = h.pump()
+        self.assertEqual(stats.events, len(queued))
+        expected = {"ExecutionEvent": "broker_execution", "CommissionEvent": "broker_commission",
+                    "OrderStatusEvent": "broker_order_status", "ConnectivityEvent": "broker_connectivity"}
+        self.assertEqual([k for k in flaky.applied if k.startswith("broker_")], [expected[k] for k in queued])
+        self.assertEqual(len(event_backlog(h.broker)), 0)
+        o = h.row("orders", "order_id", "B1")
+        self.assertEqual((o["state"], o["cum_qty"]), ("FILLED", "5"))
+        (ex,) = [json.loads(r["row"]) for r in h.desk.store.query("SELECT row FROM executions")]
+        self.assertEqual((ex["status"], ex["fee_status"]), ("ACTIVE", "FINAL"))
+        self.assertEqual(h.verify(), [])
+
+    def test_reconciliation_records_incomplete_instead_of_losing_the_run(self):
+        """REC-01, review finding 58: when a queued event fails while a reconciliation drains it, the run is
+        recorded as INCOMPLETE (it used to raise and record nothing); the event stays queued
+        and the next reconciliation applies it and is CLEAN."""
+        h = self.h
+        h.broker.fill("B1", F("5"), F("10.00"))
+        flaky = FlakyCommands(h, "broker_execution")
+        with mock.patch.object(h.desk, "run_system", flaky):
+            r = h.reconcile()
+        self.assertTrue(r.accepted, r.body)
+        self.assertEqual(r.body["status"], "INCOMPLETE")
+        self.assertEqual(h.row("reconciliations", "run_id", r.body["run_id"])["status"], "INCOMPLETE")
+        self.assertEqual(h.desk.store.query("SELECT COUNT(*) AS n FROM executions")[0]["n"], 0)
+        self.assertGreater(len(event_backlog(h.broker)), 0)
+        r = h.reconcile()
+        self.assertEqual(r.body["status"], "CLEAN", r.body)
+        self.assertEqual(len(event_backlog(h.broker)), 0)
+        self.assertEqual(h.row("orders", "order_id", "B1")["state"], "FILLED")
         self.assertEqual(h.verify(), [])
 
 

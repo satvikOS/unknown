@@ -4,10 +4,20 @@ The runner holds no state of its own: every decision is a core command. It is
 driven explicitly (``pump``) by tests and by the supervised service loop.
 Observation commands get fresh command ids; economic deduplication is done by
 the handlers on scoped broker keys (ADR-0005 #5), so a re-delivered execution
-with different transport metadata is a duplicate, never a conflict."""
+with different transport metadata is a duplicate, never a conflict.
+
+Broker events are popped from the broker (``BrokerPort.drain_events``). Popped
+events that have not been applied yet are kept in a backlog that belongs to the
+broker object, so the service's runner, the reconciler's runner and any other
+runner on the same broker apply them once and in order. An event whose command
+raises stays at the head of the backlog with everything after it, and the next
+drain retries it first (review finding 58). The backlog lives in memory: after a
+crash, reconciliation's execution query is what recovers executions."""
 from __future__ import annotations
 
 import json
+import weakref
+from collections import deque
 from dataclasses import dataclass
 
 from ..broker.port import (BrokerOrder, BrokerPort, CommissionEvent, CommissionRow, ConnectivityEvent, ExecutionEvent,
@@ -32,6 +42,24 @@ def status_payload(account_key: str, s: OrderStatusEvent) -> dict:
     return {"account_key": account_key, "client_order_id": s.client_order_id, "order_ref": s.order_ref,
             "broker_order_id": s.broker_order_id, "status": s.status.value, "filled_quantity": s.filled_quantity.to_str(),
             "remaining_quantity": s.remaining_quantity.to_str(), "reason": s.reason}
+
+
+_BACKLOGS: "weakref.WeakKeyDictionary[object, deque]" = weakref.WeakKeyDictionary()
+_PINNED_BACKLOGS: dict[int, tuple[object, deque]] = {}   # brokers that cannot be weakly referenced (kept alive)
+
+
+def event_backlog(broker: BrokerPort) -> deque:
+    """Events taken from ``broker`` but not yet applied to the core, oldest first."""
+    try:
+        backlog = _BACKLOGS.get(broker)
+        if backlog is None:
+            backlog = _BACKLOGS[broker] = deque()
+        return backlog
+    except TypeError:
+        pinned = _PINNED_BACKLOGS.get(id(broker))
+        if pinned is None or pinned[0] is not broker:
+            pinned = _PINNED_BACKLOGS[id(broker)] = (broker, deque())
+        return pinned[1]
 
 
 @dataclass
@@ -80,9 +108,19 @@ class GatewayRunner:
 
     # ---------------------------------------------------------------- events
     def drain_events(self, limit: int = 1000) -> int:
+        """Apply up to ``limit`` broker events in order and return how many were applied.
+
+        Events are taken from the broker only to fill the backlog up to ``limit``. If an event's
+        command raises, that event and every later one stay in the backlog, in order, and the
+        exception propagates (the service counts a failed cycle; a reconciliation records an
+        INCOMPLETE run). Nothing taken from the broker is dropped (review finding 58)."""
+        backlog = event_backlog(self.broker)
+        if len(backlog) < limit:
+            backlog.extend(self.broker.drain_events(limit - len(backlog)))
         n = 0
-        for ev in self.broker.drain_events(limit):
-            self.apply_event(ev)
+        while backlog and n < limit:
+            self.apply_event(backlog[0])
+            backlog.popleft()
             n += 1
         return n
 

@@ -9,7 +9,10 @@ Algorithm (book Ch. 9, with the review's resolutions):
    ``max_rounds``) so the snapshot and the execution set describe one cut;
 5. look up every local open order the broker no longer lists;
 6. send one ``reconciliation_result``. Any broker read failure produces an
-   INCOMPLETE run: absence in partial data never proves anything.
+   INCOMPLETE run: absence in partial data never proves anything. So does any
+   other failure before the result (for example a broker event whose command
+   raises while queued events are drained): the run is recorded as INCOMPLETE,
+   and the unapplied events stay queued (review finding 58).
 """
 from __future__ import annotations
 
@@ -81,7 +84,7 @@ class Reconciler:
                     "filled_quantity": o.filled_quantity.to_str(), "remaining_quantity": o.remaining_quantity.to_str()} for o in open_rows]},
                 "lookups": lookups,
             }
-        except (ConnectionError, TimeoutError, OSError) as exc:
+        except Exception as exc:  # broker read failure, or an event or ingest command that raised
             payload = {"account_key": key, "run_id": run_id, "executions_complete": False, "watermark": None,
                        "snapshot": {"as_of_ns": self.desk.clock.now_ns(), "complete": False, "cash": [], "positions": [],
                                     "error": f"{type(exc).__name__}: {exc}"},
