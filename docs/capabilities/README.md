@@ -45,8 +45,8 @@ Checked against `impl/foundation@73f7b03` on 2026-10-22.
 | data-providers | 14 | 8 | 0 | 2 | 4 | 0 | 0 |
 | model-providers | 12 | 1 | 0 | 1 | 10 | 0 | 0 |
 | regulatory | 13 | 7 | 0 | 2 | 4 | 0 | 0 |
-| ops-aws | 14 | 8 | 0 | 3 | 3 | 0 | 0 |
-| **all** | 217 | 104 | 0 | 27 | 86 | 0 | 0 |
+| ops-aws | 14 | 7 | 0 | 4 | 3 | 0 | 0 |
+| **all** | 217 | 103 | 0 | 28 | 86 | 0 | 0 |
 
 ## Capabilities
 
@@ -336,7 +336,7 @@ Checked against `impl/foundation@73f7b03` on 2026-10-22.
 | CAP-OPS-01 | P0 | Mac process supervision with launchd (restart drill, crash-loop handling, sleep and power settings) | Apple macOS, Apple macOS launchd (platform supervisor; not a reference terminal) | implemented | 2 | the renderer has no test and no plist has been loaded on this Mac; no SIGKILL/cr |
 | CAP-OPS-02 | P0 | SQLite ledger durability settings, version advisory gate and crash/power-loss tests (macOS F_FULLFSYNC, Linux EBS) | IBKR TWS API, SQLite, SQLite (storage engine; not a reference terminal) | implemented | 3 | no test reads back the PRAGMA values at open (AC1) |
 | CAP-OPS-03 | P0 | Consistent encrypted ledger backups and an isolated restore drill with post-backup broker reconciliation | IBKR Flex Web Service, IBKR TWS API, SQLite | tested | 7 | backups are not encrypted and not copied off-host (AC3) |
-| CAP-OPS-04 | P0 | IB Gateway supervision: pinned install, daily auto-restart, weekly manual reauthentication and connectivity-state handling | IBC (third-party login automation; not IBKR), IBKR IB Gateway, IBKR TWS API, IBK | proposed |  | not yet implemented |
+| CAP-OPS-04 | P0 | IB Gateway supervision: pinned install, daily auto-restart, weekly manual reauthentication and connectivity-state handling | IBC (third-party login automation; not IBKR), IBKR IB Gateway, IBKR TWS API, IBK | implemented | 9 | IB Gateway itself is not supervised: no pinned Gateway install, no launchd job f |
 | CAP-OPS-05 | P0 | Layered health and readiness model (alive, writable, fresh, authenticated, eligible) with explicit inactivity reasons | Amazon EC2 (deployment platform), IBKR, IBKR APIs, IBKR TWS API | tested | 6 | no explicit layered states (alive, writable, fresh, authenticated, eligible) wit |
 | CAP-OPS-06 | P0 | Operational alerting: severity, deduplication, runbook links, dead-man detection (local and CloudWatch) | Amazon CloudWatch, Amazon CloudWatch (deployment platform), IBKR TWS API, LSEG W | proposed |  | not yet implemented |
 | CAP-OPS-07 | P1 | Spend cap enforced before any AWS provisioning (AWS Budgets, budget actions, IaC gate) and all-in operating cost | AWS Budgets, AWS Budgets (self-hosting cost control; not a reference-terminal fe | proposed |  | not yet implemented |
@@ -419,11 +419,12 @@ Checked against `impl/foundation@73f7b03` on 2026-10-22.
 - Files: `backend/src/unknown/domain/calendar.py`, `backend/src/unknown/domain/markets.py`, `config/calendars/`, `config/markets/venues.json`, `backend/src/unknown/service/core.py`
 - Tests: `test_markets::BusinessDayArithmeticTests.test_india_settlement_holidays_differ_from_trading`; `test_markets::BusinessDayArithmeticTests.test_t2s_settlement_days`; `test_markets::SettlementTests.test_eu_moves_to_t_plus_1_on_trade_date_2027_10_11`; `test_markets::SettlementTests.test_sample_trade_per_venue`; `test_markets::HorizonTests.test_settlement_refuses_to_cross_the_horizon`; `test_reconciliation::SettlementEvidenceTests.test_due_settlement_is_not_confirmed_by_the_calendar_and_late_case_opens`; `test_service_calendars::ServiceCalendarTests.test_service_loads_every_sourced_calendar`
 - Evidence: Settlement calendars (NCL-CM, ICCL-EQ, T2S-EUR) are separate from trading calendars; the venue registry applies settlement cycles by trade date; the core never releases cash on the expected date alone.
-- Evidence: The core service loads every sourced calendar in config/calendars at start (load_calendars), and every shipped policy names a calendar the service loads; until b87451b it loaded WEEKDAYS only, so the paper policy's XNYS settlement calendar silently fell back to weekdays (a 2026-11-25 trade would have been expected to settle on Thanksgiving).
+- Evidence: The core service passes load_calendars(config/calendars) to the desk at start (service/core.py), and every shipped policy names a calendar in that set; until b87451b it loaded WEEKDAYS only, so the paper policy's XNYS settlement calendar silently fell back to weekdays (a 2026-11-25 trade would have been expected to settle on Thanksgiving). The cited test_service_calendars tests check the loader, the shipped policies and XNYS date arithmetic, not the running service.
 - Gap: the core uses the instrument's settlement days and the policy calendar, not the venue registry
 - Gap: US securities settlement calendar (DTC) unverified; currency payment calendars not modelled
 - Gap: no exception when a broker settle date differs from the estimate (AC6)
 - Gap: a policy naming a calendar that is not loaded still falls back to WEEKDAYS silently in the core (handlers/broker.py and handlers/recon.py) instead of being refused at publish or activation
+- Gap: no test starts the core service and checks which calendar its desk settles with, so the b87451b fix has no regression test: with service/core.py reverted to WEEKDAYS only, all 1,205 backend tests still pass (checked 2026-10-22)
 - Requirements: DOM-06, LED-03, REC-04
 
 ### CAP-INS-14: Venue (ISO 10383 MIC) and issuer (LEI, PermID) reference linkage (implemented)
@@ -894,12 +895,13 @@ Checked against `impl/foundation@73f7b03` on 2026-10-22.
 - Tests: `test_reconciliation::SettlementEvidenceTests.test_friday_trade_settles_monday_only_when_broker_shows_it`; `test_reconciliation::SettlementEvidenceTests.test_sale_proceeds_become_available_only_on_broker_evidence`; `test_reconciliation::SettlementEvidenceTests.test_holiday_calendar_moves_expected_date_and_confirmation_waits_for_evidence`; `test_markets::SettlementTests.test_eu_moves_to_t_plus_1_on_trade_date_2027_10_11`; `test_markets::SettlementTests.test_us_and_india_are_t_plus_1`; `test_markets::BusinessDayArithmeticTests.test_india_settlement_holidays_differ_from_trading`; `test_service_calendars::ServiceCalendarTests.test_xnys_settlement_skips_thanksgiving`; `test_service_calendars::ServiceCalendarTests.test_policies_name_calendars_the_service_loads`
 - Evidence: The core predicts expected settlement from the policy's settlement calendar and the instrument's settlement days, and confirms it only from broker cash evidence; available cash excludes receivables (LED-03).
 - Evidence: The venue registry computes settlement cycles by trade date (US T+1, India T+1, EU T+2 then T+1 from 2027-10-11) on separate trading and settlement calendars.
-- Evidence: The core service loads every sourced calendar in config/calendars at start (load_calendars), and every shipped policy names a calendar the service loads; until b87451b it loaded WEEKDAYS only, so the paper policy's XNYS settlement calendar silently fell back to weekdays (a 2026-11-25 trade would have been expected to settle on Thanksgiving).
+- Evidence: The core service passes load_calendars(config/calendars) to the desk at start (service/core.py), and every shipped policy names a calendar in that set; until b87451b it loaded WEEKDAYS only, so the paper policy's XNYS settlement calendar silently fell back to weekdays (a 2026-11-25 trade would have been expected to settle on Thanksgiving). The cited test_service_calendars tests check the loader, the shipped policies and XNYS date arithmetic, not the running service.
 - Gap: the core does not read the venue registry: its settlement days come from the instrument record, so the EU rule switch is reference data only
 - Gap: NSE T+0 settlement type not modelled (AC3); India and EU are not eligible for trading
 - Gap: DTC settlement calendar unverified (XNYS used conservatively)
 - Gap: no comparison of computed and broker-reported settle dates over a live sample (AC4)
 - Gap: a policy naming a calendar that is not loaded still falls back to WEEKDAYS silently in the core (handlers/broker.py and handlers/recon.py) instead of being refused at publish or activation
+- Gap: no test starts the core service and checks which calendar its desk settles with, so the b87451b fix has no regression test: with service/core.py reverted to WEEKDAYS only, all 1,205 backend tests still pass (checked 2026-10-22)
 - Requirements: LED-03, REC-04, DOM-06
 
 ### CAP-OMS-11: Commission, fee and tax-charge estimation with estimated-vs-final tracking (tested)
@@ -927,7 +929,7 @@ Checked against `impl/foundation@73f7b03` on 2026-10-22.
 - Files: `terminal/src/ui/`, `terminal/src/workspaces/registry.ts`
 - Tests: `src/ui/ui-logic.test.ts::palette filtering > requires every token and ranks prefix matches first`; `src/workspaces/registry.test.ts::workspace registry > rejects duplicate palette command ids within a workspace`; `e2e/01-flow.spec.ts::keyboard: Cmd/Ctrl+K opens the palette, which navigates to Sessions and to a session`
 - Evidence: Cmd/Ctrl+K opens a palette over registered workspaces and their commands; it navigates and never submits orders.
-- Evidence: Terminal on 2026-10-22: typecheck clean, 259 vitest unit tests pass, production build succeeds; the Playwright suite (Chromium 1243, headless, audio disabled) runs against a real core and API with the FIXTURE market.
+- Evidence: Terminal on 2026-10-22: typecheck clean, 259 vitest unit tests pass, production build succeeds; the Playwright suite (31 tests, Chromium 1243, headless, audio disabled) passes against a real core and API with the FIXTURE market. CI runs the typecheck, unit tests and build; the Playwright suite runs only locally.
 - Gap: no instrument, document or help search index in the palette (AC1-AC4)
 - Gap: no command history (AC9)
 - Gap: APG combobox behaviour and screen-reader passes not verified (AC5, AC6)
@@ -938,7 +940,7 @@ Checked against `impl/foundation@73f7b03` on 2026-10-22.
 - Files: `terminal/src/ui/`, `terminal/src/workspaces/registry.ts`
 - Tests: `src/ui/ui-logic.test.ts::two-key shortcuts > matches "g o" within the timeout only`; `src/ui/charKeys.test.ts::single-character shortcut preference (WCAG 2.1.4) > is on by default and can be turned off and on without storage`; `src/workspaces/registry.test.ts::workspace registry > rejects duplicate ids, duplicate shortcuts and malformed entries`; `e2e/01-flow.spec.ts::keyboard: single-character shortcuts are listed in the help and can be turned off (WCAG 2.1.4)`
 - Evidence: Two-key workspace shortcuts with a help overlay; single-character shortcuts can be turned off (WCAG 2.1.4).
-- Evidence: Terminal on 2026-10-22: typecheck clean, 259 vitest unit tests pass, production build succeeds; the Playwright suite (Chromium 1243, headless, audio disabled) runs against a real core and API with the FIXTURE market.
+- Evidence: Terminal on 2026-10-22: typecheck clean, 259 vitest unit tests pass, production build succeeds; the Playwright suite (31 tests, Chromium 1243, headless, audio disabled) passes against a real core and API with the FIXTURE market. CI runs the typecheck, unit tests and build; the Playwright suite runs only locally.
 - Gap: shortcuts are not rebindable (AC2, AC7)
 - Gap: no hint mode, no order hotkeys, no stop chord from every route (AC5, AC6)
 - Gap: no keyboard-only enumeration of every action (AC1)
@@ -959,10 +961,11 @@ Checked against `impl/foundation@73f7b03` on 2026-10-22.
 - Files: `terminal/e2e/support/a11y.ts`, `terminal/e2e/02-a11y.spec.ts`, `terminal/src/ui/styles.css`
 - Tests: `e2e/02-a11y.spec.ts::every workspace passes the accessibility checks (${scheme} theme)`; `e2e/02-a11y.spec.ts::narrow screens: no sideways page scroll, no overlapping header items, STOP stays visible`; `e2e/00-audit-selftest.spec.ts::the accessibility checker reports nothing on a clean page`; `e2e/00-audit-selftest.spec.ts::the focus check catches a control with its outline removed`
 - Evidence: An automated pass over 29 views in both themes: accessible names, text and field-edge contrast, tables, ARIA references, page structure, target size and focus indicators; five widths from 390 px.
-- Evidence: Terminal on 2026-10-22: typecheck clean, 259 vitest unit tests pass, production build succeeds; the Playwright suite (Chromium 1243, headless, audio disabled) runs against a real core and API with the FIXTURE market.
+- Evidence: Terminal on 2026-10-22: typecheck clean, 259 vitest unit tests pass, production build succeeds; the Playwright suite (31 tests, Chromium 1243, headless, audio disabled) passes against a real core and API with the FIXTURE market. CI runs the typecheck, unit tests and build; the Playwright suite runs only locally.
 - Gap: no manual WCAG 2.2 audit and no published conformance report (AC2, AC7)
 - Gap: grids are not tested against the APG grid keyboard pattern (AC3)
 - Gap: no pause control or reduce-motion preference (AC4)
+- Gap: AC1 asks for V = 0 in CI: every cited test is a Playwright test, and CI does not run the Playwright suite, so a regression is caught only by a local run
 - Requirements: TRM-01
 
 ### CAP-UX-09: 'Show calculation' inspector: formula, inputs, units, adjustments and level-by-level lineage to source records (implemented)
@@ -979,7 +982,7 @@ Checked against `impl/foundation@73f7b03` on 2026-10-22.
 - Files: `terminal/src/format/`, `terminal/src/ui/`, `terminal/src/workspaces/risk/`
 - Tests: `src/format/decimal.test.ts::parseDecimal > rejects anything that is not a plain decimal`; `src/format/exact.test.ts::exact decimal arithmetic > adds and subtracts without float error`; `src/workspaces/risk/riskModel.test.ts::marked P&L estimate > fails closed on a stale, delayed or missing bid, like the core`; `src/ui/ui-logic.test.ts::table sorting > sorts decimal strings exactly and keeps empty values last in both directions`; `e2e/01-flow.spec.ts::overview shows SIMULATED in text and colour, and labels fixture data FIXTURE`
 - Evidence: Decimal strings are formatted and compared exactly (no floats); missing marks fail closed; SIMULATED mode and FIXTURE data are labelled in text.
-- Evidence: Terminal on 2026-10-22: typecheck clean, 259 vitest unit tests pass, production build succeeds; the Playwright suite (Chromium 1243, headless, audio disabled) runs against a real core and API with the FIXTURE market.
+- Evidence: Terminal on 2026-10-22: typecheck clean, 259 vitest unit tests pass, production build succeeds; the Playwright suite (31 tests, Chromium 1243, headless, audio disabled) passes against a real core and API with the FIXTURE market. CI runs the typecheck, unit tests and build; the Playwright suite runs only locally.
 - Gap: no locale switching (en-IN, de-DE) (AC2)
 - Gap: no exchange-local times with offset (AC7)
 - Gap: no lint rule for numeric rendering (AC8)
@@ -1470,6 +1473,20 @@ Checked against `impl/foundation@73f7b03` on 2026-10-22.
 - Gap: backups are not encrypted and not copied off-host (AC3)
 - Gap: no recorded scheduled drill with RPO/RTO and no broker reconciliation step in the drill (AC5, AC6)
 - Requirements: SEC-03, OPS-04
+
+### CAP-OPS-04: IB Gateway supervision: pinned install, daily auto-restart, weekly manual reauthentication and connectivity-state handling (implemented)
+
+- Files: `backend/src/unknown/broker/ibkr/adapter.py`, `backend/src/unknown/broker/ibkr/marketdata.py`, `backend/src/unknown/broker/ibkr/serve.py`, `backend/src/unknown/core/handlers/broker.py`, `docs/deploy/macos.md`
+- Tests: `test_ibkr_adapter::ConnectivityTests.test_system_codes_map_to_connectivity_events` (IBKR venv); `test_ibkr_adapter::ConnectivityTests.test_connection_closed_then_reconnect` (IBKR venv); `test_ibkr_adapter::ConnectivityTests.test_socket_port_reset_1300_drops_the_session` (IBKR venv); `test_ibkr_adapter::SubmitTests.test_upstream_loss_blocks_new_entries_until_restored` (IBKR venv); `test_ibkr_adapter::ConnectionTests.test_client_id_in_use_and_identity_change_latch` (IBKR venv); `test_ibkr_marketdata::QuoteTests.test_connectivity_loss_blanks_quotes_and_1101_requires_resubscribe`; `test_service_supervisor::SupervisorTests.test_reconnects_with_capped_exponential_backoff`; `test_service_supervisor::SupervisorTests.test_logged_out_host_is_not_reconnected_while_the_socket_is_up`; `test_control_recovery::ConnectivityTests.test_disconnect_event_forces_reconciliation_before_entries`
+- Evidence: The connectivity-state part is built and tested offline with a fake host (the same behaviour as CAP-IBKR-07): 1100 marks the session down and refuses transmission until 1101 or 1102 restores it; after 1101 (data lost) the market-data session blanks quotes and resubscribes each subscription on its next maintenance pass; socket EOF and 1300 drop the session and requests are refused until a reconnect; client id in use reports AUTH_REQUIRED.
+- Evidence: The IBKR service (python -m unknown.broker.ibkr.serve) reconnects with capped exponential backoff and never logs in for the owner; a disconnect makes the core require a clean reconciliation before any entry or transmission. The owner's manual login, weekly re-login and Gateway settings are documented in docs/deploy/macos.md.
+- Gap: IB Gateway itself is not supervised: no pinned Gateway install, no launchd job for it, no daily auto-restart check against the reset windows, and no Gateway version or settings hash recorded per launch (AC5, AC6)
+- Gap: in-flight orders are not set to UNKNOWN on a disconnect: they keep their state, and entries wait for a clean reconciliation (AC1)
+- Gap: no reauthentication due time is shown or alerted (AC3); AUTH_REQUIRED is reported, but alerting is not built (CAP-OPS-06)
+- Gap: no reset-window configuration, so a 1100 inside an IBKR reset window is not classified as expected
+- Gap: API port exposure and the gateway versus Client Portal username check are not implemented (AC4, AC7)
+- Gap: not paper-verified: no IBKR paper session has run (BRK-02)
+- Requirements: BRK-04, OPS-04
 
 ### CAP-OPS-05: Layered health and readiness model (alive, writable, fresh, authenticated, eligible) with explicit inactivity reasons (tested)
 
