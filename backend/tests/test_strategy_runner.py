@@ -580,6 +580,7 @@ class RealCoreCase(unittest.TestCase):
     STALE: tuple[str, ...] = ()        # instruments whose bar for the eligible session is missing
     COLLAR_BPS = 50                    # the spec's transmission collar (BR-DAT-19)
     LOSS_FRACTION = "1"                # the spec's risk budget (BR-DAT-04); "1" does not bind on a 100.00 session
+    POLICY: dict = {}                  # overrides of the simulated default policy (``support.load_policy`` keys)
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -649,7 +650,8 @@ class RealCoreCase(unittest.TestCase):
 
     def bootstrap(self, listed: list[str]) -> None:
         self.cmd("register_account", account_key=ACCOUNT, provider="simulated", mode="SIMULATED", base_currency="USD")
-        pol = self.cmd("publish_policy", body=load_policy(session_template__strategy_eligibility=["owner-manual", *listed]))
+        pol = self.cmd("publish_policy", body=load_policy(session_template__strategy_eligibility=["owner-manual", *listed],
+                                                          **self.POLICY))
         self.cmd("activate_policy", account_key=ACCOUNT, policy_hash=pol["body"]["policy_hash"])
         for iid, sym in (("FIX-EQ-1", "FIXA"), ("FIX-EQ-2", "FIXB")):
             inst = Instrument(instrument_id=iid, asset_class=AssetClass.EQUITY, symbol=sym, name=f"Fixture {sym} (test only)",

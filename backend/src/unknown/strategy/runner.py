@@ -63,7 +63,7 @@ from ..service.ipc import CoreClient, IpcError
 from ..service.paths import Paths
 from . import artifacts
 from .artifacts import ArtifactRefused, LoadedArtifact
-from .coreview import CoreSnapshot, CoreUnavailable, CoreView
+from .coreview import UNRESOLVED_STATES, CoreSnapshot, CoreUnavailable, CoreView
 from .journal import FINAL, Journal, cancel_command_id, decision_ids
 from .sizing import Holding, InstrumentPlan, RiskTerm, plan
 
@@ -642,6 +642,17 @@ class StrategyRunner:
                 d.outcome, d.reason = "BLOCKED", "FIXTURE_DATA_NOT_ALLOWED by the spec's data requirements"
             elif any(b.fixture for b in bars) and snap.account_mode != "SIMULATED":
                 d.outcome, d.reason = "BLOCKED", f"FIXTURE_DATA_ON_{snap.account_mode}_ACCOUNT: synthetic bars never drive this account"
+            elif unresolved := [o for o in snap.open_orders.get(i, ()) if o["state"] in UNRESOLVED_STATES]:
+                # BR-DAT-02: an order whose outcome (UNKNOWN) or cancellation (CANCEL_PENDING) is unresolved may still
+                # fill; its leaves count as pending exposure, and no new intent is emitted beside it.
+                d.outcome, d.reason = "BLOCKED", "PENDING_UNRESOLVED: " + ", ".join(
+                    f"{o['order_id']} is {o['state']} with leaves {o['leaves_qty']}" for o in unresolved) + \
+                    "; no new intent for this instrument until it resolves (BR-DAT-02)"
+            elif own := [o for o in snap.open_orders.get(i, ()) if (o["principal_id"], o["principal_role"]) ==
+                         (art.artifact_id, "STRATEGY")]:
+                d.outcome, d.reason = "BLOCKED", "OPEN_INTENT: " + ", ".join(
+                    f"{o['order_id']} ({o['state']}, leaves {o['leaves_qty']})" for o in own) + \
+                    " still works: at most one live intent per session, artifact and instrument (BR-DAT-02)"
             elif window.basis == FIXTURE_SESSION_BASIS and not all(b.fixture for b in bars):
                 d.outcome, d.reason = "BLOCKED", (f"SESSION_HOURS_UNKNOWN: {self.cfg.calendar.calendar_id} has no session "
                                                   "hours, and only FIXTURE data may use the fixture session convention "
