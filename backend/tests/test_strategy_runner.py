@@ -717,12 +717,10 @@ class LiveRunnerTest(RealCoreCase):
         self.assertTrue(all(x["already_decided"] for x in s2["instruments"].values()))
         self.assertEqual(self.orders(b), [])
 
-    def test_command_ids_another_principal_stored_are_never_adopted(self):
-        """Review fix: the runner's ids are predictable, and the core stores a command another authorized
-        principal sends under them (here: strategy B, rejected but stored). The runner adopted such a stored
-        command as its own: B's stored record made A skip its decision as "already decided", and B's stored
-        submission was recorded as A's (recovered) intent. Now neither is adopted; a decision whose record id is
-        claimed is not traded (no intent without its record) and both are reported COMMAND_ID_CLAIMED."""
+    def test_another_principal_cannot_claim_the_runners_command_ids(self):
+        """Review fix, closed in the core: the runner's ids are predictable ("strat.<artifact>...."). The core now
+        reserves them for that artifact's own principal, so strategy B's attempts under A's ids are refused
+        UNAUTHORIZED and never stored, and A then decides normally (no COMMAND_ID_CLAIMED)."""
         a, b = self.ids["A"], self.ids["B"]
         one, two = decision_ids(a, self.day, "FIX-EQ-1"), decision_ids(a, self.day, "FIX-EQ-2")
         bc = CoreClient(self.paths.socket, self.paths.strategy_tokens()[b])
@@ -730,18 +728,13 @@ class LiveRunnerTest(RealCoreCase):
         r1 = bc.command(one["decision_command_id"], "record_strategy_decision",
                         {"account_key": ACCOUNT, "session_id": "S1", "artifact_id": b}, bp)
         r2 = bc.command(two["submit_command_id"], "submit_intent", {"account_key": ACCOUNT, "side": "BUY", "strategy_id": b}, bp)
-        self.assertEqual(((r1["accepted"], r1["duplicate"]), (r2["accepted"], r2["duplicate"])), ((False, False), (False, False)))
-        with self.runner("A", "live") as r, self.assertLogs("unknown.strategy", level="ERROR") as logs:
+        self.assertEqual([(r["accepted"], r["body"].get("code")) for r in (r1, r2)], [(False, "UNAUTHORIZED")] * 2)
+        with self.runner("A", "live") as r:
             s = r.run_once()
-        self.assertTrue(any("COMMAND_ID_CLAIMED" in line for line in logs.output), logs.output)
         x1, x2 = s["instruments"]["FIX-EQ-1"], s["instruments"]["FIX-EQ-2"]
-        self.assertEqual((x1["recovered"], x2["recovered"]), (False, False), s)
-        self.assertEqual((x1["state"], x1["core_refusal"], x1["submitted"]), ("REFUSED", "COMMAND_ID_CLAIMED", False), x1)
-        self.assertEqual((x2["state"], x2["outcome"], x2["submit_rejection"]), ("RECORDED", "BLOCKED", "COMMAND_ID_CLAIMED"), x2)
-        self.assertEqual(self.orders(a), [])
-        recs = self.decisions(a)
-        self.assertEqual([(d["instrument_id"], d["outcome"]) for d in recs], [("FIX-EQ-2", "BLOCKED")])
-        self.assertIn("COMMAND_ID_CLAIMED", recs[0]["reason"])
+        self.assertNotEqual(x1.get("core_refusal"), "COMMAND_ID_CLAIMED", x1)
+        self.assertNotEqual(x2.get("submit_rejection"), "COMMAND_ID_CLAIMED", x2)
+        self.assertEqual(sorted(d["instrument_id"] for d in self.decisions(a)), ["FIX-EQ-1", "FIX-EQ-2"])
         self.stop_core()
         self.assertEqual(self.verify_ledger(), [])
 

@@ -152,11 +152,16 @@ class Desk:
             raise ValueError(f"unknown command kind {command.kind!r}")
         payload_hash = sha256_hex(canonical_json({"kind": command.kind, "payload": command.payload}))
         reserved = command.command_id.startswith(RESERVED_ID_PREFIXES) and command.principal.role is not Role.SYSTEM
+        # "strat.<artifact>." ids belong to that artifact's runner (ADR-0017): deterministic per decision, so nobody
+        # else may claim one first and make the runner's decision unrecordable.
+        if command.command_id.startswith("strat.") and not (
+                command.principal.role is Role.STRATEGY and command.command_id.startswith(f"strat.{command.principal.id}.")):
+            reserved = True
         reserved_principal = command.principal.role is Role.STRATEGY and strategy_id_reserved(command.principal.id)
         if reserved or reserved_principal or not permitted(command.principal.role, command.kind):
             # Authorization precedes dedup, and a refused command is never stored under its id, so no
             # principal can pre-claim (or probe) another principal's command ids.
-            why = ("command id prefix reserved for the system" if reserved else
+            why = ("command id prefix reserved for the system or another strategy" if reserved else
                    f"principal id {command.principal.id!r} is reserved and may not be asserted by a strategy"
                    if reserved_principal else f"role {command.principal.role.value} may not issue {command.kind}")
             body = Rejected("UNAUTHORIZED", why).to_json()
