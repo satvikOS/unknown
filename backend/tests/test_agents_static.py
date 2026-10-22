@@ -62,6 +62,14 @@ class StaticTest(unittest.TestCase):
                         bad.append(f"{p.name}: {n}")
         self.assertEqual(bad, [])
 
+    def test_only_the_worker_reaches_the_core_socket_and_it_never_holds_the_owner_token(self):
+        for p in sources():
+            text = p.read_text()
+            if p.name != "worker.py":
+                self.assertIsNone(re.search(r"\bCoreClient\b", text), p.name)
+            self.assertNotIn('token("api")', text, p.name)
+        self.assertIn('token("agent")', (AGENTS / "worker.py").read_text())
+
     def test_sdk_import_is_lazy(self):
         for p in sources():
             tree = ast.parse(p.read_text())
