@@ -234,12 +234,21 @@ def broker_execution(ctx: Context, p: dict) -> dict:
     if existing is not None:
         if existing.get("raw_economic") == raw_economic or {k: existing.get(k) for k in ECONOMIC_FIELDS} == raw_economic:
             return {"exec_key": exec_key, "duplicate": True}
+        # Decision (BR-ORD-05, BR-REF-21): the booked original stands and nothing of the amended content is booked.
+        # The received payload is recorded in full and a blocking critical case, attributed to the execution's
+        # order, session and current owner, holds new exposure until the owner resolves it. A genuine amendment
+        # reaches the ledger as a broker correction (a new execution id) or as a reconciliation difference; the
+        # same id is never silently re-booked, and a redelivery of the amended payload adds no second case.
+        holder = current_owner(ctx.tx, existing["owner"]) if existing.get("owner") else None
         case = new_exception(ctx, key, EXECUTION_ANOMALY, blocking=True, severity="critical",
                              detail={"exec_key": exec_key, "issue": "same execution id with changed content",
-                                     "stored": existing.get("raw_economic"), "received": raw_economic},
-                             key=f"exec-changed:{exec_key}:{ctx.payload_hash[:12]}")
+                                     "stored": existing.get("raw_economic"), "received": raw_economic,
+                                     "decision": "the original stays booked; the amended content is recorded, not booked, "
+                                                 "until the owner resolves this case"},
+                             key=f"exec-changed:{exec_key}:{ctx.payload_hash[:12]}", session_id=existing.get("session_id"),
+                             order_id=existing.get("order_id"), owner_hint=holder)
         ctx.emit("ExecutionContentConflict", {"exec_key": exec_key, "received": p}, {"exceptions": [case] if case else []},
-                 account_key=key)
+                 account_key=key, session_id=existing.get("session_id"), order_id=existing.get("order_id"))
         return {"exec_key": exec_key, "conflict": True}
     p = {**p, "_raw_economic": raw_economic}
     if not state.control(ctx.tx, key).get("imported"):
