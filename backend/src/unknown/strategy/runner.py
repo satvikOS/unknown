@@ -13,7 +13,8 @@ One cycle (``run_once``):
    has not expired and this checkout's code hash is the registered one (``artifacts.load``).
 2. Find the latest eligible session ``D``: the latest business day of the calendar whose decision instant
    (``D`` at the spec's ``decision_clock_utc``, as in the backtest) has passed. Only ``D`` is ever decided; missed
-   sessions are not back-filled.
+   sessions are not back-filled. Decisions an earlier cycle left unrecorded (outage, crash) are finished first,
+   and an intent past its deadline is never sent (recorded ``BLOCKED`` RUNNER_LATE unless the core holds it).
 3. For each instrument of the spec that has no final decision for ``D`` yet (journal, then the core's stored
    commands if the journal was lost): read the bars visible at the decision instant from the point-in-time
    store (``research.bars.load_series`` + ``Cursor``, the engine's as-of reader). An instrument whose latest
@@ -339,7 +340,14 @@ class StrategyRunner:
             "execution_date": exec_date.isoformat(), "deadline_ns": deadline, "runtime_code_hash": self.runtime_code,
             "calendar": f"{self.cfg.calendar.calendar_id}@{self.cfg.calendar.version}", "instruments": {}, "result": "OK"}
 
-        todo: list[dict] = []
+        # Rows an earlier session left unfinished (a core outage or a crash that outlasted it) are finished first:
+        # their decisions are recorded, and an intent past its deadline is never sent (``_execute``). Only the
+        # latest eligible session is ever DECIDED; these were decided already (review fix: they stayed PLANNED or
+        # SUBMITTED forever, unrecorded, once a later session became eligible).
+        todo: list[dict] = self.journal.unfinished(before=day)
+        if todo:
+            log.warning("%s: %d decision(s) of earlier sessions are not recorded yet; finishing them first: %s",
+                        art.artifact_id, len(todo), sorted({r["session_date"] for r in todo}))
         fresh: list[str] = []
         for inst in spec.instrument_ids:
             row = self.journal.get(day, inst)
@@ -387,18 +395,26 @@ class StrategyRunner:
         return self._finish(summary, todo)
 
     def _finish(self, summary: dict, todo: list[dict]) -> dict:
-        for row in sorted(todo, key=lambda r: r["instrument_id"]):
+        for row in sorted(todo, key=lambda r: (r["session_date"], r["instrument_id"])):
             try:
                 row = self._execute(row)
             except CoreUnreachable as exc:
                 summary["result"] = "CORE_UNREACHABLE"
                 summary["reason"] = exc.message
-                log.error("core unreachable; %s stays %s for the next cycle: %s", row["instrument_id"], row["state"], exc)
-                summary["instruments"][row["instrument_id"]] = self._row_summary(self.journal.get(
-                    date.fromisoformat(row["session_date"]), row["instrument_id"]))
+                log.error("core unreachable; %s %s stays %s for the next cycle: %s", row["session_date"], row["instrument_id"],
+                          row["state"], exc)
+                self._put(summary, self.journal.get(date.fromisoformat(row["session_date"]), row["instrument_id"]))
                 break
-            summary["instruments"][row["instrument_id"]] = self._row_summary(row)
+            self._put(summary, row)
         return summary
+
+    def _put(self, summary: dict, row: dict) -> None:
+        """A row of the decided session goes under ``instruments``; a row carried over from an earlier session under
+        ``carried_over`` (keyed ``<session date>|<instrument>``)."""
+        if row["session_date"] == summary["session_date"]:
+            summary["instruments"][row["instrument_id"]] = self._row_summary(row)
+        else:
+            summary.setdefault("carried_over", {})[f"{row['session_date']}|{row['instrument_id']}"] = self._row_summary(row)
 
     # ------------------------------------------------------------- decisions
     def _decide(self, art: LoadedArtifact, day: date, t: int, deadline: int, now: int, snap: CoreSnapshot,
@@ -558,7 +574,10 @@ class StrategyRunner:
         day = date.fromisoformat(row["session_date"])
         inst = row["instrument_id"]
         if row["state"] == "PLANNED":
-            if row["submit_payload"] is not None:
+            sub = row["submit_payload"]
+            if sub is not None and self.clock.now_ns() >= sub["deadline_ns"]:
+                self._expire(row)
+            elif sub is not None:
                 res = self._command(row["submit_command_id"], "submit_intent", row["submit_payload"])
                 decision = self._finalize(row["decision_payload"], res, row["order_id"])
                 self.journal.update(day, inst, self.clock.now_ns(), state="SUBMITTED", submit_result=res, decision_payload=decision)
@@ -577,6 +596,32 @@ class StrategyRunner:
                           (res.get("body") or {}).get("code"))
             row = self.journal.get(day, inst)
         return row
+
+    def _own(self, stored: dict) -> bool:
+        """A command the core stored under one of this runner's ids was issued by this artifact's principal."""
+        return (stored.get("principal_id"), stored.get("principal_role")) == (self.cfg.artifact_id, "STRATEGY")
+
+    def _expire(self, row: dict) -> None:
+        """A PLANNED intent whose deadline has passed is never sent (the core would refuse it as DEADLINE anyway).
+        If an earlier process did send it (a crash before the journal learned), the core's stored result is the
+        truth and is recorded; otherwise the decision is recorded BLOCKED (RUNNER_LATE)."""
+        day, inst, sub = date.fromisoformat(row["session_date"]), row["instrument_id"], row["submit_payload"]
+        stored = self.core.commands([row["submit_command_id"]]).get(row["submit_command_id"])
+        if stored is not None and self._own(stored):
+            res = {"accepted": stored["status"] == "ACCEPTED", "duplicate": True, "body": stored["result"], "events": [],
+                   "recovered": True}
+            decision = self._finalize(row["decision_payload"], res, row["order_id"])
+            self.journal.update(day, inst, self.clock.now_ns(), state="SUBMITTED", submit_result=res, decision_payload=decision)
+            log.info("%s %s %s: intent past its deadline was already taken by the core (%s); recording that, not resending",
+                     row["artifact_id"], day, inst, stored["status"])
+            return
+        base = row["decision_payload"]
+        decision = {**base, "outcome": "BLOCKED", "order_ids": [],
+                    "reason": _join(f"RUNNER_LATE: not submitted; the intent deadline passed before the core took it; would "
+                                    f"{sub['side']} {sub['quantity']} @ {sub['limit_price']}", base.get("reason", ""))}
+        self.journal.update(day, inst, self.clock.now_ns(), state="SUBMITTED", decision_payload=decision)
+        log.warning("%s %s %s: intent past its deadline, not submitted; recorded BLOCKED (RUNNER_LATE)", row["artifact_id"],
+                    day, inst)
 
     @staticmethod
     def _row_summary(row: dict, already: bool = False) -> dict:

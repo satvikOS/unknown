@@ -420,6 +420,68 @@ class JournalPerAccountTest(unittest.TestCase):
                     RunnerConfig(aid, bad, "live", paths)
 
 
+class ExpiredIntentTest(unittest.TestCase):
+    """Review fix: a PLANNED intent whose deadline has passed (a core outage past the deadline, e.g. after an XNYS
+    close) is never sent. If an earlier process did send it before crashing, the core's stored result is recorded,
+    never a BLOCKED that would contradict an order the core holds; a command another principal stored under the id
+    is not taken as ours."""
+    AID = "TREND_DAILY_V1@0123456789abcdef"
+    DAY = date(2026, 10, 21)
+
+    class Client:
+        def __init__(self):
+            self.sent: list[tuple[str, str]] = []
+
+        def command(self, command_id, kind, payload, principal):
+            self.sent.append((command_id, kind))
+            if kind == "submit_intent":
+                raise AssertionError("an intent past its deadline was sent")
+            return {"accepted": True, "duplicate": False, "body": {"recorded": True}, "events": []}
+
+    class Core:
+        def __init__(self, stored: dict):
+            self.stored = stored
+
+        def commands(self, ids):
+            return {i: self.stored[i] for i in ids if i in self.stored}
+
+    def run_case(self, stored_by: str | None) -> tuple[dict, list]:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        ids = decision_ids(self.AID, self.DAY, "FIX-EQ-1")
+        deadline = decision_instant(date(2026, 10, 22), CLOCK_UTC)
+        clock, client = ManualClock(deadline + 1), self.Client()
+        r = StrategyRunner(RunnerConfig(self.AID, ACCOUNT, "live", Paths(Path(tmp.name))), clock=clock, client=client)
+        self.addCleanup(r.close)
+        r.core = self.Core({} if stored_by is None else {ids["submit_command_id"]: {
+            "status": "ACCEPTED", "result": {"order_id": ids["order_id"], "state": "RESERVED"}, "principal_id": stored_by,
+            "principal_role": "STRATEGY"}})
+        submit = {"account_key": ACCOUNT, "session_id": "S1", "order_id": ids["order_id"], "instrument_id": "FIX-EQ-1",
+                  "side": "BUY", "quantity": "4", "limit_price": "10.05", "deadline_ns": deadline}
+        r.journal.plan([{"artifact_id": self.AID, "session_date": self.DAY, "instrument_id": "FIX-EQ-1", "mode": "live", **ids,
+                         "submit_payload": submit, "decision_payload": {"outcome": None, "reason": "z=1", "order_ids": []}}],
+                       clock.now_ns())
+        with self.assertLogs("unknown.strategy", level="INFO"):
+            row = r._execute(r.journal.get(self.DAY, "FIX-EQ-1"))
+        self.assertEqual(client.sent, [(ids["decision_command_id"], "record_strategy_decision")])   # never the intent
+        self.assertEqual(row["state"], "RECORDED")
+        return row["decision_payload"], ids
+
+    def test_not_sent_and_recorded_blocked(self):
+        decision, _ = self.run_case(None)
+        self.assertEqual((decision["outcome"], decision["order_ids"]), ("BLOCKED", []))
+        self.assertTrue(decision["reason"].startswith("RUNNER_LATE: not submitted"), decision["reason"])
+        self.assertIn("BUY 4 @ 10.05", decision["reason"])
+
+    def test_an_intent_the_core_already_holds_is_recorded_as_submitted(self):
+        decision, ids = self.run_case(self.AID)
+        self.assertEqual((decision["outcome"], decision["order_ids"]), ("INTENT_SUBMITTED", [ids["order_id"]]))
+
+    def test_a_command_another_principal_stored_under_the_id_is_not_ours(self):
+        decision, _ = self.run_case("TREND_DAILY_V1@ffffffffffffffff")
+        self.assertEqual(decision["outcome"], "BLOCKED")
+
+
 class ExcludedInstrumentKeepsItsShareOfTheCapTest(unittest.TestCase):
     """Review fix: an instrument the runtime may not trade at a decision (here: no bar for the session) keeps its
     share of the aggregate cap, as in the engine. It used to be dropped from the targets before sizing, so the
@@ -795,6 +857,44 @@ class CrashResumeTest(RealCoreCase):
         self.assertEqual({x["outcome"] for x in s["instruments"].values()}, {"INTENT_SUBMITTED"}, s)
         self.assertFalse(any(x["submit_duplicate"] for x in s["instruments"].values()))
         self.assertEqual((len(self.orders(a)), len(self.decisions(a))), (2, 2))
+        self.stop_core()
+        self.assertEqual(self.verify_ledger(), [])
+
+    def test_an_outage_past_the_session_records_its_decisions_late_and_never_submits_them(self):
+        """Review fix: a cycle only looked at the latest eligible session, so decisions an outage left PLANNED (or
+        SUBMITTED without a record) stayed so forever once the next session became eligible: never recorded. They
+        are now finished first; an intent past its deadline is never sent and is recorded BLOCKED (RUNNER_LATE)."""
+        a = self.ids["A"]
+        early = ManualClock(decision_instant(self.day, CLOCK_UTC) - 3600 * NS_PER_S)
+        prev = latest_eligible_session(early.now_ns(), WEEKDAYS_ONLY, CLOCK_UTC)
+        self.assertLess(prev, self.day)
+        self.stop_core()
+        with StrategyRunner(RunnerConfig(a, ACCOUNT, "live", self.paths), clock=early) as r, \
+                self.assertLogs("unknown.strategy", level="ERROR"):
+            s = r.run_once()
+            planned = r.journal.rows(prev)
+        self.assertEqual((s["result"], s["session_date"]), ("CORE_UNREACHABLE", prev.isoformat()))
+        self.assertEqual({x["state"] for x in planned}, {"PLANNED"})
+        intents = sorted(x["instrument_id"] for x in planned if x["submit_payload"] is not None)
+        self.assertTrue(intents, planned)
+        self.start_core()
+        self.green_start()
+        with self.runner("A", "live") as r2, self.assertLogs("unknown.strategy", level="WARNING"):
+            s2 = r2.run_once()             # the latest eligible session is now self.day; prev's intents are late
+            late = {x["instrument_id"]: x for x in r2.journal.rows(prev)}
+        self.assertEqual({x["state"] for x in late.values()}, {"RECORDED"})
+        self.assertEqual(sorted(s2["carried_over"]), sorted(f"{prev.isoformat()}|{i}" for i in INSTRUMENTS))
+        for i in intents:
+            self.assertEqual(late[i]["decision_payload"]["outcome"], "BLOCKED")
+            self.assertTrue(late[i]["decision_payload"]["reason"].startswith("RUNNER_LATE"), late[i]["decision_payload"])
+            self.assertIsNone(late[i]["submit_result"])
+        prev_order_ids = {decision_ids(a, prev, i)["order_id"] for i in INSTRUMENTS}
+        self.assertFalse(prev_order_ids & {o["order_id"] for o in self.orders(a)})     # never submitted
+        self.assertEqual({x["outcome"] for x in s2["instruments"].values()}, {"INTENT_SUBMITTED"}, s2)
+        t_prev = decision_instant(prev, CLOCK_UTC)
+        recs = self.decisions(a)
+        self.assertEqual(sorted(d["instrument_id"] for d in recs if d["observation_time_ns"] == t_prev), sorted(INSTRUMENTS))
+        self.assertEqual(len(recs), 4)
         self.stop_core()
         self.assertEqual(self.verify_ledger(), [])
 

@@ -78,6 +78,13 @@ class Journal:
         return [self._row(r) for r in self.conn.execute("SELECT * FROM decision WHERE session_date=? ORDER BY instrument_id",
                                                        (session_date.isoformat(),))]
 
+    def unfinished(self, before: date) -> list[dict]:
+        """Rows of sessions before ``before`` that are not final yet (oldest first): what an outage or a crash left
+        behind once a later session became eligible."""
+        return [self._row(r) for r in self.conn.execute(
+            "SELECT * FROM decision WHERE session_date<? AND state NOT IN (?, ?) ORDER BY session_date, instrument_id",
+            (before.isoformat(), *FINAL))]
+
     @staticmethod
     def _row(r: sqlite3.Row) -> dict:
         d = dict(r)

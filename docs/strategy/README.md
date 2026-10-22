@@ -31,7 +31,7 @@ What the runner can touch:
 3. **Session to decide.** The runner decides the latest *eligible* session `D`: the latest business day of the calendar whose decision instant has passed. The decision instant is `D` at the spec's `decision_clock_utc`, the same instant the backtest uses.
    - Calendars are `domain/calendar.py` data: `WEEKDAYS` for fixtures, `XNYS` from `config/calendars/XNYS.json`. Holidays and early closes are honoured.
    - Beyond a calendar's horizon, the runner refuses.
-   - Missed sessions are never back-filled.
+   - Missed sessions are never back-filled. Decisions of an earlier session that an outage or a crash left unrecorded are finished first (not decided again): they appear under `carried_over` in the summary.
 4. **Already decided?** An instrument with a final decision for `D` is skipped. The runner looks first in its journal; if the journal was lost, it looks in the core's stored commands.
 5. **Data.** Bars come from the point-in-time store through `research.bars.load_series` and the engine's `Cursor`: only bar versions with `available_ns` at or before the decision instant. An instrument is `SKIPPED_STALE_DATA` when either holds:
    - its latest visible bar is not the completed bar of `D`;
@@ -110,7 +110,8 @@ The journal, `<home>/strategy/<account>/<artifact>.journal.sqlite`, stores the e
 |---|---|
 | Restart after a completed cycle | Every instrument is already decided; nothing is sent. |
 | Crash after the core accepted an intent, before the journal knew | The same command is resent under the same id. The core returns its stored result (`duplicate: true`), and the decision is recorded once. |
-| Core down | Decisions stay PLANNED. After the core is back (and the owner's green start), exactly the planned payloads are sent, once. |
+| Core down | Decisions stay PLANNED. After the core is back (and the owner's green start), exactly the planned payloads are sent, once, while their deadline has not passed. |
+| Core down past the intent deadline (or into the next session) | The intent is never sent. If the core already holds it (a crash after sending), its stored result is recorded; otherwise the decision is recorded `BLOCKED` with a `RUNNER_LATE` reason. Rows of an earlier session are finished before the new session is decided. |
 | Journal lost | The core's stored commands are adopted: a recorded decision is not decided again. A stored intent without a record is recorded from the core's stored result and never resubmitted. |
 | Two runners for one artifact and account | The second refuses (`RUNNER_ALREADY_RUNNING`, exclusive `flock`). The same artifact may run for another account; it has its own journal. |
 
