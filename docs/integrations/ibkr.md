@@ -407,25 +407,30 @@ Adapter-specific (found while implementing against the 10.51.01 source):
   Friends and Family structure?
 - What exact error code accompanies the weekly "Login failed" message? The adapter matches the text.
 
-## 7. Wiring (not yet done; owned by the orchestrator)
+## 7. Wiring (implemented 2026-10-22; not paper-verified)
 
-```python
-from unknown.broker.ibkr import IbkrAdapter, load_config
-# instrument_resolver maps an IBKR conId to the project instrument id (None when unmapped)
-adapter = IbkrAdapter(load_config(), instrument_resolver=lookup_instrument_by_conid)
-adapter.connect()        # supervise reconnects with backoff in the service loop; never automate login
+```bash
+cd backend
+PYTHONPATH=src ~/.unknown/venvs/ibkr/bin/python -m unknown.broker.ibkr.serve --account IBKR-PAPER-1 --deployment mac-dev
 ```
 
-`allocate_broker_order_id(client_order_id)` is an optional port method. To make id allocation part of the
-outbox transaction as R3 describes, extend `BrokerPort` and call it from the runner. Until then, `submit()`
-allocates the id itself. The service's `--broker` choice still offers only `simulated`.
+- **`unknown.broker.ibkr.serve`.** Builds the adapter from `~/.unknown/ibkr.json` and runs the generic `CoreService`. The dependency points from the adapter to the core, and the core never imports the GPL adapter (ADR-0014; enforced by `ImportBoundaryTests`).
+- **Instrument mapping.** `instrument_resolver` maps an IBKR conId to the project instrument id through the `provider_mappings` rows with provider `ibkr`. The service copies them each cycle into a dict, so the adapter's message thread never touches SQLite.
+- **Reconnects.** The service reconnects with capped exponential backoff (5 s doubling to 300 s). It never retries a `DISCONNECTED_UNSAFE` latch and never logs in for the owner.
+- **Host clock.** It is measured with `reqCurrentTimeInMillis` (server version 197 or later) after READY and whenever the last answer is older than 30 s. A measurement older than 120 s is withheld, so preflight's skew check fails closed.
+- **Unready adapter.** Health reports an unknown account mode while the adapter is not ready, and preflight blocks on `BROKER_ACCOUNT_MODE_UNKNOWN`.
+- **Owner actions on adapter state.** These are recorded by the core first, then applied:
+  - `python -m unknown.cli broker-admin --account IBKR-PAPER-1 clear-entry-block <NAME> --note "..."`
+  - `... ack-history-gap <YYYY-MM-DD> --note "..."`, which forces a fresh reconciliation.
+  - `python -m unknown.cli alerts` lists adapter anomalies and entry blocks.
+- **Order ids.** `submit()` allocates the IBKR orderId and fsyncs it before `placeOrder`. A crash therefore never reuses an id, and a re-submission of a transmitted client order id is reported UNKNOWN, never re-sent.
 
 ## 8. Tests
 
 ```bash
 cd backend
 PYTHONPATH=src python3 -m unittest tests.test_ibkr_adapter -v                       # pure tests; adapter tests skip
-PYTHONPATH=src ~/.unknown/ibkr-venv/bin/python -m unittest tests.test_ibkr_adapter -v # all tests, needs ibapi
+PYTHONPATH=src ~/.unknown/venvs/ibkr/bin/python -m unittest tests.test_ibkr_adapter -v # all tests, needs ibapi
 ```
 
 The adapter tests drive a `FakeHost` (a subclass of `ibapi.client.EClient` with no socket) and feed real
