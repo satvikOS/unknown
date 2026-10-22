@@ -150,6 +150,17 @@ class CoreView:
                 conn.rollback()
             conn.close()
 
+    def order(self, order_id: str) -> dict | None:
+        """The core's order row, or None."""
+        conn = self._open()
+        try:
+            r = conn.execute("SELECT row FROM orders WHERE order_id=?", (order_id,)).fetchone()
+            return json.loads(r["row"]) if r is not None else None
+        finally:
+            if conn.in_transaction:
+                conn.rollback()
+            conn.close()
+
     def commands(self, command_ids: list[str]) -> dict[str, dict]:
         """{command id: {status, result, principal_id, principal_role}} for the ids the core has stored."""
         if not command_ids:

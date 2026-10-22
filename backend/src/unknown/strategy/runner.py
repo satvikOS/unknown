@@ -69,6 +69,7 @@ log = logging.getLogger("unknown.strategy")
 MAX_REASON = 1000
 DEFAULT_GRACE_S = 600
 DEFAULT_POLL_S = 60
+_HEX64 = re.compile(r"[0-9a-f]{64}")
 _ACCOUNT_DIR = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")    # an account key usable as one path component
 
 
@@ -229,6 +230,7 @@ class _Decision:
     current_quantity: Fixed | None = None
     order: Any = None                           # sizing.OrderPlan for an intent
     registered: bool = True
+    strategy_note: str = ""                     # the strategy's own note (score formula, warm-up), without the plan
     detail: dict = field(default_factory=dict)
 
 
@@ -328,6 +330,12 @@ class StrategyRunner:
         except (CoreUnavailable, sqlite3.Error) as exc:
             raise CoreUnreachable("CORE_DB_UNAVAILABLE", str(exc)) from None
 
+    def _core_order(self, order_id: str) -> dict | None:
+        try:
+            return self.core.order(order_id)
+        except (CoreUnavailable, sqlite3.Error) as exc:
+            raise CoreUnreachable("CORE_DB_UNAVAILABLE", str(exc)) from None
+
     def _core_snapshot(self, account_key: str, session_id: str | None, instrument_ids) -> CoreSnapshot:
         try:
             return self.core.snapshot(account_key, session_id, instrument_ids)
@@ -416,6 +424,11 @@ class StrategyRunner:
                 elif s is not None and self._own(s):
                     recovered[i] = {"accepted": s["status"] == "ACCEPTED", "duplicate": True, "body": s["result"],
                                     "events": [], "recovered": True}
+                    o = self._core_order(ids[i]["order_id"]) if s["status"] == "ACCEPTED" else None
+                    if o is not None and o.get("principal_id") == art.artifact_id:
+                        recovered[i]["intent"] = {"side": o.get("side"), "quantity": o.get("quantity"),
+                                                  "limit_price": o.get("limit_price"),
+                                                  "inputs_digest": (o.get("decision_ref") or {}).get("inputs_digest")}
                 elif s is not None:
                     log.error("%s %s %s: submit command id %s is held by %s %s; the intent will be refused (COMMAND_ID_CLAIMED)",
                               art.artifact_id, day, i, ids[i]["submit_command_id"], s["principal_role"], s["principal_id"])
@@ -524,6 +537,7 @@ class StrategyRunner:
         for i in eligible:
             d = decisions[i]
             text, d.score = _strategy_note(notes.get(i))
+            d.strategy_note = _join(text, "FIXTURE data" if fixture else "")
             if decision.targets is None or i not in plans:
                 d.reason = _join(text, f"no target from the strategy: hold ({notes.get('state', 'no targets')})",
                                  "FIXTURE data" if fixture else "")
@@ -584,12 +598,24 @@ class StrategyRunner:
         row = {"artifact_id": art.artifact_id, "session_date": day, "instrument_id": d.instrument_id, "mode": self.cfg.mode,
                "state": "PLANNED", **ids, "submit_payload": submit, "decision_payload": base, "detail": d.detail}
         if recovered is not None:
-            # Journal lost after the core took this intent: never resubmit; record what the core holds.
+            # Journal lost after the core took this intent: never resubmit; record what the core holds. The decision
+            # made now sees the state AFTER that intent (its pending quantity counts as current), so its quantities
+            # and digest do not describe the decision that produced the intent: the record carries the digest the
+            # intent's decision_ref names, and no quantities (they were lost with the journal). Review fix.
+            intent = recovered.get("intent") or {}
+            digest = intent.get("inputs_digest")
+            original = isinstance(digest, str) and _HEX64.fullmatch(digest) is not None
+            what = (f"{intent.get('side')} {intent.get('quantity')} @ {intent.get('limit_price')}" if intent
+                    else "the intent the core holds")
+            rebuilt = {**base, "target_quantity": None, "current_quantity": None,
+                       "inputs_digest": digest if original else base["inputs_digest"],
+                       "reason": _join(f"RECOVERED after journal loss: rebuilt from {what}; the decision's quantities were "
+                                       "lost with the journal" + ("" if original else "; inputs digest recomputed at recovery"),
+                                       d.strategy_note)}
             row["submit_payload"] = None
             row["state"] = "SUBMITTED"
             row["submit_result"] = recovered
-            row["decision_payload"] = self._finalize({**base, "reason": _join("RECOVERED after journal loss", base["reason"])},
-                                                     recovered, ids["order_id"])
+            row["decision_payload"] = self._finalize(rebuilt, recovered, ids["order_id"])
             row["detail"] = {**d.detail, "recovered": True}
         return row
 

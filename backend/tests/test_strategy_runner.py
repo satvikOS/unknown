@@ -877,6 +877,15 @@ class CrashResumeTest(RealCoreCase):
         self.assertEqual(sorted(o["instrument_id"] for o in self.orders(a)), ["FIX-EQ-1", "FIX-EQ-2"])   # never resubmitted
         rec = {d["instrument_id"]: d for d in self.decisions(a)}
         self.assertEqual((len(rec), rec["FIX-EQ-1"]["order_ids"]), (2, [ids["order_id"]]))
+        # Review fix: the rebuilt record carries the digest of the decision that produced the order (its
+        # decision_ref), not one recomputed after the order existed, and does not present the post-submission
+        # quantities (the pending 4 counted as current) as the decision's.
+        o1 = next(o for o in self.orders(a) if o["order_id"] == ids["order_id"])
+        self.assertEqual(rec["FIX-EQ-1"]["inputs_digest"], o1["decision_ref"]["inputs_digest"])
+        self.assertEqual((rec["FIX-EQ-1"]["target_quantity"], rec["FIX-EQ-1"]["current_quantity"]), (None, None))
+        self.assertIn("BUY 4 @ 10.05", rec["FIX-EQ-1"]["reason"])
+        o2 = next(o for o in self.orders(a) if o["instrument_id"] == "FIX-EQ-2")
+        self.assertEqual(rec["FIX-EQ-2"]["inputs_digest"], o2["decision_ref"]["inputs_digest"])     # a normal decision
         self.stop_core()
         self.assertEqual(self.verify_ledger(), [])
 
