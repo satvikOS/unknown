@@ -37,15 +37,16 @@ Status words follow ADR-0001. No capability is `paper-verified` or `live-verifie
 5. **Self-cross prevention is missing in pretrade.**
 6. **Performance:** move to incremental verification, filter orders and lots in SQL, add indexes.
 
-## Decisions the owner must make
+## Owner decisions recorded (2026-10-22)
 
-- **IBKR SDK licence.** The official Python TWS API 10.51.01 is **GPL-3.0-or-later**. Options are in ADR-0014: (a) accept GPL for the adapter module; (b) keep the adapter private; (c) use the Web API instead. Nothing is vendored meanwhile.
-- **Paid model providers.** Enable each one by providing an owner config with budgets and API keys (ADR-0016). Until then they are disabled.
+- **IBKR SDK licence:** proceed with the official GPL-3.0 TWS API client. The repository will be made private when the work is complete, and the software is for personal use (ADR-0014).
+- **SEC contact:** the owner authorized their email for the SEC-required User-Agent. It is stored only in `~/.unknown/config/data.json`. Live ingestion is verified: Apple and Microsoft, 57,846 observations.
+- **Claude API:** the owner authorized **USD 200 total** Anthropic spend. Proposed caps are 15.00/day and 2.00/job. The default model is `claude-opus-5-5`; other providers stay disabled. The API key is not yet on this machine. It goes in `~/.unknown/secrets/anthropic_api_key` (mode 600) or `ANTHROPIC_API_KEY`.
+- **IBKR:** the owner has an IBKR account. The paper account still needs to be identified locally and IB Gateway installed and logged in.
 
 ## External blockers
 
 - **IBKR paper verification (BRK-02):** needs an IBKR Pro paper account identified in local config, TWS or IB Gateway installed and logged in manually with 2FA, and the API enabled. None of this exists on this Mac (checked 2026-10-22).
-- **Live SEC ingestion:** needs `~/.unknown/config/data.json` with `{"sec_user_agent": "<name> <contact email>"}`. The SEC requires a declared contact, and this system will not insert the owner's email without the owner's instruction.
 - **FRED/ALFRED:** needs a free API key registered by the owner.
 - **Live trading:** all deployment-record gates are unset; refused in code.
 

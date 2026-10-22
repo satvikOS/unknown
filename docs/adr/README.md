@@ -21,6 +21,6 @@ Evidence classes follow the book's reading guide: verified external fact (linked
 | [0011](0011-execution-ownership-and-split-brain.md) | Execution ownership and split-brain prevention | accepted |
 | [0012](0012-broker-adapter-contract.md) | Broker adapter contract | accepted |
 | [0013](0013-terminal-api-and-owner-authentication.md) | Terminal, API process and owner authentication | accepted |
-| [0014](0014-ibkr-adapter-boundary-and-order-identity.md) | IBKR adapter boundary, SDK licence and order identity | accepted; licence decision open |
+| [0014](0014-ibkr-adapter-boundary-and-order-identity.md) | IBKR adapter boundary, SDK licence and order identity | accepted; licence decided by owner |
 | [0015](0015-data-platform-point-in-time-store.md) | Data platform: provider registry, point-in-time store and lineage | accepted |
 | [0016](0016-bounded-agents-and-model-providers.md) | Bounded agents, model-provider adapters and spend control | accepted |

@@ -1,6 +1,6 @@
 # ADR-0014: IBKR adapter boundary, SDK licence and order identity
 
-Status: accepted (2026-10-22); the licence question below is an **open owner decision**.
+Status: accepted (2026-10-22). Licence question resolved by the owner on 2026-10-22 (see the end of this record).
 
 ## Verified facts (capability record `ibkr-integration`, official IBKR pages fetched 2026-10-22)
 
@@ -35,3 +35,7 @@ The options:
 - **(c)** Use IBKR's Web API through the Client Portal Gateway with the project's own HTTP client. This avoids the GPL SDK, but the gateway requires daily browser re-authentication.
 
 The implementation follows (a)'s technical boundary while you decide. No licence file is added without your choice (CLAUDE.md). This is not legal advice.
+
+## Owner decision (2026-10-22)
+
+The owner decided to proceed with the official GPL-3.0-or-later TWS API Python client. The repository is intended to become private once the work is complete, and the software is for the owner's personal use, not for distribution. `ibapi` is still installed from IBKR's official package on the host and is never vendored, so the boundary in this record stays unchanged. The repository is public until the owner changes its visibility, so no account identifiers, credentials or statements may be committed in the meantime.
