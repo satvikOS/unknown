@@ -90,6 +90,15 @@ describe('ApiClient reads', () => {
     expect(encodePathSegment('ses:1@x+y')).toBe('ses:1@x+y');
     expect(encodePathSegment('a/b')).toBe('a%2Fb');
   });
+
+  it('looks up a stored command result by id, with "/" kept inside the segment', async () => {
+    const stored = { command_id: 'ui.start/1', kind: 'start', status: 'ACCEPTED', accepted: true, body: {}, events: [7] };
+    const { impl, calls } = fakeFetch([{ status: 200, body: stored }]);
+    const client = new ApiClient({ fetchImpl: impl });
+    const r = await client.commandResult('ui.start/1');
+    expect(calls[0]?.url).toBe('/api/commands/ui.start%2F1');
+    expect(r.status).toBe('ACCEPTED');
+  });
 });
 
 describe('ApiClient auth', () => {

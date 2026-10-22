@@ -14,6 +14,7 @@ import type {
   CommandKind,
   CommandPayload,
   CommandResponse,
+  CommandResult,
   Endpoint,
   LoginResponse,
   LogoutResponse,
@@ -181,8 +182,8 @@ export function buildQuery(params: Record<string, QueryValue> | undefined): stri
 }
 
 /**
- * Encode one path segment. The API does not percent-decode paths, so characters that are legal in a
- * segment (":", "@", "+") are left as-is; "/" inside an id cannot be addressed at all.
+ * Encode one path segment. The API splits the path on "/" and then percent-decodes each segment, so "/"
+ * inside an id travels as "%2F"; characters that are legal in a segment (":", "@", "+") are left as-is.
  */
 export function encodePathSegment(id: string): string {
   return encodeURIComponent(id).replace(/%3A/gi, ':').replace(/%40/gi, '@').replace(/%2B/gi, '+');
@@ -306,6 +307,11 @@ export class ApiClient {
 
   orderDetail(orderId: string, signal?: AbortSignal): Promise<OrderDetail> {
     return this.get(`/api/orders/${encodePathSegment(orderId)}`, undefined, signal);
+  }
+
+  /** The stored result of a command whose outcome is unknown (404 COMMAND_NOT_FOUND: it was not recorded). */
+  commandResult(commandId: string, signal?: AbortSignal): Promise<CommandResult> {
+    return this.get(`/api/commands/${encodePathSegment(commandId)}`, undefined, signal);
   }
 
   // ---------------------------------------------------------------- auth
