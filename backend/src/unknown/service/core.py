@@ -17,6 +17,7 @@ import signal
 import threading
 import time
 from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,7 +31,7 @@ from ..domain.ids import IdGenerator
 from ..domain.principal import Principal, Role
 from ..gateway.runner import GatewayRunner
 from ..reconcile.reconciler import Reconciler
-from .ipc import CoreSocketServer, Grant
+from .ipc import CoreSocketServer, Grant, OutcomeUnknown, describe_request
 from .paths import Paths
 
 log = logging.getLogger("unknown.core")
@@ -73,6 +74,7 @@ class CoreService:
         self.instrument_map: dict[str, str] = {}
         self.instrument_details: dict[str, tuple[str, str]] = {}
         self.lease_lost = False
+        self.request_wait_s = 30.0   # how long a socket client waits for the loop to execute its request
         self._last_heartbeat = float("-inf")
 
     # ---------------------------------------------------------------- socket
@@ -81,8 +83,13 @@ class CoreService:
         try:
             self.requests.put_nowait((req, roles, fut))
         except queue.Full:
-            raise RuntimeError("core busy: request queue full") from None
-        return fut.result(timeout=30)
+            raise RuntimeError("core busy: request queue full") from None   # not queued: never executed
+        try:
+            return fut.result(timeout=self.request_wait_s)
+        except FutureTimeout:
+            # The request stays queued and may still run: its outcome is unknown, never "not executed".
+            raise OutcomeUnknown(f"the core did not finish {describe_request(req)} within {self.request_wait_s:g} s; "
+                                 "it is still queued and may yet run. Query its command id before resending.") from None
 
     def broker_provider(self) -> str | None:
         try:
