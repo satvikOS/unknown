@@ -394,6 +394,57 @@ class SizingTest(unittest.TestCase):
             self.assertTrue(set(o.values()).isdisjoint(a.values()))
 
 
+class ExcludedInstrumentKeepsItsShareOfTheCapTest(unittest.TestCase):
+    """Review fix: an instrument the runtime may not trade at a decision (here: no bar for the session) keeps its
+    share of the aggregate cap, as in the engine. It used to be dropped from the targets before sizing, so the
+    other names were sized as if it did not exist: with three names at w_max 0.45 (1.35, scaled to 0.95 in the
+    backtest) and the stale one held, the session was bought to ~100% invested, through the 0.95 aggregate cap
+    and the 5% cash reserve (BR-DAT-15). Every number is a TEST FIXTURE."""
+    INSTS = ("FIX-EQ-1", "FIX-EQ-2", "FIX-EQ-3")
+    DAY = date(2026, 10, 21)
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        self.paths = Paths(root)
+        self.paths.ensure()
+        (root / "research").mkdir()
+        self.t = decision_instant(self.DAY, CLOCK_UTC)
+        store = ResearchStore(root / "research" / "research.sqlite")
+        for i in self.INSTS:
+            bars = trend_bars(i, self.DAY, 60, 800, 1000)        # strongly rising: every name targets w_max 0.45
+            record_bars(store, bars[:-1] if i == "FIX-EQ-3" else bars, DATASET, self.t)
+        store.close()
+        self.spec = runtime_spec(self.INSTS)
+        self.art = artifacts.LoadedArtifact("TREND_DAILY_V1@0123456789abcdef", "0" * 64, "paper", self.spec, {},
+                                            date(2099, 1, 1), DATASET, True)
+
+    def test_a_stale_held_instrument_still_counts_toward_the_aggregate_cap(self):
+        from unknown.strategy.coreview import CoreSnapshot
+        held, mark3 = Fixed(3100), Fixed.parse("9.96")          # FIX-EQ-3: held, last visible close 9.96 (D-1)
+        cash = Fixed.parse("68000")
+        snap = CoreSnapshot(ACCOUNT, "SIMULATED", "S1", "RUNNING", "p" * 64, "USD", 6,
+                            {i: fixture_instrument(i) for i in self.INSTS}, {"FIX-EQ-3": Holding(owned=held, unreserved=held)},
+                            cash, cash, None)
+        r = StrategyRunner(RunnerConfig(self.art.artifact_id, ACCOUNT, "live", self.paths), clock=ManualClock(self.t))
+        self.addCleanup(r.close)
+        _, deadline = execution_window(self.DAY, WEEKDAYS_ONLY, CLOCK_UTC, 1)
+        rows = {x["instrument_id"]: x for x in r._decide(self.art, self.DAY, self.t, deadline, self.t, snap, list(self.INSTS), {})}
+        self.assertEqual(rows["FIX-EQ-3"]["decision_payload"]["outcome"], "SKIPPED_STALE_DATA")
+        equity = cash + held * mark3
+        bought = Fixed(0)
+        for i in ("FIX-EQ-1", "FIX-EQ-2"):
+            # the engine's weight: 0.45 x 0.95 / 1.35, floored to 6 dp (not 0.45, as if FIX-EQ-3 did not exist)
+            self.assertEqual(rows[i]["detail"]["target_weight"], "0.316666", rows[i]["decision_payload"]["reason"])
+            sub = rows[i]["submit_payload"]
+            self.assertEqual(sub["side"], "BUY")
+            self.assertEqual(Fixed.parse(sub["quantity"]), (Fixed.parse("0.316666") * equity).div(Fixed.parse("10.00"), 0, Rounding.FLOOR))
+            bought = bought + Fixed.parse(sub["quantity"]) * Fixed.parse("10.00")
+        invested = (bought + held * mark3).div(equity, 6, Rounding.HALF_EVEN)
+        self.assertLessEqual(invested, Fixed.parse("0.95"), f"invested {invested} of equity {equity}")
+
+
 # ===================================================================== end to end
 class RealCoreCase(unittest.TestCase):
     """A real core service with its socket, a research registry and a point-in-time store under one home."""

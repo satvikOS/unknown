@@ -53,6 +53,8 @@ What the runner can touch:
    - leaves of the session's open BUY and SELL orders, which count as current exposure;
    - the session's available cash as the budget;
    - the active policy's fee envelope (`risk.fees.envelope`).
+
+   The per-name and aggregate caps are applied over every target the strategy returned, as in the engine. An instrument the runner does not trade at this decision (stale data, not registered, a runner gate) keeps its share of the aggregate cap, so skipping it never enlarges the other names' weights (tested: three names at 0.45 with one stale are each sized at 0.316666, not 0.45).
 8. **Journal and execute.** Every decision is written PLANNED to the journal, then executed:
    - **Live:**
      - Each intent goes out as `submit_intent`: LIMIT, DAY, `deadline_ns` = the end of its execution session (never later than the next decision instant), `purpose` ENTRY/EXIT, the session mandate's `policy_hash`, and `decision_ref` naming the decision.

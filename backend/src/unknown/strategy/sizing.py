@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, Iterable
 
 from ..domain.fixed import Fixed, Rounding
 from ..domain.instruments import Instrument
@@ -73,8 +73,15 @@ class InstrumentPlan:
 
 def plan(targets: dict[str, float], *, sizing: Sizing, limit_offset_bps: int, equity: Fixed, marks: dict[str, Fixed | None],
          holdings: dict[str, Holding], instruments: dict[str, Instrument], budget: Fixed, fee_envelope: FeeEnvelope,
-         adv: dict[str, Fixed | None], ledger_scale: int) -> tuple[dict[str, InstrumentPlan], dict]:
-    """Map target weights to orders. Returns (per-instrument plans for every target, notes)."""
+         adv: dict[str, Fixed | None], ledger_scale: int,
+         tradable: Iterable[str] | None = None) -> tuple[dict[str, InstrumentPlan], dict]:
+    """Map target weights to orders. Returns (per-instrument plans for every target, notes).
+
+    ``tradable`` (default: every target) names the instruments that may get an order at this decision. The weights
+    are always capped and scaled over *every* target, as the engine does: an instrument the runtime may not trade
+    now (stale data, not registered, a runner gate) still holds its share of the aggregate cap, so excluding it
+    never inflates the others' weights past what the backtest would allocate (BR-DAT-15, cash reserve)."""
+    allowed = set(targets) if tradable is None else set(tradable)
     out = {i: InstrumentPlan(i, current_quantity=holdings.get(i, Holding()).current) for i in sorted(targets)}
     notes: dict = {"equity": equity.to_str(), "budget": budget.to_str()}
     if not equity.is_positive():
@@ -98,6 +105,9 @@ def plan(targets: dict[str, float], *, sizing: Sizing, limit_offset_bps: int, eq
     for i in sorted(w):
         p = out[i]
         p.target_weight = w[i]
+        if i not in allowed:
+            p.notes.append("NOT_TRADABLE_AT_THIS_DECISION (its weight still counts toward the aggregate cap)")
+            continue
         ref = marks.get(i)
         if ref is None:
             p.notes.append("NO_VISIBLE_DATA")

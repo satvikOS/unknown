@@ -438,17 +438,22 @@ class StrategyRunner:
                 d.outcome, d.reason = "BLOCKED", "EXPLICIT_ORDERS_NOT_SUPPORTED by the runtime (target weights only)"
             else:
                 eligible.append(i)
-        # Only instruments the strategy targets are mapped, as in the engine (no target = hold, never an exit).
-        targets = {i: decision.targets[i] for i in eligible if i in decision.targets} if decision.targets is not None else {}
+        # Only instruments the strategy targets are mapped, as in the engine (no target = hold, never an exit). The
+        # weights are capped and scaled over EVERY target, as in the engine; only eligible instruments get orders. An
+        # instrument skipped here (stale data, not registered, a runner gate) keeps its share of the aggregate cap,
+        # so dropping it cannot inflate the others' weights past the backtest's (review fix: cap and cash reserve).
+        targets = ({i: decision.targets[i] for i in spec.instrument_ids if i in decision.targets}
+                   if decision.targets is not None else {})
+        tradable = [i for i in eligible if i in targets]
         notes = decision.notes if isinstance(decision.notes, dict) else {}
         fixture = any(b.fixture for bars in visible.values() for b in bars)
-        if targets:
+        if tradable:
             marks = {i: (visible[i][-1].close if visible.get(i) else None) for i in spec.instrument_ids}
             plans, plan_notes = plan(targets, sizing=sizing, limit_offset_bps=spec.execution["limit_offset_bps"],
                                      equity=snap.equity(marks), marks=marks, holdings=snap.holdings,
-                                     instruments={i: snap.instruments[i] for i in targets}, budget=snap.available_cash,
-                                     fee_envelope=snap.fee_envelope, adv={i: _adv(visible.get(i, []), sizing.adv_window) for i in targets},
-                                     ledger_scale=snap.ledger_scale)
+                                     instruments={i: snap.instruments[i] for i in tradable}, budget=snap.available_cash,
+                                     fee_envelope=snap.fee_envelope, adv={i: _adv(visible.get(i, []), sizing.adv_window) for i in tradable},
+                                     ledger_scale=snap.ledger_scale, tradable=tradable)
         else:
             plans, plan_notes = {}, {}
         for i in eligible:
