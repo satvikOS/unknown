@@ -63,9 +63,17 @@ test('before any research data: the API reason and the command that populates it
   await expect(main(page).locator('code.rx-command', { hasText: 'python -m unknown.data.sources.treasury ingest --month YYYYMM' })).toBeVisible();
   await expect(main(page).locator('code.rx-command', { hasText: 'python -m unknown.data.sources.ecb ingest --last 1' })).toBeVisible();
 
+  // Search without a research store: the API searches only the core instrument master and says nothing about SEC
+  // issuers, so the view says that no SEC source was searched (an issuer may still exist) and how to fill the store.
+  await open(page, '#/company/search/q=Fixture Widgets');
+  const notSearched = main(page).locator('.rx-unavailable', { hasText: 'SEC issuers' });
+  await expect(notSearched).toContainText('NOT_SEARCHED');
+  await expect(notSearched.locator('code.rx-command')).toHaveText(['python -m unknown.data.sec ingest --cik <CIK>']);
+
   await open(page, '#/research');
   await expect(main(page).getByText(/research registry not found at .*experiments\.sqlite; record an experiment or run `python -m unknown\.research\.study` first/)).toBeVisible();
-  await expect(main(page).locator('code.rx-command', { hasText: 'python -m unknown.research.study' })).toBeVisible();
+  // The reason names the study module without the --out argument its command line requires; the complete command is shown.
+  await expect(main(page).locator('code.rx-command')).toHaveText(['python -m unknown.research.study --out <DIR>']);
   // The formula registry is served from code, so it is available without a registry.
   await open(page, '#/research/formulas');
   await expect(main(page).getByRole('row', { name: /dsr@1/ })).toBeVisible();
@@ -114,8 +122,12 @@ test('company: search, tearsheet, point-in-time statements, metrics, DCF and pee
   await page.getByRole('button', { name: 'Search', exact: true }).click();
   await expect(page.getByRole('row', { name: /Fixture Widgets Inc \(synthetic\).*CIK 9000001.*NAME_PREFIX/ })).toBeVisible();
   await expect(main(page).getByText('no snapshot received at or before the as-of time (never ingested)')).toBeVisible();
+  await expect(main(page).locator('.rx-unavailable', { hasText: 'SEC issuers' })).toHaveCount(0);
+  // A search at an earlier point in time opens the issuer at that same point in time.
+  await page.getByLabel('As of', { exact: true }).fill('2026-02-01');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
   await page.getByRole('link', { name: 'Fixture Widgets Inc (synthetic)' }).click();
-  await expect(page).toHaveURL(new RegExp(`#/company/${CIK}/tearsheet`));
+  await expect(page).toHaveURL(new RegExp(`#/company/${CIK}/tearsheet/as_of%3D2026-02-01$`));
   const controls = page.getByRole('form', { name: 'Point in time and price input' });
   await expect(controls).toBeVisible();
   await settle(page);
@@ -188,8 +200,13 @@ test('company: search, tearsheet, point-in-time statements, metrics, DCF and pee
   await expect(main(page).getByRole('row', { name: /rf.*0\.0424.*US Treasury par yield 10Y on 2026-10-21/ })).toBeVisible();
   await expect(main(page).locator('.rx-tile', { hasText: 'Enterprise value' })).toContainText('1,845.03USD');
   await expect(main(page).locator('.rx-tile', { hasText: 'WACC' }).first()).toContainText('0.0818200000');
+  // The fixture filer reports no preferred stock or noncontrolling interest: every equity figure says so.
+  await expect(main(page).locator('.rx-tile', { hasText: 'Equity value' })).toContainText('INCOMPLETE');
+  await expect(main(page).locator('.rx-tile', { hasText: 'Per share (diluted)' })).toContainText('INCOMPLETE');
   await expect(main(page).getByRole('table', { name: /by WACC and g/ })).toBeVisible();
-  await expect(main(page).getByRole('img', { name: /Per-share value ranges in USD/ })).toBeVisible();
+  // The price input is drawn on the football field (the form promises a price marker).
+  await expect(main(page).getByRole('img', { name: 'Per-share value ranges in USD, with the price input' })).toBeVisible();
+  await expect(main(page).locator('.rx-marker text')).toHaveText('price input 50.00');
   await page.getByLabel('Curve date (optional)').fill('2026-10-01');
   await page.getByRole('button', { name: 'Run DCF' }).click();
   await expect(main(page).getByText('no Treasury par yield for tenor 10Y available at the as-of time (ingest with python -m unknown.data.sources.treasury)')).toBeVisible();
@@ -206,8 +223,17 @@ test('company: search, tearsheet, point-in-time statements, metrics, DCF and pee
   await page.getByRole('tab', { name: 'Peers' }).click();
   await settle(page);
   await expect(main(page).getByRole('heading', { name: /Peer group · peers_sic4@1/ })).toBeVisible();
-  await expect(main(page).getByRole('link', { name: 'Fixture Peer Two (synthetic)' })).toBeVisible();
+  // A peer opens at the same point in time, never with this issuer's price input.
+  const peer = main(page).getByRole('link', { name: 'Fixture Peer Two (synthetic)' });
+  await expect(peer).toHaveAttribute('href', '#/company/9000002/tearsheet/as_of%3D2026-10-22T12%3A00%3A00Z');
   await expect(main(page).getByRole('table', { name: /Peer statistics/ })).toContainText('PERCENTILE.INC');
+
+  // Filings: acceptanceDateTime exactly as the SEC file publishes it (it is not true UTC; never re-rendered as UTC).
+  const filings = await api<{ filings: { accession: string; acceptance_time_raw: string }[] }>(page, `/api/company/${CIK}/filings?as_of=${encodeURIComponent(AS_OF)}`);
+  const first = filings.filings[0]!;
+  await page.getByRole('tab', { name: 'Filings' }).click();
+  await settle(page);
+  await expect(page.getByRole('row', { name: new RegExp(first.accession) })).toContainText(first.acceptance_time_raw);
   expect(problems.filter((p) => !/Failed to load resource/.test(p))).toEqual([]);
 });
 
@@ -220,7 +246,7 @@ test('markets and macro: par curve with gaps, comparison, point in time, ECB rat
   await expect(page.getByRole('row', { name: /US Treasury daily par yield curve.*OK.*27.*2026-10-20 → 2026-10-21/ })).toBeVisible();
   await expect(main(page).getByRole('img', { name: 'Treasury par yield curve on 2026-10-21, in percent' })).toBeVisible();
   await expect(main(page).getByText('Missing tenors on 2026-10-21:')).toBeVisible();
-  await expect(page.getByRole('row', { name: /1\.5M missing on 2026-10-21/ })).toBeVisible();
+  await expect(page.getByRole('row', { name: /^1\.5M .*missing on 2026-10-21/ })).toBeVisible();
   await expect(main(page).locator('.rx-identity')).toContainText('10Y − 2Y slope 36 basis points');
 
   await page.getByLabel('Curve date (empty = latest)').fill('2026-10-20');
@@ -230,6 +256,9 @@ test('markets and macro: par curve with gaps, comparison, point in time, ECB rat
   await expect(main(page).getByRole('img', { name: 'Treasury par yield curve on 2026-10-20 and 2026-10-21, in percent' })).toBeVisible();
   await expect(main(page).locator('.rx-identity')).toContainText('10Y − 2Y slope 35 basis points');
   await expect(page.getByRole('row', { name: /^10Y 10 4\.21 4\.24/ })).toBeVisible();
+  // The other way round, the comparison date's 1.5M yield stays visible where the curve date has none.
+  await open(page, '#/macro/date=2026-10-21/compare=2026-10-20');
+  await expect(page.getByRole('row', { name: /^1\.5M 1\.5\/12 missing 4\.30 missing on 2026-10-21/ })).toBeVisible();
 
   // Before the 2026-10-21 curve was published (22:30 UTC) only 2026-10-20 is visible: no look-ahead.
   await open(page, '#/macro/as_of=2026-10-21T22:00:00Z');
@@ -324,6 +353,7 @@ function views(): string[] {
     `#/company/${CIK}/filings/as_of=${AS_OF}`,
     '#/macro',
     '#/macro/date=2026-10-20/compare=2026-10-21/base=USD',
+    '#/macro/date=2026-10-21/compare=2026-10-20',
     '#/research',
     `#/research/experiments/${s.experiment}`,
     `#/research/trials/${s.trial}`,
