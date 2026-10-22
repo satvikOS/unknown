@@ -2099,7 +2099,7 @@
           "DAT-02"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -2285,7 +2285,7 @@
           "DAT-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -2427,7 +2427,7 @@
           "DAT-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -2547,7 +2547,8 @@
           "backend/src/unknown/broker/ibkr/contracts.py",
           "backend/src/unknown/api/routes/marketdata.py",
           "backend/src/unknown/broker/ibkr/serve.py",
-          "backend/src/unknown/domain/instruments.py"
+          "backend/src/unknown/domain/instruments.py",
+          "backend/src/unknown/broker/ibkr/bootstrap_paper.py"
         ],
         "tests": [
           "backend/tests/test_ibkr_marketdata.py::ContractEvaluationTests.test_verified_listing_produces_a_valid_instrument_proposal_and_mapping",
@@ -2555,22 +2556,26 @@
           "backend/tests/test_ibkr_marketdata.py::ContractEvaluationTests.test_conflicts_block_routing",
           "backend/tests/test_ibkr_marketdata.py::ContractEvaluationTests.test_rules_that_differ_by_exchange_use_the_primary_exchanges_rule",
           "backend/tests/test_ibkr_marketdata.py::ContractResolverTests.test_resolution_requests_details_then_the_market_rule",
-          "backend/tests/test_ibkr_serve.py::InstrumentDetailsTests.test_service_copies_ibkr_mappings_with_currency"
+          "backend/tests/test_ibkr_serve.py::InstrumentDetailsTests.test_service_copies_ibkr_mappings_with_currency",
+          "backend/tests/test_ibkr_bootstrap_paper.py::BootstrapPaperTests.test_registers_only_verified_listings_and_never_starts",
+          "backend/tests/test_ibkr_bootstrap_paper.py::BootstrapPaperTests.test_universe_must_name_primary_exchanges"
         ],
         "evidence": [
-          "reqContractDetails by symbol, currency and primary exchange (never by name); exactly one match required; ISIN, MIC, currency and name checks; MarketRuleIds fetched for tick bands; a changed mapping blocks until an owner remap."
+          "reqContractDetails by symbol, currency and primary exchange (never by name); exactly one match required; ISIN, MIC, currency and name checks; MarketRuleIds fetched for tick bands; a changed mapping blocks until an owner remap.",
+          "The owner's paper bootstrap (python -m unknown.broker.ibkr.bootstrap_paper) resolves each listing by symbol and US primary exchange on the read-only market-data connection and registers only VERIFIED contracts, each with its ibkr conId mapping; AMBIGUOUS, UNRESOLVED and CONFLICT listings are reported and skipped. Tested against a real core desk with a fake resolver; it has never run against IB Gateway."
         ],
         "gaps": [
           "Kite instrument tokens not implemented (AC5)",
           "no 500-listing paper preflight run (AC6)",
-          "not paper-verified: no IBKR paper session has run (BRK-02)"
+          "not paper-verified: no IBKR paper session has run (BRK-02)",
+          "the paper bootstrap accepts US primary exchanges only (NASDAQ, NYSE, ARCA, AMEX, BATS)"
         ],
         "requirements": [
           "DOM-03",
           "BRK-02"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -2885,7 +2890,7 @@
           "DAT-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -3096,7 +3101,7 @@
           "DOM-06"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -3263,7 +3268,8 @@
           "backend/src/unknown/domain/calendar.py",
           "backend/src/unknown/domain/markets.py",
           "config/calendars/",
-          "config/markets/venues.json"
+          "config/markets/venues.json",
+          "backend/src/unknown/service/core.py"
         ],
         "tests": [
           "backend/tests/test_markets.py::BusinessDayArithmeticTests.test_india_settlement_holidays_differ_from_trading",
@@ -3271,15 +3277,18 @@
           "backend/tests/test_markets.py::SettlementTests.test_eu_moves_to_t_plus_1_on_trade_date_2027_10_11",
           "backend/tests/test_markets.py::SettlementTests.test_sample_trade_per_venue",
           "backend/tests/test_markets.py::HorizonTests.test_settlement_refuses_to_cross_the_horizon",
-          "backend/tests/test_reconciliation.py::SettlementEvidenceTests.test_due_settlement_is_not_confirmed_by_the_calendar_and_late_case_opens"
+          "backend/tests/test_reconciliation.py::SettlementEvidenceTests.test_due_settlement_is_not_confirmed_by_the_calendar_and_late_case_opens",
+          "backend/tests/test_service_calendars.py::ServiceCalendarTests.test_service_loads_every_sourced_calendar"
         ],
         "evidence": [
-          "Settlement calendars (NCL-CM, ICCL-EQ, T2S-EUR) are separate from trading calendars; the venue registry applies settlement cycles by trade date; the core never releases cash on the expected date alone."
+          "Settlement calendars (NCL-CM, ICCL-EQ, T2S-EUR) are separate from trading calendars; the venue registry applies settlement cycles by trade date; the core never releases cash on the expected date alone.",
+          "The core service loads every sourced calendar in config/calendars at start (load_calendars), and every shipped policy names a calendar the service loads; until b87451b it loaded WEEKDAYS only, so the paper policy's XNYS settlement calendar silently fell back to weekdays (a 2026-11-25 trade would have been expected to settle on Thanksgiving)."
         ],
         "gaps": [
           "the core uses the instrument's settlement days and the policy calendar, not the venue registry",
           "US securities settlement calendar (DTC) unverified; currency payment calendars not modelled",
-          "no exception when a broker settle date differs from the estimate (AC6)"
+          "no exception when a broker settle date differs from the estimate (AC6)",
+          "a policy naming a calendar that is not loaded still falls back to WEEKDAYS silently in the core (handlers/broker.py and handlers/recon.py) instead of being refused at publish or activation"
         ],
         "requirements": [
           "DOM-06",
@@ -3287,7 +3296,7 @@
           "REC-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -4172,7 +4181,7 @@
           "DOM-06"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -4391,7 +4400,7 @@
           "ORD-08"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -4567,7 +4576,7 @@
           "DAT-06"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -4883,7 +4892,7 @@
           "DAT-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -5039,7 +5048,7 @@
           "DAT-03"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -5889,7 +5898,7 @@
           "LAW-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -6342,7 +6351,7 @@
           "DAT-02"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -6513,7 +6522,7 @@
           "DAT-03"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -6841,7 +6850,7 @@
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -6983,7 +6992,7 @@
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -7167,7 +7176,7 @@
           "DAT-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -7316,7 +7325,7 @@
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -7833,7 +7842,7 @@
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -8012,7 +8021,7 @@
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -8157,7 +8166,7 @@
           "DAT-06"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -8417,7 +8426,7 @@
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -11250,7 +11259,7 @@
           "DAT-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -11899,7 +11908,7 @@
           "LED-12"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -12343,7 +12352,7 @@
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -12501,7 +12510,7 @@
           "LED-07"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -12701,7 +12710,7 @@
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -12859,7 +12868,7 @@
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -13037,7 +13046,7 @@
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -13802,7 +13811,7 @@
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -13991,7 +14000,7 @@
           "RSK-07"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -14128,7 +14137,7 @@
           "ORD-08"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -14270,7 +14279,7 @@
           "RSK-02"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -16438,7 +16447,7 @@
           "DAT-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -16765,7 +16774,7 @@
           "RES-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -16914,7 +16923,7 @@
           "RES-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -17066,7 +17075,7 @@
           "RES-03"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -17318,7 +17327,7 @@
           "RES-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -17486,7 +17495,7 @@
           "RES-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -17623,7 +17632,7 @@
           "RES-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -17768,7 +17777,7 @@
           "AUT-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -17907,7 +17916,7 @@
           "RES-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -18060,7 +18069,7 @@
           "AUT-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -18215,7 +18224,7 @@
           "AUT-03"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -18331,7 +18340,7 @@
           "AUT-03"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -18505,7 +18514,7 @@
           "RSK-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -18705,7 +18714,7 @@
           "ORD-07"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -18889,7 +18898,7 @@
           "ORD-08"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -19084,7 +19093,7 @@
           "BRK-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -19396,7 +19405,7 @@
           "LED-10"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -19740,7 +19749,7 @@
           "REC-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -19911,7 +19920,8 @@
           "backend/src/unknown/core/handlers/recon.py",
           "backend/src/unknown/core/ledger.py",
           "config/calendars/",
-          "config/markets/venues.json"
+          "config/markets/venues.json",
+          "backend/src/unknown/service/core.py"
         ],
         "tests": [
           "backend/tests/test_reconciliation.py::SettlementEvidenceTests.test_friday_trade_settles_monday_only_when_broker_shows_it",
@@ -19919,17 +19929,21 @@
           "backend/tests/test_reconciliation.py::SettlementEvidenceTests.test_holiday_calendar_moves_expected_date_and_confirmation_waits_for_evidence",
           "backend/tests/test_markets.py::SettlementTests.test_eu_moves_to_t_plus_1_on_trade_date_2027_10_11",
           "backend/tests/test_markets.py::SettlementTests.test_us_and_india_are_t_plus_1",
-          "backend/tests/test_markets.py::BusinessDayArithmeticTests.test_india_settlement_holidays_differ_from_trading"
+          "backend/tests/test_markets.py::BusinessDayArithmeticTests.test_india_settlement_holidays_differ_from_trading",
+          "backend/tests/test_service_calendars.py::ServiceCalendarTests.test_xnys_settlement_skips_thanksgiving",
+          "backend/tests/test_service_calendars.py::ServiceCalendarTests.test_policies_name_calendars_the_service_loads"
         ],
         "evidence": [
           "The core predicts expected settlement from the policy's settlement calendar and the instrument's settlement days, and confirms it only from broker cash evidence; available cash excludes receivables (LED-03).",
-          "The venue registry computes settlement cycles by trade date (US T+1, India T+1, EU T+2 then T+1 from 2027-10-11) on separate trading and settlement calendars."
+          "The venue registry computes settlement cycles by trade date (US T+1, India T+1, EU T+2 then T+1 from 2027-10-11) on separate trading and settlement calendars.",
+          "The core service loads every sourced calendar in config/calendars at start (load_calendars), and every shipped policy names a calendar the service loads; until b87451b it loaded WEEKDAYS only, so the paper policy's XNYS settlement calendar silently fell back to weekdays (a 2026-11-25 trade would have been expected to settle on Thanksgiving)."
         ],
         "gaps": [
           "the core does not read the venue registry: its settlement days come from the instrument record, so the EU rule switch is reference data only",
           "NSE T+0 settlement type not modelled (AC3); India and EU are not eligible for trading",
           "DTC settlement calendar unverified (XNYS used conservatively)",
-          "no comparison of computed and broker-reported settle dates over a live sample (AC4)"
+          "no comparison of computed and broker-reported settle dates over a live sample (AC4)",
+          "a policy naming a calendar that is not loaded still falls back to WEEKDAYS silently in the core (handlers/broker.py and handlers/recon.py) instead of being refused at publish or activation"
         ],
         "requirements": [
           "LED-03",
@@ -19937,7 +19951,7 @@
           "DOM-06"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -20256,7 +20270,7 @@
           "LED-07"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -20666,7 +20680,7 @@
           "RES-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -20848,7 +20862,7 @@
           "TRM-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -21035,7 +21049,7 @@
           "TRM-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -21502,7 +21516,7 @@
           "TRM-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -21660,7 +21674,7 @@
           "TRM-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -22157,7 +22171,7 @@
           "TRM-03"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -22419,7 +22433,7 @@
           "DOM-02"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -22565,7 +22579,7 @@
           "TRM-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -22726,7 +22740,7 @@
           "AI-03"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -22901,7 +22915,7 @@
           "GATE-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -23046,7 +23060,7 @@
           "AI-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -23336,7 +23350,7 @@
           "AI-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -23482,7 +23496,7 @@
           "AI-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -23622,7 +23636,7 @@
           "SEC-02"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -23788,7 +23802,7 @@
           "AI-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -23922,7 +23936,7 @@
           "DOM-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -24116,7 +24130,7 @@
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -24390,7 +24404,7 @@
           "AI-02"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -24914,7 +24928,7 @@
           "LAW-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -25114,7 +25128,7 @@
           "EXE-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -25303,7 +25317,7 @@
           "ORD-03"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -25462,7 +25476,7 @@
           "ORD-07"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -25680,7 +25694,7 @@
           "LED-07"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -25816,7 +25830,7 @@
           "REC-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -25976,7 +25990,7 @@
           "OPS-03"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -26135,7 +26149,7 @@
           "BRK-03"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -26278,7 +26292,7 @@
           "OPS-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -26555,7 +26569,7 @@
           "BRK-02"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -26768,7 +26782,7 @@
           "DAT-06"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -26904,7 +26918,7 @@
           "RES-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -27254,7 +27268,7 @@
           "DAT-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -27447,7 +27461,7 @@
           "DAT-03"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -27721,7 +27735,7 @@
           "DOM-03"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -27982,7 +27996,7 @@
           "DAT-02"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -28152,7 +28166,7 @@
           "DAT-02"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -28612,7 +28626,7 @@
           "LAW-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -29524,7 +29538,7 @@
           "AI-02"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -29717,7 +29731,7 @@
           "AI-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -29883,7 +29897,7 @@
           "AI-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -30038,7 +30052,7 @@
           "AI-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -30247,7 +30261,7 @@
           "AI-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -30435,7 +30449,7 @@
           "AI-03"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -30738,7 +30752,7 @@
           "AI-03"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -30924,7 +30938,7 @@
           "DAT-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -31065,7 +31079,7 @@
           "LAW-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -31227,7 +31241,7 @@
           "AI-02"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -31380,7 +31394,7 @@
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -31832,7 +31846,7 @@
           "LAW-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -31959,7 +31973,7 @@
           "RSK-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -32129,7 +32143,7 @@
           "LAW-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -32809,7 +32823,7 @@
           "ORD-08"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -32981,7 +32995,7 @@
           "DAT-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -33127,7 +33141,7 @@
           "EXE-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -33393,7 +33407,7 @@
           "OPS-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -33549,7 +33563,7 @@
           "PRF-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -33722,7 +33736,7 @@
           "OPS-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -34054,7 +34068,7 @@
           "RSK-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -34773,7 +34787,7 @@
           "SEC-02"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     },
     {
@@ -35318,7 +35332,7 @@
           "EXE-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@bfbe096"
+        "verified_against": "impl/foundation@73f7b03"
       }
     }
   ]

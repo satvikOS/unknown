@@ -22,7 +22,7 @@ Every status above `proposed` cites the implementing files, the tests that prove
 file, test class and test method exists; `--run-tests` runs the cited backend tests. Passing offline tests is evidence
 of offline behaviour only.
 
-Checked against `impl/foundation@bfbe096` on 2026-10-22.
+Checked against `impl/foundation@73f7b03` on 2026-10-22.
 
 ## Summary by area
 
@@ -56,11 +56,11 @@ Checked against `impl/foundation@bfbe096` on 2026-10-22.
 | CAP-INS-01 | P1 | Security search and instrument discovery | Bloomberg Terminal, IBKR TWS API, LSEG Workspace / LSEG Data Library, OpenFIGI ( | tested | 6 | no labelled 200-query fixture and no latency benchmark (AC1, AC2, AC5) |
 | CAP-INS-02 | P0 | Identifier cross-reference and FIGI mapping | IBKR TWS API, LSEG Data Platform / Workspace, LSEG DataScope Select, OpenFIGI (B | tested | 6 | no 300-row hand-verified fixture (AC1) |
 | CAP-INS-03 | P0 | Licensed identifier rights enforcement (CUSIP, SEDOL, RIC) | Bloomberg / S&P Capital IQ (library comparison), CUSIP Global Services (CGS) ter | implemented | 3 | no rights classes per column, no write-path interceptor, no licence records, no  |
-| CAP-INS-04 | P0 | Broker contract resolution and verification (IBKR conid, Indian broker instrument tokens) | IBKR TWS API, Zerodha Kite Connect (India broker reference) | tested | 6 | Kite instrument tokens not implemented (AC5) |
+| CAP-INS-04 | P0 | Broker contract resolution and verification (IBKR conid, Indian broker instrument tokens) | IBKR TWS API, Zerodha Kite Connect (India broker reference) | tested | 8 | Kite instrument tokens not implemented (AC5) |
 | CAP-INS-05 | P1 | India listing master (NSE symbol/series, BSE code, ISIN, symbol changes) | NSE (exchange), NSE Data & Analytics, Zerodha Kite Connect | proposed |  | not yet implemented |
 | CAP-INS-06 | P0 | Point-in-time instrument master and symbology history (ticker changes, reuse, name changes) | Bloomberg Terminal, Bloomberg enterprise data (reference data catalog page), LSE | tested | 5 | no symbology source with history before this system's first snapshot (SEC ticker |
 | CAP-INS-07 | P0 | Exchange trading calendars, sessions, half days and ad hoc closures (US, India, Europe) | Deutsche Börse Xetra / Börse Frankfurt (exchange), Euronext (exchange), IBKR TWS | tested | 7 | no versioned ad hoc closures with replay pinning (AC2) |
-| CAP-INS-08 | P0 | Settlement and clearing business-day calendars (T+n by market and currency) | Deutsche Börse Xetra / Börse Frankfurt (exchange), ECB T2 (central bank), Federa | tested | 6 | the core uses the instrument's settlement days and the policy calendar, not the  |
+| CAP-INS-08 | P0 | Settlement and clearing business-day calendars (T+n by market and currency) | Deutsche Börse Xetra / Börse Frankfurt (exchange), ECB T2 (central bank), Federa | tested | 7 | the core uses the instrument's settlement days and the policy calendar, not the  |
 | CAP-INS-09 | P0 | Splits, reverse splits, bonus issues, face-value splits and price/volume adjustment factors | Bloomberg Terminal, IBKR TWS API, LSEG Corporate Actions (data product), LSEG Wo | proposed |  | not yet implemented |
 | CAP-INS-10 | P0 | Cash dividends: declaration, ex, record and pay dates, amounts, receivables and total-return series | Bloomberg Terminal, IBKR TWS API, LSEG Corporate Actions (data product), LSEG Wo | proposed |  | not yet implemented |
 | CAP-INS-11 | P1 | Mergers, acquisitions, spin-offs/demergers, rights issues, tender offers and buybacks | Bloomberg Terminal, Bloomberg enterprise data (reference data catalog page), LSE | proposed |  | not yet implemented |
@@ -211,7 +211,7 @@ Checked against `impl/foundation@bfbe096` on 2026-10-22.
 | CAP-OMS-06 | P0 | Execution (fill) and commission event capture with corrections and history backfill | Bloomberg EMSX, IBKR TWS API, IBKR Web API, Zerodha Kite Connect v3 | tested | 9 | history backfill beyond the broker's window needs statements (CAP-OMS-07, not bu |
 | CAP-OMS-07 | P0 | Broker statements and trade confirmations ingestion (IBKR Flex, activity statements) | IBKR Client Portal, IBKR Flex Web Service, IBKR Web API, IBKR Web API (Account M | proposed |  | not yet implemented |
 | CAP-OMS-08 | P0 | Three-way reconciliation: real-time events, intraday broker snapshot and end-of-day statement vs ledger | Bloomberg AIM, IBKR Flex Queries, IBKR TWS API, LSEG REDI on Workspace, Zerodha  | tested | 8 | tier 3, the end-of-day statement leg (IBKR Flex), is not implemented: two of thr |
-| CAP-OMS-09 | P0 | Settlement-date calculation (US T+1, India T+1/T+0, EU T+2 to T+1 on 11 Oct 2027) and settled-cash availability | European Commission, Federal Reserve Board, IBKR TWS API, NSE Clearing, NYSE, Na | tested | 6 | the core does not read the venue registry: its settlement days come from the ins |
+| CAP-OMS-09 | P0 | Settlement-date calculation (US T+1, India T+1/T+0, EU T+2 to T+1 on 11 Oct 2027) and settled-cash availability | European Commission, Federal Reserve Board, IBKR TWS API, NSE Clearing, NYSE, Na | tested | 8 | the core does not read the venue registry: its settlement days come from the ins |
 | CAP-OMS-10 | P1 | Corporate-action processing: mandatory events, voluntary elections and lot/basis adjustments | IBKR Client Portal, IBKR Flex Queries, IBKR Web API, NSE, SEC EDGAR | proposed |  | not yet implemented |
 | CAP-OMS-11 | P0 | Commission, fee and tax-charge estimation with estimated-vs-final tracking | Bloomberg EMSX, IBKR, IBKR TWS API, Zerodha Kite Connect v3 | tested | 6 | fee model values UNVERIFIED pending IBKR schedule confirmation; core and researc |
 | CAP-OMS-12 | P1 | Execution algorithms: broker algos (IBKR) and in-house parent/child scheduling (TWAP, participation) | Bloomberg AIM, Bloomberg EMSX, IBKR Paper Trading, IBKR TWS API, IBKR Web API, L | proposed |  | not yet implemented |
@@ -381,12 +381,14 @@ Checked against `impl/foundation@bfbe096` on 2026-10-22.
 
 ### CAP-INS-04: Broker contract resolution and verification (IBKR conid, Indian broker instrument tokens) (tested)
 
-- Files: `backend/src/unknown/broker/ibkr/contracts.py`, `backend/src/unknown/api/routes/marketdata.py`, `backend/src/unknown/broker/ibkr/serve.py`, `backend/src/unknown/domain/instruments.py`
-- Tests: `test_ibkr_marketdata::ContractEvaluationTests.test_verified_listing_produces_a_valid_instrument_proposal_and_mapping`; `test_ibkr_marketdata::ContractEvaluationTests.test_more_than_one_match_is_ambiguous_with_no_mapping`; `test_ibkr_marketdata::ContractEvaluationTests.test_conflicts_block_routing`; `test_ibkr_marketdata::ContractEvaluationTests.test_rules_that_differ_by_exchange_use_the_primary_exchanges_rule`; `test_ibkr_marketdata::ContractResolverTests.test_resolution_requests_details_then_the_market_rule`; `test_ibkr_serve::InstrumentDetailsTests.test_service_copies_ibkr_mappings_with_currency`
+- Files: `backend/src/unknown/broker/ibkr/contracts.py`, `backend/src/unknown/api/routes/marketdata.py`, `backend/src/unknown/broker/ibkr/serve.py`, `backend/src/unknown/domain/instruments.py`, `backend/src/unknown/broker/ibkr/bootstrap_paper.py`
+- Tests: `test_ibkr_marketdata::ContractEvaluationTests.test_verified_listing_produces_a_valid_instrument_proposal_and_mapping`; `test_ibkr_marketdata::ContractEvaluationTests.test_more_than_one_match_is_ambiguous_with_no_mapping`; `test_ibkr_marketdata::ContractEvaluationTests.test_conflicts_block_routing`; `test_ibkr_marketdata::ContractEvaluationTests.test_rules_that_differ_by_exchange_use_the_primary_exchanges_rule`; `test_ibkr_marketdata::ContractResolverTests.test_resolution_requests_details_then_the_market_rule`; `test_ibkr_serve::InstrumentDetailsTests.test_service_copies_ibkr_mappings_with_currency`; `test_ibkr_bootstrap_paper::BootstrapPaperTests.test_registers_only_verified_listings_and_never_starts`; `test_ibkr_bootstrap_paper::BootstrapPaperTests.test_universe_must_name_primary_exchanges`
 - Evidence: reqContractDetails by symbol, currency and primary exchange (never by name); exactly one match required; ISIN, MIC, currency and name checks; MarketRuleIds fetched for tick bands; a changed mapping blocks until an owner remap.
+- Evidence: The owner's paper bootstrap (python -m unknown.broker.ibkr.bootstrap_paper) resolves each listing by symbol and US primary exchange on the read-only market-data connection and registers only VERIFIED contracts, each with its ibkr conId mapping; AMBIGUOUS, UNRESOLVED and CONFLICT listings are reported and skipped. Tested against a real core desk with a fake resolver; it has never run against IB Gateway.
 - Gap: Kite instrument tokens not implemented (AC5)
 - Gap: no 500-listing paper preflight run (AC6)
 - Gap: not paper-verified: no IBKR paper session has run (BRK-02)
+- Gap: the paper bootstrap accepts US primary exchanges only (NASDAQ, NYSE, ARCA, AMEX, BATS)
 - Requirements: DOM-03, BRK-02
 
 ### CAP-INS-06: Point-in-time instrument master and symbology history (ticker changes, reuse, name changes) (tested)
@@ -412,12 +414,14 @@ Checked against `impl/foundation@bfbe096` on 2026-10-22.
 
 ### CAP-INS-08: Settlement and clearing business-day calendars (T+n by market and currency) (tested)
 
-- Files: `backend/src/unknown/domain/calendar.py`, `backend/src/unknown/domain/markets.py`, `config/calendars/`, `config/markets/venues.json`
-- Tests: `test_markets::BusinessDayArithmeticTests.test_india_settlement_holidays_differ_from_trading`; `test_markets::BusinessDayArithmeticTests.test_t2s_settlement_days`; `test_markets::SettlementTests.test_eu_moves_to_t_plus_1_on_trade_date_2027_10_11`; `test_markets::SettlementTests.test_sample_trade_per_venue`; `test_markets::HorizonTests.test_settlement_refuses_to_cross_the_horizon`; `test_reconciliation::SettlementEvidenceTests.test_due_settlement_is_not_confirmed_by_the_calendar_and_late_case_opens`
+- Files: `backend/src/unknown/domain/calendar.py`, `backend/src/unknown/domain/markets.py`, `config/calendars/`, `config/markets/venues.json`, `backend/src/unknown/service/core.py`
+- Tests: `test_markets::BusinessDayArithmeticTests.test_india_settlement_holidays_differ_from_trading`; `test_markets::BusinessDayArithmeticTests.test_t2s_settlement_days`; `test_markets::SettlementTests.test_eu_moves_to_t_plus_1_on_trade_date_2027_10_11`; `test_markets::SettlementTests.test_sample_trade_per_venue`; `test_markets::HorizonTests.test_settlement_refuses_to_cross_the_horizon`; `test_reconciliation::SettlementEvidenceTests.test_due_settlement_is_not_confirmed_by_the_calendar_and_late_case_opens`; `test_service_calendars::ServiceCalendarTests.test_service_loads_every_sourced_calendar`
 - Evidence: Settlement calendars (NCL-CM, ICCL-EQ, T2S-EUR) are separate from trading calendars; the venue registry applies settlement cycles by trade date; the core never releases cash on the expected date alone.
+- Evidence: The core service loads every sourced calendar in config/calendars at start (load_calendars), and every shipped policy names a calendar the service loads; until b87451b it loaded WEEKDAYS only, so the paper policy's XNYS settlement calendar silently fell back to weekdays (a 2026-11-25 trade would have been expected to settle on Thanksgiving).
 - Gap: the core uses the instrument's settlement days and the policy calendar, not the venue registry
 - Gap: US securities settlement calendar (DTC) unverified; currency payment calendars not modelled
 - Gap: no exception when a broker settle date differs from the estimate (AC6)
+- Gap: a policy naming a calendar that is not loaded still falls back to WEEKDAYS silently in the core (handlers/broker.py and handlers/recon.py) instead of being refused at publish or activation
 - Requirements: DOM-06, LED-03, REC-04
 
 ### CAP-INS-14: Venue (ISO 10383 MIC) and issuer (LEI, PermID) reference linkage (implemented)
@@ -884,14 +888,16 @@ Checked against `impl/foundation@bfbe096` on 2026-10-22.
 
 ### CAP-OMS-09: Settlement-date calculation (US T+1, India T+1/T+0, EU T+2 to T+1 on 11 Oct 2027) and settled-cash availability (tested)
 
-- Files: `backend/src/unknown/domain/calendar.py`, `backend/src/unknown/domain/markets.py`, `backend/src/unknown/core/handlers/recon.py`, `backend/src/unknown/core/ledger.py`, `config/calendars/`, `config/markets/venues.json`
-- Tests: `test_reconciliation::SettlementEvidenceTests.test_friday_trade_settles_monday_only_when_broker_shows_it`; `test_reconciliation::SettlementEvidenceTests.test_sale_proceeds_become_available_only_on_broker_evidence`; `test_reconciliation::SettlementEvidenceTests.test_holiday_calendar_moves_expected_date_and_confirmation_waits_for_evidence`; `test_markets::SettlementTests.test_eu_moves_to_t_plus_1_on_trade_date_2027_10_11`; `test_markets::SettlementTests.test_us_and_india_are_t_plus_1`; `test_markets::BusinessDayArithmeticTests.test_india_settlement_holidays_differ_from_trading`
+- Files: `backend/src/unknown/domain/calendar.py`, `backend/src/unknown/domain/markets.py`, `backend/src/unknown/core/handlers/recon.py`, `backend/src/unknown/core/ledger.py`, `config/calendars/`, `config/markets/venues.json`, `backend/src/unknown/service/core.py`
+- Tests: `test_reconciliation::SettlementEvidenceTests.test_friday_trade_settles_monday_only_when_broker_shows_it`; `test_reconciliation::SettlementEvidenceTests.test_sale_proceeds_become_available_only_on_broker_evidence`; `test_reconciliation::SettlementEvidenceTests.test_holiday_calendar_moves_expected_date_and_confirmation_waits_for_evidence`; `test_markets::SettlementTests.test_eu_moves_to_t_plus_1_on_trade_date_2027_10_11`; `test_markets::SettlementTests.test_us_and_india_are_t_plus_1`; `test_markets::BusinessDayArithmeticTests.test_india_settlement_holidays_differ_from_trading`; `test_service_calendars::ServiceCalendarTests.test_xnys_settlement_skips_thanksgiving`; `test_service_calendars::ServiceCalendarTests.test_policies_name_calendars_the_service_loads`
 - Evidence: The core predicts expected settlement from the policy's settlement calendar and the instrument's settlement days, and confirms it only from broker cash evidence; available cash excludes receivables (LED-03).
 - Evidence: The venue registry computes settlement cycles by trade date (US T+1, India T+1, EU T+2 then T+1 from 2027-10-11) on separate trading and settlement calendars.
+- Evidence: The core service loads every sourced calendar in config/calendars at start (load_calendars), and every shipped policy names a calendar the service loads; until b87451b it loaded WEEKDAYS only, so the paper policy's XNYS settlement calendar silently fell back to weekdays (a 2026-11-25 trade would have been expected to settle on Thanksgiving).
 - Gap: the core does not read the venue registry: its settlement days come from the instrument record, so the EU rule switch is reference data only
 - Gap: NSE T+0 settlement type not modelled (AC3); India and EU are not eligible for trading
 - Gap: DTC settlement calendar unverified (XNYS used conservatively)
 - Gap: no comparison of computed and broker-reported settle dates over a live sample (AC4)
+- Gap: a policy naming a calendar that is not loaded still falls back to WEEKDAYS silently in the core (handlers/broker.py and handlers/recon.py) instead of being refused at publish or activation
 - Requirements: LED-03, REC-04, DOM-06
 
 ### CAP-OMS-11: Commission, fee and tax-charge estimation with estimated-vs-final tracking (tested)
