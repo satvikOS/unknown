@@ -24,8 +24,22 @@ Read `docs/book/README.md`, Chapters 1, 8-14, 20 and 25 before changing trading 
 
 Inspect existing code and the relevant requirement before editing. Make small reviewable changes. Preserve tests and documented limitations. Use official current API documentation and pin actual dependencies when introduced. Do not invent SDK methods or version numbers. Research code runs without production secrets or network authority.
 
-Run `python3 -m unittest discover -s tests -v` and the relevant native checks. Add meaningful tests for monetary, authority or state-machine changes. Document what is specified versus implemented versus externally verified. Passing offline tests is not evidence of profitability, live compatibility or legal compliance.
+Where things live (implementation branch `impl/foundation`, created from `docs/technical-book-v1`):
+- `docs/status/STATUS.md` — durable hand-off: what is implemented, verified, blocked, and the next step. Read it first.
+- `docs/requirements/register.md` — requirement IDs and status; `docs/requirements/dependency-graph.md` — build order.
+- `docs/adr/` — architecture decisions (supersede book text where they say so); `docs/design/book-resolutions.md` — verified book contradictions/omissions and how each is resolved.
+- `docs/capabilities/register.json` — parity capability register (vendor-referenced, dated).
+- `backend/` — the Python core (standard library only on the money path). `reference/` and root `tests/` remain the book's offline companion and are not the product.
 
-## Next milestone
+Run both suites before committing:
 
-Implement one paper broker adapter behind `contracts/broker_port.py`, then a minimal terminal showing reconciled state and durable start/stop. Follow Chapter 27. Do not broaden asset classes or build distributed infrastructure before the first complete paper workflow works.
+```bash
+python3 -m unittest discover -s tests -v                                   # book companion
+cd backend && PYTHONPATH=src python3 -m unittest discover -s tests -v      # core (also run with python3.12)
+```
+
+Add meaningful tests for monetary, authority or state-machine changes; every money-changing test asserts the ledger invariants (`Harness.verify() == []`). Document what is specified versus implemented versus externally verified. Passing offline tests is not evidence of profitability, live compatibility or legal compliance. Status words follow ADR-0001.
+
+## Scope and sequencing
+
+The objective is the full platform in the owner brief (research terminal parity work, data platform, quantitative research, bounded agents, portfolio, execution, reconciliation, monitoring) delivered through verified increments in `docs/requirements/dependency-graph.md`. The "minimal paper desk" in earlier text is an implementation checkpoint, not the product scope. Do not broaden *trading eligibility* (asset classes, shorting, margin, live routing) before the corresponding release gates and owner authorization; research and analytics breadth is not gated by that.
