@@ -4,6 +4,7 @@
  * uses a disclosure button with aria-expanded/aria-controls.
  */
 import { useRef, useState, type KeyboardEvent } from 'react';
+import { withoutNsStrings } from '../../api/nsStrings';
 import type { EventRecord } from '../../api/types';
 import { formatTimestampNs } from '../../format/time';
 import { Timestamp } from '../../ui/primitives';
@@ -178,7 +179,7 @@ function EventDetail({ r, onFilter }: { r: EventRecord; onFilter: (f: EventFilte
         <h3 className="micro" style={{ margin: '0 0 4px' }}>
           Info (event payload summary)
         </h3>
-        <pre className="ops-json">{JSON.stringify(r.info, null, 2)}</pre>
+        <pre className="ops-json">{JSON.stringify(withoutNsStrings(r.info), null, 2)}</pre>
         <p className="ops-hint" style={{ margin: '6px 0 0' }}>
           Changed sections: {r.changed_sections.length ? r.changed_sections.join(', ') : 'none'}
         </p>

@@ -7,6 +7,10 @@
  * - Timestamps are integer nanoseconds since the Unix epoch (`EpochNs`). They exceed 2^53, so JSON.parse
  *   yields a float accurate to roughly 0.25 microseconds. They are used only for display and for ages at
  *   millisecond resolution, never as identifiers or for exact comparison.
+ * - Exact timestamps: every `*_ns` field holding an integer or null also arrives as `*_ns_str`, the same
+ *   value as a decimal string (or null), in every API response (server.py, queries.with_ns_strings).
+ *   Read the `_str` sibling wherever the exact value matters; only a few types below declare it.
+ * - Errors are `{"error", "code", ...}` with a stable `code` (`ApiErrorBody`).
  * - Rows the server stores as JSON (`row` columns) are typed with the fields the core writes today; an
  *   index signature keeps unknown future fields visible to generic renderers.
  */
@@ -17,17 +21,34 @@ export type Decimal = string;
 export type CurrencyCode = string;
 /** Nanoseconds since the Unix epoch (approximate in JS; see module note). */
 export type EpochNs = number;
+/** The exact `EpochNs` as a decimal string (the `*_ns_str` sibling of a `*_ns` field). */
+export type EpochNsString = string;
 
 export type AccountMode = 'SIMULATED' | 'PAPER' | 'LIVE';
 
 // ------------------------------------------------------------------ auth
 
+/** Step-up window for commands on the API's account: the active policy's reauth_max_age_s, as the core checks it. */
+export interface StepUpWindow {
+  account_key: string;
+  max_age_s: number;
+  /** "policy", "fallback: no active policy" (15 minutes), or "override (test harness)" (shorter only). */
+  basis: string;
+  policy_hash: string | null;
+  expires_at_ns: EpochNs;
+  expires_at_ns_str: EpochNsString;
+}
+
 /** GET /api/auth/session */
 export interface AuthSession {
   authenticated: boolean;
   authenticated_at_ns: EpochNs | null;
+  authenticated_at_ns_str?: EpochNsString | null;
   csrf_token: string | null;
   now_ns: EpochNs;
+  now_ns_str?: EpochNsString;
+  /** Present when authenticated; null when the core database is unreadable. */
+  step_up?: StepUpWindow | null;
 }
 
 /** POST /api/auth/login (200) */
@@ -49,6 +70,11 @@ export interface LogoutResponse {
 /** Any non-2xx JSON body from the API. */
 export interface ApiErrorBody {
   error: string;
+  /** Stable code, e.g. COMMAND_ID_CONFLICT, COMMAND_OUTCOME_UNKNOWN, REAUTH_REQUIRED (server.py docstring). */
+  code?: string;
+  /** POST /api/commands errors: the command id, and whether it ran (UNKNOWN: GET /api/commands/<id>). */
+  command_id?: string;
+  outcome?: 'NOT_EXECUTED' | 'UNKNOWN';
 }
 
 // ------------------------------------------------------------------ accounts & control
@@ -770,6 +796,29 @@ export interface CommandResponse {
   body: Record<string, unknown>;
   /** Sequence numbers of the events this execution recorded (absent or empty on duplicates). */
   events?: number[];
+  /**
+   * Set when the core recorded the command and then failed (e.g. writing its restore marker): the result
+   * above stands, and the core needs the owner's attention ("<ExceptionType>: <message>").
+   */
+  post_commit_error?: string;
+}
+
+/** GET /api/commands/<command_id> (200): the owner's stored result for a command id. */
+export interface CommandResult {
+  command_id: string;
+  kind: string;
+  status: 'ACCEPTED' | 'REJECTED';
+  accepted: boolean;
+  /** Handler result when accepted; a `Rejection` when not. */
+  body: Record<string, unknown>;
+  /** Sequence numbers of the events the execution recorded. */
+  events: number[];
+  payload_hash: string;
+  principal_id: string;
+  recorded_time_ns: EpochNs;
+  recorded_time_ns_str: EpochNsString;
+  /** "core": answered after every request the core had queued; "database": the core did not answer. */
+  source: 'core' | 'database';
 }
 
 export function isRejection(body: unknown): body is Rejection {
@@ -836,9 +885,10 @@ export interface EndpointResponse {
 /** Detail endpoints addressed by id. */
 export type SessionDetailPath = `/api/sessions/${string}`;
 export type OrderDetailPath = `/api/orders/${string}`;
+export type CommandResultPath = `/api/commands/${string}`;
 
 export type ListEndpoint = keyof EndpointResponse;
-export type Endpoint = ListEndpoint | SessionDetailPath | OrderDetailPath;
+export type Endpoint = ListEndpoint | SessionDetailPath | OrderDetailPath | CommandResultPath;
 
 export type ResponseOf<E extends Endpoint> = E extends ListEndpoint
   ? EndpointResponse[E]
@@ -846,6 +896,8 @@ export type ResponseOf<E extends Endpoint> = E extends ListEndpoint
     ? SessionDetail
     : E extends OrderDetailPath
       ? OrderDetail
-      : never;
+      : E extends CommandResultPath
+        ? CommandResult
+        : never;
 
 export type ParamsOf<E extends Endpoint> = E extends ListEndpoint ? EndpointParams[E] : Record<string, never>;

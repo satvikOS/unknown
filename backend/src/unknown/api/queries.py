@@ -2,7 +2,13 @@
 
 Every monetary value is returned as a decimal string with its currency; every
 row says which bucket (owner) it belongs to; derived figures state their
-basis (e.g. a mark's quote source and age). Nothing here writes."""
+basis (e.g. a mark's quote source and age). Nothing here writes.
+
+Nanosecond timestamps (API convention, applied to every JSON response by
+``with_ns_strings``): each key ending in ``_ns`` whose value is an integer or
+null gets a sibling ``<key>_str`` holding the same value as a decimal string
+(or null). The integer stays for existing readers; it exceeds 2**53, so a
+JavaScript client that needs the exact value reads ``<key>_str``."""
 from __future__ import annotations
 
 import json
@@ -10,9 +16,95 @@ import sqlite3
 from collections import defaultdict
 
 from ..core import ledger
+from ..domain.errors import Rejected
 from ..domain.fixed import Fixed, Rounding
 from ..domain.money import currency
 from ..store.db import Tx
+
+NS_SUFFIX = "_ns"
+NS_STRING_SUFFIX = "_str"
+
+
+def with_ns_strings(value):
+    """A copy of ``value`` in which every ``*_ns`` integer (or null) has a ``*_ns_str`` decimal-string sibling.
+
+    Recurses through dicts, lists and tuples; never overwrites a ``*_str`` key the value already has; leaves
+    every other value untouched (``bool`` is not an integer here)."""
+    if isinstance(value, dict):
+        out = {}
+        for k, v in value.items():
+            out[k] = with_ns_strings(v)
+            if isinstance(k, str) and k.endswith(NS_SUFFIX) and k + NS_STRING_SUFFIX not in value and (
+                    v is None or (isinstance(v, int) and not isinstance(v, bool))):
+                out[k + NS_STRING_SUFFIX] = None if v is None else str(v)
+        return out
+    if isinstance(value, (list, tuple)):
+        return [with_ns_strings(v) for v in value]
+    return value
+
+
+def stored_command(conn: sqlite3.Connection, command_id: str, *, principal_id: str, principal_role: str) -> dict | None:
+    """The stored result of one command (a primary-key read), if ``(principal_id, principal_role)`` issued it.
+
+    Another principal's command reads as absent, as the core's own dedup never discloses it."""
+    r = conn.execute("SELECT command_id, kind, principal_id, principal_role, payload_hash, status, result, recorded_time_ns "
+                     "FROM commands WHERE command_id=?", (command_id,)).fetchone()
+    if r is None or (r["principal_id"], r["principal_role"]) != (principal_id, principal_role):
+        return None
+    return {"command_id": r["command_id"], "kind": r["kind"], "status": r["status"], "accepted": r["status"] == "ACCEPTED",
+            "body": json.loads(r["result"]), "payload_hash": r["payload_hash"], "principal_id": r["principal_id"],
+            "recorded_time_ns": r["recorded_time_ns"]}
+
+
+def command_events(conn: sqlite3.Connection, command_id: str, *, principal_id: str) -> list[int]:
+    """Sequence numbers of the events the stored execution of ``command_id`` recorded, ascending.
+
+    A command runs in one write transaction of the single writer, so its events are consecutive. The events
+    table has no command_id index: this scans back from the end of the log and stops where that block ends,
+    which is cheap for the recent commands whose outcome a client needs to resolve. An authorization refusal
+    under the same id is a separate, unstored decision (``stored: false``) and is never part of the block."""
+    block: list[int] = []
+    for e in conn.execute("SELECT seq, type, payload FROM events WHERE command_id=? AND principal_id=? ORDER BY seq DESC",
+                          (command_id, principal_id)):
+        if e["type"] == "CommandRejected" and json.loads(e["payload"])["info"].get("stored") is False:
+            continue
+        if block and e["seq"] != block[-1] - 1:
+            break
+        block.append(e["seq"])
+    return block[::-1]
+
+
+# Step-up kinds whose core handler acts on ``payload["account_key"]``. ``resolve_exception`` acts on the account of
+# the case it names; ``publish_policy`` binds no account. Keep in step with core/handlers (control.py, admin.py).
+PAYLOAD_ACCOUNT_KINDS = frozenset({"start", "activate_policy", "authorize_capital", "deauthorize_capital",
+                                   "acquire_execution_ownership", "release_execution_ownership", "broker_admin_action"})
+
+
+def command_account(conn: sqlite3.Connection, kind: str, payload: dict) -> str | None:
+    """The account a command of ``kind`` acts on, found where its core handler finds it; None when the kind binds
+    no account or the account cannot be found (the core then refuses the command). A payload field the handler
+    ignores (``account_key`` on ``resolve_exception`` or ``publish_policy``) is never read."""
+    if kind in PAYLOAD_ACCOUNT_KINDS:
+        key = payload.get("account_key")
+        return key if isinstance(key, str) else None
+    if kind == "resolve_exception":
+        case_id = payload.get("case_id", "")
+        if not isinstance(case_id, str):
+            return None
+        r = conn.execute("SELECT account_key FROM exceptions WHERE case_id=?", (case_id,)).fetchone()
+        return r["account_key"] if r else None
+    return None
+
+
+def reauth_window(conn: sqlite3.Connection, account_key: str) -> tuple[int | None, str | None]:
+    """``(reauth_max_age_s, policy_hash)`` of the account's active policy, read exactly as the core reads it
+    (``core.state.active_policy``); ``(None, None)`` when the account has no active policy."""
+    from ..core import state
+    try:
+        policy = state.active_policy(Tx(conn), account_key)
+    except Rejected:
+        return None, None
+    return policy.limits.reauth_max_age_s, policy.policy_hash
 
 
 def _rows(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> list[dict]:

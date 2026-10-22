@@ -4,6 +4,7 @@
  * for typed record details.
  */
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react';
+import { withoutNsStrings } from '../../api/nsStrings';
 import type { TrackedCommand } from '../../state/commands';
 import { useRuntime, useTrackedCommand } from '../../state/react';
 import { Money, Qty, ShortId, StatusPill, Timestamp, type Tone } from '../../ui/primitives';
@@ -222,7 +223,7 @@ function FieldValue({ f }: { f: DetailField }) {
     case 'none':
       return <span className="muted">none</span>;
     case 'json':
-      return <pre className="ops-json">{JSON.stringify(f.value, null, 2)}</pre>;
+      return <pre className="ops-json">{JSON.stringify(withoutNsStrings(f.value), null, 2)}</pre>;
   }
 }
 
@@ -251,7 +252,7 @@ export function InlineFields({ fields, max = 6 }: { fields: readonly DetailField
       {shown.map((f) => (
         <span key={f.key}>
           <span className="k">{f.label}</span>
-          {f.kind === 'json' ? <span className="cmd-id">{JSON.stringify(f.value).slice(0, 120)}</span> : <FieldValue f={f} />}
+          {f.kind === 'json' ? <span className="cmd-id">{JSON.stringify(withoutNsStrings(f.value)).slice(0, 120)}</span> : <FieldValue f={f} />}
         </span>
       ))}
       {fields.length > max ? <span className="muted">+{fields.length - max} more</span> : null}

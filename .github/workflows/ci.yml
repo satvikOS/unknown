@@ -58,3 +58,17 @@ jobs:
           npm run typecheck
           npm test
           npm run build
+  records:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Capability register is consistent with the code it cites
+        run: |
+          python -m unittest discover -s scripts/capabilities
+          python scripts/capabilities/build_register.py --check
+      - name: Book-review dispositions cite existing code and tests
+        run: python scripts/book_review/build_resolutions.py --check

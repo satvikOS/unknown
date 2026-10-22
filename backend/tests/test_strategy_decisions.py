@@ -83,6 +83,31 @@ class StrategyDecisionTests(unittest.TestCase):
         self.assertEqual([e["outcome"] for e in self.events()], ["NO_TRADE", "BLOCKED"])
 
 
+class StrategyCommandIdReservationTests(unittest.TestCase):
+    """ADR-0017 runner ids are deterministic ("strat.<artifact>.<day>...."): only that artifact's own principal may
+    use them, so no other principal (owner, agent, another strategy) can pre-claim a runner's decision id."""
+
+    def setUp(self):
+        self.h = Harness(policy=load_policy(session_template__strategy_eligibility=["owner-manual", "strategy.fixture"]))
+        self.addCleanup(self.h.close)
+        self.h.bootstrap()
+        self.assertTrue(self.h.owner_cmd("create_session", account_key=ACCOUNT, session_id="A").accepted)
+
+    def record(self, principal, command_id):
+        return self.h.cmd("record_strategy_decision", principal, command_id=command_id, account_key=ACCOUNT, session_id="A",
+                          artifact_id=principal.id if principal.role is Role.STRATEGY else "strategy.fixture",
+                          mode="shadow", outcome="NO_TRADE", inputs_digest=DIGEST,
+                          observation_time_ns=self.h.clock.now_ns() - NS)
+
+    def test_only_the_artifacts_own_principal_may_use_its_ids(self):
+        mine = "strat.strategy.fixture.2026-10-20.0123456789abcdef.decision"
+        other = Principal("TREND_DAILY@0123456789abcdef", Role.STRATEGY)
+        self.assertEqual(self.record(self.h.owner, mine).rejected_code, "UNAUTHORIZED")
+        self.assertEqual(self.record(other, mine).rejected_code, "UNAUTHORIZED")
+        self.assertIsNone(self.h.desk.store.query("SELECT 1 FROM commands WHERE command_id=?", (mine,)) or None)
+        self.assertTrue(self.record(self.h.strategy, mine).accepted)
+
+
 class StrategyTokenBindingTests(unittest.TestCase):
     """Review 2026-10-22: a strategy token must decide the principal id, not just the role; reserved ids such
     as owner-manual and the owner's or the system's ids can never be asserted as STRATEGY; a strategy cancels only

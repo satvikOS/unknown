@@ -87,7 +87,7 @@ export const WORKSPACES: readonly WorkspaceDefinition[] = validateRegistry([
 ]);
 ```
 
-Reserved shortcuts and order: overview `g o` (10), sessions `g s` (20), orders `g b` (30), risk `g r` (40), instruments `g i` (50), operations `g p` (60), audit `g a` (70), policy `g y` (80), capabilities `g c` (900). `validateRegistry` throws on a duplicate id or shortcut, and `registry.test.ts` fails with it.
+Reserved shortcuts and order: overview `g o` (10), sessions `g s` (20), orders `g b` (30), risk `g r` (40), instruments `g i` (50), operations `g p` (60), audit `g a` (70), policy `g y` (80), capabilities `g c` (900), portfolio `g f` (45), market data `g d` (55), research jobs `g j` (85). `validateRegistry` throws on a duplicate id or shortcut, and `registry.test.ts` fails with it.
 
 Optional fields:
 - `commands`: palette entries that open a view of the workspace. They show under "Go to" and are for navigation only: commands with effects run from their forms. An example is `{ id: 'ticket', label: 'New order ticket', path: ['~new'] }`.
