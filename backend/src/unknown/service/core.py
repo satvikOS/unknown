@@ -35,6 +35,8 @@ from .paths import Paths
 log = logging.getLogger("unknown.core")
 
 SOCKET_ROLES = {"api": frozenset({"OWNER"}), "agent": frozenset({"AGENT"})}
+RECONNECT_MIN_S = 5.0
+RECONNECT_MAX_S = 300.0
 
 
 @dataclass
@@ -62,6 +64,8 @@ class CoreService:
         self.server: CoreSocketServer | None = None
         self.ready = threading.Event()
         self.cycle_errors = 0
+        self.broker_mapping_provider: str | None = None   # set for adapters that resolve provider ids (IBKR conId)
+        self.instrument_map: dict[str, str] = {}
 
     # ---------------------------------------------------------------- socket
     def _enqueue(self, req: dict, roles: frozenset[str]) -> dict:
@@ -72,11 +76,20 @@ class CoreService:
             raise RuntimeError("core busy: request queue full") from None
         return fut.result(timeout=30)
 
+    def broker_provider(self) -> str | None:
+        try:
+            return self.broker.capabilities().provider
+        except Exception:
+            return None
+
     def health(self) -> HealthSnapshot:
         s = self.broker.session()
         free_mb = shutil.disk_usage(self.paths.data).free // (1024 * 1024)
-        return HealthSnapshot(s.connected, s.authenticated, s.server_time_ns, free_mb, s.detail,
-                              self.broker.capabilities().account_mode.value)
+        try:
+            mode = self.broker.capabilities().account_mode.value
+        except Exception:   # e.g. IbkrNotReady before the PAPER identity is verified: unknown, never assumed
+            mode = None
+        return HealthSnapshot(s.connected, s.authenticated, s.server_time_ns, free_mb, s.detail, mode)
 
     def _handle(self, req: dict, roles: frozenset[str]) -> dict:
         desk = self.desk
@@ -96,7 +109,7 @@ class CoreService:
                 return {"broker_connected": h.broker_connected, "broker_authenticated": h.broker_authenticated,
                         "broker_server_time_ns": h.broker_server_time_ns, "disk_free_mb": h.disk_free_mb,
                         "detail": h.detail, "now_ns": self.clock.now_ns(), "cycle_errors": self.cycle_errors,
-                        "provider": self.broker.capabilities().provider, "account_mode": self.broker.capabilities().account_mode.value}
+                        "provider": self.broker_provider(), "account_mode": h.broker_account_mode}
             if name == "preflight":
                 if "OWNER" not in roles:
                     raise PermissionError("preflight dry run requires the owner token")
@@ -123,8 +136,42 @@ class CoreService:
             except Exception as exc:
                 fut.set_exception(exc)
 
+    def _supervise_connection(self) -> None:
+        """Reconnect an adapter that owns a socket (IBKR) with capped exponential backoff. Never automates a
+        broker login: a host that is not logged in stays AUTH_REQUIRED until the owner logs in (ADR-0012)."""
+        connect = getattr(self.broker, "connect", None)
+        if connect is None:
+            return
+        s = self.broker.session()
+        if s.connected and s.authenticated:
+            self._reconnect_backoff_s = RECONNECT_MIN_S
+            return
+        if (s.auth_required_reason or "").startswith("DISCONNECTED_UNSAFE"):
+            return   # identity mismatch is latched in the adapter; only the owner can clear it
+        now = time.monotonic()
+        if now < getattr(self, "_next_reconnect_at", 0.0):
+            return
+        if not s.connected:
+            log.info("broker not connected (%s); connecting", s.auth_required_reason)
+            try:
+                connect()
+            except Exception:
+                log.exception("broker connect failed")
+        backoff = getattr(self, "_reconnect_backoff_s", RECONNECT_MIN_S)
+        self._next_reconnect_at = now + backoff
+        self._reconnect_backoff_s = min(backoff * 2, RECONNECT_MAX_S)
+
+    def refresh_instrument_map(self, provider: str) -> None:
+        """Copy provider mappings into a dict the adapter's message thread can read without SQLite."""
+        rows = self.desk.store.query("SELECT external_id, instrument_id, version FROM provider_mappings WHERE provider=? "
+                                     "ORDER BY version", (provider,))
+        self.instrument_map = {r["external_id"]: r["instrument_id"] for r in rows}
+
     def _sync_connectivity(self) -> None:
         """Record broker connectivity only when it changes (a change forces reconciliation)."""
+        self._supervise_connection()
+        if self.broker_mapping_provider:
+            self.refresh_instrument_map(self.broker_mapping_provider)
         s = self.broker.session()
         observed = (s.connected, s.authenticated)
         if observed != getattr(self, "_last_connectivity", None):
@@ -202,7 +249,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--account", required=True, help="internal account key, e.g. SIM-1 or IBKR-PAPER-1")
     ap.add_argument("--deployment", required=True, help="deployment id, e.g. mac-dev or aws-paper")
     ap.add_argument("--broker", choices=["simulated"], default="simulated",
-                    help="broker adapter; 'ibkr' is added with the IBKR paper adapter (I2)")
+                    help="this entry point runs the simulator; the IBKR PAPER service is "
+                         "'python -m unknown.broker.ibkr.serve' (the core never imports the GPL adapter, ADR-0014)")
     ap.add_argument("--fixture-market", action="store_true", help="run the deterministic FIXTURE market (simulated broker only)")
     ap.add_argument("--sim-cash", default="300.00")
     ap.add_argument("--home", default=None, help="runtime root (default ~/.unknown or $UNKNOWN_HOME)")
@@ -222,6 +270,11 @@ def main(argv: list[str] | None = None) -> None:
         ])
     svc = CoreService(paths=paths, account_key=args.account, deployment_id=args.deployment, broker=broker, clock=clock,
                       fixture_market=market)
+    serve(svc)
+
+
+def serve(svc: "CoreService") -> None:
+    """Run a configured service until SIGTERM/SIGINT (shared by every broker entry point)."""
     signal.signal(signal.SIGTERM, lambda *_: svc.shutdown())
     signal.signal(signal.SIGINT, lambda *_: svc.shutdown())
     svc.run()

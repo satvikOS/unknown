@@ -22,11 +22,16 @@ class ShippedTariffFileTest(unittest.TestCase):
     def setUp(self):
         self.book = TariffBook.load()
 
-    def test_loads_and_contains_only_unapproved_rows(self):
+    def test_only_the_owner_authorized_row_is_approved(self):
+        """The owner authorized USD 200 of Anthropic spend on 2026-10-22; only claude-opus-5-5 is approved.
+        Every other row stays unapproved, so worst_case() refuses it."""
         self.assertTrue(self.book.rows)
-        self.assertTrue(all(r.approved_by is None for r in self.book.rows))
+        approved = [(r.provider, r.model_id) for r in self.book.rows if r.approved_by is not None]
+        self.assertEqual(approved, [("anthropic", "claude-opus-5-5")])
+        self.assertTrue(self.book.worst_case("anthropic", "claude-opus-5-5", at_ns=AT, prompt_tokens=10,
+                                             max_output_tokens=10).amount.is_positive())
         with self.assertRaises(TariffNotApproved):
-            self.book.worst_case("anthropic", "claude-opus-5-5", at_ns=AT, prompt_tokens=10, max_output_tokens=10)
+            self.book.worst_case("anthropic", "claude-sonnet-5-5", at_ns=AT, prompt_tokens=10, max_output_tokens=10)
         self.assertFalse(self.book.is_routable("xai", "grok-4.7", at_ns=AT))
 
     def test_rates_are_decimal_strings_never_json_numbers(self):

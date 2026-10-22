@@ -82,6 +82,10 @@ INSTALL_HELP = ("Install the official TWS API from https://download2.interactive
                 "See docs/integrations/ibkr.md.")
 
 
+SERVER_TIME_REFRESH_NS = 30 * 1_000_000_000    # re-ask the host clock when the last answer is older
+SERVER_TIME_MAX_AGE_NS = 120 * 1_000_000_000   # beyond this a measurement is not evidence of current skew
+
+
 class IbkrSdkUnavailable(ImportError):
     """``ibapi`` (the official TWS API Python client) is not importable."""
 
@@ -215,6 +219,9 @@ def _wrapper_class(base: type) -> type:
 
         def orderBound(self, permId: int, clientId: int, orderId: int):
             self._adapter._dispatch("orderBound", permId, clientId, orderId)
+
+        def currentTimeInMillis(self, timeInMillis: int):
+            self._adapter._dispatch("currentTimeInMillis", timeInMillis)
 
     return AdapterWrapper
 
@@ -365,6 +372,7 @@ class IbkrAdapter:
         self._co_end = False
         self._coverage_start_day: date | None = None
         self._down_since_day: date | None = None
+        self._server_time: tuple[int, int] | None = None   # (host ns, local ns at receipt) from currentTimeInMillis
 
     # ======================================================================= lifecycle
     def connect(self) -> BrokerSessionState:
@@ -450,6 +458,8 @@ class IbkrAdapter:
             self._emit(ConnectivityEvent(True, True, f"READY: PAPER identity verified ({self._describe()})",
                                          self._clock.now_ns()))
             self._cv.notify_all()
+        self._request_server_time(client)   # answered asynchronously; preflight fails closed until it arrives
+        with self._cv:
             return self._session_locked()
 
     def disconnect(self) -> None:
@@ -544,7 +554,20 @@ class IbkrAdapter:
 
     def session(self) -> BrokerSessionState:
         with self._cv:
-            return self._session_locked()
+            state = self._session_locked()
+            now = self._clock.now_ns()
+            stale = self._server_time is None or now - self._server_time[1] > SERVER_TIME_REFRESH_NS
+            client = self._client if (stale and self._socket_up and self._mode_verified) else None
+        if client is not None:
+            self._request_server_time(client)   # the next call sees the fresh measurement
+        return state
+
+    def _request_server_time(self, client) -> None:
+        """Ask the host for its clock (reqCurrentTimeInMillis, server version >= 197 in TWS API 10.51.01)."""
+        err = self._send("query", client.reqCurrentTimeInMillis)
+        if err:
+            with self._cv:
+                self._anomaly("SERVER_TIME_UNAVAILABLE", err)
 
     def _session_locked(self) -> BrokerSessionState:
         client = self._client
@@ -565,8 +588,15 @@ class IbkrAdapter:
                 reason = "NOT_CONNECTED"
             else:
                 reason = "MODE_UNVERIFIED"
+        server_time_ns = None
+        if self._server_time is not None and alive:
+            host_ns, at_ns = self._server_time
+            age = self._clock.now_ns() - at_ns
+            if 0 <= age <= SERVER_TIME_MAX_AGE_NS:
+                # Host clock carried forward on our monotonic offset: skew = host - local at receipt.
+                server_time_ns = host_ns + age
         return BrokerSessionState(connected=alive, authenticated=authenticated, auth_required_reason=reason,
-                                  server_time_ns=None, last_heartbeat_ns=self._last_message_ns,
+                                  server_time_ns=server_time_ns, last_heartbeat_ns=self._last_message_ns,
                                   detail=self._describe())
 
     def _describe(self) -> str:
@@ -1289,6 +1319,11 @@ class IbkrAdapter:
 
     def _on_connectAck(self) -> None:
         pass
+
+    def _on_currentTimeInMillis(self, time_in_millis: int) -> None:
+        with self._cv:
+            self._server_time = (int(time_in_millis) * 1_000_000, self._clock.now_ns())
+            self._cv.notify_all()
 
     def _on_nextValidId(self, order_id: int) -> None:
         with self._cv:

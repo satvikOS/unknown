@@ -373,7 +373,8 @@ if HAVE_IBAPI:
     class FakeHost(EClient):
         """EClient with the socket replaced: records requests, answers via EWrapper callbacks."""
 
-        def __init__(self, wrapper, *, accounts=ACCOUNT, next_valid_id=100, handshake=True, reachable=True):
+        def __init__(self, wrapper, *, accounts=ACCOUNT, next_valid_id=100, handshake=True, reachable=True,
+                     server_time_ms=None):
             EClient.__init__(self, wrapper)
             self.calls: list[tuple] = []
             self.accounts, self.nvid, self.handshake, self.reachable = accounts, next_valid_id, handshake, reachable
@@ -389,6 +390,7 @@ if HAVE_IBAPI:
             self.summary: list[tuple] = []         # (account, tag, value, currency)
             self.positions: list[tuple] = []       # (account, contract, position, avgCost)
             self.silent = set()                    # request names that never get their End callback
+            self.server_time_ms = server_time_ms   # host clock answer to reqCurrentTimeInMillis (None: no answer)
 
         def connect(self, host, port, clientId):
             self.calls.append(("connect", host, port, clientId))
@@ -432,6 +434,11 @@ if HAVE_IBAPI:
             self.calls.append(("reqIds", numIds))
             self.nvid += 10
             self.wrapper.nextValidId(self.nvid)
+
+        def reqCurrentTimeInMillis(self):
+            self.calls.append(("reqCurrentTimeInMillis",))
+            if self.server_time_ms is not None:
+                self.wrapper.currentTimeInMillis(self.server_time_ms)
 
         def reqExecutions(self, reqId, execFilter):
             self.calls.append(("reqExecutions", reqId, execFilter))
@@ -558,11 +565,12 @@ class AdapterCase(unittest.TestCase):
 
 # =============================================================================== connection and identity
 class ConnectionTests(AdapterCase):
-    def test_handshake_verifies_paper_identity_and_sends_no_requests(self):
+    def test_handshake_verifies_paper_identity_and_sends_only_the_clock_query(self):
         state = self.adapter.connect()
         self.assertTrue(state.connected and state.authenticated)
         self.assertIsNone(state.auth_required_reason)
-        self.assertEqual(self.host.calls, [("connect", "127.0.0.1", 4002, CLIENT_ID)])
+        # R2: nothing before nextValidId; after READY only the host clock query (preflight skew evidence).
+        self.assertEqual(self.host.calls, [("connect", "127.0.0.1", 4002, CLIENT_ID), ("reqCurrentTimeInMillis",)])
         (ready,) = self.events(ConnectivityEvent)
         self.assertTrue(ready.connected and ready.authenticated)
         self.assertNotIn(ACCOUNT, ready.detail)                  # account ids are masked in observations
@@ -575,6 +583,28 @@ class ConnectionTests(AdapterCase):
         self.assertEqual(caps.pacing[0].max_requests, 200)        # 400 lines / 2 in this fixture
         self.assertEqual(caps.extensions["ibkr.pacing_reserved_requests_per_second"], 40)
         self.assertEqual(caps.order_reference_max_length, 0)
+
+    def test_host_clock_is_measured_after_ready_and_ages_out(self):
+        """Preflight's clock-skew check needs the host's time (fails closed without it): measured with
+        reqCurrentTimeInMillis after READY, carried forward on the local clock, re-requested when older than
+        30 s and withheld when older than 120 s."""
+        ahead_ms = T0 // 1_000_000 + 1500                                   # host clock 1.5 s ahead
+        adapter = self.make_adapter(host_kwargs={"server_time_ms": ahead_ms})
+        state = adapter.connect()
+        self.assertEqual(state.server_time_ns, T0 + 1_500_000_000)
+        self.clock.advance(10 * 1_000_000_000)
+        self.assertEqual(adapter.session().server_time_ns, T0 + 11_500_000_000)
+        self.assertEqual(self.host.names().count("reqCurrentTimeInMillis"), 1)
+        self.host.server_time_ms = None                                     # host stops answering
+        self.clock.advance(31 * 1_000_000_000)
+        adapter.session()                                                   # stale: asks again
+        self.assertEqual(self.host.names().count("reqCurrentTimeInMillis"), 2)
+        self.clock.advance(100 * 1_000_000_000)
+        self.assertIsNone(adapter.session().server_time_ns, "a 141 s old measurement is not evidence")
+
+    def test_host_that_never_reports_its_clock_gives_no_server_time(self):
+        state = self.adapter.connect()
+        self.assertIsNone(state.server_time_ns)
 
     def test_unexpected_managed_accounts_latch_disconnected_unsafe(self):
         adapter = self.make_adapter(host_kwargs={"accounts": f"{ACCOUNT},DUFIXTURE2"})
@@ -1176,7 +1206,8 @@ class SdkConformanceTests(unittest.TestCase):
                     "reqExecutions": ["self", "reqId", "execFilter"], "reqOpenOrders": ["self"],
                     "reqAllOpenOrders": ["self"], "reqCompletedOrders": ["self", "apiOnly"],
                     "reqAccountSummary": ["self", "reqId", "groupName", "tags"],
-                    "cancelAccountSummary": ["self", "reqId"], "reqPositions": ["self"], "cancelPositions": ["self"]}
+                    "cancelAccountSummary": ["self", "reqId"], "reqPositions": ["self"], "cancelPositions": ["self"],
+                    "reqCurrentTimeInMillis": ["self"]}
         for name, params in expected.items():
             self.assertEqual(self.params(getattr(EClient, name)), params, name)
             if name in FakeHost.__dict__:
@@ -1186,7 +1217,7 @@ class SdkConformanceTests(unittest.TestCase):
         from unknown.broker.ibkr.adapter import _wrapper_class
         cls = _wrapper_class(EWrapper)
         overridden = [n for n in cls.__dict__ if not n.startswith("_")]
-        self.assertEqual(len(overridden), 18)
+        self.assertEqual(len(overridden), 19)
         for name in overridden:
             self.assertTrue(hasattr(EWrapper, name), name)
             self.assertEqual(self.params(getattr(cls, name)), self.params(getattr(EWrapper, name)), name)
