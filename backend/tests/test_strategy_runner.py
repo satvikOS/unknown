@@ -889,6 +889,27 @@ class CrashResumeTest(RealCoreCase):
         self.stop_core()
         self.assertEqual(self.verify_ledger(), [])
 
+    def test_lost_journal_then_shadow_mode_still_records_the_live_intent(self):
+        """Review fix: a live intent the core took before a crash, found after the journal was lost by a runner now
+        in shadow mode, was recorded as a shadow INTENT_SUBMITTED, which the core refuses: the order stayed without
+        a decision record. It is recorded as the live decision it was."""
+        a = self.ids["A"]
+        r = self.runner("A", "live", client=CrashingClient(CoreClient(self.paths.socket, self.paths.strategy_tokens()[a])))
+        with self.assertRaises(Crash):
+            r.run_once()
+        r.close()
+        self.lose_journal("A")
+        with self.runner("A", "shadow") as again:
+            s = again.run_once()
+        one, two = s["instruments"]["FIX-EQ-1"], s["instruments"]["FIX-EQ-2"]
+        self.assertEqual((one["state"], one["outcome"], one["recovered"]), ("RECORDED", "INTENT_SUBMITTED", True), one)
+        self.assertEqual((two["outcome"], two["submitted"]), ("NO_TRADE", False), two)
+        self.assertEqual([o["instrument_id"] for o in self.orders(a)], ["FIX-EQ-1"])
+        rec = {d["instrument_id"]: d for d in self.decisions(a)}
+        self.assertEqual((rec["FIX-EQ-1"]["mode"], rec["FIX-EQ-2"]["mode"]), ("live", "shadow"))
+        self.stop_core()
+        self.assertEqual(self.verify_ledger(), [])
+
     def test_core_outage_keeps_decisions_planned_and_sends_them_once_after_restart(self):
         a = self.ids["A"]
         self.stop_core()

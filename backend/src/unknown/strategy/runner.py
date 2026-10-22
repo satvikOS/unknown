@@ -607,7 +607,8 @@ class StrategyRunner:
             original = isinstance(digest, str) and _HEX64.fullmatch(digest) is not None
             what = (f"{intent.get('side')} {intent.get('quantity')} @ {intent.get('limit_price')}" if intent
                     else "the intent the core holds")
-            rebuilt = {**base, "target_quantity": None, "current_quantity": None,
+            # Only a live run submits intents, so this is a live decision even if this runner now runs in shadow mode.
+            rebuilt = {**base, "mode": "live", "target_quantity": None, "current_quantity": None,
                        "inputs_digest": digest if original else base["inputs_digest"],
                        "reason": _join(f"RECOVERED after journal loss: rebuilt from {what}; the decision's quantities were "
                                        "lost with the journal" + ("" if original else "; inputs digest recomputed at recovery"),
