@@ -12,8 +12,8 @@ import { Badge } from '../../ui/primitives';
 import { WorkspaceFrame } from '../../ui/WorkspaceFrame';
 import { useApi } from '../research-common/api';
 import { LineChart, type ChartSeries } from '../research-common/charts';
-import { checkInstant } from '../research-common/format';
-import { ErrorNotice, Flags, IsoTime, KV, Loading, Section, StatusTag, Unavailable } from '../research-common/parts';
+import { POPULATE, checkInstant } from '../research-common/format';
+import { Commands, ErrorNotice, Flags, IsoTime, KV, Loading, Section, StatusTag, Unavailable } from '../research-common/parts';
 import { AsOfField, TextField } from '../company/CompanyWorkspace';
 import type { WorkspaceProps } from '../types';
 import { isUnavailable, type UnavailableBody } from '../company/model';
@@ -24,6 +24,7 @@ import {
   isDate,
   macroRoute,
   parseMacroRoute,
+  populateFor,
   tenorTicks,
   type CurveResponse,
   type FxResponse,
@@ -48,7 +49,7 @@ export function MacroWorkspace({ route, navigate }: WorkspaceProps) {
     >
       <AsOfBar o={o} go={go} />
       <ErrorNotice what="Macro catalog" error={catalog.error} />
-      {catalog.data && isUnavailable(catalog.data) ? <Unavailable what="Macro series" reason={catalog.data.reason} /> : null}
+      {catalog.data && isUnavailable(catalog.data) ? <Unavailable what="Macro series" reason={catalog.data.reason} commands={[POPULATE.treasury, POPULATE.ecb]} /> : null}
       {catalog.data && !isUnavailable(catalog.data) ? <CatalogPanel c={catalog.data} /> : null}
       {!catalog.data && !catalog.error ? <Loading what="the series catalog" /> : null}
       {catalog.data && isUnavailable(catalog.data) ? null : (
@@ -120,6 +121,7 @@ function CatalogPanel({ c }: { c: MacroCatalog }) {
                 </th>
                 <td className="wrap">
                   <StatusTag status={s.status} /> {s.reason ? <span className="rx-reason">{s.reason}</span> : null}
+                  {s.status !== 'OK' ? <Commands commands={populateFor(s.dataset)} /> : null}
                 </td>
                 <td className="num">{s.observations}</td>
                 <td className="mono">{s.first_date ? `${s.first_date} → ${s.last_date}` : '—'}</td>
@@ -186,9 +188,9 @@ function CurvePanel({
         ) : null}
       </form>
       <ErrorNotice what="Yield curve" error={error} />
-      {curve && isUnavailable(curve) ? <Unavailable what="Yield curve" reason={curve.reason} /> : null}
-      {curve && !isUnavailable(curve) && curve.status === 'UNAVAILABLE' ? <Unavailable what="Yield curve" reason={curve.reason} /> : null}
-      {compare && !isUnavailable(compare) && compare.status === 'UNAVAILABLE' ? <Unavailable what={`Comparison curve ${o.compare}`} reason={compare.reason} /> : null}
+      {curve && isUnavailable(curve) ? <Unavailable what="Yield curve" reason={curve.reason} commands={[POPULATE.treasury]} /> : null}
+      {curve && !isUnavailable(curve) && curve.status === 'UNAVAILABLE' ? <Unavailable what="Yield curve" reason={curve.reason} commands={[POPULATE.treasury]} /> : null}
+      {compare && !isUnavailable(compare) && compare.status === 'UNAVAILABLE' ? <Unavailable what={`Comparison curve ${o.compare}`} reason={compare.reason} commands={[POPULATE.treasury]} /> : null}
       {!curve && !error ? <Loading what="the curve" /> : null}
       {c ? (
         <>
@@ -330,8 +332,8 @@ function FxPanel({ o, go, fx, error }: { o: MacroOptions; go: (n: MacroOptions) 
         ) : null}
       </form>
       <ErrorNotice what="Reference rates" error={error} />
-      {fx && isUnavailable(fx) ? <Unavailable what="Reference rates" reason={fx.reason} /> : null}
-      {fx && !isUnavailable(fx) && fx.status === 'UNAVAILABLE' ? <Unavailable what="Reference rates" reason={fx.reason} /> : null}
+      {fx && isUnavailable(fx) ? <Unavailable what="Reference rates" reason={fx.reason} commands={[POPULATE.ecb]} /> : null}
+      {fx && !isUnavailable(fx) && fx.status === 'UNAVAILABLE' ? <Unavailable what="Reference rates" reason={fx.reason} commands={[POPULATE.ecb]} /> : null}
       {!fx && !error ? <Loading what="reference rates" /> : null}
       {f ? (
         <>

@@ -17,7 +17,7 @@ Registered as `company` (`g e`, nav order 110). It reads `GET /api/company` (bac
 ## Display rules
 
 - Decimal strings stay strings. A currency unit renders as `Money`; a `ratio` shows the exact value and the exact percentage (the decimal point is moved, nothing is rounded); other units are shown as the API writes them (`x`, `USD per share`, `shares`).
-- Unavailable sources show the API's reason and the command it names (for example `python -m unknown.data.sec ingest --cik <CIK>`), never placeholder data.
+- Unavailable sources show the API's reason and the command it names (for example `python -m unknown.data.sec ingest --cik <CIK>`), never placeholder data. An unavailable DCF risk-free rate names only the Treasury module, so the complete command (`python -m unknown.data.sources.treasury ingest --month YYYYMM`) is shown in its place.
 
 ## API notes found while building this
 

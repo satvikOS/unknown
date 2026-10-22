@@ -10,7 +10,7 @@ import { formatDecimal } from '../../format/decimal';
 import { Money } from '../../ui/primitives';
 import { apiPath, useApi } from '../research-common/api';
 import { RangeBars } from '../research-common/charts';
-import { humanize } from '../research-common/format';
+import { POPULATE, humanize } from '../research-common/format';
 import { ErrorNotice, Flags, IsoTime, JsonTree, KV, Loading, Section, StatusTag, Unavailable, UnitValue } from '../research-common/parts';
 import { IssuerFrame, TextField, type IssuerContext } from './CompanyWorkspace';
 import { Bridge, PriceLine } from './Metrics';
@@ -62,7 +62,9 @@ export function DcfView({ ctx }: { ctx: IssuerContext }) {
           ) : null}
           <ErrorNotice what="DCF" error={q.error} />
           {submitted && !q.data && !q.error ? <Loading what="the DCF" /> : null}
-          {q.data && isUnavailable(q.data) ? <Unavailable what="DCF" reason={q.data.reason} /> : null}
+          {q.data && isUnavailable(q.data) ? (
+            <Unavailable what="DCF" reason={q.data.reason} commands={/Treasury/.test(q.data.reason) ? [POPULATE.treasury] : undefined} />
+          ) : null}
           {q.data && isRefused(q.data) ? (
             <div className="callout" role="status" style={{ ['--tone' as string]: 'var(--bad)' }}>
               <StatusTag status="REFUSED" /> <strong>The model refused these inputs.</strong>

@@ -72,9 +72,9 @@ It also checks five widths, from 390 px to 1600 px: no sideways page scroll, no 
    - search, and the tearsheet blocks with their reasons;
    - a restated FY2025 revenue whose original value is what an earlier as-of shows;
    - MISSING, NO_PRICE and INCOMPLETE reasons verbatim, and a show-calculation with the EV bridge;
-   - the DCF recipe (WACC build-up from the Treasury 10Y), an UNAVAILABLE risk-free rate with its command, a REFUSED model (WACC <= g);
+   - the DCF recipe (WACC build-up from the Treasury 10Y), an UNAVAILABLE risk-free rate with the complete Treasury ingest command, a REFUSED model (WACC <= g);
    - peers.
-4. **Macro:** the curve with its missing tenor, a comparison date, a past as-of that hides the later curve, ECB rates and USD crosses.
+4. **Macro:** the curve with its missing tenor, a comparison date, a past as-of that hides the later curve, an as-of before any macro observation (each panel shows the API's reason and the dataset's ingest command), ECB rates and USD crosses.
 5. **Research:**
    - experiments with FIXTURE labels and the holdout access log;
    - trials filtered by segment, and a trial's return chart, money and manifest;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { findWorkspace } from '../registry';
-import { crossRows, curveSeries, fxRows, isDate, macroRoute, parseMacroRoute, tenorTicks, type CurvePoint, type FxResponse } from './model';
+import { crossRows, curveSeries, fxRows, isDate, macroRoute, parseMacroRoute, populateFor, tenorTicks, type CurvePoint, type FxResponse } from './model';
 
 const pt = (tenor: string, value: string, obs: number): CurvePoint => ({
   tenor,
@@ -75,5 +75,13 @@ describe('reference rates', () => {
     expect(fxRows(fx).map((r) => r.currency)).toEqual(['CHF', 'USD']);
     expect(crossRows(fx).map((r) => r.currency)).toEqual(['EUR', 'JPY']);
     expect(crossRows({ ...fx, normalized: { base: 'XXX', status: 'UNAVAILABLE', reason: 'no ECB rate for base currency XXX' } })).toEqual([]);
+  });
+});
+
+describe('populate commands per macro dataset', () => {
+  it('names the ingest command of each dataset the API catalogs, and none for an unknown one', () => {
+    expect(populateFor('ust.par_yield_curve')).toEqual(['python -m unknown.data.sources.treasury ingest --month YYYYMM']);
+    expect(populateFor('ecb.exr_reference')).toEqual(['python -m unknown.data.sources.ecb ingest --last 1']);
+    expect(populateFor('fred.series')).toEqual([]);
   });
 });

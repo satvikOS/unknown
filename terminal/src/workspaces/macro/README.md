@@ -15,3 +15,4 @@ Route: `#/macro/as_of=…/date=…/compare=…/fx_date=…/base=…`.
   - The API's use note is shown above the table: information only, not for transactions.
   - With another base currency, the derived cross rates are listed with their formula, rounding, input observations and reference dates. A cross that cannot be built shows the API's reason.
 - Without a research store, the API's reason is shown with both ingest commands (`python -m unknown.data.sources.treasury ingest --month YYYYMM`, `python -m unknown.data.sources.ecb ingest --last 1`).
+- With a research store but no observation of a dataset at the as-of time, the catalog row, the curve and the rates each show the API's reason verbatim. Those reasons name no command, so the dataset's ingest command is shown with them.

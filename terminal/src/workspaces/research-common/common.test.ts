@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { cleanParams, apiPath } from './api';
 import { cumulativeReturns, extent, labelIndices, linePath, linear, maxDrawdown, niceTicks, segments } from './chartMath';
-import { checkInstant, cikOf, extractCommands, formatFractionPct, formatStat, isCurrencyCode, isoToMs, ratioAsPercent, shiftDecimal } from './format';
+import { POPULATE, checkInstant, cikOf, extractCommands, formatFractionPct, formatStat, isCurrencyCode, isoToMs, populateCommands, ratioAsPercent, shiftDecimal } from './format';
 
 describe('exact decimal shifting', () => {
   it('moves the decimal point without rounding', () => {
@@ -75,6 +75,40 @@ describe('commands named by unavailable reasons', () => {
     ]);
     expect(extractCommands('no licensed event calendar is subscribed')).toEqual([]);
     expect(extractCommands(null)).toEqual([]);
+  });
+});
+
+describe('populate commands under an unavailable reason', () => {
+  it('keeps the commands the reason names first, then adds the documented ones once', () => {
+    const noStore = 'research store not initialised: ingest macro series first (python -m unknown.data.sources.treasury ingest --month YYYYMM; python -m unknown.data.sources.ecb ingest --last 1)';
+    expect(populateCommands(noStore, [POPULATE.treasury, POPULATE.ecb])).toEqual([POPULATE.treasury, POPULATE.ecb]);
+    expect(populateCommands(noStore)).toEqual([POPULATE.treasury, POPULATE.ecb]);
+  });
+
+  it('adds the documented command when the reason names none', () => {
+    expect(populateCommands('no Treasury par curve available at the as-of time (not ingested or not yet published)', [POPULATE.treasury])).toEqual([
+      'python -m unknown.data.sources.treasury ingest --month YYYYMM',
+    ]);
+    expect(populateCommands('no ECB reference rates available at the as-of time (not ingested or not yet published)', [POPULATE.ecb])).toEqual([
+      'python -m unknown.data.sources.ecb ingest --last 1',
+    ]);
+    expect(populateCommands('no licensed event calendar is subscribed')).toEqual([]);
+  });
+
+  it('replaces a partial command with the complete documented one', () => {
+    const rf = 'no Treasury par yield for tenor 10Y available at the as-of time (ingest with python -m unknown.data.sources.treasury)';
+    expect(populateCommands(rf, [POPULATE.treasury])).toEqual(['python -m unknown.data.sources.treasury ingest --month YYYYMM']);
+    // Without a documented command the reason's own text is kept verbatim.
+    expect(populateCommands(rf)).toEqual(['python -m unknown.data.sources.treasury']);
+  });
+
+  it('documents the same commands the backend reasons name', () => {
+    expect(POPULATE).toEqual({
+      sec: 'python -m unknown.data.sec ingest --cik <CIK>',
+      treasury: 'python -m unknown.data.sources.treasury ingest --month YYYYMM',
+      ecb: 'python -m unknown.data.sources.ecb ingest --last 1',
+      study: 'python -m unknown.research.study',
+    });
   });
 });
 

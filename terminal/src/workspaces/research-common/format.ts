@@ -94,6 +94,30 @@ export function extractCommands(reason: string | null | undefined): string[] {
 }
 
 /**
+ * The documented commands that populate each research-side source, exactly as the backend's own unavailable
+ * reasons write them (api/routes/company.py NO_STORE and macro, api/routes/research.py). They are shown only for a
+ * source the API reports as unavailable, so a reason that names no command still says how to fill it.
+ */
+export const POPULATE = {
+  sec: 'python -m unknown.data.sec ingest --cik <CIK>',
+  treasury: 'python -m unknown.data.sources.treasury ingest --month YYYYMM',
+  ecb: 'python -m unknown.data.sources.ecb ingest --last 1',
+  study: 'python -m unknown.research.study',
+} as const;
+
+/**
+ * Commands to show under an unavailable reason: those the reason names (verbatim, first), then the documented
+ * ones. A named command that is a prefix of a documented one ("python -m unknown.data.sources.treasury" in
+ * "(ingest with python -m unknown.data.sources.treasury)") is replaced by the complete documented command.
+ */
+export function populateCommands(reason: string | null | undefined, documented: readonly string[] = []): string[] {
+  const named = extractCommands(reason).filter((c) => !documented.some((d) => d !== c && d.startsWith(`${c} `)));
+  const out = [...named];
+  for (const d of documented) if (!out.includes(d)) out.push(d);
+  return out;
+}
+
+/**
  * A float statistic for display, with `digits` significant digits ("0.1297", "-0.00006447"). Research
  * metrics are floats by design; never use this for money or for API decimal strings.
  */

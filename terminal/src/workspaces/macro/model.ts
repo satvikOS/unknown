@@ -4,6 +4,7 @@
  * plotting positions are the only numbers derived from them.
  */
 import type { ChartPoint } from '../research-common/charts';
+import { POPULATE } from '../research-common/format';
 
 export interface MacroSeries {
   dataset: string;
@@ -93,6 +94,18 @@ export interface FxResponse {
   attribution: string;
   use_note: string;
   normalized?: { base: string; rates?: Record<string, FxCross>; status?: string; reason?: string };
+}
+
+/** Datasets of /api/macro and the documented command that ingests each (the API's no-store reason names both). */
+export const DATASET_COMMANDS: Record<string, string> = {
+  'ust.par_yield_curve': POPULATE.treasury,
+  'ecb.exr_reference': POPULATE.ecb,
+};
+
+/** The command that populates a macro dataset, or none for a dataset this terminal does not know. */
+export function populateFor(dataset: string): string[] {
+  const c = DATASET_COMMANDS[dataset];
+  return c ? [c] : [];
 }
 
 /** Tenor order of the Treasury par curve (data/sources/treasury.py ORDER). */

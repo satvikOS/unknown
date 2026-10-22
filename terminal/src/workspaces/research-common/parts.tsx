@@ -7,7 +7,7 @@ import { useState, type ReactNode } from 'react';
 import { describeError } from '../../api/client';
 import { formatDecimal, isDecimal } from '../../format/decimal';
 import { Badge, Money, ShortId, StatusPill, Timestamp, type Tone } from '../../ui/primitives';
-import { extractCommands, isCurrencyCode, isoToMs, ratioAsPercent } from './format';
+import { extractCommands, isCurrencyCode, isoToMs, populateCommands, ratioAsPercent } from './format';
 import './research.css';
 
 export function Section({
@@ -54,8 +54,22 @@ export function Commands({ commands }: { commands: readonly string[] }) {
   );
 }
 
-/** The API said a source is unavailable: its reason verbatim, and the command it names. Never placeholder data. */
-export function Unavailable({ what, reason, status = 'UNAVAILABLE' }: { what: string; reason: string | null | undefined; status?: string }) {
+/**
+ * The API said a source is unavailable: its reason verbatim, and the command it names. Never placeholder data.
+ * `commands` are the documented commands that populate this source (see POPULATE in format.ts); they are listed
+ * after the ones the reason names, for reasons that name none or only part of one.
+ */
+export function Unavailable({
+  what,
+  reason,
+  status = 'UNAVAILABLE',
+  commands,
+}: {
+  what: string;
+  reason: string | null | undefined;
+  status?: string;
+  commands?: readonly string[];
+}) {
   const text = reason ?? 'no reason given by the API';
   return (
     <div className="callout rx-unavailable" role="status" style={{ ['--tone' as string]: 'var(--warn)' }}>
@@ -63,7 +77,7 @@ export function Unavailable({ what, reason, status = 'UNAVAILABLE' }: { what: st
         <StatusPill label={status} tone={statusTone(status) === 'ok' ? 'warn' : statusTone(status)} compact /> <strong>{what}</strong>
       </div>
       <p className="rx-reason">{text}</p>
-      <Commands commands={extractCommands(text)} />
+      <Commands commands={populateCommands(text, commands)} />
     </div>
   );
 }

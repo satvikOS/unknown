@@ -193,7 +193,8 @@ test('company: search, tearsheet, point-in-time statements, metrics, DCF and pee
   await page.getByLabel('Curve date (optional)').fill('2026-10-01');
   await page.getByRole('button', { name: 'Run DCF' }).click();
   await expect(main(page).getByText('no Treasury par yield for tenor 10Y available at the as-of time (ingest with python -m unknown.data.sources.treasury)')).toBeVisible();
-  await expect(main(page).locator('code.rx-command', { hasText: 'python -m unknown.data.sources.treasury' })).toBeVisible();
+  // The reason names only the module; the complete documented command is shown in its place.
+  await expect(main(page).locator('code.rx-command')).toHaveText(['python -m unknown.data.sources.treasury ingest --month YYYYMM']);
   await page.getByRole('radio', { name: 'Give WACC' }).check();
   await page.getByLabel('WACC (decimal)').fill('0.09');
   await page.getByLabel('Terminal growth g (decimal, required)').fill('0.10');
@@ -234,6 +235,19 @@ test('markets and macro: par curve with gaps, comparison, point in time, ECB rat
   await open(page, '#/macro/as_of=2026-10-21T22:00:00Z');
   await expect(page.getByRole('row', { name: /US Treasury daily par yield curve.*14.*2026-10-20 → 2026-10-20/ })).toBeVisible();
   await expect(main(page).locator('.rx-identity')).toContainText('curve date 2026-10-20');
+
+  // Before any macro observation was available, every panel says so with the API's reason and the ingest command,
+  // although those reasons name no command themselves.
+  await open(page, '#/macro/as_of=2026-10-01');
+  await expect(page.getByRole('row', { name: /US Treasury daily par yield curve.*NOT_AVAILABLE_AT_AS_OF.*python -m unknown\.data\.sources\.treasury ingest --month YYYYMM/ })).toBeVisible();
+  await expect(page.getByRole('row', { name: /ECB euro foreign exchange reference rates.*NOT_AVAILABLE_AT_AS_OF.*python -m unknown\.data\.sources\.ecb ingest --last 1/ })).toBeVisible();
+  const curveGone = main(page).locator('.rx-unavailable', { hasText: 'Yield curve' });
+  await expect(curveGone.locator('.rx-reason')).toHaveText('no Treasury par curve available at the as-of time (not ingested or not yet published)');
+  await expect(curveGone.locator('code.rx-command')).toHaveText(['python -m unknown.data.sources.treasury ingest --month YYYYMM']);
+  const fxGone = main(page).locator('.rx-unavailable', { hasText: 'Reference rates' });
+  await expect(fxGone.locator('.rx-reason')).toHaveText('no ECB reference rates available at the as-of time (not ingested or not yet published)');
+  await expect(fxGone.locator('code.rx-command')).toHaveText(['python -m unknown.data.sources.ecb ingest --last 1']);
+  await expect(main(page).getByRole('img', { name: /Treasury par yield curve/ })).toHaveCount(0);
 
   await open(page, '#/macro/base=USD');
   await expect(main(page).getByText(/published for information purposes only/)).toBeVisible();
