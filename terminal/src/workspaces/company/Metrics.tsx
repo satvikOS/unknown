@@ -111,7 +111,7 @@ function MetricsTable({ data, selected, onSelect }: { data: MetricsResponse; sel
           ))}
         </span>
       }
-      note="Ratios are shown exactly as computed (HALF_EVEN at the formula's scale), with the exact percentage beside them. Reasons are the API's text."
+      note="Ratios (unit ratio) are shown as exact percentages: the decimal point is moved and nothing is rounded beyond the API's HALF_EVEN at the formula's scale. The ratio itself is in the tooltip and in the calculation. Reasons are the API's text."
     >
       <DataTable
         caption={`Metrics of ${data.entity_id} as of ${data.as_of}`}

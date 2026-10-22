@@ -195,6 +195,18 @@ export function UnitValue({
   );
 }
 
+/** A rate the API writes as a decimal fraction ("0.0825"): the exact value and its exact percentage (8.25 %). */
+export function RateValue({ value }: { value: string | null | undefined }) {
+  if (value === null || value === undefined) return <span className="muted">—</span>;
+  const pct = isDecimal(value) ? ratioAsPercent(value) : null;
+  return (
+    <span className="num" title={`${value} as a decimal fraction`}>
+      {value}
+      {pct ? <span className="muted"> ({pct})</span> : null}
+    </span>
+  );
+}
+
 export function Flags({ flags }: { flags: readonly string[] | null | undefined }) {
   if (!flags || !flags.length) return null;
   return (
@@ -225,8 +237,12 @@ export function Hash({ value, head = 12 }: { value: string | null | undefined; h
   return <ShortId value={value} head={head} />;
 }
 
-/** External link (SEC EDGAR and the like): opens in a new tab, never sends the referrer. */
-export function ExtLink({ href, children }: { href: string; children: ReactNode }) {
+/**
+ * External link (SEC EDGAR and the like): opens in a new tab, never sends the referrer. Without a link (the API
+ * sent null) the text is shown alone; a link that is not https is shown as text, never followed.
+ */
+export function ExtLink({ href, children }: { href: string | null | undefined; children: ReactNode }) {
+  if (!href) return <span>{children}</span>;
   if (!/^https:\/\//.test(href)) return <span className="mono">{href}</span>;
   return (
     <a href={href} target="_blank" rel="noopener noreferrer">

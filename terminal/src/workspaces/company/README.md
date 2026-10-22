@@ -16,8 +16,11 @@ Registered as `company` (`g e`, nav order 110). It reads `GET /api/company` (bac
 
 ## Display rules
 
-- Decimal strings stay strings. A currency unit renders as `Money`; a `ratio` shows the exact value and the exact percentage (the decimal point is moved, nothing is rounded); other units are shown as the API writes them (`x`, `USD per share`, `shares`).
+- Decimal strings stay strings, and the browser never rounds them. A currency unit renders as `Money`. Other units are shown as the API writes them (`x`, `USD per share`, `shares`).
+- A `ratio` shows as an exact percentage: the decimal point is moved. In detail views the ratio is shown next to it; in tables it is in the tooltip.
+- DCF rates (WACC, g, cost of equity, after-tax cost of debt, terminal share of EV) are decimals as the API writes them, with the exact percentage beside them.
 - Unavailable sources show the API's reason and the command it names (for example `python -m unknown.data.sec ingest --cik <CIK>`), never placeholder data. An unavailable DCF risk-free rate names only the Treasury module, so the complete command (`python -m unknown.data.sources.treasury ingest --month YYYYMM`) is shown in its place.
+- A filing without a primary document (the submissions file names none) shows its description without a link.
 
 ## API notes found while building this
 

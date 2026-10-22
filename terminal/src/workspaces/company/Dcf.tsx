@@ -11,7 +11,7 @@ import { Money } from '../../ui/primitives';
 import { apiPath, useApi } from '../research-common/api';
 import { RangeBars } from '../research-common/charts';
 import { POPULATE, humanize } from '../research-common/format';
-import { ErrorNotice, Flags, IsoTime, JsonTree, KV, Loading, Section, StatusTag, Unavailable, UnitValue } from '../research-common/parts';
+import { ErrorNotice, Flags, IsoTime, JsonTree, KV, Loading, RateValue, Section, StatusTag, Unavailable, UnitValue } from '../research-common/parts';
 import { IssuerFrame, TextField, type IssuerContext } from './CompanyWorkspace';
 import { Bridge, PriceLine } from './Metrics';
 import {
@@ -246,13 +246,13 @@ function DcfResultView({ d }: { d: DcfResult }) {
           </Tile>
           <Tile label="Per share (diluted)">{d.equity_bridge.per_share ? <Money amount={d.equity_bridge.per_share} currency={ccy} /> : <span className="muted">not computed</span>}</Tile>
           <Tile label="WACC">
-            <span>{v.wacc}</span>
+            <RateValue value={v.wacc} />
           </Tile>
           <Tile label="Terminal growth g">
-            <span>{v.g}</span>
+            <RateValue value={v.g} />
           </Tile>
           <Tile label="Terminal share of EV">
-            <span>{v.terminal_share_of_ev}</span>
+            <RateValue value={v.terminal_share_of_ev} />
           </Tile>
         </div>
         <p className="rx-hint">
@@ -336,9 +336,9 @@ function DcfResultView({ d }: { d: DcfResult }) {
                     <span className="num">{val}</span> <span className="muted">· {d.wacc_build_up?.sources[k] ?? d.wacc_build_up?.sources[k === 'we' || k === 'wd' ? 'weights' : k] ?? 'source not stated'}</span>
                   </span>,
                 ] as const),
-                ['cost of equity', <span className="num">{d.wacc_build_up.cost_of_equity}</span>],
-                ['after-tax cost of debt', <span className="num">{d.wacc_build_up.after_tax_cost_of_debt}</span>],
-                ['WACC', <strong className="num">{d.wacc_build_up.wacc}</strong>],
+                ['cost of equity', <RateValue value={d.wacc_build_up.cost_of_equity} />],
+                ['after-tax cost of debt', <RateValue value={d.wacc_build_up.after_tax_cost_of_debt} />],
+                ['WACC', <strong><RateValue value={d.wacc_build_up.wacc} /></strong>],
               ]}
             />
           </>

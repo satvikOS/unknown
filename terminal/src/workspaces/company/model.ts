@@ -298,7 +298,8 @@ export interface Filing {
   primary_document_description: string | null;
   is_xbrl: boolean;
   file_number: string | null;
-  links: { filing_index: string; primary_document: string };
+  /** primary_document is null when the submissions file names no primary document. */
+  links: { filing_index: string; primary_document: string | null };
 }
 
 export interface FilingsContent {
@@ -397,7 +398,7 @@ export interface TearsheetResponse {
     statements: Block<{ annual: StatementResponse; quarterly: StatementResponse; ttm: StatementResponse } | { reason: string }>;
     metrics: Block<{ price_input: PriceInputJson | null; metrics: MetricRow[]; show_calculation: string; note: string }>;
     peers: Block<PeersResponse>;
-    description: Block<{ reason: string; link: string; accession: string }>;
+    description: Block<{ reason: string; link: string | null; accession: string }>;
     quote: Block<never>;
     events: Block<never>;
   };

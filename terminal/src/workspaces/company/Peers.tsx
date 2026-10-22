@@ -238,7 +238,7 @@ export function FilingsView({ ctx }: { ctx: IssuerContext }) {
 export function FilingsTable({ f, title = 'Filings' }: { f: FilingsContent; title?: string }) {
   return (
     <Section
-      title={`${title} · ${f.count} accepted by as of`}
+      title={`${title} · ${f.filings.length === f.count ? f.count : `${f.filings.length} of ${f.count}`} accepted by as of`}
       flush
       note={
         <>
