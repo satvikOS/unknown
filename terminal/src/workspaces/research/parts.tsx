@@ -2,15 +2,20 @@
 import type { ReactNode } from 'react';
 import type { QueryResult } from '../../state/react';
 import { Badge, FixtureBadge, Timestamp } from '../../ui/primitives';
+import { POPULATE } from '../research-common/format';
 import { ErrorNotice, Loading, Unavailable } from '../research-common/parts';
 import { provenanceLabel, type Envelope, type Provenance } from './model';
 
-/** Renders an /api/research envelope: the API's error, its unavailable reason (with the command), or the data. */
+/**
+ * Renders an /api/research envelope: the API's error, its unavailable reason, or the data. The only unavailable
+ * reason the API gives is a missing registry; it names `python -m unknown.research.study` without the `--out`
+ * argument that command requires, so the complete documented command is shown in its place.
+ */
 export function EnvelopeView<T>({ q, what, children }: { q: QueryResult<Envelope<T>>; what: string; children: (data: T, provenance: Provenance) => ReactNode }) {
   if (q.error) return <ErrorNotice what={what} error={q.error} />;
   if (!q.data) return <Loading what={what.toLowerCase()} />;
   if (!q.data.available || q.data.data === null) {
-    return <Unavailable what={what} reason={q.data.unavailable_reason ?? 'the API reported this view as unavailable without a reason'} />;
+    return <Unavailable what={what} reason={q.data.unavailable_reason ?? 'the API reported this view as unavailable without a reason'} commands={[POPULATE.study]} />;
   }
   return <>{children(q.data.data, q.data.provenance)}</>;
 }

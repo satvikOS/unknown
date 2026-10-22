@@ -18,7 +18,7 @@ Registered as `research` (`g q`, nav order 130). It reads `GET /api/research` (b
 - `#/research/artifacts[/<hash>]`: strategy artifacts with their authoritative status (the last record of the transition log). One artifact shows:
   - its status history, with principal, reason, evidence and record hashes;
   - the evidence, with gate verdicts (PASS/FAIL) and the reasons, verbatim;
-  - the API's re-verification of the whole transition chain;
+  - the API's re-verification of the whole transition chain (a problem it reports may concern another artifact's records, and the view says so);
   - the artifact body.
 - `#/research/strategies[/<spec_hash>]`: registered specifications, with the hash re-verified. "FIXTURE DATA ALLOWED" is shown when the spec's data requirements allow fixtures.
 - `#/research/reports[/<id>]`: reports. A fixture study shows its warning, the per-kind status, failing gates, conclusion, DSR, PBO, n_eff, the paired bootstrap and the gate verdicts.
@@ -27,7 +27,8 @@ Registered as `research` (`g q`, nav order 130). It reads `GET /api/research` (b
 ## Labels and missing data
 
 - FIXTURE (or UNKNOWN ORIGIN) appears exactly where the API's provenance says so (`provenance.label`, `fixture`), and each panel shows its provenance: source, path, schema version, read time and formulas.
-- Without a registry, the API's reason is shown with the command it names (`python -m unknown.research.study`).
+- Without a registry, the API's reason is shown verbatim. It names `python -m unknown.research.study`, which exits with "the following arguments are required: --out", so the complete command (`python -m unknown.research.study --out <DIR>`) is shown in its place.
+- Integers beyond 2^53 in nested records (nanosecond timestamps such as `registered_at_ns`) have already been rounded by the browser's JSON parser; the record views mark them with "≈" and say so, instead of showing them as exact.
 
 ## API notes found while building this
 

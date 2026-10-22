@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { cleanParams, apiPath } from './api';
 import { cumulativeReturns, extent, labelIndices, linePath, linear, maxDrawdown, niceTicks, segments } from './chartMath';
-import { POPULATE, checkInstant, cikOf, extractCommands, formatFractionPct, formatStat, isCurrencyCode, isoToMs, populateCommands, ratioAsPercent, shiftDecimal } from './format';
+import { POPULATE, checkInstant, cikOf, shownOf, extractCommands, formatFractionPct, formatStat, isCurrencyCode, isoToMs, populateCommands, ratioAsPercent, shiftDecimal } from './format';
 
 describe('exact decimal shifting', () => {
   it('moves the decimal point without rounding', () => {
@@ -48,6 +48,12 @@ describe('instants', () => {
     expect(noZone.ok).toBe(false);
     if (!noZone.ok) expect(noZone.error).toMatch(/must include a time zone/);
     expect(checkInstant('2026-02-30').ok).toBe(false);
+    // Date.parse rolls 2026-02-30T10:00Z over to 2026-03-02; the API answers 400 ("day is out of range for month").
+    const rolled = checkInstant('2026-02-30T10:00:00Z');
+    expect(rolled.ok).toBe(false);
+    if (!rolled.ok) expect(rolled.error).toMatch(/not a valid instant/);
+    expect(checkInstant('2026-04-31T00:00Z').ok).toBe(false);
+    expect(checkInstant('2028-02-29T12:00:00Z').ok).toBe(true);
     expect(checkInstant('yesterday').ok).toBe(false);
     const named = checkInstant('2026-13-01', 'price time');
     if (!named.ok) expect(named.error).toMatch(/^price time/);
@@ -107,8 +113,15 @@ describe('populate commands under an unavailable reason', () => {
       sec: 'python -m unknown.data.sec ingest --cik <CIK>',
       treasury: 'python -m unknown.data.sources.treasury ingest --month YYYYMM',
       ecb: 'python -m unknown.data.sources.ecb ingest --last 1',
-      study: 'python -m unknown.research.study',
+      study: 'python -m unknown.research.study --out <DIR>',
     });
+  });
+
+  it('completes the study command the research API names without its required --out argument', () => {
+    // api/routes/research.py, verbatim. `python -m unknown.research.study` alone exits with
+    // "the following arguments are required: --out" (research/study.py main), so it cannot fill the registry.
+    const reason = 'research registry not found at /h/research/experiments.sqlite; record an experiment or run `python -m unknown.research.study` first';
+    expect(populateCommands(reason, [POPULATE.study])).toEqual(['python -m unknown.research.study --out <DIR>']);
   });
 });
 
@@ -128,6 +141,12 @@ describe('float statistics', () => {
     expect(formatFractionPct(-0.0723)).toBe('-7.23 %');
     expect(formatFractionPct(-0.00001)).toBe('0.00 %');
     expect(formatFractionPct(undefined)).toBe('—');
+  });
+
+  it('says when a list was cut short instead of showing the total alone', () => {
+    expect(shownOf(12, 12)).toBe('12');
+    expect(shownOf(50, 73)).toBe('50 of 73');
+    expect(shownOf(0, 0)).toBe('0');
   });
 
   it('reads CIKs from entity ids', () => {

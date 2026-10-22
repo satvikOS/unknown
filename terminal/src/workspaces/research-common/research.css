@@ -358,6 +358,10 @@ table.rx-table tr.rx-base td {
   fill: color-mix(in srgb, var(--accent) 55%, transparent);
   stroke: var(--accent);
 }
+.rx-marker line {
+  stroke: var(--warn);
+  stroke-width: 2;
+}
 .rx-chart-caption {
   display: flex;
   flex-wrap: wrap;

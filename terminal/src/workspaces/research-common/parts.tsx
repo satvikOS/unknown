@@ -112,6 +112,7 @@ const STATUS_TONE: Record<string, Tone> = {
   UNAVAILABLE: 'warn',
   NOT_AVAILABLE: 'warn',
   NOT_AVAILABLE_AT_AS_OF: 'warn',
+  NOT_SEARCHED: 'warn',
   NOT_REPORTED: 'warn',
   NOT_DERIVABLE: 'warn',
   MISSING_INPUT: 'warn',
@@ -255,10 +256,27 @@ export function ExtLink({ href, children }: { href: string | null | undefined; c
 
 const MAX_ITEMS = 40;
 
+/**
+ * An integer beyond 2^53 (nanosecond timestamps such as `registered_at_ns`) has already been rounded by JSON.parse:
+ * 1761148672134721234 arrives as 1761148672134721300. It is never shown as if exact.
+ */
+export const INEXACT_INTEGER_NOTE =
+  'integer beyond 2^53: the browser rounded it when reading the JSON, so the last digits may differ from the stored value';
+
 function Scalar({ value }: { value: unknown }) {
   if (value === null || value === undefined) return <span className="muted">null</span>;
   if (typeof value === 'boolean') return <span className="mono">{value ? 'true' : 'false'}</span>;
-  if (typeof value === 'number') return <span className="num">{String(value)}</span>;
+  if (typeof value === 'number') {
+    if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
+      return (
+        <span className="num" title={INEXACT_INTEGER_NOTE}>
+          ≈{String(value)}
+          <span className="sr-only"> (approximate: {INEXACT_INTEGER_NOTE})</span>
+        </span>
+      );
+    }
+    return <span className="num">{String(value)}</span>;
+  }
   return <span className="mono rx-str">{String(value)}</span>;
 }
 

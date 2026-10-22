@@ -175,13 +175,35 @@ export interface RangeRow {
   maxText: string;
 }
 
-/** Horizontal min-max bars on one shared axis (a valuation "football field"). */
-export function RangeBars({ title, summary, rows, format, unit }: { title: string; summary: string; rows: readonly RangeRow[]; format: (v: number) => string; unit: string }) {
+/** A reference value drawn across every bar (the owner's price input on a football field). */
+export interface RangeMarker {
+  value: number;
+  /** Exact text of the value, as the API sent it. */
+  text: string;
+  label: string;
+}
+
+/** Horizontal min-max bars on one shared axis (a valuation "football field"), with an optional reference marker. */
+export function RangeBars({
+  title,
+  summary,
+  rows,
+  format,
+  unit,
+  marker,
+}: {
+  title: string;
+  summary: string;
+  rows: readonly RangeRow[];
+  format: (v: number) => string;
+  unit: string;
+  marker?: RangeMarker | null;
+}) {
   const [ref, width] = useWidth(640);
-  const m = { left: 150, right: 18, top: 8, bottom: 30 };
+  const m = { left: 150, right: 18, top: marker ? 22 : 8, bottom: 30 };
   const rowH = 26;
   const height = m.top + m.bottom + rowH * rows.length;
-  const ext = extent(rows.flatMap((r) => [r.min, r.max]));
+  const ext = extent([...rows.flatMap((r) => [r.min, r.max]), marker?.value]);
   if (!ext || !rows.length) return null;
   const ticks = niceTicks(ext.min, ext.max, 5);
   const plotW = Math.max(40, width - m.left - m.right);
@@ -217,6 +239,21 @@ export function RangeBars({ title, summary, rows, format, unit }: { title: strin
               </g>
             );
           })}
+          {marker && Number.isFinite(marker.value) ? (
+            <g className="rx-marker">
+              <line x1={sx(marker.value)} x2={sx(marker.value)} y1={m.top - 4} y2={height - m.bottom} strokeDasharray="4 3">
+                <title>{`${marker.label}: ${marker.text} ${unit}`}</title>
+              </line>
+              <text
+                x={sx(marker.value)}
+                y={m.top - 8}
+                textAnchor={sx(marker.value) > m.left + plotW * 0.8 ? 'end' : sx(marker.value) < m.left + plotW * 0.2 ? 'start' : 'middle'}
+                className="rx-axis"
+              >
+                {`${marker.label} ${marker.text}`}
+              </text>
+            </g>
+          ) : null}
         </svg>
       </div>
       <figcaption className="rx-chart-caption">

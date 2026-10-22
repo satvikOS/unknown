@@ -153,7 +153,8 @@ function ArtifactBody({ a, prov }: { a: ArtifactDetail; prov: Envelope<unknown>[
           <Section title="Transition chain">
             {a.chain_problems.length ? (
               <div className="callout" role="alert" style={{ ['--tone' as string]: 'var(--bad)' }}>
-                <strong>{a.chain_problems.length} chain problem(s)</strong>
+                <strong>{a.chain_problems.length} chain problem(s) in the whole transition log</strong>{' '}
+                <span>(the API verifies every artifact's records on this read, not only this artifact's; the seq numbers below are global log positions)</span>
                 <ul>
                   {a.chain_problems.map((p, i) => (
                     <li key={i}>{typeof p === 'string' ? p : JSON.stringify(p)}</li>

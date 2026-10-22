@@ -64,15 +64,22 @@ export function checkInstant(text: string, name = 'as of'): InstantCheck {
   const t = text.trim();
   if (!t) return { ok: true, value: '' };
   if (/^\d{4}-\d{2}-\d{2}$/.test(t)) {
-    const d = new Date(`${t}T00:00:00Z`);
-    if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== t) return { ok: false, error: `${name}: ${t} is not a calendar date` };
+    if (!isCalendarDate(t)) return { ok: false, error: `${name}: ${t} is not a calendar date` };
     return { ok: true, value: t };
   }
-  const m = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})?$/.exec(t);
+  const m = /^(\d{4}-\d{2}-\d{2})T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})?$/.exec(t);
   if (!m) return { ok: false, error: `${name}: use a date (2026-08-15) or an instant with a zone (2026-08-15T20:00:00Z)` };
-  if (!m[1]) return { ok: false, error: `${name} must include a time zone (e.g. 2026-10-22T20:00:00Z) or be a plain date` };
-  if (Number.isNaN(Date.parse(t.replace(/(\.\d{3})\d+/, '$1')))) return { ok: false, error: `${name}: ${t} is not a valid instant` };
+  if (!m[2]) return { ok: false, error: `${name} must include a time zone (e.g. 2026-10-22T20:00:00Z) or be a plain date` };
+  // Date.parse rolls an impossible day over (2026-02-30 becomes 2026-03-02); the API refuses it, so check the date part.
+  if (!isCalendarDate(m[1]!) || Number.isNaN(Date.parse(t.replace(/(\.\d{3})\d+/, '$1')))) return { ok: false, error: `${name}: ${t} is not a valid instant` };
   return { ok: true, value: t };
+}
+
+/** True for a real calendar date written YYYY-MM-DD (no rollover: 2026-02-30 is false). */
+export function isCalendarDate(text: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+  const d = new Date(`${text}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === text;
 }
 
 /**
@@ -94,15 +101,18 @@ export function extractCommands(reason: string | null | undefined): string[] {
 }
 
 /**
- * The documented commands that populate each research-side source, exactly as the backend's own unavailable
- * reasons write them (api/routes/company.py NO_STORE and macro, api/routes/research.py). They are shown only for a
- * source the API reports as unavailable, so a reason that names no command still says how to fill it.
+ * The documented commands that populate each research-side source, complete with the arguments their command line
+ * requires (data/sec.py, data/sources/treasury.py and ecb.py `main`, research/study.py `main`). The SEC, Treasury
+ * and ECB ones are exactly what the backend's own unavailable reasons write (api/routes/company.py NO_STORE and
+ * macro). api/routes/research.py names `python -m unknown.research.study`, which exits with "the following arguments
+ * are required: --out", so the complete command replaces it. They are shown only for a source the API reports as
+ * unavailable, so a reason that names no command, or only part of one, still says how to fill it.
  */
 export const POPULATE = {
   sec: 'python -m unknown.data.sec ingest --cik <CIK>',
   treasury: 'python -m unknown.data.sources.treasury ingest --month YYYYMM',
   ecb: 'python -m unknown.data.sources.ecb ingest --last 1',
-  study: 'python -m unknown.research.study',
+  study: 'python -m unknown.research.study --out <DIR>',
 } as const;
 
 /**
@@ -139,6 +149,11 @@ export function formatFractionPct(x: number | null | undefined, decimals = 2): s
   const v = x * 100;
   const s = v.toFixed(decimals);
   return `${/^-0\.?0*$/.test(s) ? s.slice(1) : s} %`;
+}
+
+/** "12" when everything is listed, "50 of 73" when the API cut the list short (never the total alone). */
+export function shownOf(shown: number, total: number): string {
+  return shown === total ? String(total) : `${shown} of ${total}`;
 }
 
 /** "SEC-CIK-0009000001" -> 9000001; plain digits also accepted. Null for anything else. */
