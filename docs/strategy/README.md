@@ -85,14 +85,12 @@ There is one artifact hash: the one `research.promotion.PromotionService.registe
 
 `python -m unknown.strategy id --hash <64-hex hash>` prints it. A changed parameter, feature, spec or code hash is a new artifact with a new id.
 
-Mode gating follows the ADR-0017 order `proposed < reproducible < validated < shadow < paper < eligible < active`:
+Mode gating follows the research registry's own ladder (`research.promotion.LADDER`, the ADR-0017 order `proposed < reproducible < validated < shadow < paper < eligible < active`):
 
-- `shadow` mode needs `shadow` or later.
-- `live` mode needs `paper` or later. The core separately requires the session mandate to list the id.
+- `shadow` mode needs `shadow` or later. The owner promotes `validated -> shadow`, or the SYSTEM does inside an owner-approved shadow envelope (`PromotionService.auto_shadow`; `docs/research/README.md`). Tested end to end in `test_strategy_shadow_status.py`.
+- `live` mode needs `paper` or later. `paper` is reached only from `shadow`, by the owner. The core separately requires the session mandate to list the id.
 - `quarantined` and `retired` never run.
 - On a LIVE account, live intents need `active` (implemented; not exercised by a test, because the core refuses LIVE routing in this release).
-
-The registry has no `shadow` status yet (`research.promotion.STATUSES`), so **today shadow mode needs `paper`**.
 
 ## Restart safety
 
@@ -125,7 +123,7 @@ Only commands that this artifact's principal issued are adopted. The ids are pre
 
 ## Running it (owner)
 
-1. In research, promote the artifact to `paper` (owner approval; ADR-0017 #2, `research.promotion`). Then get its id with `python -m unknown.strategy id --hash <hash>`.
+1. In research, promote the artifact to `shadow` (owner approval, or the SYSTEM inside a shadow envelope) for shadow mode, and on to `paper` (owner approval) for live mode (ADR-0017 #2, `research.promotion`). Then get its id with `python -m unknown.strategy id --hash <hash>`.
 2. Issue its token with `python -m unknown.cli strategy-token --artifact <id>`. Restart the core so it loads the token.
 3. List the id in the policy's `session_template.strategy_eligibility`. Publish and activate the policy, then create a session. The mandate is frozen from the active template when the session is created.
 4. Make sure the point-in-time store holds the spec's dataset (`research.bars.record_bars`).

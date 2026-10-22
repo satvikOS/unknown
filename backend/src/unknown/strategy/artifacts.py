@@ -28,8 +28,9 @@ A runner loads the artifact from the research registry (read-only) on every cycl
   ``research.manifest.code_hash()`` of this checkout (research/, domain/, data/pit.py);
 * an implementation exists for the spec and it reads exactly one daily point-in-time dataset.
 
-The research registry has no ``shadow`` status yet (``research.promotion.STATUSES``), so today shadow mode needs
-``paper`` or later; the rank table already places ``shadow`` where ADR-0017 puts it."""
+``shadow`` is a status of the research registry (``research.promotion``): the owner approves it, or the SYSTEM promotes
+a validated artifact inside an owner-approved envelope (``PromotionService.auto_shadow``). Shadow mode needs ``shadow``
+or later; live mode needs ``paper`` or later."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -39,13 +40,13 @@ from pathlib import Path
 from ..domain.principal import ARTIFACT_ID
 from ..research import manifest as research_manifest
 from ..research.common import RegistryError, stable_hash
-from ..research.promotion import PromotionService
+from ..research.promotion import LADDER, PromotionService
 from ..research.registry import ResearchRegistry
 from ..research.spec import StrategySpec
 from ..research.strategies import STRATEGIES
 
-# ADR-0017 #2 order. ``shadow`` is not (yet) a status of research.promotion; it is ranked where the ADR puts it.
-STATUS_ORDER = ("proposed", "reproducible", "validated", "shadow", "paper", "eligible", "active")
+# ADR-0017 #2 order, the research registry's own ladder (``research.promotion.LADDER``).
+STATUS_ORDER = LADDER
 NEVER_RUN = frozenset({"quarantined", "retired"})
 MODES = ("shadow", "live")
 MODE_MIN_STATUS = {"shadow": "shadow", "live": "paper"}

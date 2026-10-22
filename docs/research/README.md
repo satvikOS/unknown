@@ -176,13 +176,14 @@ Scaled cost multipliers and non-WEEKDAYS calendars are reported as not comparabl
 
 ## Promotion (CAP-RES-12, AUT-03)
 
-Statuses: proposed, reproducible, validated, paper, eligible, active, quarantined, retired. The authoritative status is the last record of a hash-chained, append-only transition log. "Signed" in CAP-RES-12 is implemented as tamper evidence, not as a cryptographic signature; there is no signing-key infrastructure yet.
+Statuses: proposed, reproducible, validated, shadow, paper, eligible, active, quarantined, retired (ADR-0017 #2). The authoritative status is the last record of a hash-chained, append-only transition log. "Signed" in CAP-RES-12 is implemented as tamper evidence, not as a cryptographic signature; there is no signing-key infrastructure yet.
 
 | Transition | Who | Requires |
 |---|---|---|
 | proposed → reproducible | SYSTEM evaluator or OWNER, never the author | REPLAY_EXACT passed |
 | reproducible → validated | same | every gate kind in the spec passed under one owner-approved protocol |
-| validated → paper | OWNER approval | CORE_REPLAY_MATCH passed |
+| validated → shadow | OWNER approval, or SYSTEM inside an owner-approved shadow envelope (`auto_shadow`) | the gate evidence the validation rested on, cited again; under an envelope, evaluated under the envelope's protocol, with the artifact inside its class, parameter domain, instrument set and risk budget, and within its promotions-per-period limit |
+| shadow → paper | OWNER approval | CORE_REPLAY_MATCH passed |
 | paper → eligible | OWNER approval | PAPER_RECONCILIATION passed (externally blocked until BRK-02) |
 | eligible → active | OWNER approval, or SYSTEM under an owner-approved selection policy | slot; the incumbent moves back to eligible, and both hashes are recorded |
 | any → quarantined | OWNER or SYSTEM | MONITORING_INCIDENT |
@@ -210,6 +211,15 @@ The selection policy (AUT-03) is approved by the owner and is immutable. It hold
 - ranks them by the conservative paired lower bound (`conservative_lower`, the bound the gate used);
 - refuses an explicit choice outside the domain;
 - never expands the policy.
+
+The shadow envelope (ADR-0017 #2, book ch. 20 "automatic promotion only for artifacts that fit an owner-approved class, parameter domain, instrument set, risk budget and evaluation protocol") is approved by the owner and is immutable. It holds the class (`strategy_id`), parameter domain, instrument set, risk budget (`max_gross_exposure`, `max_single_name_weight`, `max_drawdown_stop`: every one of the spec's `risk_limits` must be at or below it), protocol hash and a promotions-per-period limit. `auto_shadow`:
+
+- runs as SYSTEM, and only on a `validated`, unexpired artifact inside the envelope;
+- requires the cited evidence to pass every gate kind the spec lists under the envelope's own protocol;
+- records the transition with that evidence and an approval of kind `SHADOW_ENVELOPE` (envelope id, hash, approver);
+- stops at `shadow`: `paper` and later remain owner decisions.
+
+Tests: `test_research_shadow` (9).
 
 ## Fixture study and report
 

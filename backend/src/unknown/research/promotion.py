@@ -1,10 +1,10 @@
 """Strategy artifact registry, status lifecycle and predeclared promotion gates
 (CAP-RES-12; AUT-01..AUT-04; book ch. 20; BR-DAT-01, BR-DAT-10, BR-OPS-10).
 
-Statuses: proposed, reproducible, validated, paper, eligible, active,
-quarantined, retired. The authoritative status of an artifact is the last
-record of its append-only, hash-chained transition log; nothing else (no
-dashboard row, no alias field) can change it.
+Statuses: proposed, reproducible, validated, shadow, paper, eligible, active,
+quarantined, retired (ADR-0017 #2). The authoritative status of an artifact
+is the last record of its append-only, hash-chained transition log; nothing
+else (no dashboard row, no alias field) can change it.
 
 Transition rules (``RULES``):
 
@@ -16,7 +16,13 @@ proposed -> reproducible   SYSTEM evaluator or OWNER,      REPLAY_EXACT passed
 reproducible -> validated  same                            every gate kind the spec lists (walk-forward,
                                                            paired bootstrap, holdout, costs, stress,
                                                            DSR, PBO, n_eff) passed under one protocol
-validated -> paper         OWNER approval                  CORE_REPLAY_MATCH passed
+validated -> shadow        OWNER approval, or SYSTEM       the gate evidence the validation rested on,
+                           inside an owner-approved shadow cited again. Under an envelope it must have
+                           envelope (``auto_shadow``)      been evaluated under the envelope's protocol,
+                                                           and the artifact must lie inside the
+                                                           envelope's class, parameter domain,
+                                                           instrument set and risk budget
+shadow -> paper            OWNER approval                  CORE_REPLAY_MATCH passed
 paper -> eligible          OWNER approval                  PAPER_RECONCILIATION passed
 eligible -> active         OWNER approval, or SYSTEM       slot named; the incumbent in the slot moves
                            under an owner-approved          back to eligible in the same operation
@@ -63,7 +69,9 @@ from .common import AuthorityError, EvidenceError, RegistryError, stable_dumps, 
 from .registry import ResearchRegistry
 from .spec import StrategySpec
 
-STATUSES = ("proposed", "reproducible", "validated", "paper", "eligible", "active", "quarantined", "retired")
+STATUSES = ("proposed", "reproducible", "validated", "shadow", "paper", "eligible", "active", "quarantined", "retired")
+# The promotion ladder in ADR-0017 #2 order; quarantined and retired are off the ladder.
+LADDER = ("proposed", "reproducible", "validated", "shadow", "paper", "eligible", "active")
 APPROVAL_MAX_AGE_NS = 15 * 60 * 1_000_000_000      # owner re-authentication window, as for step-up commands
 GATE_KINDS = ("WALK_FORWARD_OOS", "PAIRED_BOOTSTRAP", "HOLDOUT", "COST_SENSITIVITY", "STRESS", "DSR", "PBO", "N_EFF")
 GENESIS = "0" * 64
@@ -75,21 +83,34 @@ class Rule:
     owner_approval: bool
     evaluator: bool = False          # SYSTEM/OWNER executes; must differ from the artifact author
     selection_policy_ok: bool = False
+    gate_evidence: bool = False      # the required evidence is every gate kind the spec lists
+    envelope_ok: bool = False        # the SYSTEM may execute it inside an owner-approved shadow envelope
 
 
 RULES: dict[tuple[str, str], Rule] = {
     ("proposed", "reproducible"): Rule(("REPLAY_EXACT",), False, evaluator=True),
-    ("reproducible", "validated"): Rule((), False, evaluator=True),   # evidence = spec's gate kinds
-    ("validated", "paper"): Rule(("CORE_REPLAY_MATCH",), True),
+    ("reproducible", "validated"): Rule((), False, evaluator=True, gate_evidence=True),
+    # ADR-0017 #2: shadow sits between validated and paper. The owner approves it, or the SYSTEM promotes inside an
+    # owner-approved envelope (``auto_shadow``). Either way the record cites the gate evidence it rests on.
+    ("validated", "shadow"): Rule((), True, gate_evidence=True, envelope_ok=True),
+    ("shadow", "paper"): Rule(("CORE_REPLAY_MATCH",), True),
     ("paper", "eligible"): Rule(("PAPER_RECONCILIATION",), True),
     ("eligible", "active"): Rule((), True, selection_policy_ok=True),
     ("active", "eligible"): Rule((), False),
     ("quarantined", "reproducible"): Rule(("REPLAY_EXACT",), True),
 }
-for _s in ("proposed", "reproducible", "validated", "paper", "eligible", "active"):
+for _s in ("proposed", "reproducible", "validated", "shadow", "paper", "eligible", "active"):
     RULES[(_s, "quarantined")] = Rule(("MONITORING_INCIDENT",), False)
-for _s in ("proposed", "reproducible", "validated", "paper", "eligible", "active", "quarantined"):
+for _s in ("proposed", "reproducible", "validated", "shadow", "paper", "eligible", "active", "quarantined"):
     RULES[(_s, "retired")] = Rule((), True)
+
+# The envelope inside which the SYSTEM may promote validated -> shadow without a per-artifact owner approval (book
+# ch. 20: automatic promotion only for artifacts that fit an owner-approved class, parameter domain, instrument set,
+# risk budget and evaluation protocol). Approved by the owner, immutable, hashed into every promotion it allows.
+SHADOW_ENVELOPE_FIELDS = frozenset({"envelope_id", "strategy_id", "parameter_domain", "instrument_set", "risk_budget",
+                                    "protocol_hash", "max_promotions_per_period", "period_days"})
+# The risk budget bounds the spec's risk_limits: every value the spec declares must be at or below the budget's.
+RISK_BUDGET_FIELDS = ("max_gross_exposure", "max_single_name_weight", "max_drawdown_stop")
 
 PROTOCOL_FIELDS = {
     "confidence": "decimal in (0.5, 1)", "replications": "int >= 200", "mean_block": "int >= 1 or null (round(n^(1/3)))",
@@ -474,11 +495,7 @@ class PromotionService:
             raise AuthorityError("only the SYSTEM evaluator or the OWNER may execute this transition")
         if to in ("eligible", "active") and date.fromisoformat(art["body"]["expires_on"]) < self._today():
             raise EvidenceError("artifact expired; it needs new evidence before promotion")
-        required = list(rule.evidence)
-        if (frm, to) == ("reproducible", "validated"):
-            spec = self.r.spec(art["spec_hash"])
-            required = [k for k in spec.promotion_evidence if k in GATE_KINDS]
-        self._check_required(artifact_hash, required, list(evidence_ids))
+        self._check_required(artifact_hash, self._required(art, rule), list(evidence_ids))
         if to == "active":
             if not slot:
                 raise RegistryError("activation needs a slot", "SLOT_REQUIRED")
@@ -491,7 +508,16 @@ class PromotionService:
         from datetime import datetime, timezone
         return datetime.fromtimestamp(self.r.now() // 1_000_000_000, tz=timezone.utc).date()
 
-    def _check_required(self, artifact_hash: str, required: list[str], evidence_ids: list[str]) -> None:
+    def _required(self, art: dict, rule: Rule) -> list[str]:
+        """The evidence kinds a transition needs: the rule's own, or every gate kind the spec lists."""
+        if rule.gate_evidence:
+            spec = self.r.spec(art["spec_hash"])
+            return [k for k in spec.promotion_evidence if k in GATE_KINDS]
+        return list(rule.evidence)
+
+    def _check_required(self, artifact_hash: str, required: list[str], evidence_ids: list[str]) -> set[str]:
+        """Refuse unless every required kind has passed evidence of this artifact among ``evidence_ids``; returns
+        the protocol hash(es) the cited gate evidence was evaluated under (at most one)."""
         have: dict[str, list[dict]] = {}
         protocols = set()
         for eid in evidence_ids:
@@ -509,6 +535,7 @@ class PromotionService:
             raise EvidenceError(f"missing or failed evidence: {missing}")
         if len(protocols) > 1:
             raise EvidenceError("gate evidence was evaluated under different protocols")
+        return protocols
 
     def active_in_slot(self, slot: str) -> str | None:
         """The artifact whose LATEST transition activated it in ``slot`` (an artifact deactivated here and later
@@ -641,6 +668,102 @@ class PromotionService:
                     "approved_by": pol["approved_by"], "approved_at_ns": pol["approved_at_ns"], "at_ns": self.r.now()}
         rec = self._activate(chosen, body["slot"], principal, [], approval, f"automatic selection under {policy_id}")
         return {"selected": chosen, "changed": True, "transition": rec, "refused": refused}
+
+    # ------------------------------------------------------ shadow envelope
+    def approve_shadow_envelope(self, body: dict, principal: Principal) -> str:
+        """ADR-0017 #2: the owner-approved envelope inside which the SYSTEM may promote validated -> shadow.
+        Immutable once approved (a change is a new envelope id); its hash is recorded on every promotion it allows."""
+        if not isinstance(body, dict) or set(body) != SHADOW_ENVELOPE_FIELDS:
+            raise EvidenceError(f"shadow envelope must have exactly {sorted(SHADOW_ENVELOPE_FIELDS)}")
+        if not isinstance(body["envelope_id"], str) or not body["envelope_id"].strip():
+            raise EvidenceError("envelope_id must be a non-empty string")
+        if not isinstance(body["strategy_id"], str) or not body["strategy_id"].strip():
+            raise EvidenceError("strategy_id (the artifact class) must be a non-empty string")
+        self.protocol(body["protocol_hash"])
+        dom = body["parameter_domain"]
+        if not isinstance(dom, dict) or not dom:
+            raise EvidenceError("parameter_domain must name every parameter with [min, max]")
+        for name, bounds in dom.items():
+            if not (isinstance(bounds, list) and len(bounds) == 2 and all(isinstance(b, str) for b in bounds)
+                    and Fixed.parse(bounds[0]) <= Fixed.parse(bounds[1])):
+                raise EvidenceError(f"parameter_domain.{name} must be [min, max] decimal strings")
+        insts = body["instrument_set"]
+        if not isinstance(insts, list) or not insts or not all(isinstance(i, str) and i for i in insts):
+            raise EvidenceError("instrument_set must be a non-empty list of instrument ids")
+        rb = body["risk_budget"]
+        if not isinstance(rb, dict) or set(rb) != set(RISK_BUDGET_FIELDS):
+            raise EvidenceError(f"risk_budget must have exactly {list(RISK_BUDGET_FIELDS)}")
+        for k in RISK_BUDGET_FIELDS:
+            if not isinstance(rb[k], str) or not Fixed(0) < Fixed.parse(rb[k]) <= Fixed(1):
+                raise EvidenceError(f"risk_budget.{k} must be a decimal string in (0, 1]")
+        for k in ("max_promotions_per_period", "period_days"):
+            if type(body[k]) is not int or body[k] < 1:
+                raise EvidenceError(f"{k} must be a positive integer")
+        approval = self._owner_approval(principal)
+        if self.c.execute("SELECT 1 FROM shadow_envelope WHERE envelope_id=?", (body["envelope_id"],)).fetchone():
+            raise RegistryError("envelope id already used; envelopes are immutable (create a new one)", "ENVELOPE_EXISTS")
+        h = stable_hash(body)
+        self.c.execute("INSERT INTO shadow_envelope VALUES (?,?,?,?,?)", (body["envelope_id"], stable_dumps(body), h,
+                                                                          approval["by"], approval["at_ns"]))
+        return h
+
+    def shadow_envelope(self, envelope_id: str) -> dict:
+        row = self.c.execute("SELECT * FROM shadow_envelope WHERE envelope_id=?", (envelope_id,)).fetchone()
+        if row is None:
+            raise RegistryError(f"unknown shadow envelope {envelope_id}", "UNKNOWN_ENVELOPE")
+        body = json.loads(row["body"])
+        if stable_hash(body) != row["body_hash"]:
+            raise EvidenceError("shadow envelope body does not match its hash")
+        return {"body": body, "approved_by": row["approved_by"], "approved_at_ns": row["approved_at_ns"], "hash": row["body_hash"]}
+
+    def within_envelope(self, envelope: dict, artifact_hash: str) -> tuple[bool, list[str]]:
+        """Class, parameter domain and instrument set as for a selection policy, plus the risk budget: every risk
+        limit the artifact's spec declares must be at or below the envelope's."""
+        _, why = self.within_policy(envelope, artifact_hash)
+        limits = self.r.spec(self.artifact(artifact_hash)["spec_hash"]).body["risk_limits"]
+        for k in RISK_BUDGET_FIELDS:
+            if Fixed.parse(limits[k]) > Fixed.parse(envelope["risk_budget"][k]):
+                why.append(f"risk limit {k}={limits[k]} exceeds the envelope's risk budget {envelope['risk_budget'][k]}")
+        return not why, why
+
+    def auto_shadow(self, envelope_id: str, artifact_hash: str, principal: Principal, *, evidence_ids: list[str]) -> dict:
+        """Automatic validated -> shadow promotion (ADR-0017 #2) inside an owner-approved envelope. Runs as the SYSTEM
+        promotion service. Refused unless the artifact is validated and unexpired, lies inside the envelope, and the
+        cited evidence passes every gate the spec lists under the envelope's own protocol. The transition record
+        carries that evidence and the envelope (id, hash, approver), never a per-artifact owner approval."""
+        self._no_agents(principal, "run automatic shadow promotion")
+        if principal.role is not Role.SYSTEM:
+            raise AuthorityError("automatic shadow promotion runs as the SYSTEM promotion service")
+        env = self.shadow_envelope(envelope_id)
+        body = env["body"]
+        art = self.artifact(artifact_hash)
+        if art["status"] != "validated":
+            raise AuthorityError(f"automatic shadow promotion applies only to validated artifacts (this one is "
+                                 f"'{art['status']}')")
+        ok, why = self.within_envelope(body, artifact_hash)
+        if not ok:
+            raise AuthorityError(f"automatic shadow promotion outside the approved envelope refused: {why}")
+        if self._expired(artifact_hash):
+            raise EvidenceError("artifact expired; it needs new evidence before promotion")
+        evidence_ids = list(evidence_ids)
+        protocols = self._check_required(artifact_hash, self._required(art, RULES[("validated", "shadow")]), evidence_ids)
+        if protocols != {body["protocol_hash"]}:
+            raise AuthorityError("the cited gate evidence was not evaluated under the envelope's evaluation protocol")
+        window = body["period_days"] * 86_400 * 1_000_000_000
+        recent = self.c.execute("SELECT COUNT(*) FROM transition WHERE to_status='shadow' AND at_ns>=? AND "
+                                "json_extract(approval, '$.envelope_id')=?", (self.r.now() - window, envelope_id)).fetchone()[0]
+        if recent >= body["max_promotions_per_period"]:
+            raise AuthorityError(f"the envelope's limit of {body['max_promotions_per_period']} automatic promotions per "
+                                 f"{body['period_days']} days is reached")
+        approval = {"kind": "SHADOW_ENVELOPE", "envelope_id": envelope_id, "envelope_hash": env["hash"],
+                    "approved_by": env["approved_by"], "approved_at_ns": env["approved_at_ns"], "at_ns": self.r.now()}
+        with self.r._tx() as c:
+            now = c.execute("SELECT to_status FROM transition WHERE artifact_hash=? ORDER BY seq DESC LIMIT 1",
+                            (artifact_hash,)).fetchone()["to_status"]
+            if now != "validated":      # moved concurrently: never record a transition from a status it no longer has
+                raise RegistryError(f"artifact is now '{now}', not validated", "INVALID_TRANSITION")
+            return self._append(c, artifact_hash, "validated", "shadow", principal, evidence_ids, approval, None, None,
+                                f"automatic shadow promotion inside envelope {envelope_id}")
 
     def artifacts(self) -> list[dict]:
         out = []

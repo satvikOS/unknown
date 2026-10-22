@@ -142,8 +142,14 @@ class ResearchFixture:
         self.promo.transition(art, "reproducible", EVAL, evidence_ids=[self.ev(art, "REPLAY_EXACT")], reason="replayed")
         self.promo.transition(art, "validated", EVAL, evidence_ids=[self.ev(art, k) for k in GATES], reason="gates passed")
 
-    def to_paper(self, art: str) -> None:
+    def to_shadow(self, art: str) -> None:
+        """validated -> shadow by the owner, citing the gate evidence the validation rested on (ADR-0017 #2)."""
         self.to_validated(art)
+        gates = self.promo.history(art)[-1]["evidence_ids"]
+        self.promo.transition(art, "shadow", self.owner(), evidence_ids=gates, reason="owner: shadow")
+
+    def to_paper(self, art: str) -> None:
+        self.to_shadow(art)
         self.promo.transition(art, "paper", self.owner(), evidence_ids=[self.ev(art, "CORE_REPLAY_MATCH")], reason="owner: paper")
 
     def quarantine(self, art: str) -> None:
@@ -251,11 +257,10 @@ class ArtifactIdentityAndEligibilityTest(unittest.TestCase):
         expect = {"proposed": (False, False), "reproducible": (False, False), "validated": (False, False),
                   "shadow": (True, False), "paper": (True, True), "eligible": (True, True), "active": (True, True),
                   "quarantined": (False, False), "retired": (False, False)}
-        self.assertTrue(set(STATUSES) <= set(expect))
+        self.assertEqual(set(STATUSES), set(expect))       # 'shadow' is a registry status (ADR-0017 #2)
         for status, (shadow, live) in expect.items():
             self.assertEqual((artifacts.status_permits(status, "shadow"), artifacts.status_permits(status, "live")),
                              (shadow, live), status)
-        self.assertNotIn("shadow", STATUSES)   # ADR-0017 gap: the registry cannot record 'shadow' yet
 
         h, aid = self.rf.register()
         for mode in ("shadow", "live"):
@@ -265,6 +270,12 @@ class ArtifactIdentityAndEligibilityTest(unittest.TestCase):
         self.rf.to_validated(h)
         with self.assertRaises(ArtifactRefused) as cm:     # validated ranks below shadow
             artifacts.load(self.rf.reg, aid, mode="shadow", today=self.today)
+        self.assertEqual(cm.exception.code, "STATUS_NOT_PERMITTED")
+        gates = self.rf.promo.history(h)[-1]["evidence_ids"]
+        self.rf.promo.transition(h, "shadow", self.rf.owner(), evidence_ids=gates, reason="owner: shadow")
+        self.assertEqual(artifacts.load(self.rf.reg, aid, mode="shadow", today=self.today).status, "shadow")
+        with self.assertRaises(ArtifactRefused) as cm:     # shadow ranks below paper: no live intents
+            artifacts.load(self.rf.reg, aid, mode="live", today=self.today)
         self.assertEqual(cm.exception.code, "STATUS_NOT_PERMITTED")
         self.rf.promo.transition(h, "paper", self.rf.owner(), evidence_ids=[self.rf.ev(h, "CORE_REPLAY_MATCH")], reason="paper")
         for mode in ("shadow", "live"):
