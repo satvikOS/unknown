@@ -104,7 +104,8 @@ export class NetworkError extends Error {
  * Command-path failure that carries the durable command id so the UI can show it and retry safely.
  * `outcomeUnknown` is true when the command may have reached the core (network failure, 5xx): a retry
  * must reuse the same id so the core returns the recorded result instead of acting twice. It is false
- * when the API refused the request before forwarding it (4xx), so nothing was recorded.
+ * for a 4xx: the API refused the request before forwarding it, or the core refused it (a command id
+ * conflict, an invalid command), so it was not executed.
  */
 export class CommandTransportError extends Error {
   readonly commandId: string;
@@ -116,10 +117,15 @@ export class CommandTransportError extends Error {
     const status = cause instanceof ApiError ? cause.status : null;
     const outcomeUnknown = status === null || status >= 500;
     const detail = cause instanceof ApiError ? (cause.serverMessage ?? cause.message) : cause instanceof Error ? cause.message : String(cause);
+    // 4xx codes the API returns when the core itself answered with a refusal (server.py `_core_refusal`).
+    const code = cause instanceof ApiError ? errorCode(cause.body) : null;
+    const refusedByCore = code === 'COMMAND_ID_CONFLICT' || code === 'CORE_REFUSED' || code === 'COMMAND_INVALID';
     super(
       outcomeUnknown
         ? `${kind} ${commandId}: ${detail}. Outcome unknown; retrying with the same command id is safe (the core records each id once).`
-        : `${kind} ${commandId} refused before reaching the core: ${detail}`,
+        : refusedByCore
+          ? `${kind} ${commandId} refused by the core; not executed: ${detail}`
+          : `${kind} ${commandId} refused before reaching the core: ${detail}`,
     );
     this.name = 'CommandTransportError';
     this.kind = kind;
@@ -197,6 +203,13 @@ async function readBody(res: Response): Promise<unknown> {
   } catch {
     return text;
   }
+}
+
+function errorCode(body: unknown): string | null {
+  if (body && typeof body === 'object' && typeof (body as { code?: unknown }).code === 'string') {
+    return (body as { code: string }).code;
+  }
+  return null;
 }
 
 function serverMessage(body: unknown): string | null {

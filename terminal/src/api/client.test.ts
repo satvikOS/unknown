@@ -264,6 +264,22 @@ describe('ApiClient commands: outcomes', () => {
     expect(err.message).toContain('refused before reaching the core');
   });
 
+  it('a 409 command id conflict reached the core: it says the core refused it, not that it never arrived', async () => {
+    const body = {
+      error: 'command id ui.stop.c reused with a different payload; the original command keeps its result',
+      code: 'COMMAND_ID_CONFLICT',
+      command_id: 'ui.stop.c',
+      outcome: 'NOT_EXECUTED',
+    };
+    const { impl } = fakeFetch([{ status: 409, body }]);
+    const client = new ApiClient({ fetchImpl: impl });
+    const err = (await client.sendCommand('stop', { account_key: 'SIM-1' }, { commandId: 'ui.stop.c' }).catch((e: unknown) => e)) as CommandTransportError;
+    expect(err).toBeInstanceOf(CommandTransportError);
+    expect(err.outcomeUnknown).toBe(false);
+    expect(err.message).toContain('refused by the core; not executed');
+    expect(err.message).not.toContain('before reaching the core');
+  });
+
   it('a 401 on a command logs out', async () => {
     const onUnauthorized = vi.fn();
     const { impl } = fakeFetch([{ status: 401, body: { error: 'login required' } }]);
