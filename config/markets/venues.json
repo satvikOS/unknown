@@ -1,0 +1,237 @@
+{
+  "registry_id": "venues",
+  "version": "2026-10-22.1",
+  "statement": "Venue registry for cash equities in the US, India and the EU: identity (ISO 10383 MIC), country, trading currency, time zone, trading and settlement calendars, settlement cycle by trade date with primary sources, and lot/tick conventions only where a primary source states them. Reference data for research, risk days and expected settlement; it grants no trading eligibility (see docs/markets/README.md).",
+  "sources": {
+    "ISO10383": {
+      "url": "https://www.iso20022.org/sites/default/files/ISO10383_MIC/ISO10383_MIC.csv", "retrieved_on": "2026-10-22",
+      "title": "ISO 10383 Market Identifier Codes, CSV published by the registration authority",
+      "quote": "Columns MIC, OPERATING MIC, OPRT/SGMT, MARKET NAME-INSTITUTION DESCRIPTION, ... ISO COUNTRY CODE (ISO 3166), CITY, STATUS. All MICs used here are ACTIVE."
+    },
+    "SEC-RULE-15C6-1": {
+      "url": "https://www.ecfr.gov/api/renderer/v1/content/enhanced/current/title-17?section=240.15c6-1", "retrieved_on": "2026-10-22",
+      "title": "17 CFR 240.15c6-1 Settlement cycle (eCFR, current)",
+      "quote": "a broker or dealer shall not effect or enter into a contract for the purchase or sale of a security ... that provides for payment of funds and delivery of securities later than the first business day after the date of the contract unless otherwise expressly agreed to by the parties at the time of the transaction."
+    },
+    "SEC-PR-2023-29": {
+      "url": "https://www.sec.gov/newsroom/press-releases/2023-29", "retrieved_on": "2026-10-22",
+      "title": "SEC press release 2023-29 (February 15, 2023): SEC Finalizes Rules to Reduce Risks in Clearance and Settlement",
+      "quote": "shorten the standard settlement cycle ... from two business days after the trade date (T+2) to one (T+1). ... The compliance date for the final rules is May 28, 2024."
+    },
+    "SEBI-CIR-2021-628": {
+      "url": "https://www.sebi.gov.in/sebi_data/attachdocs/sep-2021/1631018696324.pdf", "retrieved_on": "2026-10-22",
+      "title": "SEBI circular SEBI/HO/MRD2/DCAP/P/CIR/2021/628, September 07, 2021, 'Introduction of T+1 rolling settlement on an optional basis' (listing page https://www.sebi.gov.in/legal/circulars/sep-2021/introduction-of-t-1-rolling-settlement-on-an-optional-basis_52462.html)",
+      "quote": "it has been decided to provide flexibility to Stock Exchanges to offer either T+1 or T+2 settlement cycle."
+    },
+    "SEBI-CIR-2024-20": {
+      "url": "https://www.sebi.gov.in/sebi_data/attachdocs/mar-2024/1711019839112.pdf", "retrieved_on": "2026-10-22",
+      "title": "SEBI circular SEBI/HO/MRD/MRD-PoD-3/P/CIR/2024/20, March 21, 2024, 'Introduction of Beta version of T+0 rolling settlement cycle on optional basis in addition to the existing T+1 settlement cycle in Equity Cash Markets'",
+      "quote": "All stock exchanges, clearing corporations and depositories (collectively referred to as “Market Infrastructure Institutions (MIIs)”) jointly decided to shift to T+1 settlement cycle in a phased manner, which was fully implemented w.e.f. January 27, 2023."
+    },
+    "NSE-SETTLEMENT-CYCLE": {
+      "url": "https://www.nseindia.com/static/products-services/equity-market-settlement-cycle", "retrieved_on": "2026-10-22",
+      "title": "NSE, Capital Market, Clearing & Settlement, Settlement Cycle",
+      "quote": "NSE Clearing follows a T+1/ T+0 rolling settlement cycle. ... For arriving at the settlement day all intervening holidays, which include bank holidays, NSE holidays, Saturdays and Sundays are excluded."
+    },
+    "NCL-CMPT-77037": {
+      "url": "https://nsearchives.nseindia.com/content/circulars/CMPT77037.pdf", "retrieved_on": "2026-10-22",
+      "title": "NSE Clearing NCL/CMPT/77037, October 21, 2026, 'Timings on Muhurat Trading session'",
+      "quote": "T+1 Settlement Type & Number M, Z, B 2026211, Trade Date 08-Nov-26, Settlement Date 09-Nov-26 (Annexure A: trade date 06-Nov-26 settles 09-Nov-26; M 2026212 trade date 09-Nov-26 settles 11-Nov-26)."
+    },
+    "ICCL-SETTLEMENT-HOLIDAYS-2026": {
+      "url": "https://www.bseindia.com/markets/MarketInfo/DispNewNoticesCirculars.aspx?page=20251224-1", "retrieved_on": "2026-10-22",
+      "title": "BSE notice 20251224-1 (for Indian Clearing Corporation Ltd), 'Settlement Holidays for the Calendar Year 2026'",
+      "quote": "Members and Custodians are hereby informed that the ICCL shall observe following Settlement Holidays during the Calendar Year 2026."
+    },
+    "NSE-EQUITY-L": {
+      "url": "https://archives.nseindia.com/content/equities/EQUITY_L.csv", "retrieved_on": "2026-10-22",
+      "title": "NSE list of securities available for trading (equities)",
+      "quote": "Header: SYMBOL,NAME OF COMPANY, SERIES, DATE OF LISTING, PAID UP VALUE, MARKET LOT, ISIN NUMBER, FACE VALUE. On 2026-10-22: 2,611 rows; MARKET LOT is 1 for 2,608 rows, 50 for 2 and 100 for 1."
+    },
+    "CSDR-909-2014": {
+      "url": "http://publications.europa.eu/resource/celex/32014R0909", "retrieved_on": "2026-10-22",
+      "title": "Regulation (EU) No 909/2014 (CSDR), OJ L 257, 28.8.2014, as published (EU Publications Office, CELEX 32014R0909)",
+      "quote": "Art. 5(2): the intended settlement date shall be no later than on the second business day after the trading takes place. Art. 76(3): Article 5(2) shall apply from 1 January 2015 ... and in any event from 1 January 2016. Art. 2(1)(14): 'business day' means business day as defined in point (n) of Article 2 of Directive 98/26/EC."
+    },
+    "EU-2025-2075": {
+      "url": "http://publications.europa.eu/resource/celex/32025R2075", "retrieved_on": "2026-10-22",
+      "title": "Regulation (EU) 2025/2075 of 8 October 2025 amending Regulation (EU) No 909/2014 as regards a shorter settlement cycle in the Union, OJ L series 2025/2075, 14.10.2025 (ELI http://data.europa.eu/eli/reg/2025/2075/oj)",
+      "quote": "Art. 1(1): in Article 5, paragraph 2 is replaced by the following: '2. ... the intended settlement date shall be no later than on the first business day after the trading takes place.' Art. 2: It shall apply from 11 October 2027."
+    },
+    "EC-T1-2025": {
+      "url": "https://finance.ec.europa.eu/news/t1-settlement-2025-02-14_en", "retrieved_on": "2026-10-22",
+      "title": "European Commission, DG FISMA, 'T+1 settlement', 14 February 2025",
+      "quote": "In the EU, the settlement cycle is regulated by the CSDR and has been harmonised at T+2 since 2015."
+    },
+    "EURONEXT-T1": {
+      "url": "https://www.euronext.com/en/regulation/t1-programme", "retrieved_on": "2026-10-22",
+      "title": "Euronext T+1 programme",
+      "quote": "The go-live for the transition to T+1 is scheduled for 11 October 2027."
+    },
+    "MIFID-RTS11": {
+      "url": "http://publications.europa.eu/resource/celex/32017R0588", "retrieved_on": "2026-10-22",
+      "title": "Commission Delegated Regulation (EU) 2017/588 (RTS 11, tick size regime for shares, depositary receipts and ETFs), OJ L 87, 31.3.2017, as published",
+      "quote": "Art. 2(1): Trading venues shall apply to orders in shares or depositary receipts a tick size which is equal to or greater than the one corresponding to: (a) the liquidity band in the table in the Annex ...; and (b) the price range in that liquidity band corresponding to the price of the order."
+    },
+    "ECB-T2S-CSDS": {
+      "url": "https://www.ecb.europa.eu/paym/target/target-professional-use-documents-links/t2s/shared/pdf/List_of_CSDs_connected_to_T2S.pdf", "retrieved_on": "2026-10-22",
+      "title": "ECB, Central Securities Depositories (CSDs) connected to T2S",
+      "quote": "Clearstream Banking AG (Germany); Euroclear Belgium; Euroclear France; Euroclear Netherlands; EuroNext Securities Milan (Italy); EuroNext Securities Porto (Portugal); Iberclear - BME Group (Spain)"
+    },
+    "IBKR-EXCHANGES": {
+      "url": "https://www.interactivebrokers.com/webrest/exchanges/", "retrieved_on": "2026-10-22",
+      "title": "IBKR exchange list (data service behind https://www.interactivebrokers.com/en/trading/products-exchanges.php)",
+      "quote": "222 entries; stock exchanges include NYSE, NSE ('National Stock Exchange of India Limited'), IBIS, SBF, AEB, ENEXT.BE, BVL, BVME, BM. No BSE (Bombay Stock Exchange) entry."
+    },
+    "IBKR-FAQ-INDIA": {
+      "url": "https://www.interactivebrokers.com/lib/cstools/faq/#/content/40342168", "retrieved_on": "2026-10-22",
+      "title": "IBKR FAQ 'How do I add India trading permissions?' (reached from https://ibkb.interactivebrokers.com/node/848)",
+      "quote": "Trading of products listed on the National Stock Exchange of India is limited to Indian residents and Non-Resident Indians (NRIs). Trading must be conducted via an account opened through IB India."
+    }
+  },
+  "venues": [
+    {
+      "mic": "XNYS", "operating_mic": "XNYS", "segment_mic": null,
+      "name": "New York Stock Exchange", "country": "US", "currency": "USD", "timezone": "America/New_York",
+      "trading_calendar": "XNYS", "settlement_calendar": "XNYS",
+      "settlement_calendar_note": "The XNYS trading calendar is used as a conservative settlement-expectation calendar (as in config/policies/paper-default.v1.json); the DTC settlement calendar is not verified. Settlement is confirmed only from broker evidence.",
+      "settlement_cycles": [
+        {"from_trade_date": "2024-05-28", "business_days": 1, "sources": ["SEC-RULE-15C6-1", "SEC-PR-2023-29"],
+         "statement": "T+1 under Exchange Act Rule 15c6-1 from the May 28, 2024 compliance date. Earlier trade dates (T+2) are not encoded and are refused."}
+      ],
+      "lot": null, "tick": null,
+      "provider_codes": {"ibkr": "NYSE"},
+      "sources": ["ISO10383", "IBKR-EXCHANGES"],
+      "notes": ["Existing venue; included so US, India and EU settlement use one code path."]
+    },
+    {
+      "mic": "XNSE", "operating_mic": "XNSE", "segment_mic": null,
+      "name": "National Stock Exchange of India - Capital Market segment", "country": "IN", "currency": "INR", "timezone": "Asia/Kolkata",
+      "trading_calendar": "XNSE", "settlement_calendar": "NCL-CM",
+      "settlement_cycles": [
+        {"from_trade_date": "2023-01-27", "business_days": 1, "sources": ["SEBI-CIR-2024-20", "SEBI-CIR-2021-628", "NSE-SETTLEMENT-CYCLE", "NCL-CMPT-77037"],
+         "statement": "T+1 rolling settlement for all scrips, fully implemented with effect from January 27, 2023 (SEBI). Counted on NSE Clearing business days. The optional T+0 segment (SEBI beta, separate order book) is not represented; earlier trade dates are refused."}
+      ],
+      "lot": {"rule": "per_instrument", "sources": ["NSE-EQUITY-L"],
+              "statement": "Market lot is a per-security field (MARKET LOT) of NSE's equity list; it is 1 for 2,608 of 2,611 securities on 2026-10-22. Read it per instrument, never assume 1."},
+      "tick": null,
+      "provider_codes": {"ibkr": "NSE"},
+      "sources": ["ISO10383", "IBKR-EXCHANGES", "IBKR-FAQ-INDIA"],
+      "notes": ["Diwali Muhurat sessions are explicit special sessions in config/calendars/XNSE.json."]
+    },
+    {
+      "mic": "XBOM", "operating_mic": "XBOM", "segment_mic": null,
+      "name": "BSE Ltd - Equity segment", "country": "IN", "currency": "INR", "timezone": "Asia/Kolkata",
+      "trading_calendar": "XBOM", "settlement_calendar": "ICCL-EQ",
+      "settlement_cycles": [
+        {"from_trade_date": "2023-01-27", "business_days": 1, "sources": ["SEBI-CIR-2024-20", "SEBI-CIR-2021-628", "ICCL-SETTLEMENT-HOLIDAYS-2026"],
+         "statement": "T+1 rolling settlement for all scrips, fully implemented with effect from January 27, 2023 (SEBI, binding on all stock exchanges and clearing corporations). Counted on ICCL settlement business days; earlier trade dates are refused."}
+      ],
+      "lot": null, "tick": null,
+      "provider_codes": {},
+      "sources": ["ISO10383", "IBKR-EXCHANGES"],
+      "notes": ["BSE is not in IBKR's exchange list (no IBKR provider code).", "No regular session is recorded: BSE's hours page could not be retrieved (see config/calendars/XBOM.json)."]
+    },
+    {
+      "mic": "XETR", "operating_mic": "XETR", "segment_mic": "XETA",
+      "name": "Xetra (Deutsche Boerse)", "country": "DE", "currency": "EUR", "timezone": "Europe/Berlin",
+      "trading_calendar": "XETR", "settlement_calendar": "T2S-EUR",
+      "settlement_cycles": [
+        {"from_trade_date": "2016-01-01", "business_days": 2, "sources": ["CSDR-909-2014", "EC-T1-2025"],
+         "statement": "CSDR Art. 5(2): intended settlement date no later than the second business day after trading (applies from 1 January 2015, at the latest 1 January 2016 for derogated venues; encoded from the later date)."},
+        {"from_trade_date": "2027-10-11", "business_days": 1, "sources": ["EU-2025-2075", "EURONEXT-T1"],
+         "statement": "Regulation (EU) 2025/2075: no later than the first business day after trading; applies from 11 October 2027. Encoded by trade date: trades executed on or after 2027-10-11 are T+1."}
+      ],
+      "lot": null,
+      "tick": {"rule": "mifid2_liquidity_band", "sources": ["MIFID-RTS11"],
+               "statement": "Minimum tick depends on the instrument's liquidity band and the order price (RTS 11 Annex table). Not encoded; take each instrument's tick table from broker contract details."},
+      "provider_codes": {"ibkr": "IBIS"},
+      "sources": ["ISO10383", "ECB-T2S-CSDS", "IBKR-EXCHANGES"],
+      "notes": ["Domestic shares settle at Clearstream Banking AG, a CSD connected to T2S (assumption from the ECB list; venue-to-CSD mapping not verified from a venue source)."]
+    },
+    {
+      "mic": "XPAR", "operating_mic": "XPAR", "segment_mic": null,
+      "name": "Euronext Paris", "country": "FR", "currency": "EUR", "timezone": "Europe/Paris",
+      "trading_calendar": "XPAR", "settlement_calendar": "T2S-EUR",
+      "settlement_cycles": [
+        {"from_trade_date": "2016-01-01", "business_days": 2, "sources": ["CSDR-909-2014", "EC-T1-2025"], "statement": "CSDR Art. 5(2) T+2 (see XETR)."},
+        {"from_trade_date": "2027-10-11", "business_days": 1, "sources": ["EU-2025-2075", "EURONEXT-T1"], "statement": "Regulation (EU) 2025/2075 T+1 from 11 October 2027 (by trade date)."}
+      ],
+      "lot": null,
+      "tick": {"rule": "mifid2_liquidity_band", "sources": ["MIFID-RTS11"], "statement": "RTS 11 liquidity band x price range; not encoded."},
+      "provider_codes": {"ibkr": "SBF"},
+      "sources": ["ISO10383", "ECB-T2S-CSDS", "IBKR-EXCHANGES"],
+      "notes": ["Assumed domestic CSD: Euroclear France (T2S-connected per the ECB list); not verified from a venue source."]
+    },
+    {
+      "mic": "XAMS", "operating_mic": "XAMS", "segment_mic": null,
+      "name": "Euronext Amsterdam", "country": "NL", "currency": "EUR", "timezone": "Europe/Amsterdam",
+      "trading_calendar": "XAMS", "settlement_calendar": "T2S-EUR",
+      "settlement_cycles": [
+        {"from_trade_date": "2016-01-01", "business_days": 2, "sources": ["CSDR-909-2014", "EC-T1-2025"], "statement": "CSDR Art. 5(2) T+2 (see XETR)."},
+        {"from_trade_date": "2027-10-11", "business_days": 1, "sources": ["EU-2025-2075", "EURONEXT-T1"], "statement": "Regulation (EU) 2025/2075 T+1 from 11 October 2027 (by trade date)."}
+      ],
+      "lot": null,
+      "tick": {"rule": "mifid2_liquidity_band", "sources": ["MIFID-RTS11"], "statement": "RTS 11 liquidity band x price range; not encoded."},
+      "provider_codes": {"ibkr": "AEB"},
+      "sources": ["ISO10383", "ECB-T2S-CSDS", "IBKR-EXCHANGES"],
+      "notes": ["Assumed domestic CSD: Euroclear Netherlands (T2S-connected per the ECB list); not verified from a venue source."]
+    },
+    {
+      "mic": "XBRU", "operating_mic": "XBRU", "segment_mic": null,
+      "name": "Euronext Brussels", "country": "BE", "currency": "EUR", "timezone": "Europe/Brussels",
+      "trading_calendar": "XBRU", "settlement_calendar": "T2S-EUR",
+      "settlement_cycles": [
+        {"from_trade_date": "2016-01-01", "business_days": 2, "sources": ["CSDR-909-2014", "EC-T1-2025"], "statement": "CSDR Art. 5(2) T+2 (see XETR)."},
+        {"from_trade_date": "2027-10-11", "business_days": 1, "sources": ["EU-2025-2075", "EURONEXT-T1"], "statement": "Regulation (EU) 2025/2075 T+1 from 11 October 2027 (by trade date)."}
+      ],
+      "lot": null,
+      "tick": {"rule": "mifid2_liquidity_band", "sources": ["MIFID-RTS11"], "statement": "RTS 11 liquidity band x price range; not encoded."},
+      "provider_codes": {"ibkr": "ENEXT.BE"},
+      "sources": ["ISO10383", "ECB-T2S-CSDS", "IBKR-EXCHANGES"],
+      "notes": ["Assumed domestic CSD: Euroclear Belgium (T2S-connected per the ECB list); not verified from a venue source."]
+    },
+    {
+      "mic": "XLIS", "operating_mic": "XLIS", "segment_mic": null,
+      "name": "Euronext Lisbon", "country": "PT", "currency": "EUR", "timezone": "Europe/Lisbon",
+      "trading_calendar": "XLIS", "settlement_calendar": "T2S-EUR",
+      "settlement_cycles": [
+        {"from_trade_date": "2016-01-01", "business_days": 2, "sources": ["CSDR-909-2014", "EC-T1-2025"], "statement": "CSDR Art. 5(2) T+2 (see XETR)."},
+        {"from_trade_date": "2027-10-11", "business_days": 1, "sources": ["EU-2025-2075", "EURONEXT-T1"], "statement": "Regulation (EU) 2025/2075 T+1 from 11 October 2027 (by trade date)."}
+      ],
+      "lot": null,
+      "tick": {"rule": "mifid2_liquidity_band", "sources": ["MIFID-RTS11"], "statement": "RTS 11 liquidity band x price range; not encoded."},
+      "provider_codes": {"ibkr": "BVL"},
+      "sources": ["ISO10383", "ECB-T2S-CSDS", "IBKR-EXCHANGES"],
+      "notes": ["Euronext states hours in CET; the calendar stores them in a CET zone (session_timezone) because Lisbon is one hour behind.", "Assumed domestic CSD: Euronext Securities Porto (T2S-connected per the ECB list); not verified from a venue source."]
+    },
+    {
+      "mic": "XMIL", "operating_mic": "XMIL", "segment_mic": "MTAA",
+      "name": "Borsa Italiana - Euronext Milan", "country": "IT", "currency": "EUR", "timezone": "Europe/Rome",
+      "trading_calendar": "XMIL", "settlement_calendar": "T2S-EUR",
+      "settlement_cycles": [
+        {"from_trade_date": "2016-01-01", "business_days": 2, "sources": ["CSDR-909-2014", "EC-T1-2025"], "statement": "CSDR Art. 5(2) T+2 (see XETR)."},
+        {"from_trade_date": "2027-10-11", "business_days": 1, "sources": ["EU-2025-2075", "EURONEXT-T1"], "statement": "Regulation (EU) 2025/2075 T+1 from 11 October 2027 (by trade date)."}
+      ],
+      "lot": null,
+      "tick": {"rule": "mifid2_liquidity_band", "sources": ["MIFID-RTS11"], "statement": "RTS 11 liquidity band x price range; not encoded."},
+      "provider_codes": {"ibkr": "BVME"},
+      "sources": ["ISO10383", "ECB-T2S-CSDS", "IBKR-EXCHANGES"],
+      "notes": ["Assumed domestic CSD: Euronext Securities Milan (T2S-connected per the ECB list); not verified from a venue source."]
+    },
+    {
+      "mic": "XMAD", "operating_mic": "BMEX", "segment_mic": null,
+      "name": "Bolsa de Madrid (BME)", "country": "ES", "currency": "EUR", "timezone": "Europe/Madrid",
+      "trading_calendar": "XMAD", "settlement_calendar": "T2S-EUR",
+      "settlement_cycles": [
+        {"from_trade_date": "2016-01-01", "business_days": 2, "sources": ["CSDR-909-2014", "EC-T1-2025"], "statement": "CSDR Art. 5(2) T+2 (see XETR)."},
+        {"from_trade_date": "2027-10-11", "business_days": 1, "sources": ["EU-2025-2075"], "statement": "Regulation (EU) 2025/2075 T+1 from 11 October 2027 (by trade date)."}
+      ],
+      "lot": null,
+      "tick": {"rule": "mifid2_liquidity_band", "sources": ["MIFID-RTS11"], "statement": "RTS 11 liquidity band x price range; not encoded."},
+      "provider_codes": {"ibkr": "BM"},
+      "sources": ["ISO10383", "ECB-T2S-CSDS", "IBKR-EXCHANGES"],
+      "notes": ["Assumed domestic CSD: Iberclear (T2S-connected per the ECB list); not verified from a venue source."]
+    }
+  ]
+}
