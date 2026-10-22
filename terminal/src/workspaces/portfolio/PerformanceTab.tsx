@@ -132,12 +132,16 @@ export function PerformancePanel({ body, formulas }: { body: Rec; formulas: Map<
   );
 }
 
-function PnlPanel({ body, formulas }: { body: Rec; formulas: Map<string, FormulaDef> }) {
+export function PnlPanel({ body, formulas }: { body: Rec; formulas: Map<string, FormulaDef> }) {
   const ccy = str(body.currency) ?? '';
   const days = recs(body.days);
   const totals = isRec(body.totals) ? body.totals : {};
   const identity = body.identity_holds === true;
   const unexplained = recs(body.unexplained_days);
+  // analytics/pnl.py: a day with an unpriced snapshot has no residual; its P&L counts in totals.pnl, but its
+  // components and unrealized change are left out of every component total.
+  const unpriced = days.filter((d) => dec(d.residual) === null);
+  const failing = unexplained.length + unpriced.length;
   const comp = (d: Rec, k: string) => (isRec(d.components) ? dec(d.components[k]) : null);
   const money = (v: unknown) => {
     const x = dec(v);
@@ -171,7 +175,12 @@ function PnlPanel({ body, formulas }: { body: Rec; formulas: Map<string, Formula
           identity ? (
             <StatusPill label="identity holds" tone="ok" compact detail="Every day's P&L equals its journal components plus the unrealized change, exactly" />
           ) : (
-            <StatusPill label="identity does not hold" tone="bad" compact detail={`${unexplained.length} day(s) with a non-zero residual or an unpriced snapshot`} />
+            <StatusPill
+              label="identity does not hold"
+              tone="bad"
+              compact
+              detail={`${failing} day(s): ${unexplained.length} with a non-zero residual, ${unpriced.length} with an unpriced snapshot`}
+            />
           )
         ) : null}
       </header>
@@ -183,6 +192,15 @@ function PnlPanel({ body, formulas }: { body: Rec; formulas: Map<string, Formula
           <Kpi k="Realized" v={money(totals.realized)} />
           <Kpi k="Fees final / estimated" v={`${money(totals.fees_final)} / ${money(totals.fees_estimated)}`} />
         </div>
+        {unpriced.length ? (
+          <div className="callout pf-gap" role="status" style={{ ['--tone' as string]: 'var(--warn)' }}>
+            <strong>
+              Component totals cover {days.length - unpriced.length} of {days.length} day(s).
+            </strong>{' '}
+            {unpriced.length} day(s) had an unpriced snapshot ({unpriced.map((d) => str(d.end) ?? '?').join(', ')}): their P&amp;L is in the total
+            P&amp;L, but their unrealized change, realized P&amp;L and fees are in no component total, so the components do not add up to it.
+          </div>
+        ) : null}
         {days.length ? (
           <SignedBarChart
             items={days.filter((d) => dec(d.pnl) !== null).map((d) => ({ key: `${str(d.start)}-${str(d.end)}`, label: str(d.end) ?? '?', value: dec(d.pnl) as string }))}

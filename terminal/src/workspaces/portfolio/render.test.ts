@@ -6,7 +6,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { PerformancePanel } from './PerformanceTab';
+import { PerformancePanel, PnlPanel } from './PerformanceTab';
 import { BacktestPanel } from './RiskTab';
 import type { Rec } from './model';
 
@@ -117,5 +117,56 @@ describe('VaR backtest panel: exceptions', () => {
     const html = renderToStaticMarkup(createElement(BacktestPanel, { body: calm, formulas }));
     expect(html.match(/class="pf-exception"/g)?.length, 'only the legend glyph').toBe(1);
     expect(html).toContain('0 exception(s)');
+  });
+});
+
+describe('daily P&L panel: days with an unpriced snapshot', () => {
+  // analytics/pnl.py pnl_report: an unpriced day has residual null; its P&L is in totals.pnl, its components in no total.
+  const body: Rec = {
+    kind: 'pnl',
+    currency: 'USD',
+    days: [
+      {
+        start: '2026-10-20',
+        end: '2026-10-21',
+        pnl: '1.200000',
+        unrealized_change: '1.200000',
+        residual: '0.000000',
+        external_flows: '0.000000',
+        nav_end: '1001.200000',
+        components: { realized: '0.000000', fees_final: '0.000000', fees_estimated: '0.000000' },
+      },
+      {
+        start: '2026-10-21',
+        end: '2026-10-22',
+        pnl: '-3.500000',
+        unrealized_change: null,
+        residual: null,
+        reason: 'a position was unpriced in a snapshot',
+        external_flows: '0.000000',
+        nav_end: '997.700000',
+        components: { realized: '-2.000000', fees_final: '-1.000000', fees_estimated: '0.000000' },
+      },
+    ],
+    totals: { pnl: '-2.300000', unrealized_change: '1.200000', realized: '0.000000', fees_final: '0.000000', fees_estimated: '0.000000', external_flows: '0.000000' },
+    identity_holds: false,
+    unexplained_days: [],
+    lineage: { formulas: ['pnl.daily@1'] },
+  };
+
+  it('says the component totals leave out the unpriced day, and counts it as a failing day', () => {
+    const html = renderToStaticMarkup(createElement(PnlPanel, { body, formulas }));
+    expect(html).toContain('identity does not hold');
+    expect(html).toContain('1 day(s): 0 with a non-zero residual, 1 with an unpriced snapshot');
+    expect(html).not.toContain('0 day(s) with a non-zero residual or an unpriced snapshot');
+    expect(html).toContain('Component totals cover 1 of 2 day(s).');
+    expect(html).toContain('(2026-10-22)');
+  });
+
+  it('adds no caveat when every day is priced', () => {
+    const priced = { ...body, days: [(body.days as Rec[])[0]], totals: { ...(body.totals as Rec), pnl: '1.200000' }, identity_holds: true };
+    const html = renderToStaticMarkup(createElement(PnlPanel, { body: priced, formulas }));
+    expect(html).toContain('identity holds');
+    expect(html).not.toContain('Component totals cover');
   });
 });
