@@ -20,3 +20,4 @@ Evidence classes follow the book's reading guide: verified external fact (linked
 | [0010](0010-control-plane-stop-start-recovery.md) | Red stop, green preflight, recovery gate and resumption | accepted |
 | [0011](0011-execution-ownership-and-split-brain.md) | Execution ownership and split-brain prevention | accepted |
 | [0012](0012-broker-adapter-contract.md) | Broker adapter contract | accepted |
+| [0013](0013-terminal-api-and-owner-authentication.md) | Terminal, API process and owner authentication | accepted |

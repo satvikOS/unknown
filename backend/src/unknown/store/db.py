@@ -127,6 +127,11 @@ class Store:
             self.conn.execute("ROLLBACK")
             raise
 
+    def release_lease(self) -> None:
+        """Clean shutdown: mark the lease stale so the next start need not wait or take over."""
+        with self.write() as tx:
+            tx.run("UPDATE writer_lease SET heartbeat_at_ns=0 WHERE id=1 AND holder=? AND epoch=?", (self.holder, self.epoch))
+
     def heartbeat(self) -> None:
         with self.write() as tx:
             tx.run("UPDATE writer_lease SET heartbeat_at_ns=? WHERE id=1", (self.clock.now_ns(),))
