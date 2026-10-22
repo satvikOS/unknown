@@ -74,6 +74,28 @@ def command_events(conn: sqlite3.Connection, command_id: str, *, principal_id: s
     return block[::-1]
 
 
+# Step-up kinds whose core handler acts on ``payload["account_key"]``. ``resolve_exception`` acts on the account of
+# the case it names; ``publish_policy`` binds no account. Keep in step with core/handlers (control.py, admin.py).
+PAYLOAD_ACCOUNT_KINDS = frozenset({"start", "activate_policy", "authorize_capital", "deauthorize_capital",
+                                   "acquire_execution_ownership", "release_execution_ownership", "broker_admin_action"})
+
+
+def command_account(conn: sqlite3.Connection, kind: str, payload: dict) -> str | None:
+    """The account a command of ``kind`` acts on, found where its core handler finds it; None when the kind binds
+    no account or the account cannot be found (the core then refuses the command). A payload field the handler
+    ignores (``account_key`` on ``resolve_exception`` or ``publish_policy``) is never read."""
+    if kind in PAYLOAD_ACCOUNT_KINDS:
+        key = payload.get("account_key")
+        return key if isinstance(key, str) else None
+    if kind == "resolve_exception":
+        case_id = payload.get("case_id", "")
+        if not isinstance(case_id, str):
+            return None
+        r = conn.execute("SELECT account_key FROM exceptions WHERE case_id=?", (case_id,)).fetchone()
+        return r["account_key"] if r else None
+    return None
+
+
 def reauth_window(conn: sqlite3.Connection, account_key: str) -> tuple[int | None, str | None]:
     """``(reauth_max_age_s, policy_hash)`` of the account's active policy, read exactly as the core reads it
     (``core.state.active_policy``); ``(None, None)`` when the account has no active policy."""

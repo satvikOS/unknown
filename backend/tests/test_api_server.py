@@ -6,7 +6,8 @@ socket, a real SQLite database, a temporary runtime home and a free TCP port):
    without resending (and a lost reply is HTTP 504 COMMAND_OUTCOME_UNKNOWN, never "not executed"; a failure
    after the core recorded the command returns the stored result with ``post_commit_error``);
 3. the step-up window is the active policy's reauth_max_age_s, as the core checks it (15 minutes only
-   without a policy);
+   without a policy), the shorter of the API account's and the commanded account's (a payload field the
+   core ignores cannot lengthen it);
 4. every *_ns integer also comes as an exact *_ns_str decimal string;
 5. path segments are percent-decoded after splitting, so ids with reserved characters are addressable;
 6. the state stream sends ``id: <seq>`` and ``retry:``, and resumes from Last-Event-ID;
@@ -438,6 +439,65 @@ class StepUpWindowTests(LiveCase):
         self.age_session(cookie, 61 * MINUTE)
         status, err, _ = self.command(cookie, csrf, "publish_policy", self.new_policy())
         self.assertEqual((status, err["step_up"]["max_age_s"], err["step_up"]["basis"]), (428, 3600, "policy"))
+
+
+class StepUpTargetTests(LiveCase):
+    """The step-up window is the shortest of the API account's policy and the policy of the account the core will
+    act on, found where the core's handler finds it. A payload field the handler ignores cannot widen it."""
+
+    def system_command(self, kind: str, payload: dict) -> dict:
+        """Run a SYSTEM command on the core's loop thread (as the gateway would); test plumbing only."""
+        req = {"op": "command", "command_id": f"sys.test.{kind}.{_hex()}", "kind": kind, "payload": payload,
+               "principal": {"id": "system.test", "role": "SYSTEM"}}
+        return self.stack.core._enqueue(req, frozenset({"SYSTEM"}))
+
+    def open_case_on_short_account(self) -> str:
+        r = self.system_command("broker_order_status", {"account_key": SHORT_ACCOUNT, "broker_order_id": f"B-{_hex()}",
+                                                        "status": "ACKNOWLEDGED"})
+        self.assertTrue(r["accepted"], r)
+        cookie, _ = self.login()
+        status, cases, _ = self.call("GET", f"/api/exceptions?account={SHORT_ACCOUNT}", cookie=cookie)
+        self.assertEqual(status, 200, cases)
+        return cases[0]["case_id"]
+
+    def test_an_account_key_the_handler_ignores_cannot_widen_the_window(self):
+        cookie, csrf = self.login()
+        self.addCleanup(setattr, self.stack.ctx, "account_key", self.stack.ctx.account_key)
+        self.stack.ctx.account_key = SHORT_ACCOUNT   # an API whose own account's policy allows 60 s
+        self.age_session(cookie, 5 * MINUTE)
+        for payload in ({"body": _policy(1300, f"widen-{_hex()}")},
+                        {"body": _policy(1300, f"widen-{_hex()}"), "account_key": "SIM-NO-POLICY"},
+                        {"body": _policy(1300, f"widen-{_hex()}"), "account_key": ACCOUNT}):
+            status, err, _ = self.command(cookie, csrf, "publish_policy", payload)
+            self.assertEqual(status, 428, (payload.get("account_key"), err))
+            self.assertEqual((err["step_up"]["max_age_s"], err["step_up"]["account_key"]), (60, SHORT_ACCOUNT))
+
+    def test_resolve_exception_is_governed_by_the_cases_account(self):
+        case_id = self.open_case_on_short_account()
+        cookie, csrf = self.login()
+        self.age_session(cookie, 5 * MINUTE)   # inside the API account's 3600 s, past the case account's 60 s
+        for extra in ({}, {"account_key": ACCOUNT}, {"account_key": "SIM-NO-POLICY"}):
+            payload = {"case_id": case_id, "action": "acknowledge", "note": "reviewed", **extra}
+            status, err, _ = self.command(cookie, csrf, "resolve_exception", payload)
+            self.assertEqual(status, 428, (extra, err))
+            self.assertEqual((err["step_up"]["max_age_s"], err["step_up"]["account_key"],
+                              err["step_up"]["policy_hash"]), (60, SHORT_ACCOUNT, self.stack.short_policy_hash))
+        self.age_session(cookie, 20 * NS)
+        status, ok, _ = self.command(cookie, csrf, "resolve_exception",
+                                     {"case_id": case_id, "action": "acknowledge", "note": "reviewed"})
+        self.assertEqual(status, 200, ok)
+        self.assertTrue(ok["accepted"], ok)
+        status, verify, _ = self.call("GET", "/api/audit/verify", cookie=cookie)
+        self.assertEqual((status, verify["chain_problems"], verify["ledger_problems"]), (200, [], []))
+
+    def test_a_target_account_never_lengthens_the_api_accounts_window(self):
+        cookie, csrf = self.login()
+        self.addCleanup(setattr, self.stack.ctx, "account_key", self.stack.ctx.account_key)
+        self.stack.ctx.account_key = SHORT_ACCOUNT
+        self.age_session(cookie, 5 * MINUTE)
+        status, err, _ = self.command(cookie, csrf, "authorize_capital", {"account_key": ACCOUNT, "amount": "1.00"})
+        self.assertEqual(status, 428, err)
+        self.assertEqual((err["step_up"]["max_age_s"], err["step_up"]["account_key"]), (60, SHORT_ACCOUNT))
 
 
 class PostCommitFailureTests(LiveCase):

@@ -12,9 +12,11 @@ core: the simulated broker lives inside the core process, so restarting the core
     pickles the simulator after a clean SIGTERM shutdown and restores it on the next start (the
     deterministic FIXTURE quote path restarts from its seed; only the broker's book persists).
 
-api: the API's step-up window is fixed at 15 minutes (server.STEP_UP_MAX_AGE_NS). The suite
-    shortens it so the HTTP 428 -> passphrase -> same-command-id retry path can be exercised
-    without waiting 15 minutes. The core's own policy check (reauth_max_age_s) is untouched.
+api: the API's step-up window is the active policy's reauth_max_age_s (900 s in the default
+    simulated policy), or 15 minutes without a policy. The suite caps it with
+    server.STEP_UP_MAX_AGE_NS, which can only shorten the window, so the HTTP 428 -> passphrase ->
+    same-command-id retry path can be exercised in seconds. The core's own policy check
+    (reauth_max_age_s) is untouched.
 
 Reads the pickle it wrote itself; the file lives in the suite's private runtime directory."""
 from __future__ import annotations

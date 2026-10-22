@@ -58,8 +58,8 @@ TERMINAL_KINDS = (OWNER_ONLY | SHARED_OWNER_SYSTEM | AGENT_ALLOWED) - {"process_
 STEP_UP_KINDS = frozenset({"start", "publish_policy", "activate_policy", "authorize_capital", "deauthorize_capital",
                            "acquire_execution_ownership", "release_execution_ownership", "resolve_exception",
                            "broker_admin_action"})
-# The step-up window is the active policy's reauth_max_age_s, as the core checks it; this fallback applies only
-# when the account has no active policy.
+# The step-up window is the active policy's reauth_max_age_s, as the core checks it, taking the shorter of the API
+# account's and the commanded account's (Handler._step_up); this fallback applies to an account with no active policy.
 STEP_UP_FALLBACK_NS = 15 * 60 * NS
 # Optional STRICTER cap (None in production). The terminal's end-to-end harness sets it to reach the 428 path in
 # seconds; it can only shorten the window, never lengthen it.
@@ -257,21 +257,32 @@ class Handler(BaseHTTPRequestHandler):
         except (IpcError, OSError):
             return {}
 
-    def _step_up(self, account_key: str, conn: sqlite3.Connection | None = None) -> tuple[int, dict]:
-        """The step-up window for commands on ``account_key``: the active policy's ``reauth_max_age_s`` (read as
-        the core reads it), else ``STEP_UP_FALLBACK_NS``; ``STEP_UP_MAX_AGE_NS`` may only shorten it."""
-        own = conn is None
-        conn = self.ctx.ro() if own else conn
+    def _step_up(self, kind: str | None = None, payload: dict | None = None) -> tuple[int, dict]:
+        """The step-up window, in ns, and its basis. Each account's window is its active policy's
+        ``reauth_max_age_s`` (read as the core reads it), else ``STEP_UP_FALLBACK_NS``. The window is the shorter
+        of the API account's and, for a command, that of the account the core will act on
+        (``queries.command_account``), so no payload field can lengthen it; ``STEP_UP_MAX_AGE_NS`` may only
+        shorten it further. Without ``kind`` (the session view) it is the API account's window."""
+        conn = self.ctx.ro()
         try:
-            max_age_s, policy_hash = queries.reauth_window(conn, account_key)
+            windows = [self._account_window(conn, self.ctx.account_key)]
+            target = queries.command_account(conn, kind, payload or {}) if kind else None
+            if target is not None and target != self.ctx.account_key:
+                windows.append(self._account_window(conn, target))
         finally:
-            if own:
-                conn.close()
-        window, basis = (STEP_UP_FALLBACK_NS, "fallback: no active policy") if max_age_s is None else \
-            (max_age_s * NS, "policy")
+            conn.close()
+        window, info = min(windows, key=lambda w: w[0])   # ties keep the API account
         if STEP_UP_MAX_AGE_NS is not None and STEP_UP_MAX_AGE_NS < window:
-            window, basis = STEP_UP_MAX_AGE_NS, "override (test harness)"
-        return window, {"account_key": account_key, "max_age_s": window // NS, "basis": basis, "policy_hash": policy_hash}
+            window, info = STEP_UP_MAX_AGE_NS, {**info, "basis": "override (test harness)"}
+        return window, {**info, "max_age_s": window // NS}
+
+    @staticmethod
+    def _account_window(conn: sqlite3.Connection, account_key: str) -> tuple[int, dict]:
+        max_age_s, policy_hash = queries.reauth_window(conn, account_key)
+        if max_age_s is None:
+            return STEP_UP_FALLBACK_NS, {"account_key": account_key, "basis": "fallback: no active policy",
+                                         "policy_hash": None}
+        return max_age_s * NS, {"account_key": account_key, "basis": "policy", "policy_hash": policy_hash}
 
     # ------------------------------------------------------------ routes
     def do_GET(self) -> None:
@@ -315,7 +326,7 @@ class Handler(BaseHTTPRequestHandler):
                 "csrf_token": s.csrf_token if s else None, "now_ns": time.time_ns()}
         if s:
             try:
-                window, step_up = self._step_up(self.ctx.account_key)
+                window, step_up = self._step_up()
                 body["step_up"] = {**step_up, "expires_at_ns": s.authenticated_at_ns + window}
             except Exception as exc:   # e.g. the core database is unreadable: the window is unknown, never guessed
                 log.warning("step-up window unavailable for the session view: %s: %s", type(exc).__name__, exc)
@@ -543,9 +554,8 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
             return self._error(400, "payload must be an object", **not_executed)
         if kind in STEP_UP_KINDS:
-            account_key = payload.get("account_key") if isinstance(payload.get("account_key"), str) else self.ctx.account_key
             try:
-                window, step_up = self._step_up(account_key)
+                window, step_up = self._step_up(kind, payload)
             except Exception as exc:   # fail closed: without the policy there is no window to check against
                 log.warning("step-up window unavailable for %s: %s: %s", kind, type(exc).__name__, exc)
                 return self._error(503, f"cannot read the active policy to check re-authentication: {exc}",
