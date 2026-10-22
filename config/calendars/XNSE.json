@@ -1,0 +1,45 @@
+{
+  "calendar_id": "XNSE",
+  "version": "2026-10-22.1",
+  "kind": "trading",
+  "timezone": "Asia/Kolkata",
+  "source": "https://www.nseindia.com/api/holiday-master?type=trading",
+  "retrieved_on": "2026-10-22",
+  "statement": "NSE trading holidays, Capital Market (equities) segment 'CM', calendar year 2026, as served by the data endpoint of https://www.nseindia.com/resources/exchange-communication-holidays. NSE's holiday-year list (https://www.nseindia.com/api/holiday-year-list) returned only 2026 and the 2027 query returned an empty object on 2026-10-22, so the data horizon ends on 2026-12-31.",
+  "sources": [
+    {"url": "https://www.nseindia.com/api/holiday-master?type=trading", "retrieved_on": "2026-10-22", "covers": "holidays (segment CM), including holidays that fall on a Saturday or Sunday"},
+    {"url": "https://www.nseindia.com/resources/exchange-communication-holidays", "retrieved_on": "2026-10-22", "covers": "page note: 'Muhurat Trading will be conducted on Sunday, November 08, 2026 on account of Diwali Laxmi Pujan.'"},
+    {"url": "https://www.nseindia.com/api/holiday-year-list", "retrieved_on": "2026-10-22", "covers": "published years: {\"year\":[\"2026\"]} (no 2027 list)"},
+    {"url": "https://nsearchives.nseindia.com/content/circulars/CMTR71775.pdf", "retrieved_on": "2026-10-22", "covers": "NSE/CMTR/71775 of 2025-12-12, the original 2026 list (15 weekday holidays; 15 January 2026 was added later and is in the live list)"},
+    {"url": "https://nsearchives.nseindia.com/content/circulars/CMTR76941.pdf", "retrieved_on": "2026-10-22", "covers": "NSE/CMTR/76941 of 2026-10-19 (circular 149/2026): Muhurat session schedule for Sunday 2026-11-08"},
+    {"url": "https://www.nseindia.com/static/market-data/market-timings", "retrieved_on": "2026-10-22", "covers": "regular session: 'Normal / Odd lot market Open 09:15 hrs' ... 'Normal / Odd lot market Close 15:30 hrs'; pre-open 09:00-09:08"}
+  ],
+  "valid_from": "2026-01-01",
+  "valid_through": "2026-12-31",
+  "regular_session": {"open": "09:15", "close": "15:30"},
+  "holidays": [
+    ["2026-01-15", "Municipal Corporation Election - Maharashtra"], ["2026-01-26", "Republic Day"],
+    ["2026-02-15", "Mahashivratri"], ["2026-03-03", "Holi"], ["2026-03-21", "Id-Ul-Fitr (Ramadan Eid)"],
+    ["2026-03-26", "Shri Ram Navami"], ["2026-03-31", "Shri Mahavir Jayanti"], ["2026-04-03", "Good Friday"],
+    ["2026-04-14", "Dr. Baba Saheb Ambedkar Jayanti"], ["2026-05-01", "Maharashtra Day"], ["2026-05-28", "Bakri Id"],
+    ["2026-06-26", "Muharram"], ["2026-08-15", "Independence Day"], ["2026-09-14", "Ganesh Chaturthi"],
+    ["2026-10-02", "Mahatma Gandhi Jayanti"], ["2026-10-20", "Dussehra"], ["2026-11-08", "Diwali Laxmi Pujan*"],
+    ["2026-11-10", "Diwali-Balipratipada"], ["2026-11-24", "Prakash Gurpurb Sri Guru Nanak Dev"], ["2026-12-25", "Christmas"]
+  ],
+  "early_closes": [],
+  "special_sessions": [
+    {
+      "date": "2026-11-08", "kind": "muhurat", "label": "Diwali Muhurat Trading session (Diwali Laxmi Pujan)",
+      "open": "14:20", "close": "15:30", "settles": true,
+      "source": "https://nsearchives.nseindia.com/content/circulars/CMTR76941.pdf",
+      "notes": "Normal market (continuous trading) opens 14:20 and closes 15:30 for non-CAS securities; for Closing Auction Session (CAS) securities continuous trading ends 15:15 and the CAS runs 15:20-15:35. Pre-open order entry 14:05-14:15 (random closure in the last 2 minutes), matching 14:15-14:17, buffer 14:17-14:20. Block deal window 13:50-14:05. Circular: 'All trades executed in this Diwali Muhurat trading session shall result in settlement obligations.' NSE Clearing (NCL/CMPT/77037) settles them on Monday 2026-11-09."
+    }
+  ],
+  "notes": [
+    "Holidays falling on a Saturday or Sunday are kept as published (2026-02-15, 2026-03-21, 2026-08-15, 2026-11-08); they do not change business-day arithmetic.",
+    "Sunday 2026-11-08 is a holiday with an explicit Muhurat special session: is_business_day() is False and is_trading_day() is True. It is never an ordinary trading day.",
+    "This is the trading calendar. Settlement dates for NSE trades are counted on the NSE Clearing calendar NCL-CM, which has extra bank-holiday closures (e.g. 2026-02-19, 2026-03-19, 2026-04-01, 2026-08-26).",
+    "NSE's terms of use prohibit systematic automated collection from its website; refresh this file by a manual, owner-approved retrieval, not a scheduled scraper.",
+    "The market-timings page lists Normal market 09:15-15:30, while the Muhurat circular also describes a Closing Auction Session for CAS securities; whether CAS applies to regular sessions for a given security is not encoded here."
+  ]
+}
