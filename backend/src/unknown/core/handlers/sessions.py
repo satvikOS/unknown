@@ -319,6 +319,17 @@ def advance_wind_down(ctx: Context, s: dict) -> None:
 def evaluate_reconciling(ctx: Context, s: dict) -> None:
     key = s["account_key"]
     owner = ledger.session_owner(s["session_id"])
+    open_orders = state.orders(ctx.tx, key, session_id=s["session_id"], open_only=True)
+    lots = ledger.owner_lots(ctx.tx, key, owner)
+    if open_orders or lots:
+        # Activity after the session went flat (a late fill or a broker correction) gave it inventory or
+        # orders again. RECONCILING cannot reduce them, so wind-down resumes (review finding 9); the broker
+        # observation path has already opened a session-attributed case for the late activity.
+        ctx.emit("SessionWindDownResumed", {"reason": "NOT_FLAT", "open_orders": [o["order_id"] for o in open_orders],
+                                            "lots": {l["lot_id"]: l["open_qty"] for l in lots}},
+                 {"sessions": [{**s, "state": "WINDING_DOWN", "blockers": []}]}, **_refs(s))
+        advance_wind_down(ctx, state.session(ctx.tx, s["session_id"]))
+        return
     blockers: list[str] = []
     execs = [json.loads(r["row"]) for r in ctx.tx.all(
         "SELECT row FROM executions WHERE json_extract(row,'$.session_id')=?", (s["session_id"],))]
@@ -333,14 +344,17 @@ def evaluate_reconciling(ctx: Context, s: dict) -> None:
         blockers.append("CLEAN_RECONCILIATION_AFTER_LAST_EXECUTION_REQUIRED")
     if attributed_exceptions(ctx, s):
         blockers.append("SESSION_EXCEPTIONS_OPEN")
-    if state.orders(ctx.tx, key, session_id=s["session_id"], open_only=True) or ledger.owner_lots(ctx.tx, key, owner):
-        blockers.append("NOT_FLAT")
+    m = state.mandate(ctx.tx, s["mandate_hash"])
+    available = ledger.available_cash(ctx.tx, key, owner, m.currency)
+    if available.is_negative():
+        # Completion and close move every balance out of the session; a deficit must never be moved to
+        # protected or unallocated cash (that would fail the ledger invariants on every tick, finding 31).
+        blockers.append(f"NEGATIVE_AVAILABLE_CASH:{available.to_str()}")
     if blockers:
         if blockers != s.get("blockers"):
             ctx.emit("SessionReconcilingBlocked", {"blockers": blockers, "last_execution_ns": last_exec_ns},
                      {"sessions": [{**s, "blockers": blockers}]}, **_refs(s))
         return
-    m = state.mandate(ctx.tx, s["mandate_hash"])
     equity = ledger.liquid_value(ctx.tx, key, owner, m.currency)
     if s["wind_down_reason"] == "TARGET_OBSERVED":
         if equity >= m.target_terminal_equity.amount:

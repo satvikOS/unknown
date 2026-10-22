@@ -199,6 +199,59 @@ class FailedReviewTest(unittest.TestCase):
 
 # ---------------------------------------------------------------- RECONCILING
 class ReconcilingTest(unittest.TestCase):
+    def test_correction_after_reconciling_resumes_wind_down_instead_of_sticking(self):
+        """Finding 9, ADR-0008 (WINDING_DOWN -> RECONCILING only when flat with no open orders).
+
+        A sold its 5 shares and reached RECONCILING. The broker then corrects the sale to 4 shares, so A holds
+        1 share again; a session-attributed exception records the late activity. Before the fix A stayed in
+        RECONCILING with NOT_FLAT for good (it cannot sell there, so it also blocked every later session).
+        Now it goes back to WINDING_DOWN, reduces the share once the owner has reviewed the case, and closes."""
+        h = _harness(self, policy=load_policy(account_limits__daily_loss_trigger="10.00"))
+        h.bootstrap()
+        _create(h, "A")
+        _buy_fill(h, "A", "B1", "5", "9.00")
+        h.quote("8.99", "9.01")
+        self.assertTrue(h.owner_cmd("end_session", session_id="A").accepted)
+        (wd,) = _working_wind_down(h, "A")
+        h.pump()
+        h.broker.fill(wd["order_id"], F("5"), F("8.94"))
+        h.pump()
+        h.tick()
+        self.assertEqual(h.session_state("A"), "RECONCILING")
+
+        (sale,) = _executions(h, wd["order_id"])
+        h.broker.correct_execution(sale["exec_key"], F("4"), F("8.94"))
+        h.pump()
+        self.assertEqual(h.desk.store.query("SELECT open_qty FROM lots WHERE owner='session:A' AND open_qty!='0'")[0]["open_qty"], "1")
+        (late,) = _cases(h, "EXECUTION_ANOMALY")
+        self.assertEqual(late["session_id"], "A")
+
+        h.quote("8.99", "9.01")
+        h.tick()
+        a = h.row("sessions", "session_id", "A")
+        self.assertEqual((a["state"], a["review_return_state"]), ("FAILED_REVIEW", "WINDING_DOWN"))
+        self.assertEqual(len(_events(h, "SessionWindDownResumed", "A")), 1)
+        self.assertEqual(_working_wind_down(h, "A"), [], "no automatic sale while the anomaly is open")
+
+        r = h.owner_cmd("resolve_exception", case_id=late["case_id"], note="broker corrected the wind-down sale")
+        self.assertTrue(r.accepted, r.body)
+        self.assertEqual(h.session_state("A"), "WINDING_DOWN")
+        h.quote("8.99", "9.01")
+        h.tick()
+        (wd2,) = _working_wind_down(h, "A")
+        self.assertEqual((wd2["side"], F(wd2["quantity"]), F(wd2["limit_price"])), ("SELL", F("1"), F("8.94")))
+        h.pump()
+        h.broker.fill(wd2["order_id"], F("1"), F("8.94"))
+        h.pump()
+        h.tick()
+        self.assertEqual(h.reconcile().body["status"], "CLEAN")
+        h.tick()
+        a = h.row("sessions", "session_id", "A")
+        self.assertEqual((a["state"], a["outcome"]), ("CLOSED", "OWNER_ENDED"))
+        # 54.00 + (35.76 - 1.00) + (8.94 - 1.00)
+        self.assertEqual(F(a["terminal_equity"]), F("96.70"))
+        self.assertEqual(h.verify(), [])
+
     def test_case_attributed_by_owner_only_blocks_completion(self):
         """Finding 31, ADR-0008 (any non-terminal -> FAILED_REVIEW when an open exception is attributed to the
         session; completion needs no open session exceptions).
