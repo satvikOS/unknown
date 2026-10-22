@@ -6,6 +6,8 @@
   python -m unknown.cli stop --account SIM-1 --reason "owner emergency"
   python -m unknown.cli bootstrap-sim --account SIM-1 --deployment mac-dev
   python -m unknown.cli alerts
+  python -m unknown.cli backup --account SIM-1 [--keep 96]
+  python -m unknown.cli restore-drill --account SIM-1 [--backup FILE]
   python -m unknown.cli broker-admin --account IBKR-PAPER-1 clear-entry-block SHORT_SALE_SIGNAL --note "..."
   python -m unknown.cli broker-admin --account IBKR-PAPER-1 ack-history-gap 2026-10-20 --note "..."
 
@@ -59,6 +61,12 @@ def main(argv: list[str] | None = None) -> int:
     ba.add_argument("action", choices=["clear-entry-block", "ack-history-gap"])
     ba.add_argument("value", help="entry-block name, or the YYYY-MM-DD day reconciled from statements")
     ba.add_argument("--note", required=True)
+    bk = sub.add_parser("backup", help="online backup of the core database (safe while the core runs)")
+    bk.add_argument("--account", required=True)
+    bk.add_argument("--keep", type=int, default=96)
+    rd = sub.add_parser("restore-drill", help="prove a backup restores (temporary copy; live state untouched)")
+    rd.add_argument("--account", required=True)
+    rd.add_argument("--backup", default=None, help="backup file (default: the newest for the account)")
     args = ap.parse_args(argv)
     paths = Paths(Path(args.home).expanduser()) if args.home else Paths.default()
 
@@ -77,6 +85,19 @@ def main(argv: list[str] | None = None) -> int:
         write_owner_record(paths.secrets / "owner.json", p1)
         print("owner passphrase stored as an scrypt hash")
         return 0
+    if args.cmd in ("backup", "restore-drill"):
+        from .ops.backup import backups_for, restore_drill, take_backup
+        if args.cmd == "backup":
+            print(json.dumps(take_backup(paths, args.account, keep=args.keep), indent=2))
+            return 0
+        found = backups_for(paths, args.account)
+        target = Path(args.backup) if args.backup else (found[-1] if found else None)
+        if target is None:
+            print(f"no backups for {args.account} in {paths.backups}", file=sys.stderr)
+            return 1
+        report = restore_drill(target, args.account)
+        print(json.dumps(report, indent=2, default=str))
+        return 0 if report["ok"] else 1
     client = _client(paths)
     if args.cmd == "status":
         print(json.dumps({"health": client.query("health"), "preflight": client.query("preflight")}, indent=2, default=str))

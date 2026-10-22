@@ -171,16 +171,7 @@ class Store:
     def backup_to(self, target: str | Path) -> None:
         """Database-consistent online backup (ADR-0003 #6). The copy is marked as a backup inside the
         database itself, so opening it anywhere is detected as a restore (stop latched, orders looked up)."""
-        dest = sqlite3.connect(str(target))
-        try:
-            self.conn.backup(dest)
-            seq = self.conn.execute("SELECT COALESCE(MAX(seq), 0) FROM events").fetchone()[0]
-            dest.execute("CREATE TABLE IF NOT EXISTS backup_origin (source_epoch INTEGER NOT NULL, "
-                         "source_max_seq INTEGER NOT NULL, taken_at_ns INTEGER NOT NULL)")
-            dest.execute("INSERT INTO backup_origin VALUES (?,?,?)", (self.epoch, seq, self.clock.now_ns()))
-            dest.commit()
-        finally:
-            dest.close()
+        _backup(self.conn, target, self.epoch, self.clock.now_ns())
 
     def backup_origin(self) -> dict | None:
         if self.conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='backup_origin'").fetchone() is None:
@@ -196,3 +187,29 @@ class Store:
 
     def close(self) -> None:
         self.conn.close()
+
+
+def _backup(source: sqlite3.Connection, target: str | Path, epoch: int, now_ns: int) -> dict:
+    """Copy ``source`` to ``target`` with SQLite's online backup and mark the copy as a backup inside itself."""
+    dest = sqlite3.connect(str(target))
+    try:
+        source.backup(dest)
+        seq = source.execute("SELECT COALESCE(MAX(seq), 0) FROM events").fetchone()[0]
+        dest.execute("CREATE TABLE IF NOT EXISTS backup_origin (source_epoch INTEGER NOT NULL, "
+                     "source_max_seq INTEGER NOT NULL, taken_at_ns INTEGER NOT NULL)")
+        dest.execute("INSERT INTO backup_origin VALUES (?,?,?)", (epoch, seq, now_ns))
+        dest.commit()
+        ok = dest.execute("PRAGMA integrity_check").fetchone()[0]
+    finally:
+        dest.close()
+    return {"source_epoch": epoch, "source_max_seq": seq, "taken_at_ns": now_ns, "integrity_check": ok}
+
+
+def backup_database(source_path: str | Path, target: str | Path, now_ns: int) -> dict:
+    """Online backup taken by another process (WAL allows it while the core writes). Never takes the lease."""
+    src = connect(source_path, readonly=True)
+    try:
+        row = src.execute("SELECT epoch FROM writer_lease WHERE id=1").fetchone()
+        return _backup(src, target, row["epoch"] if row else 0, now_ns)
+    finally:
+        src.close()
