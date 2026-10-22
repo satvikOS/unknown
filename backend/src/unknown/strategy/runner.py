@@ -178,6 +178,13 @@ def _strategy_note(note: Any) -> tuple[str, str | None]:
     return ", ".join(f"{k}={v}" for k, v in sorted(note.items()) if not isinstance(v, (dict, list)))[:200], None
 
 
+def _claimed(command_id: str, stored: dict) -> dict:
+    """The refusal body for one of our command ids that another principal's stored command holds."""
+    return {"code": "COMMAND_ID_CLAIMED",
+            "message": f"command id {command_id} is held by {stored.get('principal_role')} {stored.get('principal_id')}; "
+                       "the core refuses it from this artifact (CommandIdConflict)"}
+
+
 def _join(*parts: str) -> str:
     text = "; ".join(p for p in parts if p)
     return text if len(text) <= MAX_REASON else text[:MAX_REASON - 3] + "..."
@@ -298,12 +305,17 @@ class StrategyRunner:
             return self.client().command(command_id, kind, payload, self._principal())
         except IpcError as exc:
             if "CommandConflict" in str(exc):
-                # The core already holds this id with another payload (only possible after the journal was lost
-                # and recovery raced the core): adopt the stored outcome, never resend.
                 stored = self.core.commands([command_id]).get(command_id)
-                if stored is not None:
+                if stored is not None and self._own(stored):
+                    # We already hold this id with another payload (only possible after the journal was lost and
+                    # recovery raced the core): adopt our stored outcome, never resend.
                     return {"accepted": stored["status"] == "ACCEPTED", "duplicate": True, "body": stored["result"],
                             "events": [], "adopted_after_conflict": True}
+                if stored is not None:
+                    # Another principal holds the id: the core refused ours, and its command is not our outcome.
+                    log.error("%s %s: COMMAND_ID_CLAIMED by %s %s; the core refused it", kind, command_id,
+                              stored["principal_role"], stored["principal_id"])
+                    return {"accepted": False, "duplicate": False, "body": _claimed(command_id, stored), "events": []}
             raise CoreUnreachable("CORE_ERROR", f"{kind} {command_id}: {exc}") from None
         except OSError as exc:
             raise CoreUnreachable("CORE_UNREACHABLE", f"{kind} {command_id}: {type(exc).__name__}: {exc}") from None
@@ -363,8 +375,23 @@ class StrategyRunner:
             stored = self.core.commands([c for i in fresh for c in (ids[i]["decision_command_id"], ids[i]["submit_command_id"])])
             adopted = []
             for i in list(fresh):
+                # Only commands this artifact's principal issued are ours. The ids are predictable and the core stores
+                # what any principal authorized for the kind sends under them (even when it rejects it), so another
+                # principal's command under our id is never adopted (review fix).
                 d = stored.get(ids[i]["decision_command_id"])
-                if d is not None:
+                s = stored.get(ids[i]["submit_command_id"])
+                if d is not None and not self._own(d):
+                    # The core will refuse our record under this id, so nothing is traded: no intent without its record.
+                    log.error("%s %s %s: COMMAND_ID_CLAIMED: decision command id %s is held by %s %s; not deciding",
+                              art.artifact_id, day, i, ids[i]["decision_command_id"], d["principal_role"], d["principal_id"])
+                    adopted.append({"artifact_id": art.artifact_id, "session_date": day, "instrument_id": i, "mode": self.cfg.mode,
+                                    "state": "REFUSED", **ids[i],
+                                    "decision_payload": {"claimed": "decision command id held by another principal"},
+                                    "decision_result": {"accepted": False, "duplicate": False, "body": _claimed(
+                                        ids[i]["decision_command_id"], d)},
+                                    "detail": {"claimed_by": {"id": d["principal_id"], "role": d["principal_role"]}}})
+                    fresh.remove(i)
+                elif d is not None:
                     adopted.append({"artifact_id": art.artifact_id, "session_date": day, "instrument_id": i, "mode": self.cfg.mode,
                                     "state": "RECORDED" if d["status"] == "ACCEPTED" else "REFUSED", **ids[i],
                                     "decision_payload": d.get("decision") or {"recovered": "decision command found in the core"},
@@ -372,10 +399,12 @@ class StrategyRunner:
                                                         "body": d["result"]},
                                     "detail": {"recovered": True}})
                     fresh.remove(i)
-                elif ids[i]["submit_command_id"] in stored:
-                    s = stored[ids[i]["submit_command_id"]]
+                elif s is not None and self._own(s):
                     recovered[i] = {"accepted": s["status"] == "ACCEPTED", "duplicate": True, "body": s["result"],
                                     "events": [], "recovered": True}
+                elif s is not None:
+                    log.error("%s %s %s: submit command id %s is held by %s %s; the intent will be refused (COMMAND_ID_CLAIMED)",
+                              art.artifact_id, day, i, ids[i]["submit_command_id"], s["principal_role"], s["principal_id"])
             if adopted:
                 self.journal.plan(adopted, now)
                 for r in adopted:

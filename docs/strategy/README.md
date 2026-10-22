@@ -117,6 +117,11 @@ The journal, `<home>/strategy/<account>/<artifact>.journal.sqlite`, stores the e
 
 The order id cannot be reused either: the core refuses `DUPLICATE_ORDER_ID`.
 
+Only commands that this artifact's principal issued are adopted. The ids are predictable, and the core stores a command that any principal authorized for its kind sends under one of them, even one it rejects. The runner never takes such a command as its own (tested):
+
+- a decision whose record id another principal holds is not traded (no intent without its record); it is reported `COMMAND_ID_CLAIMED` and logged as an error;
+- an intent whose submit id another principal holds is recorded `BLOCKED` with `COMMAND_ID_CLAIMED`.
+
 ## Running it (owner)
 
 1. In research, promote the artifact to `paper` (owner approval; ADR-0017 #2, `research.promotion`). Then get its id with `python -m unknown.strategy id --hash <hash>`.
@@ -160,3 +165,4 @@ Exit codes for `--once`:
 - **IBKR historical bars are not readable by the runner.** They live in a separate `mkt_bar` table (`broker/ibkr/history.py`). The runner reads only point-in-time observation bars (`research.bars`).
 - **The engine's strategy drawdown stop is not applied at runtime.** The core's session drawdown trigger and loss budget are the operative stops, and they are tighter.
 - **Explicit (non-target) strategy orders are not supported.** They are recorded `BLOCKED`.
+- **Another principal can still claim a decision's command id first.** The core stores commands from any principal authorized for the kind, so a second strategy (or the owner) can use a predictable `strat.<artifact>.` id before the runner does. The runner then refuses to adopt it and reports `COMMAND_ID_CLAIMED`, but it cannot record or trade that decision. Preventing the claim needs a core change that reserves the `strat.<artifact>.` prefix for that artifact's principal; not done.
