@@ -42,6 +42,7 @@ Each workspace is loaded on demand (`src/workspaces/lazy.tsx`): the registry sta
 | One bundle (before, 2026-10-22) | 938.20 kB (265.71 kB gzip) | 44.55 kB |
 | Split by workspace (first split) | 305.28 kB (96.75 kB gzip) | 16.50 kB |
 | Split by workspace (2026-10-22, with the command lookups, conditional GETs, exact timestamps) | 310.99 kB (98.58 kB gzip) | 16.50 kB |
+| Same, after the review fixes (2026-10-22) | 311.55 kB (98.72 kB gzip) | 16.50 kB |
 
 The largest workspace chunk is Portfolio, 91.00 kB. `vite.config.ts` fails the build when the initial JavaScript (the entry chunk and everything it imports statically) exceeds 400 kB, instead of printing Vite's 500 kB chunk warning.
 
