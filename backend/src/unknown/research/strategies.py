@@ -74,6 +74,9 @@ def _score(st: TrendState, h: int, eps: float) -> dict:
 
 class TrendDailyV1:
     strategy_id = "TREND_DAILY_V1"
+    # The feature versions this implementation computes (checked against a v2 spec's contract; BR-DAT-18).
+    FEATURES = {"ema_spread_log_price": 1, "ewma_vol": 1}
+    STATELESS_TARGETS = True          # targets depend only on the visible bars, never on positions or equity
 
     def __init__(self, spec: StrategySpec):
         if spec.strategy_id != self.strategy_id:
@@ -95,6 +98,18 @@ class TrendDailyV1:
 
     def reset(self) -> None:
         self.state = {}
+
+    def feature_values(self, instrument_id: str) -> dict[str, float | None]:
+        """The contract's features after the last decision: the EMA spread of log prices and the EWMA volatility."""
+        st = self.state.get(instrument_id)
+        if st is None or st.n == 0:
+            return {"ema_spread_log_price": None, "ewma_vol": None}
+        return {"ema_spread_log_price": st.ema_f - st.ema_s, "ewma_vol": math.sqrt(st.var) if st.var is not None else None}
+
+    def feature_warm_up(self, feature_id: str) -> int | None:
+        """Observations before the feature is usable: the slow span for the spread (the score's warm-up), two closes
+        for the volatility (one return)."""
+        return {"ema_spread_log_price": self.slow, "ewma_vol": 2}.get(feature_id)
 
     def decide(self, ctx: DecisionContext) -> StrategyDecision:
         targets: dict[str, float] = {}
@@ -124,18 +139,25 @@ class TrendDailyV1:
 class BuyAndHold:
     """Baseline: buy an equal share of ``weight`` once, then hold (no rebalancing)."""
     strategy_id = "BUY_AND_HOLD"
+    FEATURES = {"close": 1}
+    STATELESS_TARGETS = False         # targets depend on the positions held
 
     def __init__(self, spec: StrategySpec):
         if spec.strategy_id != self.strategy_id:
             raise SpecError(f"spec {spec.strategy_id} is not {self.strategy_id}")
         self.spec = spec
         self.weight = fixed_to_float(spec.param("weight"))
+        self.latest: dict[str, float] = {}
 
     def reset(self) -> None:
-        pass
+        self.latest: dict[str, float] = {}
+
+    def feature_values(self, instrument_id: str) -> dict[str, float | None]:
+        return {"close": self.latest.get(instrument_id)}
 
     def decide(self, ctx: DecisionContext) -> StrategyDecision:
         n = len(ctx.instrument_ids)
+        self.latest = {i: fixed_to_float(ctx.latest(i).close) for i in ctx.instrument_ids if ctx.latest(i) is not None}
         want = {}
         for inst in ctx.instrument_ids:
             if ctx.position(inst).is_positive() or ctx.latest(inst) is None:
@@ -150,6 +172,8 @@ class BuyAndHold:
 class VolCappedPassive:
     """Baseline: passive long with weight min(w_cap, sigma_target / sigma_hat) / N, rebalanced through the band."""
     strategy_id = "VOL_CAPPED_PASSIVE"
+    FEATURES = {"ewma_vol": 1}
+    STATELESS_TARGETS = True
 
     def __init__(self, spec: StrategySpec):
         if spec.strategy_id != self.strategy_id:
@@ -162,6 +186,13 @@ class VolCappedPassive:
 
     def reset(self) -> None:
         self.state = {}
+
+    def feature_values(self, instrument_id: str) -> dict[str, float | None]:
+        st = self.state.get(instrument_id)
+        return {"ewma_vol": math.sqrt(st.var) if st is not None and st.var is not None else None}
+
+    def feature_warm_up(self, feature_id: str) -> int | None:
+        return {"ewma_vol": self.half_life}.get(feature_id)
 
     def decide(self, ctx: DecisionContext) -> StrategyDecision:
         n = len(ctx.instrument_ids)
@@ -191,17 +222,23 @@ STRATEGIES = {c.strategy_id: c for c in (TrendDailyV1, BuyAndHold, VolCappedPass
 
 
 def build(spec: StrategySpec):
+    """The implementation of a spec. For a schema v2 spec, the implementation's feature ids and versions must be the
+    spec's approved feature contract (BR-DAT-18, ``features.check_contract``), in the backtest and at runtime."""
     try:
-        return STRATEGIES[spec.strategy_id](spec)
+        cls = STRATEGIES[spec.strategy_id]
     except KeyError:
         raise SpecError(f"no implementation registered for {spec.strategy_id}") from None
+    implementation = cls(spec)
+    from .features import check_contract
+    check_contract(spec, implementation)
+    return implementation
 
 
 # ------------------------------------------------------------ spec builders
 def _common(strategy_id: str, family: str, title: str, instrument_ids: list[str], development: tuple[date, date],
             holdout: tuple[date, date], *, author: str, dataset_id: str, fixture: bool) -> dict:
     return {
-        "schema_version": 1, "strategy_id": strategy_id, "version": 1, "family": family, "title": title, "author": author,
+        "schema_version": 2, "strategy_id": strategy_id, "version": 1, "family": family, "title": title, "author": author,
         "data_requirements": [{"dataset_id": dataset_id, "fields": ["open", "high", "low", "close", "volume"],
                                "frequency": "DAILY", "point_in_time": True,
                                "rights_ref": "FIXTURE: synthetic data generated in-repo; no third-party rights" if fixture
@@ -239,10 +276,27 @@ def _common(strategy_id: str, family: str, title: str, instrument_ids: list[str]
 
 
 def _execution(offset_bps: int = 50) -> dict:
+    """BR-DAT-19: decide after the official close; submit in the next regular session between open + 15 and
+    close - 15 minutes (no auctions); at transmission the limit is min(model bound, the quote mid + 50 bps) for a buy
+    (max(model bound, mid - 50 bps) for a sell); the remainder is cancelled at the window's end, never carried over."""
     return {"decision_clock_utc": "21:30", "order_type": "LIMIT", "time_in_force": "DAY", "limit_offset_bps": offset_bps,
-            "price_bound_source": "latest visible close +/- limit_offset_bps (daily bars carry no quote; labelled)",
+            "price_bound_source": "model bound: latest visible close +/- limit_offset_bps; at transmission bounded by a "
+                                  "collar around a fresh quote mid (the backtest uses the session open: daily bars "
+                                  "carry no quote; labelled)",
             "execution_delay_sessions": 1, "participation_cap": "0.10", "same_bar_fill": False,
-            "unfilled_policy": "EXPIRE_END_OF_DAY"}
+            "unfilled_policy": "CANCEL_AT_WINDOW_END",
+            "submission_window": {"open_offset_minutes": 15, "close_offset_minutes": 15, "auctions": False,
+                                  "limit_reference": "TRANSMISSION_QUOTE_MID", "collar_bps": 50}}
+
+
+# BR-DAT-04 risk budgets. TREND_DAILY_V1: a 5% adverse move on a position, fees in and out included, may cost at most
+# 3% of equity (non-binding at the 0.45 per-name cap for ordinary equity: the fees decide only for very small
+# accounts). The passive baselines hold up to 95% and take the whole move: their budget is the whole equity.
+TREND_RISK_BUDGET = {"loss_fraction_of_equity": "0.03", "adverse_move_fraction": "0.05"}
+BASELINE_RISK_BUDGET = {"loss_fraction_of_equity": "1", "adverse_move_fraction": "0.05"}
+# BR-DAT-18: a daily feature value is usable for four days after its newest close became available, which covers a
+# weekend plus a holiday between the decision and the end of the next session's submission window.
+DAILY_VALIDITY_S = 4 * 86400
 
 
 def trend_spec(instrument_ids: list[str], development: tuple[date, date], holdout: tuple[date, date], *,
@@ -277,14 +331,15 @@ def trend_spec(instrument_ids: list[str], development: tuple[date, date], holdou
                         "the denominator is a chosen normalization, not a distributional claim (book ch. 15)"],
         "features": [{"id": "ema_spread_log_price", "version": 1, "formula_id": "ema.span@1", "inputs": ["close"],
                       "unit": "log-price", "availability_basis": "BAR_CLOSE_PLUS_LAG", "freshness_budget_s": 4 * 86400,
-                      "warm_up_observations": 250, "causal": True},  # upper bound: the slow_span domain maximum
+                      "warm_up_observations": 250, "causal": True,  # upper bound: the slow_span domain maximum
+                      "validity_window_s": DAILY_VALIDITY_S},
                      {"id": "ewma_vol", "version": 1, "formula_id": "eq5.2.ewma_var@1", "inputs": ["close"],
                       "unit": "per session", "availability_basis": "BAR_CLOSE_PLUS_LAG", "freshness_budget_s": 4 * 86400,
-                      "warm_up_observations": 2, "causal": True}],
+                      "warm_up_observations": 2, "causal": True, "validity_window_s": DAILY_VALIDITY_S}],
         "rules": {"entry": "target weight w_t > 0 after warm-up",
                   "exit": "target weight 0 (score <= 0) exits fully; drawdown stop flattens and blocks entries",
                   "sizing": {"method": "TARGET_WEIGHT", "max_weight": "0.45", "aggregate_cap": "0.95", "cash_reserve": "0.05",
-                             "no_trade_band": "0.05", "min_order_notional": "100"},
+                             "no_trade_band": "0.05", "min_order_notional": "100", "risk_budget": dict(TREND_RISK_BUDGET)},
                   "holding": {"min_holding_sessions": 0, "max_holding_sessions": None},
                   "execution": _execution()},
         "failure_conditions": ["relies on same-close fills (refused by the engine)",
@@ -322,10 +377,10 @@ def buy_and_hold_spec(instrument_ids: list[str], development: tuple[date, date],
         "assumptions": ["no rebalancing after the initial purchase"],
         "features": [{"id": "close", "version": 1, "formula_id": "nav@1", "inputs": ["close"], "unit": "USD/share",
                       "availability_basis": "BAR_CLOSE_PLUS_LAG", "freshness_budget_s": 4 * 86400,
-                      "warm_up_observations": 1, "causal": True}],
+                      "warm_up_observations": 1, "causal": True, "validity_window_s": DAILY_VALIDITY_S}],
         "rules": {"entry": "first session with visible data", "exit": "none (hold)",
                   "sizing": {"method": "TARGET_WEIGHT", "max_weight": "0.95", "aggregate_cap": "0.95", "cash_reserve": "0.05",
-                             "no_trade_band": "0", "min_order_notional": "0"},
+                             "no_trade_band": "0", "min_order_notional": "0", "risk_budget": dict(BASELINE_RISK_BUDGET)},
                   "holding": {"min_holding_sessions": 0, "max_holding_sessions": None}, "execution": _execution()},
         "failure_conditions": ["not applicable: baseline"],
         "baselines": [{"id": "CASH", "description": "uninvested cash (zero return)"}],
@@ -354,10 +409,11 @@ def vol_capped_spec(instrument_ids: list[str], development: tuple[date, date], h
         "assumptions": ["volatility from the EWMA of squared log returns (zero-mean approximation)"],
         "features": [{"id": "ewma_vol", "version": 1, "formula_id": "eq5.2.ewma_var@1", "inputs": ["close"],
                       "unit": "per session", "availability_basis": "BAR_CLOSE_PLUS_LAG", "freshness_budget_s": 4 * 86400,
-                      "warm_up_observations": 20, "causal": True}],
+                      # upper bound: the vol_half_life domain maximum (the implementation warms up for half_life closes)
+                      "warm_up_observations": 120, "causal": True, "validity_window_s": DAILY_VALIDITY_S}],
         "rules": {"entry": "after volatility warm-up", "exit": "weight falls through the band",
                   "sizing": {"method": "TARGET_WEIGHT", "max_weight": "0.95", "aggregate_cap": "0.95", "cash_reserve": "0.05",
-                             "no_trade_band": "0.05", "min_order_notional": "100"},
+                             "no_trade_band": "0.05", "min_order_notional": "100", "risk_budget": dict(BASELINE_RISK_BUDGET)},
                   "holding": {"min_holding_sessions": 0, "max_holding_sessions": None}, "execution": _execution()},
         "failure_conditions": ["not applicable: baseline"],
         "baselines": [{"id": "BUY_AND_HOLD", "description": "unscaled passive"}],

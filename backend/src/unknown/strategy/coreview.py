@@ -11,17 +11,27 @@ The snapshot holds what algorithm A15 needs for one session:
 * the session (auto-detected when not pinned: the account's single active session), its mandate's policy hash
   (an intent must carry it) and currency, and the account mode;
 * per instrument: owned quantity of the session's ledger owner, unreserved quantity (owned minus active quantity
-  holds), and the leaves of the session's open BUY and SELL orders;
+  holds), and the leaves of the session's open BUY and SELL orders, with each open order's state and principal;
 * the session's liquid value and available cash (``core.ledger``), and the active policy's fee model for the
   reservation envelope;
 * the registered instrument master rows.
 
 ``commands`` returns stored outcomes by command id, which is how a runner whose local journal was lost learns
-what the core already executed instead of submitting again."""
+what the core already executed instead of submitting again.
+
+Pending exposure (BR-DAT-02). An order is pending while it is in one of the core's open states
+(``core.state.OPEN_ORDER_STATES``): RESERVED, SUBMIT_PENDING, ACKNOWLEDGED, PARTIALLY_FILLED, CANCEL_PENDING and
+UNKNOWN. Its leaves (remaining quantity) count, whoever placed it in the session: a pending buy as if it fills
+(``Holding.pending_buy``), a pending sell as already sold (``Holding.pending_sell``). FILLED, CANCELED, REJECTED and
+EXPIRED orders have no leaves and count nothing. The core's pretrade uses the same states: the CONCENTRATION check
+adds the leaves of the session's open buys in the instrument, GROSS_EXPOSURE adds every open buy of the account,
+and a sell reserves its quantity. The runner adds two gates on top (``runner._decide``): no new intent for an
+instrument with an UNKNOWN or CANCEL_PENDING order in the session, and at most one live intent per session,
+artifact and instrument."""
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..core import ledger, state
@@ -35,6 +45,8 @@ from ..store.db import Tx, connect
 from .sizing import Holding
 
 ACTIVE_SESSION_STATES = ("RUNNING", "SUSPENDED", "WINDING_DOWN")
+PENDING_STATES = state.OPEN_ORDER_STATES          # BR-DAT-02: the order states whose leaves are pending exposure
+UNRESOLVED_STATES = ("UNKNOWN", "CANCEL_PENDING")  # no new intent for the instrument while one of these is open
 
 
 class CoreUnavailable(RuntimeError):
@@ -56,6 +68,8 @@ class CoreSnapshot:
     available_cash: Fixed
     fees: FeeModel | None
     reason: str = ""
+    # per instrument: the session's open orders (order_id, state, side, leaves_qty, principal_id, principal_role)
+    open_orders: dict[str, tuple[dict, ...]] = field(default_factory=dict)
 
     def fee_envelope(self, side: str, quantity: Fixed, limit: Fixed) -> Fixed:
         """The core's reservation envelope for a BUY (``risk.fees.envelope`` under the active policy)."""
@@ -132,6 +146,9 @@ class CoreView:
             owner = ledger.session_owner(sess["session_id"])
             open_orders = state.orders(tx, account_key, session_id=sess["session_id"], open_only=True)
             holdings: dict[str, Holding] = {}
+            per_instrument = {i: tuple({k: o.get(k) for k in ("order_id", "state", "side", "leaves_qty", "principal_id",
+                                                               "principal_role")}
+                                       for o in open_orders if o["instrument_id"] == i) for i in instrument_ids}
             for i in instrument_ids:
                 owned = ledger.owned_quantity(tx, account_key, owner, i)
                 held = ledger.active_quantity_holds(tx, account_key, owner, i)
@@ -144,7 +161,41 @@ class CoreView:
                 account_key=account_key, account_mode=acct["mode"], session_id=sess["session_id"], session_state=sess["state"],
                 policy_hash=m.policy_hash, currency=ccy, ledger_scale=scale, instruments=insts, holdings=holdings,
                 liquid_value=ledger.liquid_value(tx, account_key, owner, ccy),
-                available_cash=ledger.available_cash(tx, account_key, owner, ccy), fees=fees, reason=reason)
+                available_cash=ledger.available_cash(tx, account_key, owner, ccy), fees=fees, reason=reason,
+                open_orders=per_instrument)
+        finally:
+            if conn.in_transaction:
+                conn.rollback()
+            conn.close()
+
+    def transmission_context(self, account_key: str, instrument_id: str) -> tuple[Instrument | None, int | None, str]:
+        """(instrument, the active policy's quote_max_age_ms, account mode) for pricing an intent at transmission."""
+        conn = self._open()
+        try:
+            tx = Tx(conn)
+            try:
+                mode = state.account(tx, account_key)["mode"]
+            except Rejected as exc:
+                raise CoreUnavailable(f"{exc.code}: {account_key}") from None
+            try:
+                max_age = state.active_policy(tx, account_key).limits.quote_max_age_ms
+            except Rejected:
+                max_age = None
+            return state.instrument(tx, instrument_id), max_age, mode
+        finally:
+            if conn.in_transaction:
+                conn.rollback()
+            conn.close()
+
+    def open_orders(self, account_key: str, session_id: str, instrument_id: str) -> tuple[dict, ...]:
+        """The session's open orders in one instrument (BR-DAT-02 pending states), with the fields the snapshot's
+        ``open_orders`` carries: what the runner re-checks at transmission, hours after its decision."""
+        conn = self._open()
+        try:
+            tx = Tx(conn)
+            return tuple({k: o.get(k) for k in ("order_id", "state", "side", "leaves_qty", "principal_id", "principal_role")}
+                         for o in state.orders(tx, account_key, session_id=session_id, open_only=True)
+                         if o["instrument_id"] == instrument_id)
         finally:
             if conn.in_transaction:
                 conn.rollback()

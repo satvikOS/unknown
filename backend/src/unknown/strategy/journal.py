@@ -46,6 +46,11 @@ def decision_ids(artifact_id: str, session_date: date, instrument_id: str) -> di
             "order_id": f"sr-{day}-{h[:16]}"}
 
 
+def cancel_command_id(artifact_id: str, session_date: date, instrument_id: str) -> str:
+    """The deterministic ``request_cancel`` id for the remainder of a decision's intent at its window's end."""
+    return decision_ids(artifact_id, session_date, instrument_id)["submit_command_id"][:-len(".intent")] + ".cancel"
+
+
 class Journal:
     def __init__(self, path: str | Path):
         self.path = Path(path)
@@ -108,8 +113,18 @@ class Journal:
             self.conn.execute("ROLLBACK")
             raise
 
+    def open_intents(self) -> list[dict]:
+        """Final rows whose intent the core accepted and whose window-end cancellation is not recorded yet
+        (BR-DAT-19: the remainder is cancelled at the end of the submission window, never carried over)."""
+        return [self._row(r) for r in self.conn.execute(
+            "SELECT * FROM decision WHERE state IN (?, ?) AND json_extract(submit_result, '$.accepted') = 1 "
+            "AND json_extract(detail, '$.window') IS NOT NULL AND json_extract(detail, '$.window_cancel') IS NULL "
+            "ORDER BY session_date, instrument_id", FINAL)]
+
     def update(self, session_date: date, instrument_id: str, now_ns: int, **fields) -> None:
-        allowed = {"state", "submit_result", "decision_payload", "decision_result", "detail"}
+        # ``submit_payload`` changes once, when the intent is priced at transmission (BR-DAT-19), and is journaled
+        # before it is sent: a resend after a crash sends exactly that payload.
+        allowed = {"state", "submit_payload", "submit_result", "decision_payload", "decision_result", "detail"}
         if not fields or set(fields) - allowed:
             raise ValueError(f"journal update fields must be in {sorted(allowed)}")
         if "state" in fields and fields["state"] not in STATES:

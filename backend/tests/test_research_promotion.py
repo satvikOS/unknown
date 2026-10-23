@@ -110,6 +110,12 @@ class Base(unittest.TestCase):
         self.promo.transition(art, "reproducible", EVAL, evidence_ids=[self.ev(art, "REPLAY_EXACT")], reason="replayed")
         self.promo.transition(art, "validated", EVAL, evidence_ids=[self.ev(art, k) for k in GATES], reason="gates passed")
 
+    def to_shadow(self, art: str) -> None:
+        """validated -> shadow by the owner (ADR-0017 #2), citing the gate evidence the validation rested on."""
+        self.to_validated(art)
+        gates = self.promo.history(art)[-1]["evidence_ids"]
+        self.promo.transition(art, "shadow", self.owner(), evidence_ids=gates, reason="owner: shadow")
+
     def policy_body(self, **over) -> dict:
         body = {"policy_id": "SEL-1", "slot": "TREND/FIXTURE", "strategy_id": "TREND_DAILY_V1",
                 "parameter_domain": {"fast_span": ["5", "10"], "slow_span": ["20", "80"], "vol_half_life": ["20", "20"],
@@ -121,7 +127,7 @@ class Base(unittest.TestCase):
         return body
 
     def to_eligible(self, art: str) -> None:
-        self.to_validated(art)
+        self.to_shadow(art)
         self.promo.transition(art, "paper", self.owner(), evidence_ids=[self.ev(art, "CORE_REPLAY_MATCH")], reason="owner: paper")
         self.promo.transition(art, "eligible", self.owner(), evidence_ids=[self.ev(art, "PAPER_RECONCILIATION")],
                               reason="owner: eligible")
@@ -138,12 +144,14 @@ class LifecycleTest(Base):
         self.assertEqual(rec["approval"]["by"], "owner")
         self.assertIsInstance(rec["approval"]["at_ns"], int)
         hist = self.promo.history(art)
-        self.assertEqual([h["to_status"] for h in hist], ["proposed", "reproducible", "validated", "paper", "eligible", "active"])
+        self.assertEqual([h["to_status"] for h in hist],
+                         ["proposed", "reproducible", "validated", "shadow", "paper", "eligible", "active"])
         for h in hist:
-            if h["to_status"] in ("paper", "eligible", "active"):
+            if h["to_status"] in ("shadow", "paper", "eligible", "active"):
                 self.assertEqual(h["approval"]["by"], "owner")
         self.assertEqual(self.promo.verify_chain(), [])
-        self.assertEqual(set(STATUSES), {"proposed", "reproducible", "validated", "paper", "eligible", "active", "quarantined", "retired"})
+        self.assertEqual(set(STATUSES), {"proposed", "reproducible", "validated", "shadow", "paper", "eligible", "active",
+                                         "quarantined", "retired"})
 
     def test_failed_gate_refuses_validation_and_leaves_status_unchanged(self):
         art = self.artifact()
@@ -163,7 +171,7 @@ class LifecycleTest(Base):
 
     def test_skipping_rungs_is_refused(self):
         art = self.artifact()
-        for to in ("validated", "paper", "eligible", "active"):
+        for to in ("validated", "shadow", "paper", "eligible", "active"):
             with self.assertRaises(RegistryError):
                 self.promo.transition(art, to, self.owner(), reason="skip", slot="S")
 
@@ -205,7 +213,7 @@ class AuthorityTest(Base):
 
     def test_eligible_and_active_need_the_owner(self):
         art = self.artifact()
-        self.to_validated(art)
+        self.to_shadow(art)
         with self.assertRaises(AuthorityError):
             self.promo.transition(art, "paper", EVAL, evidence_ids=[self.ev(art, "CORE_REPLAY_MATCH")], reason="system")
         self.promo.transition(art, "paper", self.owner(), evidence_ids=[self.ev(art, "CORE_REPLAY_MATCH")], reason="owner")
@@ -217,7 +225,7 @@ class AuthorityTest(Base):
 
     def test_stale_owner_authentication_is_refused(self):
         art = self.artifact()
-        self.to_validated(art)
+        self.to_shadow(art)
         stale = Principal("owner", Role.OWNER, authenticated_at_ns=self.reg.now() - 20 * 60 * 10**9)
         with self.assertRaises(AuthorityError):
             self.promo.transition(art, "paper", stale, evidence_ids=[self.ev(art, "CORE_REPLAY_MATCH")], reason="stale")
@@ -298,7 +306,7 @@ class SelectionPolicyTest(Base):
                                            training_interval=DEV, evaluation_manifest_hash=self.manifest["manifest_hash"],
                                            allowed_markets=["FIXTURE"], horizon="daily", capacity_estimate="n/a",
                                            expires_on=date.today() - timedelta(days=1))
-        self.to_validated(art)
+        self.to_shadow(art)
         self.promo.transition(art, "paper", self.owner(), evidence_ids=[self.ev(art, "CORE_REPLAY_MATCH")], reason="owner")
         with self.assertRaises(EvidenceError):
             self.promo.transition(art, "eligible", self.owner(), evidence_ids=[self.ev(art, "PAPER_RECONCILIATION")], reason="x")

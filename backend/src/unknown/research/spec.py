@@ -23,6 +23,24 @@ non-overlapping chronological plan with an untouched holdout (CAP-RES-07), a
 purge at least as long as label horizon plus execution delay (BR-DAT-14),
 cost multipliers covering 0.5x/1x/2x/3x (CAP-RES-04/05), several impact
 coefficients (book ch. 7) and the evidence kinds the ch. 20 gates consume.
+
+Schema versions. Version 2 (current) adds three contracts, each required in
+v2 and refused in v1 (a v1 document stays parseable, so registries written
+before v2 remain readable):
+
+* ``rules.execution.submission_window`` (BR-DAT-19): submit only between the
+  regular session's open + N and close - M minutes (calendar hours, early
+  closes included), never in an auction, with the limit set at transmission
+  to min(model bound, collar around a fresh quote) and any remainder
+  cancelled at the window's end (``unfilled_policy`` CANCEL_AT_WINDOW_END);
+* ``rules.sizing.risk_budget`` (BR-DAT-04): the planned loss at an adverse
+  move, entry and exit fees included, as a fraction of equity;
+* ``features[].validity_window_s`` (BR-DAT-18): how long after its newest
+  input became available a feature value may be used, at the decision and at
+  transmission.
+
+A v1 spec runs in the backtester with the legacy execution and sizing rules
+(labelled in the run config); the strategy runner refuses it.
 """
 from __future__ import annotations
 
@@ -35,7 +53,9 @@ from ..domain.canonical import canonical_json, sha256_hex
 from ..domain.fixed import Fixed
 from .common import FORMULAS, SpecError
 
-SPEC_SCHEMA_VERSION = 1
+SPEC_SCHEMA_VERSION = 2
+SUPPORTED_SCHEMA_VERSIONS = (1, 2)
+LIMIT_REFERENCES = frozenset({"TRANSMISSION_QUOTE_MID"})
 
 FAMILIES = frozenset({"TREND", "CROSS_SECTIONAL", "MEAN_REVERSION", "PAIRS", "FUNDAMENTAL_EVENT", "MACRO",
                       "MICROSTRUCTURE", "EXECUTION_OPTIMIZATION", "BASELINE"})  # RES-02
@@ -190,6 +210,13 @@ class StrategySpec:
     stress_plan: tuple[dict, ...]
     promotion_evidence: tuple[str, ...]
     baselines: tuple[str, ...]
+    schema_version: int = SPEC_SCHEMA_VERSION
+    # Schema v2 contracts (None in a v1 spec): see the module docstring.
+    submission_window: dict | None = None
+    risk_budget: dict[str, Fixed] | None = None
+    # One contract per declared feature: id, version, availability basis, freshness budget, warm-up observations and
+    # (v2) validity window, in declaration order.
+    features: tuple[dict, ...] = ()
 
     @property
     def artifact_id(self) -> str:
@@ -213,8 +240,10 @@ class StrategySpec:
 def parse_spec(body: dict) -> StrategySpec:
     """Validate a strategy specification document; raise ``SpecError`` with the first problem."""
     r = _R(body, "spec")
-    if r.integer("schema_version", 1, 1000) != SPEC_SCHEMA_VERSION:
-        raise SpecError(f"unsupported spec schema_version (expected {SPEC_SCHEMA_VERSION})")
+    schema = r.integer("schema_version", 1, 1000)
+    if schema not in SUPPORTED_SCHEMA_VERSIONS:
+        raise SpecError(f"unsupported spec schema_version (expected one of {SUPPORTED_SCHEMA_VERSIONS})")
+    v2 = schema >= 2
     strategy_id = r.text("strategy_id", pattern=_ID)
     version = r.integer("version", 1, 1_000_000)
     family = r.text("family", choices=FAMILIES)
@@ -245,19 +274,24 @@ def parse_spec(body: dict) -> StrategySpec:
         v.done()
     r.texts("assumptions")
 
+    features = []
     for f in r.objs("features"):
-        f.text("id", pattern=_TOKEN)
-        f.integer("version", 1, 1_000_000)
+        contract = {"id": f.text("id", pattern=_TOKEN), "version": f.integer("version", 1, 1_000_000)}
         fid = f.text("formula_id", pattern=_TOKEN)
         if fid not in FORMULAS:
             raise SpecError(f"{f.where}.formula_id {fid!r} is not in the formula registry")
         f.texts("inputs")
         f.text("unit", max_len=100)
-        f.text("availability_basis", choices=AVAILABILITY_BASES)
-        f.integer("freshness_budget_s", 1, 10 * 365 * 86_400)
-        f.integer("warm_up_observations", 0, 100_000)
+        contract["availability_basis"] = f.text("availability_basis", choices=AVAILABILITY_BASES)
+        contract["freshness_budget_s"] = f.integer("freshness_budget_s", 1, 10 * 365 * 86_400)
+        contract["warm_up_observations"] = f.integer("warm_up_observations", 0, 100_000)
         f.boolean("causal", must_be=True, why="features use only data available at the decision time (DAT-04)")
+        # BR-DAT-18: a feature value is valid from its newest input's availability for this long (v2).
+        contract["validity_window_s"] = f.integer("validity_window_s", 1, 10 * 365 * 86_400) if v2 else None
         f.done()
+        features.append(contract)
+    if len({c["id"] for c in features}) != len(features):
+        raise SpecError("spec.features ids must be unique")
     for d in r.objs("data_requirements"):
         d.text("dataset_id", pattern=_TOKEN)
         d.texts("fields")
@@ -286,6 +320,13 @@ def parse_spec(body: dict) -> StrategySpec:
         "no_trade_band": s.dec("no_trade_band", ZERO, Fixed.parse("0.5")),
         "min_order_notional": s.dec("min_order_notional", ZERO),
     }
+    risk_budget = None
+    if v2:
+        # BR-DAT-04: Q x (d + c) + Fee_entry + Fee_exit <= B, with B = loss_fraction x equity and d = adverse_move x limit.
+        rb = s.obj("risk_budget")
+        risk_budget = {"loss_fraction_of_equity": rb.dec("loss_fraction_of_equity", ZERO, ONE, lo_open=True),
+                       "adverse_move_fraction": rb.dec("adverse_move_fraction", ZERO, ONE, lo_open=True)}
+        rb.done()
     s.done()
     if sizing["max_weight"] > sizing["aggregate_cap"]:
         raise SpecError("spec.rules.sizing.max_weight must not exceed aggregate_cap")
@@ -306,8 +347,21 @@ def parse_spec(body: dict) -> StrategySpec:
         "participation_cap": x.dec("participation_cap", ZERO, ONE, lo_open=True),
         "same_bar_fill": x.boolean("same_bar_fill", must_be=False,
                                    why="a bar's close cannot both generate a signal and fill at that close (CAP-RES-04)"),
-        "unfilled_policy": x.text("unfilled_policy", choices=frozenset({"EXPIRE_END_OF_DAY"})),
+        # v1: the DAY order expires at the end of the day; v2: the remainder is cancelled at the window's end. Neither
+        # is ever carried over to the next session (BR-DAT-19).
+        "unfilled_policy": x.text("unfilled_policy", choices=frozenset({"CANCEL_AT_WINDOW_END"} if v2
+                                                                       else {"EXPIRE_END_OF_DAY"})),
     }
+    window = None
+    if v2:
+        w = x.obj("submission_window")
+        window = {"open_offset_minutes": w.integer("open_offset_minutes", 1, 240),
+                  "close_offset_minutes": w.integer("close_offset_minutes", 1, 240),
+                  "auctions": w.boolean("auctions", must_be=False,
+                                        why="a strategy approved for continuous matching must not join an auction (ch. 2)"),
+                  "limit_reference": w.text("limit_reference", choices=LIMIT_REFERENCES),
+                  "collar_bps": w.integer("collar_bps", 0, 2_000)}
+        w.done()
     x.done()
     rules.done()
 
@@ -456,7 +510,8 @@ def parse_spec(body: dict) -> StrategySpec:
         parameters=params, parameter_domain=domain, instrument_ids=instrument_ids, sizing=sizing, execution=execution,
         costs=costs, development=dev_range, holdout=holdout, walk_forward={**walk, "selection_metric": selection_metric},
         cost_multipliers=mults, parameter_grid=grid, stress_plan=tuple(stress), promotion_evidence=evidence,
-        baselines=tuple(baselines))
+        baselines=tuple(baselines), schema_version=schema, submission_window=window, risk_budget=risk_budget,
+        features=tuple(features))
 
 
 def _in_domain(v: Any, where: str, dom: tuple[str, Fixed, Fixed]) -> Fixed:

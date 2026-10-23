@@ -23,13 +23,17 @@ A runner loads the artifact from the research registry (read-only) on every cycl
 * the stored bundle still hashes to the artifact hash and names the stored spec (tamper evidence);
 * the registry status permits the requested mode (``MODE_MIN_STATUS`` in the ADR-0017 order
   proposed < reproducible < validated < shadow < paper < eligible < active; quarantined and retired never run);
-* the artifact has not expired (``expires_on``);
+* the artifact has not expired: its registered ``expires_on``, bounded by the ``retention_until`` of every dataset
+  its evidence rests on (``PromotionService.effective_expiry``, BR-DAT-16). An artifact whose evidence data was
+  deleted (EVIDENCE_EXPIRED) still runs until then and says so in every cycle's summary;
 * the code that would run is the code that was registered: the bundle's ``code_hash`` equals
   ``research.manifest.code_hash()`` of this checkout (research/, domain/, data/pit.py);
-* an implementation exists for the spec and it reads exactly one daily point-in-time dataset.
+* an implementation exists for the spec, the spec is schema v2 (it declares the submission window, the risk budget
+  and the feature validity windows the runtime applies) and it reads exactly one daily point-in-time dataset.
 
-The research registry has no ``shadow`` status yet (``research.promotion.STATUSES``), so today shadow mode needs
-``paper`` or later; the rank table already places ``shadow`` where ADR-0017 puts it."""
+``shadow`` is a status of the research registry (``research.promotion``): the owner approves it, or the SYSTEM promotes
+a validated artifact inside an owner-approved envelope (``PromotionService.auto_shadow``). Shadow mode needs ``shadow``
+or later; live mode needs ``paper`` or later."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -39,13 +43,13 @@ from pathlib import Path
 from ..domain.principal import ARTIFACT_ID
 from ..research import manifest as research_manifest
 from ..research.common import RegistryError, stable_hash
-from ..research.promotion import PromotionService
+from ..research.promotion import LADDER, PromotionService
 from ..research.registry import ResearchRegistry
 from ..research.spec import StrategySpec
 from ..research.strategies import STRATEGIES
 
-# ADR-0017 #2 order. ``shadow`` is not (yet) a status of research.promotion; it is ranked where the ADR puts it.
-STATUS_ORDER = ("proposed", "reproducible", "validated", "shadow", "paper", "eligible", "active")
+# ADR-0017 #2 order, the research registry's own ladder (``research.promotion.LADDER``).
+STATUS_ORDER = LADDER
 NEVER_RUN = frozenset({"quarantined", "retired"})
 MODES = ("shadow", "live")
 MODE_MIN_STATUS = {"shadow": "shadow", "live": "paper"}
@@ -106,9 +110,12 @@ class LoadedArtifact:
     status: str
     spec: StrategySpec
     bundle: dict
-    expires_on: date
+    expires_on: date                   # the effective expiry: registered, bounded by evidence retention (BR-DAT-16)
     dataset_id: str
     fixture_allowed: bool
+    # CURRENT, or EVIDENCE_EXPIRED: data the evidence rests on was deleted. The artifact still runs until its
+    # expiry (book ch. 11 / BR-DAT-16) but can never be promoted again; the runner reports it every cycle.
+    evidence_status: str = "CURRENT"
 
     @property
     def strategy_class(self) -> str:
@@ -149,18 +156,26 @@ def load(registry: ResearchRegistry, aid: str, *, mode: str, today: date, code_h
         raise ArtifactRefused("STATUS_NOT_PERMITTED",
                               f"{aid} is '{status}'; {mode} mode needs '{need}' or later in {' < '.join(STATUS_ORDER)}"
                               + ("" if status not in NEVER_RUN else " (quarantined and retired artifacts never run)"))
-    expires = date.fromisoformat(art["body"]["expires_on"])
+    # BR-DAT-16: the registered expiry, bounded by the retention of the data the evidence rests on
+    expires = promo.effective_expiry(h)
     if expires < today:
         raise ArtifactRefused("ARTIFACT_EXPIRED", f"{aid} expired on {expires.isoformat()}")
+    evidence = promo.evidence_status(h)["status"]
     running = code_hash if code_hash is not None else current_code_hash()
     if bundle.get("code_hash") != running:
         raise ArtifactRefused("CODE_DRIFT", f"registered code hash {str(bundle.get('code_hash'))[:16]}... differs from this "
                                             f"checkout's {running[:16]}...: the code that would run is not the code that was evaluated")
     if spec.strategy_id not in STRATEGIES:
         raise ArtifactRefused("NO_IMPLEMENTATION", f"no runtime implementation for {spec.strategy_id}")
+    if spec.schema_version < 2:
+        # A v1 spec declares no submission window (BR-DAT-19), no risk budget (BR-DAT-04) and no feature validity
+        # windows (BR-DAT-18): the runtime would have to invent its execution, sizing and feature rules.
+        raise ArtifactRefused("SPEC_SCHEMA_V1", f"{aid} is a schema v1 spec: the runner needs v2 (submission window, "
+                                                "risk budget, feature validity windows); register a v2 spec")
     reqs = spec.body["data_requirements"]
     daily = [d for d in reqs if d["frequency"] == "DAILY"]
     if len(reqs) != 1 or len(daily) != 1:
         raise ArtifactRefused("DATA_REQUIREMENTS", "the runner reads exactly one DAILY point-in-time bar dataset")
     return LoadedArtifact(artifact_id=aid, artifact_hash=h, status=status, spec=spec, bundle=bundle, expires_on=expires,
-                          dataset_id=daily[0]["dataset_id"], fixture_allowed=bool(daily[0]["fixture_allowed"]))
+                          dataset_id=daily[0]["dataset_id"], fixture_allowed=bool(daily[0]["fixture_allowed"]),
+                          evidence_status=evidence)

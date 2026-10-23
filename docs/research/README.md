@@ -22,6 +22,9 @@ Requirements: RES-01, RES-03, RES-04, RES-05 (in part RES-02: trend family only)
 | `fixtures.py` | SYNTHETIC trend / mean-reverting / random-walk series, labelled `FIXTURE:synthetic/<kind>@v1;seed=n` | DAT-06, TRM-03 |
 | `costs.py` | IBKR-like fee schedules, spread, slippage, square-root impact | CAP-RES-05, BR-DAT-20 |
 | `engine.py` | Causal event-driven daily-bar backtester | CAP-RES-04, RES-03 |
+| `sizing.py` | Algorithm A15, the one implementation the backtester and the strategy runner both call; the risk term with entry and exit fees by `risk.fees.envelope` | BR-DAT-04, BR-DAT-15 |
+| `execution.py` | Submission window `[open + N, close − M]` (calendar-aware) and the limit set at transmission, shared by the backtester and the runner | BR-DAT-19 |
+| `features.py` | Feature rows under the spec's feature contract: validity window, warm-up state, enumerated missingness; implementation versions checked against the contract | BR-DAT-18 |
 | `core_replay.py` | Replays the engine's orders through the real core and compares exactly | RES-05 |
 | `stats.py` | Moments, n_eff, PSR/DSR, PBO (CSCV), paired stationary bootstrap, flat-top HAC, Holm/Bonferroni | CAP-RES-08, CAP-RES-09 |
 | `folds.py` | Walk-forward, purged k-fold, CPCV with purge and embargo | CAP-RES-07, BR-DAT-14 |
@@ -38,12 +41,13 @@ Requirements: RES-01, RES-03, RES-04, RES-05 (in part RES-02: trend family only)
 - **Hypothesis and market conditions:** `hypothesis.{statement, mechanism, market_conditions[], expected_effect}`.
 - **Equations, variables, units, assumptions:** `equations[]` (each with a registered `formula_id`), `variables[]` (symbol, unit, kind) and `assumptions[]`.
 - **Causal features and data requirements:**
-  - `features[]` carries version, formula, `availability_basis` (BR-DAT-05 enum), freshness budget and warm-up, and must have `causal: true`;
+  - `features[]` carries version, formula, `availability_basis` (BR-DAT-05 enum), freshness budget, warm-up (an upper bound over the parameter domain) and, in schema v2, `validity_window_s` (BR-DAT-18), and must have `causal: true`; ids are unique. For a v2 spec, `strategies.build` refuses an implementation whose feature ids and versions differ from the contract, or whose warm-up exceeds it; the runtime's feature rows (validity window bounded by the freshness budget, warm-up state, enumerated missingness) are described in `docs/strategy/README.md`;
   - `data_requirements[]` must have `point_in_time: true` and carry a rights reference.
 - **Rules:**
   - `rules.entry`, `rules.exit` and `rules.holding`;
-  - `rules.sizing`: target weight, per-name cap, aggregate cap, cash reserve, no-trade band and minimum notional;
-  - `rules.execution`: decision clock, LIMIT/DAY only, limit offset, execution delay, participation cap and `EXPIRE_END_OF_DAY`. `same_bar_fill` must be `false`.
+  - `rules.sizing`: target weight, per-name cap, aggregate cap, cash reserve, no-trade band and minimum notional; in schema v2 also `risk_budget` (`loss_fraction_of_equity`, `adverse_move_fraction`, BR-DAT-04);
+  - `rules.execution`: decision clock, LIMIT/DAY only, limit offset, execution delay, participation cap and the unfilled policy. `same_bar_fill` must be `false`. Schema v1: `EXPIRE_END_OF_DAY`. Schema v2: `submission_window` (`open_offset_minutes` and `close_offset_minutes` at least 1, `auctions: false`, `limit_reference: TRANSMISSION_QUOTE_MID`, `collar_bps`) and `CANCEL_AT_WINDOW_END` (BR-DAT-19).
+- **Schema versions.** Version 2 is current; the builders write it. A v1 document still parses, so registries written before v2 stay readable; the backtester runs it with the legacy rules (submission 60 s after the open, the limit fixed at the decision, no risk term), and its run config carries neither `submission_window` nor `risk_term`, so a v1 config hash is unchanged. Its orders and fills are those of the legacy rules; the text of the DECISION events' plan notes changed (one A15 implementation writes them for both versions), so an event-log hash recorded before this change does not replay exactly, as with any code change. The strategy runner refuses a v1 spec.
 - **Costs, capacity, liquidity, operations:** `costs` (fee schedule id, spread, slippage, at least two impact Y values, an UNVERIFIED third-party sell-fee assumption), `capacity`, `liquidity` and `operational_constraints[]`.
 - **Risk limits and failure conditions:** `risk_limits` must keep `long_only: true`, `allow_short: false` and `allow_margin: false` (RSK-01). `failure_conditions[]` is required.
 - **Train / validation / untouched evaluation:** `validation_plan.{development, untouched_holdout, walk_forward, selection_metric}`. Periods must be chronological and must not overlap. `purge_sessions >= label_horizon + execution_delay` (BR-DAT-14).
@@ -83,15 +87,17 @@ Each session date `d` runs four phases in order:
 
 1. **Settlement.** Amounts due on or before `d` settle.
 2. **Submission and execution of the orders decided at the previous decision, sells first.**
+   - Schema v2 (BR-DAT-19, `research.execution`): submission at open + N of `d`, from the calendar's session hours (early closes included; the FIXTURE convention 14:30–21:00 UTC for fixture data on `WEEKDAYS`; real data on a calendar without hours raises `SessionHoursUnknown`). The limit is set at submission: `min(model bound, open x (1 + collar))` for a buy, `max(model bound, open x (1 − collar))` for a sell, snapped to the tick. The session open stands in for the quote at open + N (daily bars carry no quote; labelled `transmission_reference`). The order records its `model_bound`, and `limit_price` becomes the transmitted limit. An empty window expires the order `NO_SUBMISSION_WINDOW`. Schema v1: submission 60 s after the bar's start, at the decision's limit.
    - A buy is reserved at submission. It needs `limit x qty + fee envelope` within settled cash minus unsettled payables and accrued fees. Sale proceeds are not spendable until T+1. Otherwise it is rejected `INSUFFICIENT_SETTLED_CASH`.
    - A sell needs owned quantity, otherwise it is rejected `NO_SHORTING`.
    - Execution uses only the instrument's bar for `d`, which must start after the decision instant (otherwise `CausalityError`). A session without a bar expires the order `NO_BAR`.
 3. **Mark.** NAV is marked at the latest bar visible at the decision instant.
-4. **Decision.** The decision instant is `d` + `decision_clock_utc` (21:30 UTC for the fixtures; bars become available at 21:15). The strategy sees only visible bars. A DECISION event is written for every session, including no-trade decisions. Target weights are mapped to price-bounded DAY limits for the next session (algorithm A15):
+4. **Decision.** The decision instant is `d` + `decision_clock_utc` (21:30 UTC for the fixtures; bars become available at 21:15). The strategy sees only visible bars. A DECISION event is written for every session, including no-trade decisions. Target weights are mapped to price-bounded DAY limits for the next session by algorithm A15, `research.sizing.plan_orders`, the function the strategy runner also calls:
    - weights are capped per name and scaled to `min(aggregate_cap, 1 - cash_reserve)` (BR-DAT-15);
    - the no-trade band applies, except that a target of 0 always exits;
    - a new buy is skipped (`BELOW_MIN_ADV`) when the mean volume of the last `adv_window` (20) visible bars is below the spec's `liquidity.min_adv_shares`; exits are never blocked;
-   - limits are `close x (1 +/- offset)` snapped to the tick.
+   - model limits are `close x (1 +/- offset)` snapped to the tick;
+   - schema v2, the risk term (BR-DAT-04): a buy may bring the position only to the largest Q with `Q x (d + c) + Fee_entry(Q − current) + Fee_exit(Q) <= B`, where `d` = limit × `adverse_move_fraction`, `c` = limit × (half spread + slippage + third-party sell fee) × the cost multiplier, `B` = equity × `loss_fraction_of_equity`, and both fees come from `risk.fees.envelope` (the core's reservation function) under the schedule as a core fee model (`CostModel.core_fee_model`, whose envelope equals the engine's, tested). Zero means no order (`NO_TRADE`, "the risk budget cannot cover ..."); the term never sells. The decision's plan records `risk_term` and, per instrument, the evaluated `risk`;
    - Once the drawdown stop fires, every instrument is targeted to zero (even when the strategy returns no targets) and explicit BUY orders are refused and recorded in the decision (`RISK_STOPPED`).
 
 Refused rather than ignored:
@@ -106,7 +112,7 @@ A strategy order that asks to fill at the same bar's close raises `CausalityErro
 - No fill unless the bar trades *through* the limit: a buy needs `low < limit`, a sell needs `high > limit`. A touch is not a fill.
 - Gap handling: a session that opens beyond the limit in the trader's favour executes from the open; otherwise the order executes from the limit.
 - Price cost `c = k x (spread/2 + slippage + Y sigma sqrt(Q/V))` worsens the price. The result is snapped to the tick against the trader and never crosses the limit.
-- Fills are capped at `floor(participation x bar volume)`. The remainder expires at the end of the day.
+- Fills are capped at `floor(participation x bar volume)`; under a submission window, at that share of the volume the window covers (`window minutes / session minutes`, assuming uniform intraday volume: optimistic, because volume concentrates at the open and the close the window excludes; labelled). The remainder expires at the end of the day (`END_OF_DAY_REMAINDER`), or is cancelled at close − M (`WINDOW_END_REMAINDER`). Nothing is carried over.
 
 **Fees.**
 
@@ -176,13 +182,14 @@ Scaled cost multipliers and non-WEEKDAYS calendars are reported as not comparabl
 
 ## Promotion (CAP-RES-12, AUT-03)
 
-Statuses: proposed, reproducible, validated, paper, eligible, active, quarantined, retired. The authoritative status is the last record of a hash-chained, append-only transition log. "Signed" in CAP-RES-12 is implemented as tamper evidence, not as a cryptographic signature; there is no signing-key infrastructure yet.
+Statuses: proposed, reproducible, validated, shadow, paper, eligible, active, quarantined, retired (ADR-0017 #2). The authoritative status is the last record of a hash-chained, append-only transition log. "Signed" in CAP-RES-12 is implemented as tamper evidence, not as a cryptographic signature; there is no signing-key infrastructure yet.
 
 | Transition | Who | Requires |
 |---|---|---|
 | proposed → reproducible | SYSTEM evaluator or OWNER, never the author | REPLAY_EXACT passed |
 | reproducible → validated | same | every gate kind in the spec passed under one owner-approved protocol |
-| validated → paper | OWNER approval | CORE_REPLAY_MATCH passed |
+| validated → shadow | OWNER approval, or SYSTEM inside an owner-approved shadow envelope (`auto_shadow`) | the gate evidence the validation rested on, cited again; under an envelope, evaluated under the envelope's protocol, with the artifact inside its class, parameter domain, instrument set and risk budget, and within its promotions-per-period limit |
+| shadow → paper | OWNER approval | CORE_REPLAY_MATCH passed |
 | paper → eligible | OWNER approval | PAPER_RECONCILIATION passed (externally blocked until BRK-02) |
 | eligible → active | OWNER approval, or SYSTEM under an owner-approved selection policy | slot; the incumbent moves back to eligible, and both hashes are recorded |
 | any → quarantined | OWNER or SYSTEM | MONITORING_INCIDENT |
@@ -201,6 +208,15 @@ Rules the promotion service enforces:
   - STRESS evidence must cover every stress case the spec declares.
 - Expired artifacts cannot become eligible or active, on every activation path, automatic selection included.
 
+**Evidence retention (BR-DAT-16).** A manifest's dataset entry may carry `retention_until`, the date by which licence terms require the data the run read to be deleted (`null` or absent: no deadline recorded). An artifact's evidence datasets are those of its evaluation manifest and of the trials its *passed* evidence cites (failed or agent-filed evidence supports nothing, so it bounds nothing).
+
+- Registration refuses an `expires_on` after the evaluation manifest's earliest `retention_until`.
+- The effective expiry, `min(expires_on, retention_until of every evidence dataset)`, is what every expiry check uses: activation, automatic selection, automatic shadow promotion and the strategy runner.
+- `record_evidence_deletion(dataset, principal, reason)`, by the OWNER or the SYSTEM data-retention process only, records once (append-only) that a dataset named by research manifests was deleted. Every artifact resting on it is then `EVIDENCE_EXPIRED` (`evidence_status`). It keeps its lifecycle status and may run until its effective expiry, but every upward transition is refused: re-promotion up the ladder, activation (by the owner or by automatic selection), automatic shadow promotion and the `quarantined -> reproducible` re-validation path. Stepping down, quarantine and retirement remain possible.
+- There is no renewal: the expiry is part of the immutable registration. New evidence on retained data is a new artifact (a new spec version or parameter set: the artifact hash does not cover the evaluation manifest).
+
+Tests: `test_research_evidence_retention` (5).
+
 The promotion protocol (BR-DAT-10) has exactly these fields: confidence, replications, mean block, statistic, utility coefficients, hurdle per period (net of trading costs), min n_eff, min OOS observations, min OOS Sharpe, max PBO, min DSR, required cost multiplier, max stress drawdown, holdout minimum difference, min paper days and seed.
 
 The selection policy (AUT-03) is approved by the owner and is immutable. It holds the slot, strategy, parameter domain, instrument set, risk budget, protocol hash, activation limit per period and ranking. `auto_select`:
@@ -211,6 +227,15 @@ The selection policy (AUT-03) is approved by the owner and is immutable. It hold
 - refuses an explicit choice outside the domain;
 - never expands the policy.
 
+The shadow envelope (ADR-0017 #2, book ch. 20 "automatic promotion only for artifacts that fit an owner-approved class, parameter domain, instrument set, risk budget and evaluation protocol") is approved by the owner and is immutable. It holds the class (`strategy_id`), parameter domain, instrument set, risk budget (`max_gross_exposure`, `max_single_name_weight`, `max_drawdown_stop`: every one of the spec's `risk_limits` must be at or below it), protocol hash and a promotions-per-period limit. `auto_shadow`:
+
+- runs as SYSTEM, and only on a `validated`, unexpired artifact inside the envelope;
+- requires the cited evidence to pass every gate kind the spec lists under the envelope's own protocol;
+- records the transition with that evidence and an approval of kind `SHADOW_ENVELOPE` (envelope id, hash, approver);
+- stops at `shadow`: `paper` and later remain owner decisions.
+
+Tests: `test_research_shadow` (9).
+
 ## Fixture study and report
 
 ```bash
@@ -220,6 +245,8 @@ cd backend && PYTHONPATH=src python3 -m unknown.research.study --out ../docs/res
 The command writes the report to the registry and to `docs/research/reports/FS-20261022-R2-report.json`. The registry is `~/.unknown/research/experiments.sqlite` unless `--registry` says otherwise. Each kind uses 750 sessions, 2 instruments, development 70% / holdout 30%, a 6-point grid (fast 5/10/20 × slow 40/80), the spec's purge of 2 sessions, and protocol `FIXTURE_PROTOCOL`. The protocol was approved by a *fixture* owner principal; it is an illustration, not an owner decision. The run takes about 25 s.
 
 The registry also still holds study `FS-20261022`, produced before the review fixes (walk-forward purge of 1 session, HOLDOUT gate not bound to a grant, n_eff on development returns). The store is append-only, so those rows stay; they are FIXTURE rows and superseded by `FS-20261022-R2`.
+
+The committed `FS-20261022-R2` report predates spec schema v2: its specs are v1 (they still parse) and were run with the legacy execution and sizing rules. The study now builds v2 specs, so a new run has new spec hashes, event logs and configs (the submission window and the risk term are recorded in every config). The fills should not change: a one-off check (2026-10-22, not a committed test) ran TREND_DAILY_V1 over the study's 6-point grid and both baselines on 750-session trend, mean-reverting and random-walk fixtures at 100,000 of initial cash, under v1 and v2. The two arms differed in submission time (14 minutes later), transmission records and risk evaluations, and every fill (quantity, price, fees) was identical: the 50 bps collar never bound below the open, the window's volume share never bound the participation cap, and the risk term allows 58% per name against the 45% cap. The report has not been regenerated.
 
 | SYNTHETIC kind | Selected (fast/slow) | Dev Sharpe/period | OOS paired diff (conservative lower) | DSR | PBO | Core replay | Status | Failing gates |
 |---|---|---|---|---|---|---|---|---|
@@ -270,16 +297,21 @@ Run with `cd backend && PYTHONPATH=src python3 -m unittest tests.test_research_<
 | `test_research_strategies` | 9 |
 | `test_research_registry` | 28 |
 | `test_research_promotion` | 25 |
+| `test_research_shadow` | 9 (shadow status and envelope, ADR-0017 #2) |
+| `test_research_evidence_retention` | 5 (BR-DAT-16) |
+| `test_research_spec_v2` | 3 (schema v2, v1 readability) |
+| `test_research_risk_sizing` | 10 (BR-DAT-04) |
+| `test_research_window` | 8 (BR-DAT-19) |
 | `test_research_core_replay` | 5 |
 | `test_research_study` | 14 (study plus API routes) |
 
-All 175 pass (2 opt-in skipped) on Python 3.14.7 and 3.12.13. The full research set takes about 25-60 s depending on machine load; the core replay and the study account for most of it.
+All pass (2 opt-in skipped) on Python 3.14.7 and 3.12.13. The full research set takes about 25-60 s depending on machine load; the core replay and the study account for most of it. The runtime side of BR-DAT-02/-04/-18/-19 is tested in `test_strategy_*` (`docs/strategy/README.md`).
 
 ## Known limitations and open questions
 
 - **Bootstrap coverage under strong dependence.** The gate interval covered 92.7% at phi = 0.6 and n = 300. The owner should decide whether the protocol needs a wider confidence level or a minimum n_eff for high-autocorrelation candidates. Automatic optimal block length (Politis-White) is not implemented; the block rule is round(n^(1/3)).
 - **Calendar.** Runs default to the WEEKDAYS calendar for sessions and settlement. Real US data needs the XNYS calendar (holidays) passed to `BacktestConfig.from_spec(calendar=...)`; the core replay compares WEEKDAYS runs only.
-- **Daily bars only.** There is no intraday execution window (BR-DAT-19 asks for open + N to close − M minutes), no auction model, no queue model and no latency distribution. The latency is a fixed 60 s after the open.
+- **Daily bars only.** The submission window (open + N to close − M, BR-DAT-19) is modelled only as far as daily bars allow: the transmission reference is the session open, and the window's share of the bar volume assumes uniform intraday volume (optimistic). The fill test (low below a buy limit, high above a sell limit) and the open-gap fill price still use the whole day's bar, including the open, the auctions and the minutes outside the window, so an order sent at open + N can fill at the open price or on a low it was not yet working for (optimistic; not modelled). There is no auction model, no queue model and no latency distribution.
 - **Not handled:**
   - corporate actions (BR-DAT-11);
   - point-in-time universe membership and survivorship (CAP-RES-02). The fixtures use explicit lists, labelled as such;

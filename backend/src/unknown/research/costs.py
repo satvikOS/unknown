@@ -186,6 +186,24 @@ class CostModel:
             third = (quantity * price * self.third_party_sell_bps * self.multiplier).div(BPS, LEDGER_SCALE, Rounding.CEILING)
         return FeeBreakdown(commission, third)
 
+    def core_fee_model(self):
+        """This schedule as the core's ``policy.model.FeeModel``, so ``risk.fees.envelope`` (the function the core
+        reserves fees with) prices it: per share (the tiered schedule's first-tier rate, as its envelope does), the
+        per-order minimum and the cap, scaled by the cost multiplier, with no estimate margin. Its envelope equals
+        ``fee_envelope("BUY", ...)`` (tested). Used by the A15 risk term (BR-DAT-04)."""
+        from ..domain.money import Money
+        from ..policy.model import FeeModel
+        s = self.schedule
+        per_share = s.per_share if isinstance(s, IbkrFixedUS) else TIERS[0][1]
+        cap = s.max_fraction_of_value * 10_000
+        if not cap.is_multiple_of(Fixed(1)):
+            raise ValueError("fee cap is not a whole number of basis points")
+        return FeeModel(per_share=per_share * self.multiplier,
+                        minimum=Money(s.currency, _ceil6(s.minimum * self.multiplier)),
+                        maximum_bps_of_notional=int(cap.rescale(0).mantissa), estimate_margin_bps=0,
+                        source=f"{s.schedule_id} x{self.multiplier.to_str()} (research cost model)",
+                        verified_on="2026-10-22")
+
     def fee_envelope(self, side: str, quantity: Fixed, limit_price: Fixed) -> Fixed:
         """Reservation envelope: >= any fee the fill can be charged (uncapped commission, sell fees at the limit)."""
         env = _ceil6(self.schedule.envelope(quantity) * self.multiplier)
