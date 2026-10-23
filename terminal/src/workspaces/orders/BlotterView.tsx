@@ -3,6 +3,7 @@
  * returns them. Every column is a field of the core's order row; nothing is derived in floating point.
  */
 import { useMemo, useState, type ReactNode } from 'react';
+import { nsStrOf } from '../../api/nsStrings';
 import type { Instrument, Order } from '../../api/types';
 import { useQuery } from '../../state/react';
 import { routeHref } from '../../state/router';
@@ -28,7 +29,7 @@ function columns(instruments: ReadonlyMap<string, Instrument>, onCancel: (o: Ord
         </a>
       ),
     },
-    { id: 'accepted', header: 'Accepted', sortKind: 'number', sortValue: (o) => o.accepted_at_ns, cell: (o) => <Timestamp ns={o.accepted_at_ns} /> },
+    { id: 'accepted', header: 'Accepted', sortKind: 'number', sortValue: (o) => o.accepted_at_ns, cell: (o) => <Timestamp ns={o.accepted_at_ns} nsStr={nsStrOf(o, 'accepted_at_ns')} /> },
     {
       id: 'session',
       header: 'Session',

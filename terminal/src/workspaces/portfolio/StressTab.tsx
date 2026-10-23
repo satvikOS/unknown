@@ -5,6 +5,7 @@
  * A scenario runs only when the owner presses Run (it copies the core database on the server).
  */
 import { Fragment, useState, type FormEvent, type ReactNode } from 'react';
+import { exactJson, exactNs, isNsStringSibling } from '../../api/nsStrings';
 import { formatDecimal } from '../../format/decimal';
 import { useQuery } from '../../state/react';
 import { DataTable, type Column } from '../../ui/DataTable';
@@ -337,7 +338,12 @@ export function ScenarioDetails({ body, scenario, instrumentCurrency = () => nul
       <div className="panel-body">
         <ul className="pf-list">
           {resting.map((r, i) => (
-            <li key={i}>{Object.entries(r).map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`).join('; ')}</li>
+            <li key={i}>
+              {Object.entries(r)
+                .filter(([k]) => !isNsStringSibling(k, r))
+                .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : (exactNs(r, k) ?? exactJson(v))}`)
+                .join('; ')}
+            </li>
           ))}
         </ul>
       </div>

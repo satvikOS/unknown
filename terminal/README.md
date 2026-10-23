@@ -33,15 +33,30 @@ UNKNOWN_API=http://127.0.0.1:8765 TERMINAL_PORT=5173 npm run dev   # http://127.
 
 Vite proxies `/api` to `UNKNOWN_API`, including the Server-Sent Events stream. In production, `python -m unknown.api.server --static terminal/dist` serves the build. The page loads no third-party origin, so it works under the API's Content-Security-Policy (`default-src 'self'`).
 
+## Bundle
+
+Each workspace is loaded on demand (`src/workspaces/lazy.tsx`): the registry stays static, and the shell shows "Loading the <name> workspace…" while a workspace's chunk arrives. A chunk that fails to load (for example after the API started serving a newer build) is contained in the workspace area with a reload button, so the header and STOP keep working. Hovering or focusing a navigation link starts loading its chunk.
+
+| Build | Initial JavaScript | Initial CSS |
+|---|---|---|
+| One bundle (before, 2026-10-22) | 938.20 kB (265.71 kB gzip) | 44.55 kB |
+| Split by workspace (first split) | 305.28 kB (96.75 kB gzip) | 16.50 kB |
+| Split by workspace (2026-10-22, with the command lookups, conditional GETs, exact timestamps) | 310.99 kB (98.58 kB gzip) | 16.50 kB |
+| Same, after the review fixes (2026-10-22) | 311.55 kB (98.72 kB gzip) | 16.50 kB |
+
+The largest workspace chunk is Portfolio, 91.00 kB. `vite.config.ts` fails the build when the initial JavaScript (the entry chunk and everything it imports statically) exceeds 400 kB, instead of printing Vite's 500 kB chunk warning.
+
 ## Layout
 
 ```
 src/
   api/types.ts          wire types mirroring backend/src/unknown/api/queries.py (decimals are strings)
-  api/client.ts         typed client: every GET, auth, CSRF, 401 -> login, 428 -> step-up -> same-id retry
+  api/client.ts         typed client: every GET, auth, CSRF, 401 -> login, 428 -> step-up -> same-id retry,
+                        GET /api/commands/<id> (stored result), 409 COMMAND_ID_CONFLICT
   format/decimal.ts     exact decimal-string formatting and comparison (no floats)
   format/exact.ts       exact decimal arithmetic on BigInt (add, sub, mul, sums, ratios in bps)
-  format/time.ts        ns timestamps, ages, clock
+  format/time.ts        ns timestamps (exact from the API's *_ns_str with BigInt), ages, clock
+  api/nsStrings.ts      the API's exact *_ns_str siblings: nsStrOf / exactNs, exactJson for recorded payloads
   state/stream.ts       /api/stream subscription: seq, version, gap/reset/reconnect detection
   state/queries.ts      query cache keyed by endpoint+params; refetch on version bump or poll
   state/commands.ts     command tracker: sending -> pending (command id) -> applied on stream seq
@@ -49,6 +64,7 @@ src/
   controls/             red STOP, green START, control drawer, pure control model
   ui/                   shell, header, nav, palette, DataTable, primitives, modal, theme, styles.css
   workspaces/registry.ts   the only list of workspaces (nav, palette, shortcuts)
+  workspaces/lazy.tsx      on-demand loading of each workspace chunk (loading line, contained failure)
   workspaces/<id>/         one directory per workspace
 e2e/                    Playwright suite, backend harness and accessibility checks (e2e/README.md)
 ```
@@ -61,7 +77,6 @@ Register a workspace only when its backend service exists (ADR-0013 "no dead con
 
 ```ts
 import type { WorkspaceDefinition } from '../types';
-import { SessionsWorkspace } from './SessionsWorkspace';
 
 export const sessionsWorkspace: WorkspaceDefinition = {
   id: 'sessions',                 // URL segment: #/sessions, #/sessions/<session_id>
@@ -69,11 +84,14 @@ export const sessionsWorkspace: WorkspaceDefinition = {
   icon: 'sessions',               // see src/ui/Icon.tsx IconName
   shortcut: 'g s',                // must be unique; reserved list in registry.ts
   order: 20,                      // nav position
-  component: SessionsWorkspace,   // receives { route, navigate }
+  // A dynamic import: the component (which receives { route, navigate }) is its own chunk.
+  load: () => import('./SessionsWorkspace').then((m) => m.SessionsWorkspace),
   description: 'Seed, goal, P&L, protection, settlement, successor',
   keywords: ['mandate', 'successor'],
 };
 ```
+
+`index.ts` is in the initial bundle, so it imports no component (`.tsx`) module: `registry.test.ts` fails if it does. Constants it needs, such as palette paths, go in a small module of their own (for example `portfolio/tabs.ts`).
 
 2. Add one import line and one array entry to `src/workspaces/registry.ts`. Array order does not matter, because `order` sets the navigation order:
 
@@ -98,11 +116,15 @@ Route contract: `route.rest[0]` is the entity id. Once a workspace with id `sess
 ## Component and hook API
 
 ```ts
-// Data: refetches on every state-stream version bump (new seq, gap, reset, reconnect).
-useQuery<E extends Endpoint>(endpoint: E | null, params?: ParamsOf<E>, options?: { pollMs?: number })
+// Data: refetches on every state-stream version bump (new seq, gap, reset, reconnect, manual refresh).
+useQuery<E extends Endpoint>(endpoint: E | null, params?: ParamsOf<E>, options?: { pollMs?: number; seqDriven?: boolean })
   : { status: 'idle'|'loading'|'success'|'error'; data?: ResponseOf<E>; error: unknown; fetching: boolean;
       fetchedAtMs: number | null; seqAtFetch: number | null; key: string | null; refetch(): void }
 // e.g. useQuery('/api/orders', { state: 'open', limit: 200 });  useQuery('/api/preflight', undefined, { pollMs: 3000 })
+// seqDriven: false for data outside the core's event log (research store and registry, valuation snapshots,
+// the capability register): a new seq or a gap does not refetch it; opening the view, Refresh, a reconnect,
+// a reset and pollMs still do, and seqAtFetch is null. useApi (research-common) defaults to it; the Company
+// tearsheet (about 640 kB) is no longer fetched again for every core event.
 // Detail endpoints: useQuery(`/api/sessions/${encodePathSegment(id)}`)
 
 // Commands: never optimistic. Resolves when the core's decision is known; the record then moves
@@ -110,10 +132,18 @@ useQuery<E extends Endpoint>(endpoint: E | null, params?: ParamsOf<E>, options?:
 const send = useSendCommand();
 send<K extends CommandKind>(kind: K, payload: CommandPayload<K>, opts: { label: string; commandId?: string })
   : Promise<TrackedCommand>   // { commandId, status: 'sending'|'pending'|'applied'|'rejected'|'failed'|'cancelled',
-                              //   rejection?: {code,message,details}, awaitSeq, error, outcomeUnknown }
+                              //   rejection?: {code,message,details}, awaitSeq, error, outcomeUnknown,
+                              //   lookup: null | {state: 'querying'|'found'|'not_recorded'|'failed', ...} }
 useTrackedCommand(commandId) // live record for one command;  <CommandStatus commandId=... /> renders it
 // Step-up kinds (start, publish/activate policy, (de)authorize capital, ownership, resolve_exception)
 // prompt for the passphrase automatically on HTTP 428 and retry with the same command id.
+// Unknown outcome (network failure, 5xx): the tracker asks GET /api/commands/<id> for the stored result
+// before anything offers a retry. A stored result is adopted (pending/applied, or rejected), never resent;
+// "not recorded" is definitive (not executed) or provisional (still unknown). commands.retry(id) queries
+// again before it resends with the same id and payload; commands.recheck(id) queries without resending.
+// A resend that never reaches the core (step-up prompt dismissed, refused by the API) leaves the id an
+// unknown outcome (status 'failed', outcomeUnknown), never 'cancelled': the first attempt may have run.
+// HTTP 409 COMMAND_ID_CONFLICT is a definitive refusal: status 'rejected' with the API's code and message.
 
 <DataTable<T>
   caption: string; captionHidden?: boolean;
@@ -127,7 +157,9 @@ useTrackedCommand(commandId) // live record for one command;  <CommandStatus com
 <Money amount={decimalString|null} currency="USD" kind?: 'realized'|'unrealized'|'settled'|'unsettled'|'protected'
        |'available'|'held'|'authorized'|'estimated'|'cost'|'marked' showKind? signed? unavailable?="no quote" />
 <Qty value={decimalString} unit? />
-<Timestamp ns={epochNs} | ms={epochMs} zone?: 'utc'|'local' withMs? never?="never" />
+<Timestamp ns={epochNs} nsStr={nsStrOf(row, 'x_ns')} | ms={epochMs} zone?: 'utc'|'local' withMs? withNs? never?="never" />
+      // nsStr: the API's exact *_ns_str. Every <Timestamp ns> passes it (ui/timestamp.test.ts scans the source): the
+      // millisecond comes from it, the tooltip shows all nine fraction digits, withNs shows them in the text.
 <Age sinceNs? | ageMs + observedAtMs? clockOffsetMs? staleAfterMs? />   // live-ticking; appends "(stale)"
 <StatusPill label="RUNNING" tone: 'ok'|'warn'|'bad'|'info'|'neutral' detail? compact? />  // text + glyph + colour
 <Badge tone?>FIXTURE</Badge>  <FixtureBadge />  <ModeBadge mode="SIMULATED" />  <ShortId value=… />  <YesNo … />
@@ -143,7 +175,8 @@ Formatting is exact. `formatDecimal('1234567.8912', { minFraction: 2 })` gives `
 - Quotes and marks show their source and age. Fixture data carries a `FIXTURE` badge. The header always shows the account mode in text and colour, plus a mode-coloured band.
 - Red STOP is always in the header and never shrinks out of view. It needs only a session and sends immediately. The drawer then shows the durable command id and stop progress from `/api/preflight` `stop_progress`: entries blocked, open buys and cancels pending, unknown orders, residual positions, and "reconciled flat" only when the server says so. Liquidation is read from the active policy (`NONE`), and the drawer says it is not offered.
 - Green START opens the preflight panel. It lists each blocker with its cause and resolution and offers no bypass. Start is enabled only when a stop or resume hold is active and every blocker is resolvable by step-up.
-- There are no optimistic updates. A command shows `sending`, then `pending` with its command id, then `applied` when the stream reaches the command's event seq. On any stream reconnect, gap or reset, every visible query refetches.
+- There are no optimistic updates. A command shows `sending`, then `pending` with its command id, then `applied` when the stream reaches the command's event seq. On any stream reconnect or reset, every visible query refetches; a new seq or a gap refetches every visible query on core state (data outside the event log, such as research, is `seqDriven: false`).
+- No read is served stale. Every GET asks the API (`cache: 'no-cache'`, never `force-cache`). A response with an ETag (today the capability register, about 3 MB) is kept with its tag, and the next GET of that path sends `If-None-Match` itself with `cache: 'no-store'`: the API answers 304 when the register is unchanged and the kept body is used, or 200 with the new one. The client validates because the API speaks HTTP/1.0 and Chromium revalidates only HTTP/1.1 responses with their ETag (checked on 2026-10-22: with `no-cache` alone it never sent `If-None-Match`). Every other JSON route is `no-store` and is fetched in full; validators are dropped at sign-out. POSTs use `no-store`.
 - Keyboard: Cmd/Ctrl+K opens the palette, `?` lists shortcuts, `g <key>` switches workspaces, and table rows take arrows, Home/End, PageUp/PageDown and Enter. Dialogs trap focus and restore it on close. The modal scrim starts below the header, so STOP stays clickable. Single-character shortcuts can be turned off from the `?` help or the palette (WCAG 2.1.4, `ui/charKeys.ts`).
 - The stream status pill reads STREAMING, never LIVE: in this terminal, LIVE always means the account mode.
 
@@ -167,6 +200,6 @@ The end-to-end suite measures these on the rendered pages; see `e2e/README.md`. 
 ## API notes for the backend
 
 See the foundation report. In short:
-- ns timestamps exceed 2^53, so the client displays them at millisecond precision.
-- Path ids are not percent-decoded by the API, so an id containing `/` cannot be addressed.
+- ns timestamps exceed 2^53, so JSON.parse rounds them. The API now sends an exact `*_ns_str` beside every `*_ns`, and the terminal shows exact values from it: the audit event detail shows event, receipt and recorded times to the nanosecond, recorded payloads (audit, session events, operations and overview detail JSON) and the other record dumps (research-job audit summaries, instrument attributes and details, research values, stress resting orders) print every `*_ns` exactly and leave the siblings out (`api/nsStrings.ts` `exactJson`), the research JSON tree shows them without "≈", and every `<Timestamp ns>` also gets the row's `*_ns_str` (`nsStrOf`), so its millisecond comes from the string (a float can be one millisecond late, or a second late at a boundary) and its tooltip shows all nine fraction digits; session milestones carry theirs (`atNsStr`). Floats remain only where a value is not displayed: sort keys and ages.
+- Path segments are percent-decoded by the API after it splits the path, so an id containing `/` is addressed as `%2F` (`encodePathSegment`).
 - `/api/overview` does not carry the active policy's name or `on_stop_liquidation`, so the client also fetches `/api/policy/active`.

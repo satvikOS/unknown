@@ -126,6 +126,12 @@ describe('timeline summaries', () => {
       'last_execution_ns=7 · reason=requested',
     );
   });
+
+  it('writes a recorded *_ns value exactly from its sibling, never the float JSON.parse made of it', () => {
+    // 1792675849903999999 is beyond 2^53: as a float it prints as 1792675849904000000.
+    const info = JSON.parse('{"last_execution_ns": 1792675849903999999, "last_execution_ns_str": "1792675849903999999", "reason": "requested"}') as Record<string, unknown>;
+    expect(summarizeEventInfo({ info })).toBe('last_execution_ns=1792675849903999999 · reason=requested');
+  });
 });
 
 const checks = [

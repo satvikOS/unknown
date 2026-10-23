@@ -4,10 +4,10 @@ import type { Endpoint, ParamsOf } from '../api/types';
 import { AuthStore } from './auth';
 import { CommandTracker } from './commands';
 import { NoticeStore } from './notices';
-import { QueryCache } from './queries';
+import { QueryCache, type InvalidationScope } from './queries';
 import { RouterStore } from './router';
 import { StepUpBroker } from './stepup';
-import { StreamStore, type EventSourceFactory } from './stream';
+import { StreamStore, type EventSourceFactory, type RefetchReason } from './stream';
 
 export interface Runtime {
   client: ApiClient;
@@ -23,6 +23,17 @@ export interface Runtime {
 export interface RuntimeOptions {
   baseUrl?: string;
   createEventSource?: EventSourceFactory;
+  /** The HTTP transport (tests); defaults to the global fetch. */
+  fetchImpl?: typeof fetch;
+}
+
+/**
+ * Which queries a stream version bump refetches. A new seq or a gap means the core wrote events: only data in
+ * its event log can have changed. A reset (restore), a reconnect (the API may have restarted) or a manual
+ * refresh refetches everything visible, including data that is not seq-driven.
+ */
+export function invalidationScope(reason: RefetchReason | null): InvalidationScope {
+  return reason === 'seq' || reason === 'gap' ? 'core' : 'all';
 }
 
 export function createRuntime(options: RuntimeOptions = {}): Runtime {
@@ -33,6 +44,7 @@ export function createRuntime(options: RuntimeOptions = {}): Runtime {
   let auth: AuthStore | null = null;
   const client = new ApiClient({
     baseUrl,
+    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
     onUnauthorized: () => auth?.markUnauthenticated(),
     stepUp: stepUp.request,
   });
@@ -53,10 +65,10 @@ export function createRuntime(options: RuntimeOptions = {}): Runtime {
 
   let lastVersion = stream.getSnapshot().version;
   stream.subscribe(() => {
-    const v = stream.getSnapshot().version;
-    if (v !== lastVersion) {
-      lastVersion = v;
-      queries.invalidateAll();
+    const { version, lastReason } = stream.getSnapshot();
+    if (version !== lastVersion) {
+      lastVersion = version;
+      queries.invalidate(invalidationScope(lastReason));
     }
   });
 
@@ -80,6 +92,7 @@ export function createRuntime(options: RuntimeOptions = {}): Runtime {
     } else if (s === 'unauthenticated') {
       stream.stop();
       queries.clear();
+      client.forgetValidated();
       stepUp.settle(false);
     }
   });

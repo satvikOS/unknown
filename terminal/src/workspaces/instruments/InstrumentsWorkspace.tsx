@@ -5,6 +5,7 @@
  * Route: `#/instruments` (list) and `#/instruments/<instrument_id>` (detail).
  */
 import { useEffect, useMemo, useState } from 'react';
+import { exactJson, nsStrOf } from '../../api/nsStrings';
 import type { Instrument, Position, Quote } from '../../api/types';
 import { useQuery } from '../../state/react';
 import { DataTable, type Column } from '../../ui/DataTable';
@@ -269,13 +270,13 @@ const mappingColumns: Column<MappingRow>[] = [
     header: 'Verified',
     sortKind: 'number',
     sortValue: (m) => m.verified_at_ns,
-    cell: (m) => <Timestamp ns={m.verified_at_ns} never="not verified" />,
+    cell: (m) => <Timestamp ns={m.verified_at_ns} nsStr={nsStrOf(m, 'verified_at_ns')} never="not verified" />,
   },
   {
     id: 'details',
     header: 'Details',
     wrap: true,
-    cell: (m) => (Object.keys(m.details ?? {}).length ? <span className="cmd-id">{JSON.stringify(m.details)}</span> : <span className="muted">none</span>),
+    cell: (m) => (Object.keys(m.details ?? {}).length ? <span className="cmd-id">{exactJson(m.details)}</span> : <span className="muted">none</span>),
   },
 ];
 
@@ -378,7 +379,7 @@ function InstrumentDetail({
                     <Money amount={quote.last} currency={quote.currency} unavailable="no last" />{' '}
                     {quote.event_time_ns ? (
                       <span className="muted">
-                        event time <Timestamp ns={quote.event_time_ns} withMs />
+                        event time <Timestamp ns={quote.event_time_ns} nsStr={nsStrOf(quote, 'event_time_ns')} withMs />
                       </span>
                     ) : null}
                   </dd>
@@ -418,7 +419,7 @@ function InstrumentDetail({
                           <FixtureBadge /> true: simulation only
                         </span>
                       ) : typeof v === 'object' && v !== null ? (
-                        <span className="cmd-id">{JSON.stringify(v)}</span>
+                        <span className="cmd-id">{exactJson(v)}</span>
                       ) : (
                         <span className="mono">{String(v)}</span>
                       )}

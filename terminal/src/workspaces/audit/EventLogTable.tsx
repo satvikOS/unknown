@@ -4,12 +4,17 @@
  * uses a disclosure button with aria-expanded/aria-controls.
  */
 import { useRef, useState, type KeyboardEvent } from 'react';
-import { withoutNsStrings } from '../../api/nsStrings';
+import { exactJson } from '../../api/nsStrings';
 import type { EventRecord } from '../../api/types';
-import { formatTimestampNs } from '../../format/time';
+import { formatTimestampNs, formatTimestampNsExact, isNsString } from '../../format/time';
 import { Timestamp } from '../../ui/primitives';
 import { WorkspaceLink } from '../../ui/WorkspaceFrame';
 import type { EventFilters } from './eventLog';
+
+/** Every nanosecond from the API's exact `*_ns_str`; the float (millisecond precision) only when none was sent. */
+function exactTime(ns: number, nsStr: string | null | undefined): string {
+  return isNsString(nsStr) ? formatTimestampNsExact(nsStr) : formatTimestampNs(ns, 'utc', true);
+}
 
 function shortHash(h: string): string {
   return h.length > 14 ? `${h.slice(0, 12)}…` : h;
@@ -135,7 +140,7 @@ export function EventLogTable({ rows, expanded, onToggle, onFilter, caption }: E
               </td>
               <td className="right num">{r.seq}</td>
               <td>
-                <Timestamp ns={r.recorded_time_ns} withMs />
+                <Timestamp ns={r.recorded_time_ns} nsStr={r.recorded_time_ns_str} withMs />
               </td>
               <td>
                 <code className="mono">{r.type}</code>
@@ -179,7 +184,7 @@ function EventDetail({ r, onFilter }: { r: EventRecord; onFilter: (f: EventFilte
         <h3 className="micro" style={{ margin: '0 0 4px' }}>
           Info (event payload summary)
         </h3>
-        <pre className="ops-json">{JSON.stringify(withoutNsStrings(r.info), null, 2)}</pre>
+        <pre className="ops-json">{exactJson(r.info, 2)}</pre>
         <p className="ops-hint" style={{ margin: '6px 0 0' }}>
           Changed sections: {r.changed_sections.length ? r.changed_sections.join(', ') : 'none'}
         </p>
@@ -239,11 +244,11 @@ function EventDetail({ r, onFilter }: { r: EventRecord; onFilter: (f: EventFilte
           </button>
         </dd>
         <dt>Event time</dt>
-        <dd>{r.event_time_ns ? <span className="num">{formatTimestampNs(r.event_time_ns, 'utc', true)}</span> : <span className="muted">not stated</span>}</dd>
+        <dd>{r.event_time_ns ? <span className="num">{exactTime(r.event_time_ns, r.event_time_ns_str)}</span> : <span className="muted">not stated</span>}</dd>
         <dt>Received</dt>
-        <dd className="num">{formatTimestampNs(r.receipt_time_ns, 'utc', true)}</dd>
+        <dd className="num">{exactTime(r.receipt_time_ns, r.receipt_time_ns_str)}</dd>
         <dt>Recorded</dt>
-        <dd className="num">{formatTimestampNs(r.recorded_time_ns, 'utc', true)}</dd>
+        <dd className="num">{exactTime(r.recorded_time_ns, r.recorded_time_ns_str)}</dd>
         <dt>Writer epoch</dt>
         <dd className="num">
           {r.writer_epoch} <span className="muted">· schema v{r.schema_version}</span>

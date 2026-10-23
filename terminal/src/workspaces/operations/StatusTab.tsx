@@ -1,5 +1,6 @@
 /** Operations > Health and control: service health, terminal link, control state, ownership, blockers. */
 import type { ReactNode } from 'react';
+import { nsStrOf } from '../../api/nsStrings';
 import type { Execution, Overview } from '../../api/types';
 import { useControl } from '../../controls/ControlProvider';
 import { describeBlocker, entryState } from '../../controls/model';
@@ -84,7 +85,7 @@ export function StatusTab({
           <div className="panel-note">
             {isCoreHealth(core) ? (
               <>
-                Core time <Timestamp ns={core.now_ns} withMs /> · log seq {health.data?.latest_seq ?? '—'} · polled every {HEALTH_POLL_MS / 1000} s
+                Core time <Timestamp ns={core.now_ns} nsStr={nsStrOf(core, 'now_ns')} withMs /> · log seq {health.data?.latest_seq ?? '—'} · polled every {HEALTH_POLL_MS / 1000} s
               </>
             ) : (
               <>Polled every {HEALTH_POLL_MS / 1000} s through the API.</>
@@ -146,7 +147,7 @@ export function StatusTab({
                   <>
                     <dt>Latched by</dt>
                     <dd>
-                      {control.latched_by ?? <span className="muted">unknown</span>} at <Timestamp ns={control.latched_at_ns} />
+                      {control.latched_by ?? <span className="muted">unknown</span>} at <Timestamp ns={control.latched_at_ns} nsStr={nsStrOf(control, 'latched_at_ns')} />
                     </dd>
                     <dt>Latch command</dt>
                     <dd className="cmd-id">{control.latch_command_id ?? 'not recorded'}</dd>
@@ -181,7 +182,7 @@ export function StatusTab({
                 <dd>
                   {control.last_clean_reconciliation_ns ? (
                     <>
-                      <Timestamp ns={control.last_clean_reconciliation_ns} />{' '}
+                      <Timestamp ns={control.last_clean_reconciliation_ns} nsStr={nsStrOf(control, 'last_clean_reconciliation_ns')} />{' '}
                       <span className="muted">
                         (<Age sinceNs={control.last_clean_reconciliation_ns} staleAfterMs={maxRecAgeS !== undefined ? maxRecAgeS * 1000 : undefined} /> ago)
                       </span>
@@ -200,7 +201,7 @@ export function StatusTab({
                 <dd>
                   {control.last_start ? (
                     <>
-                      <Timestamp ns={control.last_start.at_ns} /> by {control.last_start.by} <ShortId value={control.last_start.command_id} head={22} />
+                      <Timestamp ns={control.last_start.at_ns} nsStr={nsStrOf(control.last_start, 'at_ns')} /> by {control.last_start.by} <ShortId value={control.last_start.command_id} head={22} />
                     </>
                   ) : (
                     <span className="muted">never</span>
@@ -232,13 +233,13 @@ export function StatusTab({
                 <dd className="num">{own.epoch}</dd>
                 <dt>Granted</dt>
                 <dd>
-                  <Timestamp ns={own.granted_at_ns} /> by {own.granted_by}
+                  <Timestamp ns={own.granted_at_ns} nsStr={nsStrOf(own, 'granted_at_ns')} /> by {own.granted_by}
                 </dd>
                 {own.released_at_ns ? (
                   <>
                     <dt>Released</dt>
                     <dd>
-                      <Timestamp ns={own.released_at_ns} />
+                      <Timestamp ns={own.released_at_ns} nsStr={nsStrOf(own, 'released_at_ns')} />
                     </dd>
                   </>
                 ) : null}
@@ -325,7 +326,7 @@ export function StatusTab({
                 <span className="label">Last reconciliation</span>
                 {rec ? (
                   <span>
-                    <StatusPill label={rec.status} tone={reconciliationTone(rec.status)} compact /> <Timestamp ns={rec.completed_at_ns} />{' '}
+                    <StatusPill label={rec.status} tone={reconciliationTone(rec.status)} compact /> <Timestamp ns={rec.completed_at_ns} nsStr={nsStrOf(rec, 'completed_at_ns')} />{' '}
                     <span className="muted">
                       (<Age sinceNs={rec.completed_at_ns} staleAfterMs={maxRecAgeS !== undefined ? maxRecAgeS * 1000 : undefined} /> ago)
                     </span>

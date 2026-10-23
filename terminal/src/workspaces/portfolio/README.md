@@ -16,11 +16,12 @@ Shortcut `g f`, nav order 45. Route: `#/portfolio/<tab>`. The palette lists ever
 
 ## Rules this workspace keeps
 
-- **Money stays exact.** Amounts are the API's decimal strings, shown with `Money`. Bar lengths and shares use BigInt ratios (`exactBars`, `exactShares`, `weightPct`). Returns, volatilities, VaR/ES, optimiser weights and test statistics are floats that the backend computed from exact inputs. They are labelled as statistics and are never used as money.
+- **Money stays exact.** Amounts are the API's decimal strings, shown with `Money`. Bar lengths and shares use BigInt ratios (`exactBars`, `exactShares`, `weightPct`). NAV-by-owner shares are rounded to 0.01% by largest remainder, so in each currency they add up to exactly 100.00% (each within 0.01% of its exact value), and the panel says so. Returns, volatilities, VaR/ES, optimiser weights and test statistics are floats that the backend computed from exact inputs. They are labelled as statistics and are never used as money.
 - **Every amount has its currency.** What-if headroom is formatted in the session currency. Threshold rows carry no currency in the response. Session rows take the session's currency from `pnl_by_owner` (the backend builds both from the same owner and currency pairs); account rows take the account's base currency from `/api/overview`. When that is ambiguous, the exact amount is shown as "currency not reported".
 - **IRR uniqueness.** A money-weighted rate is shown only when exactly one root solves the cash-flow equation. "Not unique" (several sign changes) and "no solution" are flagged in red with the backend's reason. Periods under one year show only the period MWR (GIPS 2.A.12).
 - **Hypothetical results are not recomputed silently.** What-if and stress results are fetched once per run, not on every stream version bump. They show the core sequence they were computed on, and a "Stale" notice with a Re-run button once the core records a later event (`whatif.is_stale`).
 - **No snapshot history yet.** The tab shows the backend's own reason, including the `snapshots record` command, and no placeholder figures.
+- **Snapshot-store data is not refetched per core event.** Snapshots, performance, the VaR backtest and the formula list read only the snapshot store (written by the owner's `snapshots record` command) or code, so they are `seqDriven: false` (`SNAPSHOT_STORE_QUERY`): opening the tab and Refresh fetch them, a new core seq does not. Holdings, P&L, exposure, VaR and allocation read the core and refetch on every seq.
 - **Charts** are inline SVG with no dependency. Each one is a summary of a table on the same page. Sign and exceptions are shown by position and shape as well as colour.
 
 ## API gaps found

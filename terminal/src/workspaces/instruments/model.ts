@@ -2,6 +2,7 @@
  * Instrument master helpers (domain/instruments.py): tick bands, fixture flag, mappings, search.
  * Prices and ticks stay decimal strings; comparisons are exact (compareDecimal).
  */
+import { exactNs, isNsStringSibling } from '../../api/nsStrings';
 import type { Instrument, ProviderMapping } from '../../api/types';
 import { compareDecimal, isDecimal } from '../../format/decimal';
 
@@ -86,7 +87,14 @@ export function matchInstrument(i: Instrument, query: string): boolean {
   return q.split(/\s+/).every((t) => hay.includes(t));
 }
 
-/** Attributes sorted by key, with the fixture marker first. */
+/**
+ * Attributes sorted by key, with the fixture marker first. A `*_ns` value is given as the API's exact `*_ns_str`
+ * (JSON.parse rounded the number), and the sibling itself is not listed as an attribute.
+ */
 export function attributeEntries(attributes: Record<string, unknown> | null | undefined): [string, unknown][] {
-  return Object.entries(attributes ?? {}).sort(([a], [b]) => (a === 'fixture' ? -1 : b === 'fixture' ? 1 : a.localeCompare(b)));
+  const attrs = attributes ?? {};
+  return Object.entries(attrs)
+    .filter(([k]) => !isNsStringSibling(k, attrs))
+    .map(([k, v]): [string, unknown] => [k, exactNs(attrs, k) ?? v])
+    .sort(([a], [b]) => (a === 'fixture' ? -1 : b === 'fixture' ? 1 : a.localeCompare(b)));
 }

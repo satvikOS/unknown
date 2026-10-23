@@ -1,5 +1,4 @@
 import type { WorkspaceDefinition } from '../types';
-import { OrdersWorkspace } from './OrdersWorkspace';
 
 /** Orders: blotter, order detail, executions and the owner's order ticket (book Ch. 22). */
 export const ordersWorkspace: WorkspaceDefinition = {
@@ -8,7 +7,7 @@ export const ordersWorkspace: WorkspaceDefinition = {
   icon: 'orders',
   shortcut: 'g b',
   order: 30,
-  component: OrdersWorkspace,
+  load: () => import('./OrdersWorkspace').then((m) => m.OrdersWorkspace),
   description: 'Blotter, order detail, executions and the order ticket; controlled cancel',
   keywords: ['blotter', 'ticket', 'new order', 'buy', 'sell', 'intent', 'cancel', 'fills', 'executions', 'holds', 'pretrade'],
   commands: [

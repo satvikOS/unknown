@@ -2,7 +2,7 @@
 import { createContext, useCallback, useContext, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import type { CommandKind, CommandPayload, Endpoint, ParamsOf, ResponseOf } from '../api/types';
 import type { AuthSnapshot } from './auth';
-import type { TrackedCommand } from './commands';
+import { lookupNote, type TrackedCommand } from './commands';
 import type { Notice } from './notices';
 import { queryKey, type QueryState } from './queries';
 import type { Route } from './router';
@@ -57,6 +57,12 @@ export function useStepUp(): StepUpSnapshot {
 export interface QueryOptions {
   /** Also refetch on this interval (ms) while mounted: for live process state outside the event log. */
   pollMs?: number;
+  /**
+   * False for data that is not in the core's event log (research store and registry, valuation snapshots, the
+   * capability register): a new stream seq does not refetch it. Mount, Refresh, a reconnect, a reset and
+   * `pollMs` still do. Default true.
+   */
+  seqDriven?: boolean;
 }
 
 export interface QueryResult<T> extends QueryState<T> {
@@ -76,7 +82,8 @@ const DISABLED: QueryState<never> = {
 
 /**
  * Subscribe a view to a GET endpoint. Refetches whenever the state stream's version changes (new
- * seq, gap, reset, reconnect) and on `pollMs` if given. Pass `null` as the endpoint to disable.
+ * seq, gap, reset, reconnect) and on `pollMs` if given; with `seqDriven: false`, not on a new seq or
+ * gap. Pass `null` as the endpoint to disable.
  *
  *   const overview = useQuery('/api/overview');
  *   const open = useQuery('/api/orders', { state: 'open' });
@@ -91,13 +98,14 @@ export function useQuery<E extends Endpoint>(
   const paramsRef = useRef(params);
   paramsRef.current = params;
   const pollMs = options.pollMs;
+  const seqDriven = options.seqDriven ?? true;
   const subscribe = useCallback(
     (listener: () => void) =>
       endpoint && key
-        ? queries.subscribe(endpoint, paramsRef.current as Record<string, unknown> | undefined, listener, pollMs)
+        ? queries.subscribe(endpoint, paramsRef.current as Record<string, unknown> | undefined, listener, { pollMs, seqDriven })
         : () => undefined,
     // `key` captures endpoint + params; params are read through a ref so a new object identity does not resubscribe.
-    [queries, key, pollMs],
+    [queries, key, pollMs, seqDriven],
   );
   const getSnapshot = useCallback(() => (key ? queries.getState(key) : DISABLED), [queries, key]);
   const state = useSyncExternalStore(subscribe, getSnapshot) as QueryState<ResponseOf<E>>;
@@ -127,12 +135,23 @@ export function useSendCommand(): SendCommand {
       if (t.status === 'rejected') {
         notices.push({ tone: 'error', title: `${opts.label}: rejected`, detail: t.error ?? undefined, commandId: t.commandId });
       } else if (t.status === 'failed') {
-        notices.push({ tone: 'error', title: `${opts.label}: not confirmed`, detail: t.error ?? undefined, commandId: t.commandId });
+        // An unknown outcome has already been looked up (GET /api/commands/<id>): say what that found.
+        const notExecuted = t.lookup?.state === 'not_recorded' && t.lookup.definitive;
+        const detail = [t.error, lookupNote(t)].filter(Boolean).join(' ');
+        notices.push({ tone: 'error', title: `${opts.label}: ${notExecuted ? 'not executed' : 'not confirmed'}`, detail: detail || undefined, commandId: t.commandId });
       } else if (t.status === 'cancelled') {
         notices.push({ tone: 'warn', title: `${opts.label}: cancelled`, detail: 'Re-authentication was cancelled; nothing was sent to the core.', commandId: t.commandId });
       } else if (t.status === 'pending') {
         const noticeId = notices.push(
-          { tone: 'info', title: `${opts.label}: recorded by the core`, detail: 'Waiting for the state stream to confirm.', commandId: t.commandId },
+          {
+            tone: 'info',
+            title: `${opts.label}: recorded by the core`,
+            detail:
+              t.lookup?.state === 'found'
+                ? 'The response was lost; the stored result says the core recorded it (nothing was resent). Waiting for the state stream to confirm.'
+                : 'Waiting for the state stream to confirm.',
+            commandId: t.commandId,
+          },
           60_000,
         );
         let unsubscribe: (() => void) | null = null;
@@ -156,7 +175,11 @@ export function useSendCommand(): SendCommand {
         check(); // the stream may already have reached the command's seq
         if (settled) unsubscribe();
       } else {
-        notices.push({ tone: 'ok', title: `${opts.label}: applied`, detail: 'Duplicate command id: the core returned its stored result.', commandId: t.commandId });
+        const detail =
+          t.lookup?.state === 'found'
+            ? 'The response was lost; the stored result says the core applied it (nothing was resent).'
+            : 'Duplicate command id: the core returned its stored result.';
+        notices.push({ tone: 'ok', title: `${opts.label}: applied`, detail, commandId: t.commandId });
       }
       return t;
     },

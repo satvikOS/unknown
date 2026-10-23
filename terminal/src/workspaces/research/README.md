@@ -28,7 +28,7 @@ Registered as `research` (`g q`, nav order 130). It reads `GET /api/research` (b
 
 - FIXTURE (or UNKNOWN ORIGIN) appears exactly where the API's provenance says so (`provenance.label`, `fixture`), and each panel shows its provenance: source, path, schema version, read time and formulas.
 - Without a registry, the API's reason is shown verbatim. It names `python -m unknown.research.study`, which exits with "the following arguments are required: --out", so the complete command (`python -m unknown.research.study --out <DIR>`) is shown in its place.
-- Integers beyond 2^53 in nested records (nanosecond timestamps such as `registered_at_ns`) have already been rounded by the browser's JSON parser; the record views mark them with "≈" and say so, instead of showing them as exact.
+- Integers beyond 2^53 in nested records (nanosecond timestamps such as `registered_at_ns`) have already been rounded by the browser's JSON parser. A `*_ns` value is shown exactly from the API's `*_ns_str` sibling; any other such integer is marked with "≈" and the view says so, instead of showing it as exact.
 
 ## API notes found while building this
 

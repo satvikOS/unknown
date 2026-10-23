@@ -3,8 +3,13 @@
  *
  * These routes are served by backend route modules (api/routes/company.py, research.py), not by the core
  * query map in src/api/types.ts, so their wire types live next to the workspaces that read them. The
- * query goes through the shared cache (`useQuery`): same caching, refetch on every stream version bump,
- * same provenance in the workspace header. Empty parameters are dropped, as the API ignores them.
+ * query goes through the shared cache (`useQuery`): same caching, same provenance in the workspace header.
+ * Empty parameters are dropped, as the API ignores them.
+ *
+ * Freshness: these routes read the research store and the research registry, never the core's event log,
+ * so a new core seq does not refetch them (`seqDriven: false` by default; the Company tearsheet alone is
+ * about 640 kB). They are fetched when a view opens, on Refresh, on a stream reconnect or reset. A route that
+ * also reads core state passes `{ seqDriven: true }` (the issuer search, which matches the instrument master).
  */
 import type { Endpoint, ParamsOf } from '../../api/types';
 import { encodePathSegment } from '../../api/client';
@@ -29,8 +34,11 @@ export function apiPath(...segments: (string | number)[]): string {
   return '/api/' + segments.map((s) => encodePathSegment(String(s))).join('/');
 }
 
-/** GET a plugin route through the shared query cache; pass null to disable. */
+/** Research data changes outside the core's event log: no refetch on a new core seq (see the module note). */
+export const RESEARCH_QUERY: QueryOptions = { seqDriven: false };
+
+/** GET a plugin route through the shared query cache; pass null to disable. Not seq-driven unless `options` says so. */
 export function useApi<T>(path: string | null, params?: ApiParams, options?: QueryOptions): QueryResult<T> {
   const p = cleanParams(params);
-  return useQuery(path as Endpoint | null, p as ParamsOf<Endpoint> | undefined, options) as unknown as QueryResult<T>;
+  return useQuery(path as Endpoint | null, p as ParamsOf<Endpoint> | undefined, { ...RESEARCH_QUERY, ...options }) as unknown as QueryResult<T>;
 }

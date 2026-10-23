@@ -9,7 +9,8 @@
  *   millisecond resolution, never as identifiers or for exact comparison.
  * - Exact timestamps: every `*_ns` field holding an integer or null also arrives as `*_ns_str`, the same
  *   value as a decimal string (or null), in every API response (server.py, queries.with_ns_strings).
- *   Read the `_str` sibling wherever the exact value matters; only a few types below declare it.
+ *   Read the `_str` sibling wherever the exact value matters (`api/nsStrings.ts` exactNs/exactJson,
+ *   `format/time.ts` formatTimestampNsExact, `<Timestamp nsStr>`); only a few types below declare it.
  * - Errors are `{"error", "code", ...}` with a stable `code` (`ApiErrorBody`).
  * - Rows the server stores as JSON (`row` columns) are typed with the fields the core writes today; an
  *   index signature keeps unknown future fields visible to generic renderers.
@@ -497,6 +498,10 @@ export interface EventRecord {
   event_time_ns: EpochNs | null;
   receipt_time_ns: EpochNs;
   recorded_time_ns: EpochNs;
+  /** The exact values of the three times above (server.py adds a `*_ns_str` beside every `*_ns`). */
+  event_time_ns_str?: EpochNsString | null;
+  receipt_time_ns_str?: EpochNsString;
+  recorded_time_ns_str?: EpochNsString;
   writer_epoch: number;
   payload_hash: string;
   chain_hash: string;

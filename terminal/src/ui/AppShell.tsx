@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ControlDrawer } from '../controls/Controls';
 import { ControlProvider, useControl } from '../controls/ControlProvider';
 import { useQuery, useRoute, useRuntime } from '../state/react';
+import { preloadWorkspace, WorkspaceHost } from '../workspaces/lazy';
 import { DEFAULT_WORKSPACE, findWorkspace, hasWorkspace, WORKSPACES } from '../workspaces/registry';
 import { StepUpDialog } from './AuthScreens';
 import { charKeysEnabled, setCharKeys, useCharKeys } from './charKeys';
@@ -27,6 +28,8 @@ function Nav({ current, onHelp }: { current: string; onHelp: () => void }) {
               href={`#/${w.id}`}
               aria-current={w.id === current ? 'page' : undefined}
               title={w.description ? `${w.description} (keys: ${w.shortcut})` : `Keys: ${w.shortcut}`}
+              onPointerEnter={() => preloadWorkspace(w)}
+              onFocus={() => preloadWorkspace(w)}
             >
               <Icon name={w.icon ?? 'generic'} />
               <span>{w.title}</span>
@@ -244,16 +247,18 @@ function Shell() {
     if (!workspace) router.navigate(DEFAULT_WORKSPACE);
   }, [workspace, router]);
 
-  // Move focus to the workspace title on navigation (screen readers announce the new page).
-  const lastWs = useRef<string | null>(null);
   useEffect(() => {
-    if (!workspace) return;
-    if (lastWs.current !== null && lastWs.current !== workspace.id) {
-      document.getElementById('ws-title')?.focus();
-    }
-    lastWs.current = workspace.id;
-    document.title = `${workspace.title} · Unknown`;
+    if (workspace) document.title = `${workspace.title} · Unknown`;
   }, [workspace]);
+
+  // Move focus to the workspace title on navigation (screen readers announce the new page). The title exists only
+  // once the workspace's chunk has loaded, so this runs when the workspace reports that it is on screen.
+  const lastReady = useRef<string | null>(null);
+  const onWorkspaceReady = useCallback((id: string) => {
+    if (lastReady.current !== null && lastReady.current !== id) document.getElementById('ws-title')?.focus();
+    lastReady.current = id;
+  }, []);
+  const navigate = useCallback((id: string, ...rest: string[]) => router.navigate(id, ...rest), [router]);
 
   const matcher = useMemo(() => new SequenceMatcher(WORKSPACES.map((w) => w.shortcut)), []);
   useEffect(() => {
@@ -289,7 +294,6 @@ function Shell() {
   }, [matcher, router, drawer, closeDrawer]);
 
   const mode = overview.data?.account?.mode ?? null;
-  const Component = workspace?.component;
   return (
     <div className="app" style={{ ['--mode-color' as string]: modeColor(mode) }}>
       <a className="skip-link" href="#main" onClick={(e) => { e.preventDefault(); mainRef.current?.focus(); }}>
@@ -302,7 +306,7 @@ function Shell() {
       <div className="shell-body">
         <Nav current={workspace?.id ?? ''} onHelp={openHelp} />
         <main id="main" className="main" ref={mainRef} tabIndex={-1} aria-labelledby="ws-title">
-          {Component && workspace ? <Component route={route} navigate={(id, ...rest) => router.navigate(id, ...rest)} /> : null}
+          {workspace ? <WorkspaceHost workspace={workspace} route={route} navigate={navigate} onReady={onWorkspaceReady} /> : null}
         </main>
       </div>
       <ControlDrawer />

@@ -7,21 +7,22 @@
  * from exact inputs; they are displayed as such and never used as money.
  */
 import { compareDecimal, formatDecimal, formatMoney, isDecimal } from '../../format/decimal';
-import { addDecimal, ratioBps } from '../../format/exact';
+import { ratioBps, toScaled } from '../../format/exact';
 import type { Tone } from '../../ui/primitives';
+import type { QueryOptions } from '../../state/react';
+import { PORTFOLIO_TABS, type PortfolioTab } from './tabs';
+
+export { PORTFOLIO_TABS, type PortfolioTab };
+
+/**
+ * For routes that read only the valuation snapshot store (written by the owner's `snapshots record` command)
+ * or code: snapshots, performance, the VaR backtest and the formula list. A new core seq changes nothing in
+ * them, so it does not refetch them (state/queries.ts `seqDriven`); opening the tab and Refresh do. Holdings,
+ * P&L, exposure, VaR and allocation read the core's ledger or quotes and stay seq-driven.
+ */
+export const SNAPSHOT_STORE_QUERY: QueryOptions = { seqDriven: false };
 
 // ------------------------------------------------------------------ routes
-
-export const PORTFOLIO_TABS = [
-  { id: 'holdings', label: 'Holdings' },
-  { id: 'performance', label: 'Performance' },
-  { id: 'risk', label: 'Exposure and VaR' },
-  { id: 'stress', label: 'Stress' },
-  { id: 'whatif', label: 'What-if' },
-  { id: 'allocation', label: 'Allocation' },
-  { id: 'snapshots', label: 'Snapshots' },
-] as const;
-export type PortfolioTab = (typeof PORTFOLIO_TABS)[number]['id'];
 
 export function parsePortfolioRoute(rest: readonly string[]): { tab: PortfolioTab } {
   const t = rest[0];
@@ -257,13 +258,31 @@ export function exactBars(items: readonly { key: string; value: string | null }[
   });
 }
 
-/** Shares of a positive total in basis points (floor), for a composition bar. Negative parts are excluded and reported. */
+/**
+ * Shares of a positive total in basis points, for a composition bar. Negative parts are excluded and reported.
+ *
+ * Rounded by largest remainder (Hamilton), so the shown shares always sum to exactly 10,000 bp (100.00%): each
+ * part gets the floor of its exact share, and the basis points left over go one each to the parts with the
+ * largest exact remainders (ties: the larger value, then the earlier part). Every share is then within 1 bp of
+ * its exact value. All arithmetic is on BigInt scaled integers.
+ */
 export function exactShares(items: readonly { key: string; value: string | null }[]): { parts: { key: string; value: string; bps: number }[]; excluded: string[] } {
   const positive = items.filter((i): i is { key: string; value: string } => isDecimal(i.value) && compareDecimal(i.value, '0') > 0);
   const excluded = items.filter((i) => !isDecimal(i.value) || compareDecimal(i.value, '0') < 0).map((i) => i.key);
-  let total = '0';
-  for (const p of positive) total = addDecimal(total, p.value);
-  return { parts: positive.map((p) => ({ key: p.key, value: p.value, bps: Number(ratioBps(p.value, total, 'floor') ?? 0n) })), excluded };
+  if (!positive.length) return { parts: [], excluded };
+  const scaled = positive.map((p) => toScaled(p.value));
+  const scale = Math.max(...scaled.map((v) => v.scale));
+  const units = scaled.map((v) => v.units * 10n ** BigInt(scale - v.scale));
+  const total = units.reduce((a, b) => a + b, 0n);
+  const shares = units.map((u, i) => ({ i, units: u, bps: (u * 10_000n) / total, remainder: (u * 10_000n) % total }));
+  let left = 10_000n - shares.reduce((a, s) => a + s.bps, 0n); // 0 <= left < number of parts
+  const order = [...shares].sort((a, b) => (a.remainder === b.remainder ? (a.units === b.units ? a.i - b.i : a.units > b.units ? -1 : 1) : a.remainder > b.remainder ? -1 : 1));
+  for (const s of order) {
+    if (left <= 0n) break;
+    s.bps += 1n;
+    left -= 1n;
+  }
+  return { parts: positive.map((p, i) => ({ key: p.key, value: p.value, bps: Number(shares[i]!.bps) })), excluded };
 }
 
 // ------------------------------------------------------------------ line geometry (statistical series)

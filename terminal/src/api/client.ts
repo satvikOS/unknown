@@ -102,8 +102,9 @@ export class NetworkError extends Error {
 
 /**
  * Command-path failure that carries the durable command id so the UI can show it and retry safely.
- * `outcomeUnknown` is true when the command may have reached the core (network failure, 5xx): a retry
- * must reuse the same id so the core returns the recorded result instead of acting twice. It is false
+ * `outcomeUnknown` is true when the command may have reached the core (network failure, 5xx): the
+ * command tracker then asks GET /api/commands/<id> for the stored result before it offers a retry, and a
+ * retry reuses the same id so the core returns the recorded result instead of acting twice. It is false
  * for a 4xx: the API refused the request before forwarding it, or the core refused it (a command id
  * conflict, an invalid command), so it was not executed.
  */
@@ -112,6 +113,12 @@ export class CommandTransportError extends Error {
   readonly kind: CommandKind;
   readonly outcomeUnknown: boolean;
   readonly status: number | null;
+  /** The API's stable error code (`COMMAND_ID_CONFLICT`, `CORE_REFUSED`, ...), when it sent one. */
+  readonly code: string | null;
+  /** The server's own message, when it sent one. */
+  readonly serverMessage: string | null;
+  /** 409 COMMAND_ID_CONFLICT: this id already names a command with another payload; this request was not executed. */
+  readonly conflict: boolean;
   override readonly cause: unknown;
   constructor(kind: CommandKind, commandId: string, cause: unknown) {
     const status = cause instanceof ApiError ? cause.status : null;
@@ -132,8 +139,25 @@ export class CommandTransportError extends Error {
     this.commandId = commandId;
     this.outcomeUnknown = outcomeUnknown;
     this.status = status;
+    this.code = code;
+    this.serverMessage = cause instanceof ApiError ? cause.serverMessage : null;
+    this.conflict = status === 409;
     this.cause = cause;
   }
+}
+
+/** 404 COMMAND_NOT_FOUND from GET /api/commands/<id>: nothing is stored for that id (server.py `_command_result`). */
+export interface CommandNotFound {
+  /** True when the core answered after finishing every request it had received: the command was not executed. */
+  definitive: boolean;
+  message: string;
+}
+
+/** The not-found answer of a stored-result lookup, or null when `err` is any other failure. */
+export function commandNotFound(err: unknown): CommandNotFound | null {
+  if (!(err instanceof ApiError) || err.status !== 404 || errorCode(err.body) !== 'COMMAND_NOT_FOUND') return null;
+  const definitive = (err.body as { definitive?: unknown }).definitive === true;
+  return { definitive, message: err.serverMessage ?? 'no result is stored for this command id' };
 }
 
 export interface StepUpRequest {
@@ -205,7 +229,7 @@ async function readBody(res: Response): Promise<unknown> {
   }
 }
 
-function errorCode(body: unknown): string | null {
+export function errorCode(body: unknown): string | null {
   if (body && typeof body === 'object' && typeof (body as { code?: unknown }).code === 'string') {
     return (body as { code: string }).code;
   }
@@ -220,6 +244,9 @@ function serverMessage(body: unknown): string | null {
   return null;
 }
 
+/** At most this many ETag-validated bodies are kept (today only the capability register has an ETag). */
+const MAX_VALIDATED = 16;
+
 export class ApiClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
@@ -227,6 +254,8 @@ export class ApiClient {
   private onUnauthorized: ((error: UnauthorizedError) => void) | undefined;
   private stepUp: StepUpHandler | undefined;
   private readonly newCommandId: (kind: CommandKind) => string;
+  /** Bodies of responses that carried an ETag, by path, for conditional GETs (see `get`). */
+  private readonly validated = new Map<string, { etag: string; body: unknown }>();
 
   constructor(options: ApiClientOptions = {}) {
     this.baseUrl = options.baseUrl ?? '';
@@ -261,22 +290,28 @@ export class ApiClient {
     path: string,
     body?: unknown,
     signal?: AbortSignal,
-  ): Promise<{ status: number; body: unknown }> {
+    ifNoneMatch?: string,
+  ): Promise<{ status: number; body: unknown; etag: string | null }> {
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (method === 'POST') {
       headers['Content-Type'] = 'application/json';
       if (this.csrfToken) headers['X-CSRF-Token'] = this.csrfToken;
     }
+    if (ifNoneMatch) headers['If-None-Match'] = ifNoneMatch;
     let res: Response;
     try {
-      const init: RequestInit = { method, headers, credentials: 'same-origin', cache: 'no-store' };
+      // Every request reaches the API; none is answered from the browser cache without asking. A GET we validate
+      // ourselves (If-None-Match) bypasses the HTTP cache, so the API's 304 reaches this code; any other GET is
+      // 'no-cache' (always revalidated, and every JSON route but the register is no-store anyway). POSTs: no-store.
+      const cache: RequestCache = method === 'GET' && !ifNoneMatch ? 'no-cache' : 'no-store';
+      const init: RequestInit = { method, headers, credentials: 'same-origin', cache };
       if (body !== undefined) init.body = JSON.stringify(body);
       if (signal) init.signal = signal;
       res = await this.fetchImpl(this.baseUrl + path, init);
     } catch (err) {
       throw new NetworkError(method, path, err);
     }
-    return { status: res.status, body: await readBody(res) };
+    return { status: res.status, body: await readBody(res), etag: res.headers.get('ETag') };
   }
 
   private fail(method: string, path: string, status: number, body: unknown): never {
@@ -306,12 +341,32 @@ export class ApiClient {
 
   // ---------------------------------------------------------------- reads
 
-  /** Typed GET for every read endpoint. Throws ApiError / UnauthorizedError / NetworkError. */
+  /**
+   * Typed GET for every read endpoint. Throws ApiError / UnauthorizedError / NetworkError.
+   *
+   * Conditional reads: when a response carries an ETag (the capability register, about 3 MB), the body is kept
+   * with its tag and the next GET of the same path sends `If-None-Match`. A 304 means the API still holds exactly
+   * that representation, so the kept body is returned; any 200 replaces it. Every read still asks the API, so
+   * nothing is ever served stale. The client does this itself because the API answers HTTP/1.0, and browsers
+   * (Chromium at least) only revalidate an HTTP/1.1 response with its ETag.
+   */
   async get<E extends Endpoint>(endpoint: E, params?: ParamsOf<E>, signal?: AbortSignal): Promise<ResponseOf<E>> {
     const path = endpoint + buildQuery(params as Record<string, QueryValue> | undefined);
-    const res = await this.request('GET', path, undefined, signal);
+    const kept = this.validated.get(path);
+    const res = await this.request('GET', path, undefined, signal, kept?.etag);
+    if (res.status === 304 && kept) return kept.body as ResponseOf<E>;
     if (res.status < 200 || res.status >= 300) this.fail('GET', path, res.status, res.body);
+    this.validated.delete(path);
+    if (res.etag) {
+      this.validated.set(path, { etag: res.etag, body: res.body });
+      if (this.validated.size > MAX_VALIDATED) this.validated.delete(this.validated.keys().next().value as string);
+    }
     return res.body as ResponseOf<E>;
+  }
+
+  /** Drop every kept ETag and body (sign-out). */
+  forgetValidated(): void {
+    this.validated.clear();
   }
 
   sessionDetail(sessionId: string, signal?: AbortSignal): Promise<SessionDetail> {

@@ -1,5 +1,6 @@
 /** Research job list: every job in the durable job store, newest first, with its state and outcome. */
 import { useEffect, useState } from 'react';
+import { nsStrOf } from '../../api/nsStrings';
 import { routeHref } from '../../state/router';
 import { DataTable, type Column } from '../../ui/DataTable';
 import { Badge, ShortId, StatusPill, Timestamp } from '../../ui/primitives';
@@ -42,7 +43,7 @@ export function JobListView({ navigate }: Pick<WorkspaceProps, 'navigate'>) {
   useEffect(() => setActive(nowActive), [nowActive]);
 
   const columns: Column<JobSummary>[] = [
-    { id: 'submitted', header: 'Submitted', cell: (j) => <Timestamp ns={j.submitted_ns} />, sortValue: (j) => j.submitted_ns ?? 0, sortKind: 'number' },
+    { id: 'submitted', header: 'Submitted', cell: (j) => <Timestamp ns={j.submitted_ns} nsStr={nsStrOf(j, 'submitted_ns')} />, sortValue: (j) => j.submitted_ns ?? 0, sortKind: 'number' },
     {
       id: 'state',
       header: 'State',
@@ -65,7 +66,7 @@ export function JobListView({ navigate }: Pick<WorkspaceProps, 'navigate'>) {
       cell: (j) => <StatusPill label={j.delivery} tone={deliveryTone(j.delivery)} compact />,
       sortValue: (j) => j.delivery,
     },
-    { id: 'finished', header: 'Finished', cell: (j) => <Timestamp ns={j.finished_ns} never="—" />, sortValue: (j) => j.finished_ns ?? 0, sortKind: 'number' },
+    { id: 'finished', header: 'Finished', cell: (j) => <Timestamp ns={j.finished_ns} nsStr={nsStrOf(j, 'finished_ns')} never="—" />, sortValue: (j) => j.finished_ns ?? 0, sortKind: 'number' },
     { id: 'id', header: 'Job id', cell: (j) => <ShortId value={j.job_id} head={14} /> },
   ];
 

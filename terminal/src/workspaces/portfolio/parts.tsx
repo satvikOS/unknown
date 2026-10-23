@@ -1,10 +1,11 @@
 /** Shared pieces of the Portfolio workspace: lineage, fixture and quote notes, labels, scope select. */
 import type { ReactNode } from 'react';
+import { exactJson, exactNs, isNsStringSibling } from '../../api/nsStrings';
 import { useStream, type QueryResult } from '../../state/react';
 import { WorkspaceFrame, WorkspaceLink } from '../../ui/WorkspaceFrame';
 import { Badge, FixtureBadge, ShortId, StatusPill, Timestamp } from '../../ui/primitives';
 import { usePluginQuery } from '../plugin-api/hooks';
-import { arr, isRec, num, recs, str, whatIfStale, type Rec, type ScopeOption } from './model';
+import { SNAPSHOT_STORE_QUERY, arr, isRec, num, recs, str, whatIfStale, type Rec, type ScopeOption } from './model';
 
 export interface FormulaDef {
   id: string;
@@ -15,7 +16,7 @@ export interface FormulaDef {
 
 /** GET /api/portfolio/formulas, keyed by `id@version`. */
 export function useFormulas(): Map<string, FormulaDef> {
-  const q = usePluginQuery<unknown>('/api/portfolio/formulas');
+  const q = usePluginQuery<unknown>('/api/portfolio/formulas', undefined, SNAPSHOT_STORE_QUERY);
   const map = new Map<string, FormulaDef>();
   if (isRec(q.data)) {
     for (const f of recs(q.data.formulas)) {
@@ -105,14 +106,15 @@ export function ResultLabel({ kind, text }: { kind: 'hypothetical' | 'proposal';
 }
 
 function SourceDates({ dates }: { dates: Rec }) {
-  const entries = Object.entries(dates).filter(([, v]) => v !== null && v !== undefined);
+  // The API's *_ns_str siblings are not dates of their own: they make the *_ns value beside them exact.
+  const entries = Object.entries(dates).filter(([k, v]) => v !== null && v !== undefined && !isNsStringSibling(k, dates));
   if (!entries.length) return <span className="muted">none</span>;
   return (
     <>
       {entries.map(([k, v], i) => (
         <span key={k}>
           {i ? ' · ' : ''}
-          {k}: {k.endsWith('_ns') && typeof v === 'number' ? <Timestamp ns={v} /> : String(v)}
+          {k}: {k.endsWith('_ns') && typeof v === 'number' ? <Timestamp ns={v} nsStr={exactNs(dates, k)} /> : String(v)}
         </span>
       ))}
     </>
@@ -158,7 +160,7 @@ export function Lineage({ body, formulas }: { body: Rec | null; formulas: Map<st
               <ul className="pf-list">
                 {missing.map((m, i) => (
                   <li key={i}>
-                    {str(m.instrument_id) ?? str(m.date) ?? str(m.day) ?? ''} {str(m.reason) ?? JSON.stringify(m)}
+                    {str(m.instrument_id) ?? str(m.date) ?? str(m.day) ?? ''} {str(m.reason) ?? exactJson(m)}
                   </li>
                 ))}
               </ul>
@@ -253,7 +255,7 @@ export function AsOf({ body }: { body: Rec | null }) {
   const seq = num(body.core_seq) ?? num(body.snapshot_seq);
   return (
     <span className="pf-hint">
-      computed <Timestamp ns={at} never="—" />
+      computed <Timestamp ns={at} nsStr={exactNs(body, 'as_of_ns')} never="—" />
       {seq !== null ? ` on core seq ${seq}` : ''}
     </span>
   );

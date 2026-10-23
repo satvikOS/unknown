@@ -3,6 +3,7 @@
  * (formula id@version) that every derived research number refers to.
  */
 import { useMemo, useState } from 'react';
+import { exactJson, nsStrOf } from '../../api/nsStrings';
 import { DataTable, type Column } from '../../ui/DataTable';
 import { Badge, FixtureBadge, StatusPill } from '../../ui/primitives';
 import { apiPath, useApi } from '../research-common/api';
@@ -29,7 +30,7 @@ export function StrategyList({ ctx }: { ctx: ResearchCtx }) {
     },
     { id: 'strategy', header: 'Strategy', sortValue: (s) => s.strategy_id, cell: (s) => <span className="mono">{`${s.strategy_id} v${s.version}`}</span> },
     { id: 'family', header: 'Family', sortValue: (s) => s.family, cell: (s) => s.family },
-    { id: 'registered', header: 'Registered', sortValue: (s) => s.registered_at_ns, sortKind: 'number', cell: (s) => <NsTime ns={s.registered_at_ns} /> },
+    { id: 'registered', header: 'Registered', sortValue: (s) => s.registered_at_ns, sortKind: 'number', cell: (s) => <NsTime ns={s.registered_at_ns} nsStr={nsStrOf(s, 'registered_at_ns')} /> },
     { id: 'by', header: 'By', cell: (s) => `${s.registered_by} (${s.registered_role})` },
   ];
   return (
@@ -56,7 +57,7 @@ export function StrategyList({ ctx }: { ctx: ResearchCtx }) {
 }
 
 function text(v: unknown): string {
-  return typeof v === 'string' ? v : v === undefined || v === null ? '' : JSON.stringify(v);
+  return typeof v === 'string' ? v : v === undefined || v === null ? '' : exactJson(v);
 }
 
 export function StrategyView({ ctx, hash }: { ctx: ResearchCtx; hash: string }) {
@@ -137,7 +138,7 @@ export function ReportList({ ctx }: { ctx: ResearchCtx }) {
     },
     { id: 'kind', header: 'Kind', sortValue: (r) => r.kind, cell: (r) => <span className="mono">{r.kind}</span> },
     { id: 'experiment', header: 'Experiment', cell: (r) => r.experiment_id ?? <span className="muted">study (several)</span> },
-    { id: 'created', header: 'Created', sortValue: (r) => r.created_at_ns, sortKind: 'number', cell: (r) => <NsTime ns={r.created_at_ns} /> },
+    { id: 'created', header: 'Created', sortValue: (r) => r.created_at_ns, sortKind: 'number', cell: (r) => <NsTime ns={r.created_at_ns} nsStr={nsStrOf(r, 'created_at_ns')} /> },
     { id: 'hash', header: 'Body hash', cell: (r) => <Hash value={r.body_hash} /> },
   ];
   return (
@@ -198,7 +199,7 @@ export function ReportView({ ctx, id }: { ctx: ResearchCtx; id: string }) {
                 <KV
                   rows={[
                     ['Report', <span className="mono">{r.report_id}</span>],
-                    ['Created', <NsTime ns={r.created_at_ns} />],
+                    ['Created', <NsTime ns={r.created_at_ns} nsStr={nsStrOf(r, 'created_at_ns')} />],
                     ['Body hash', <Hash value={r.body_hash} head={24} />],
                     b.candidate ? ['Candidate', text(b.candidate)] : null,
                     Array.isArray(b.baselines) ? ['Baselines', (b.baselines as unknown[]).map(text).join(', ')] : null,

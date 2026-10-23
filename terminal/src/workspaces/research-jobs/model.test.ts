@@ -254,4 +254,11 @@ describe('display helpers', () => {
     expect(shortQuestion('x'.repeat(20), 10)).toBe(`${'x'.repeat(9)}…`);
     expect(auditSummary({ kind: 'job_started', attempt: 1, envelope: { big: true }, empty: [] })).toBe('attempt: 1');
   });
+
+  it('writes an audit record\'s *_ns values exactly from the API\'s *_ns_str, and never shows the siblings', () => {
+    const record = JSON.parse(
+      '{"kind": "lease_renewed", "at_ns": 1792675849903999999, "at_ns_str": "1792675849903999999", "lease_until_ns": 1792675879903999999, "lease_until_ns_str": "1792675879903999999", "lease": {"granted_ns": 1792675849000000001, "granted_ns_str": "1792675849000000001"}}',
+    ) as unknown;
+    expect(auditSummary(record)).toBe('lease_until_ns: 1792675879903999999; lease: {"granted_ns":1792675849000000001}');
+  });
 });

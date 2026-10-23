@@ -64,7 +64,8 @@ function SearchView({ r, go, navigate }: { r: CompanyRoute; go: Go; navigate: Wo
     setAsOf(r.opts.as_of ?? '');
   }, [r.opts.q, r.opts.as_of]);
   const query = r.opts.q ?? '';
-  const search = useApi<SearchResponse>(query ? '/api/company/search' : null, { q: query, as_of: r.opts.as_of, limit: 50 });
+  // The search also matches the core's instrument master (search.py core_conn), so a new core seq refetches it.
+  const search = useApi<SearchResponse>(query ? '/api/company/search' : null, { q: query, as_of: r.opts.as_of, limit: 50 }, { seqDriven: true });
 
   const submit = (e: FormEvent) => {
     e.preventDefault();

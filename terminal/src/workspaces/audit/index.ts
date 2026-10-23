@@ -1,5 +1,4 @@
 import type { WorkspaceDefinition } from '../types';
-import { AuditWorkspace } from './AuditWorkspace';
 
 export const auditWorkspace: WorkspaceDefinition = {
   id: 'audit',
@@ -7,7 +6,7 @@ export const auditWorkspace: WorkspaceDefinition = {
   icon: 'audit',
   shortcut: 'g a',
   order: 70,
-  component: AuditWorkspace,
+  load: () => import('./AuditWorkspace').then((m) => m.AuditWorkspace),
   description: 'Hash-chained event log, double-entry journal and chain/ledger verification',
   keywords: ['events', 'log', 'journal', 'ledger', 'postings', 'verify', 'chain', 'hash'],
   commands: [

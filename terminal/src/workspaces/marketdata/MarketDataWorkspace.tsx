@@ -6,6 +6,7 @@
  * Source: GET /api/marketdata/status, polled (the status file is process state outside the event log).
  * Route: `#/marketdata` and `#/marketdata/<instrument_id>` (one subscription's detail).
  */
+import { nsStrOf } from '../../api/nsStrings';
 import { formatDecimal } from '../../format/decimal';
 import { formatAge } from '../../format/time';
 import { routeHref } from '../../state/router';
@@ -93,7 +94,7 @@ function SessionPanel({ st }: { st: MarketDataStatus }) {
           <dd>{st.requested_market_data_type ?? '—'} <span className="md-hint">(IBKR reports the delivered type per subscription)</span></dd>
           <dt>Status file</dt>
           <dd>
-            written <Timestamp ns={st.written_at_ns} />{' '}
+            written <Timestamp ns={st.written_at_ns} nsStr={nsStrOf(st, 'written_at_ns')} />{' '}
             {st.status_file_age_ms !== null ? <span className="md-hint">({formatAge(st.status_file_age_ms)} old)</span> : null}
             {st.status_file_stale ? (
               <div>
@@ -452,7 +453,7 @@ export function MarketDataWorkspace({ route, navigate }: WorkspaceProps) {
 
 function AuditPanel({ title, id, rows, empty }: { title: string; id: string; rows: AuditEntry[]; empty: string }) {
   const cols: Column<AuditEntry & { i: number }>[] = [
-    { id: 'at', header: 'At', cell: (a) => <Timestamp ns={a.at_ns} withMs />, sortValue: (a) => a.i, sortKind: 'number' },
+    { id: 'at', header: 'At', cell: (a) => <Timestamp ns={a.at_ns} nsStr={nsStrOf(a, 'at_ns')} withMs />, sortValue: (a) => a.i, sortKind: 'number' },
     { id: 'instrument', header: 'Instrument', cell: (a) => a.instrument_id ?? <span className="muted">session</span> },
     { id: 'kind', header: 'Kind', cell: (a) => a.kind },
     { id: 'detail', header: 'Detail', cell: (a) => a.detail, wrap: true },

@@ -4,8 +4,8 @@
  * for typed record details.
  */
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react';
-import { withoutNsStrings } from '../../api/nsStrings';
-import type { TrackedCommand } from '../../state/commands';
+import { exactJson } from '../../api/nsStrings';
+import { canRetry, failedText, lookupNote, type TrackedCommand } from '../../state/commands';
 import { useRuntime, useTrackedCommand } from '../../state/react';
 import { Money, Qty, ShortId, StatusPill, Timestamp, type Tone } from '../../ui/primitives';
 import { WorkspaceLink } from '../../ui/WorkspaceFrame';
@@ -161,22 +161,26 @@ export function commandText(t: TrackedCommand): string {
     case 'rejected':
       return `rejected: ${t.rejection?.code ?? 'unknown code'}`;
     case 'failed':
-      return t.outcomeUnknown ? 'outcome unknown' : 'refused by the API';
+      return failedText(t);
     case 'cancelled':
       return 'cancelled (not sent)';
   }
 }
 
-/** One-line command status for table cells: pill, durable command id, same-id retry when unknown. */
+/**
+ * One-line command status for table cells: pill, durable command id, and once the stored-result lookup of an
+ * unknown outcome has answered, a same-id retry (the pill's detail carries the lookup's note).
+ */
 export function InlineCommandStatus({ commandId }: { commandId: string | null | undefined }) {
   const { commands } = useRuntime();
   const t = useTrackedCommand(commandId);
   if (!commandId || !t) return null;
+  const detail = [t.error, lookupNote(t)].filter(Boolean).join(' ');
   return (
     <span className="ops-cmd" aria-live="polite">
-      <StatusPill label={commandText(t)} tone={commandTone(t.status)} detail={t.error ?? undefined} compact />
+      <StatusPill label={commandText(t)} tone={commandTone(t.status)} detail={detail || undefined} compact />
       <ShortId value={t.commandId} head={18} />
-      {t.status === 'failed' && t.outcomeUnknown ? (
+      {canRetry(t) ? (
         <button type="button" className="btn small" onClick={() => void commands.retry(t.commandId)}>
           Retry same id
         </button>
@@ -213,7 +217,7 @@ function FieldValue({ f }: { f: DetailField }) {
         <span className="cmd-id">{f.value}</span>
       );
     case 'time':
-      return <Timestamp ns={f.value} withMs />;
+      return <Timestamp ns={f.value} nsStr={f.exact} withMs />;
     case 'text':
       return <span style={{ overflowWrap: 'anywhere' }}>{f.value}</span>;
     case 'number':
@@ -223,7 +227,7 @@ function FieldValue({ f }: { f: DetailField }) {
     case 'none':
       return <span className="muted">none</span>;
     case 'json':
-      return <pre className="ops-json">{JSON.stringify(withoutNsStrings(f.value), null, 2)}</pre>;
+      return <pre className="ops-json">{exactJson(f.value, 2)}</pre>;
   }
 }
 
@@ -252,7 +256,7 @@ export function InlineFields({ fields, max = 6 }: { fields: readonly DetailField
       {shown.map((f) => (
         <span key={f.key}>
           <span className="k">{f.label}</span>
-          {f.kind === 'json' ? <span className="cmd-id">{JSON.stringify(withoutNsStrings(f.value)).slice(0, 120)}</span> : <FieldValue f={f} />}
+          {f.kind === 'json' ? <span className="cmd-id">{exactJson(f.value).slice(0, 120)}</span> : <FieldValue f={f} />}
         </span>
       ))}
       {fields.length > max ? <span className="muted">+{fields.length - max} more</span> : null}

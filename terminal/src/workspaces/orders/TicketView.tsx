@@ -541,9 +541,16 @@ function SubmitResult({ sent, headingRef, onDismiss }: { sent: SentIntent; headi
           <StatusPill label={`REJECTED: ${t.rejection.code}`} tone="bad" /> {t.rejection.message ? <span>{t.rejection.message}</span> : null}
           {why ? <span className="muted"> {why}</span> : null}
         </p>
-        <p className="muted">
-          No per-check diagnostics: the core refused the intent before its pretrade evaluation. Nothing was reserved and no order was created.
-        </p>
+        {t.rejection.code === 'COMMAND_ID_CONFLICT' ? (
+          <p className="muted">
+            This request was not executed: nothing was reserved for it. The earlier command with this id keeps its own result; check the blotter for
+            order <span className="cmd-id">{sent.orderId}</span> before sending a new ticket, which gets a new command id.
+          </p>
+        ) : (
+          <p className="muted">
+            No per-check diagnostics: the core refused the intent before its pretrade evaluation. Nothing was reserved and no order was created.
+          </p>
+        )}
       </>
     );
   } else if (accepted && t) {

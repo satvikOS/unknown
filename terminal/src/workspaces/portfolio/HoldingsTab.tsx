@@ -9,6 +9,7 @@ import { Age, Badge, FixtureBadge, Money, Qty, StatusPill } from '../../ui/primi
 import { QueryError, WorkspaceLink } from '../../ui/WorkspaceFrame';
 import { Segmented } from '../operations/parts';
 import type { QueryResult } from '../../state/react';
+import { bpsToPercent } from '../../format/exact';
 import { BarList } from './charts';
 import { dec, exactShares, isRec, num, ofKind, ownerLabel, recs, shortOwnerLabel, str, valuationTone, weightPct, type Rec, type ScopeOption } from './model';
 import { PortfolioFrame, FixtureNote, Lineage, OwnerName, QuoteSnapshotNote, ScopeSelect, Toolbar, type FormulaDef } from './parts';
@@ -163,7 +164,7 @@ export function HoldingsTab({ bar, q, scope, setScope, basis, setBasis, options,
   const shareItems = totals.flatMap((t) => {
     const ccy = str(t.currency) ?? '';
     const parts = exactShares(owners.filter((o) => str(o.currency) === ccy).map((o) => ({ key: str(o.owner) ?? '?', value: dec(o.nav_marked) })));
-    return parts.parts.map((p) => ({ key: `${ccy}:${p.key}`, label: shortOwnerLabel(p.key), title: ownerLabel(p.key), value: p.value, currency: ccy, note: `${(p.bps / 100).toFixed(2)}% of positive NAV` }));
+    return parts.parts.map((p) => ({ key: `${ccy}:${p.key}`, label: shortOwnerLabel(p.key), title: ownerLabel(p.key), value: p.value, currency: ccy, note: `${bpsToPercent(p.bps)} of positive NAV` }));
   });
   // Owners the share bars cannot show: an unavailable NAV (unpriced position) or a negative one. Named, never dropped silently.
   const notCharted = owners.flatMap((o) => {
@@ -244,6 +245,11 @@ export function HoldingsTab({ bar, q, scope, setScope, basis, setBasis, options,
               </header>
               <div className="panel-body">
                 {shareItems.length ? <BarList items={shareItems} label="Marked NAV by owner" /> : <p className="muted" style={{ margin: 0 }}>No owner has a positive marked NAV in this scope.</p>}
+                {shareItems.length ? (
+                  <p className="pf-hint" style={{ margin: '6px 0 0' }}>
+                    Shares are rounded to 0.01% by largest remainder, so in each currency they add up to exactly 100.00%; each is within 0.01% of its exact value.
+                  </p>
+                ) : null}
                 {notCharted.length ? <p className="pf-hint" style={{ margin: '6px 0 0' }}>Not in the chart: {notCharted.join('; ')}.</p> : null}
               </div>
             </section>

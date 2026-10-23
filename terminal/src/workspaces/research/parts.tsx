@@ -1,5 +1,6 @@
 /** Research workspace building blocks: the envelope (available / unavailable), provenance and labels. */
 import type { ReactNode } from 'react';
+import { nsStrOf } from '../../api/nsStrings';
 import type { QueryResult } from '../../state/react';
 import { Badge, FixtureBadge, Timestamp } from '../../ui/primitives';
 import { POPULATE } from '../research-common/format';
@@ -37,7 +38,7 @@ export function ProvenanceNote({ p }: { p: Provenance }) {
       {p.read_at_ns ? (
         <>
           {' '}
-          · read <Timestamp ns={p.read_at_ns} />
+          · read <Timestamp ns={p.read_at_ns} nsStr={nsStrOf(p, 'read_at_ns')} />
         </>
       ) : null}
       {p.note ? ` · ${p.note}` : ''}
@@ -47,6 +48,6 @@ export function ProvenanceNote({ p }: { p: Provenance }) {
   );
 }
 
-export function NsTime({ ns }: { ns: number | null | undefined }) {
-  return <Timestamp ns={ns ?? null} never="not finished" />;
+export function NsTime({ ns, nsStr }: { ns: number | null | undefined; nsStr?: string | null }) {
+  return <Timestamp ns={ns ?? null} nsStr={nsStr ?? null} never="not finished" />;
 }

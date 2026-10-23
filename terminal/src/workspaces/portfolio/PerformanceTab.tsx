@@ -12,7 +12,7 @@ import { QueryError } from '../../ui/WorkspaceFrame';
 import { Segmented } from '../operations/parts';
 import { usePluginQuery } from '../plugin-api/hooks';
 import { LineChart, SignedBarChart } from './charts';
-import { sentence, sentences, arr, dec, fmtNum, fmtPct, irrStatus, isRec, num, ofKind, recs, str, twrStatus, unavailableReason, type Rec, type ScopeOption } from './model';
+import { SNAPSHOT_STORE_QUERY, sentence, sentences, arr, dec, fmtNum, fmtPct, irrStatus, isRec, num, ofKind, recs, str, twrStatus, unavailableReason, type Rec, type ScopeOption } from './model';
 import { PortfolioFrame, AsOf, FixtureNote, Lineage, ScopeSelect, Toolbar, Unavailable, type FormulaDef } from './parts';
 
 type Convention = 'start_of_day' | 'end_of_day';
@@ -229,7 +229,7 @@ export function PnlPanel({ body, formulas }: { body: Rec; formulas: Map<string, 
 export function PerformanceTab({ bar, scope, setScope, options, formulas }: { bar: ReactNode; scope: string; setScope: (s: string) => void; options: readonly ScopeOption[]; formulas: Map<string, FormulaDef> }) {
   const [convention, setConvention] = useState<Convention>('start_of_day');
   const [ppy, setPpy] = useState<'252' | '360'>('252');
-  const perfQ = usePluginQuery<unknown>('/api/portfolio/performance', { scope, convention, periods_per_year: ppy });
+  const perfQ = usePluginQuery<unknown>('/api/portfolio/performance', { scope, convention, periods_per_year: ppy }, SNAPSHOT_STORE_QUERY);
   const pnlQ = usePluginQuery<unknown>('/api/portfolio/pnl', { scope });
   const perf = ofKind(perfQ.data, 'performance');
   const pnl = ofKind(pnlQ.data, 'pnl');

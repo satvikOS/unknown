@@ -6,6 +6,7 @@
  * Recorded figures are shown as recorded. Figures the terminal derives (P&L at current marks, gross
  * exposure, concentration) are exact, follow the core's definitions and say so.
  */
+import { nsStrOf } from '../../api/nsStrings';
 import type { Bucket, Order, Position, Quote, RiskState } from '../../api/types';
 import { isDecimal } from '../../format/decimal';
 import { useNow, useQuery } from '../../state/react';
@@ -142,7 +143,7 @@ function LossBudgetPanel({ risk, limits, timeZone, buckets, positions, quotes, q
       <div className="panel-body">
         {risk.breach ? (
           <div className="callout" role="alert" style={{ ['--tone' as string]: 'var(--bad)', marginBottom: 10 }}>
-            <strong>Loss budget breached:</strong> {breachLabel(risk.breach)}. Recorded <Timestamp ns={risk.breach_at_ns} />. The core latched the stop; new
+            <strong>Loss budget breached:</strong> {breachLabel(risk.breach)}. Recorded <Timestamp ns={risk.breach_at_ns} nsStr={nsStrOf(risk, 'breach_at_ns')} />. The core latched the stop; new
             entries stay blocked until the owner reviews and starts again.
           </div>
         ) : null}
@@ -258,7 +259,7 @@ function LossBudgetPanel({ risk, limits, timeZone, buckets, positions, quotes, q
           <dd>
             {risk.breach ? (
               <>
-                <StatusPill label={risk.breach} tone="bad" compact /> <Timestamp ns={risk.breach_at_ns} />
+                <StatusPill label={risk.breach} tone="bad" compact /> <Timestamp ns={risk.breach_at_ns} nsStr={nsStrOf(risk, 'breach_at_ns')} />
               </>
             ) : (
               <span>none recorded</span>
@@ -297,7 +298,7 @@ function LossBudgetPanel({ risk, limits, timeZone, buckets, positions, quotes, q
           </dd>
           <dt>Last recorded valuation</dt>
           <dd>
-            <Timestamp ns={risk.last_valuation_ns} never="never" />
+            <Timestamp ns={risk.last_valuation_ns} nsStr={nsStrOf(risk, 'last_valuation_ns')} never="never" />
             {risk.last_valuation_ns ? (
               <span className="muted">
                 {' '}
@@ -759,7 +760,7 @@ export function RiskWorkspace({ navigate }: WorkspaceProps) {
                   <ShortId value={policy.policy_hash} head={12} />
                 </WorkspaceLink>
                 <span className="muted">
-                  activated <Timestamp ns={policy.activation.activated_at_ns} /> by {policy.activation.activated_by}
+                  activated <Timestamp ns={policy.activation.activated_at_ns} nsStr={nsStrOf(policy.activation, 'activated_at_ns')} /> by {policy.activation.activated_by}
                 </span>
               </span>
             ) : null}

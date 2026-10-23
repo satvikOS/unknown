@@ -11,7 +11,7 @@ import { QueryError } from '../../ui/WorkspaceFrame';
 import { Segmented } from '../operations/parts';
 import { usePluginQuery } from '../plugin-api/hooks';
 import { BacktestChart, BarList } from './charts';
-import { backtestDays, dec, fmtFloatMoney, fmtNum, fmtPct, isRec, kupiecVerdict, num, ofKind, recs, str, unavailableReason, weightPct, type BacktestDay, type Rec, type ScopeOption } from './model';
+import { SNAPSHOT_STORE_QUERY, backtestDays, dec, fmtFloatMoney, fmtNum, fmtPct, isRec, kupiecVerdict, num, ofKind, recs, str, unavailableReason, weightPct, type BacktestDay, type Rec, type ScopeOption } from './model';
 import { PortfolioFrame, AsOf, FixtureNote, Lineage, QuoteSnapshotNote, ScopeSelect, Toolbar, Unavailable, type FormulaDef } from './parts';
 
 type Group = 'by_instrument' | 'by_owner' | 'by_sector';
@@ -263,9 +263,9 @@ export function RiskTab({ bar, scope, setScope, options, formulas }: { bar: Reac
   const [horizon, setHorizon] = useState<'1' | '5' | '10'>('1');
   const expoQ = usePluginQuery<unknown>('/api/portfolio/exposure', { scope });
   const varQ = usePluginQuery<unknown>('/api/portfolio/var', { scope, alpha, horizon });
-  const btQ = usePluginQuery<unknown>('/api/portfolio/var/backtest', { scope, alpha });
+  const btQ = usePluginQuery<unknown>('/api/portfolio/var/backtest', { scope, alpha }, SNAPSHOT_STORE_QUERY);
   // The backtest carries no fixture flag; the snapshot runs it reads do (route limit: 5000 runs).
-  const snapQ = usePluginQuery<unknown>('/api/portfolio/snapshots', { limit: 5000 });
+  const snapQ = usePluginQuery<unknown>('/api/portfolio/snapshots', { limit: 5000 }, SNAPSHOT_STORE_QUERY);
   const fixtureRuns = snapQ.status === 'error' ? null : snapQ.data === undefined ? undefined : snapshotsIncludeFixture(snapQ.data);
   const expo = ofKind(expoQ.data, 'exposure');
   const v = ofKind(varQ.data, 'var');

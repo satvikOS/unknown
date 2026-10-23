@@ -3,6 +3,7 @@
  * status) and event timeline, plus the pretrade decision the core recorded when it accepted it.
  */
 import { useMemo, useState, type ReactNode } from 'react';
+import { nsStrOf } from '../../api/nsStrings';
 import { ApiError, encodePathSegment } from '../../api/client';
 import type { EventRecord, OrderHoldFull, OutboxRow } from '../../api/types';
 import { CommandStatus } from '../../controls/Controls';
@@ -34,7 +35,7 @@ function outboxResult(r: unknown) {
       ) : null}
       {typeof x.broker_order_id === 'string' && x.broker_order_id ? <span className="cmd-id">{x.broker_order_id}</span> : null}
       {typeof x.reason === 'string' && x.reason ? <span>{x.reason}</span> : null}
-      {typeof x.at_ns === 'number' ? <Timestamp ns={x.at_ns} withMs /> : null}
+      {typeof x.at_ns === 'number' ? <Timestamp ns={x.at_ns} nsStr={nsStrOf(x, 'at_ns')} withMs /> : null}
     </span>
   );
 }
@@ -60,14 +61,14 @@ const outboxColumns: Column<OutboxRow>[] = [
     header: 'Last attempt',
     sortKind: 'number',
     sortValue: (b) => b.last_attempt_ns,
-    cell: (b) => <Timestamp ns={b.last_attempt_ns} withMs never="not attempted" />,
+    cell: (b) => <Timestamp ns={b.last_attempt_ns} nsStr={nsStrOf(b, 'last_attempt_ns')} withMs never="not attempted" />,
   },
   { id: 'result', header: 'Result', wrap: true, cell: (b) => outboxResult(b.result) },
 ];
 
 const timelineColumns: Column<EventRecord>[] = [
   { id: 'seq', header: 'Seq', numeric: true, sortKind: 'number', sortValue: (e) => e.seq, cell: (e) => e.seq },
-  { id: 'time', header: 'Recorded', sortKind: 'number', sortValue: (e) => e.recorded_time_ns, cell: (e) => <Timestamp ns={e.recorded_time_ns} withMs /> },
+  { id: 'time', header: 'Recorded', sortKind: 'number', sortValue: (e) => e.recorded_time_ns, cell: (e) => <Timestamp ns={e.recorded_time_ns} nsStr={nsStrOf(e, 'recorded_time_ns')} withMs /> },
   { id: 'type', header: 'Event', sortValue: (e) => e.type, cell: (e) => <code className="mono">{e.type}</code> },
   { id: 'principal', header: 'Principal', sortValue: (e) => e.principal_id, cell: (e) => <span className="cmd-id">{e.principal_id}</span> },
   { id: 'command', header: 'Command', sortValue: (e) => e.command_id, cell: (e) => <ShortId value={e.command_id} head={22} /> },
@@ -225,19 +226,19 @@ export function OrderDetailView({
                   <dd className="cmd-id">{o.order_ref}</dd>
                   <dt>Accepted</dt>
                   <dd>
-                    <Timestamp ns={o.accepted_at_ns} withMs />
+                    <Timestamp ns={o.accepted_at_ns} nsStr={nsStrOf(o, 'accepted_at_ns')} withMs />
                   </dd>
                   <dt>Submitted</dt>
                   <dd>
-                    <Timestamp ns={o.submitted_at_ns} withMs never="not yet sent to the broker" />
+                    <Timestamp ns={o.submitted_at_ns} nsStr={nsStrOf(o, 'submitted_at_ns')} withMs never="not yet sent to the broker" />
                   </dd>
                   <dt>Terminal</dt>
                   <dd>
-                    <Timestamp ns={o.terminal_at_ns} withMs never="not terminal" />
+                    <Timestamp ns={o.terminal_at_ns} nsStr={nsStrOf(o, 'terminal_at_ns')} withMs never="not terminal" />
                   </dd>
                   <dt>Intent deadline</dt>
                   <dd>
-                    <Timestamp ns={o.deadline_ns} />
+                    <Timestamp ns={o.deadline_ns} nsStr={nsStrOf(o, 'deadline_ns')} />
                   </dd>
                   <dt>Principal</dt>
                   <dd>

@@ -68,6 +68,9 @@ describe('flags and labels', () => {
     expect(settlementLabel(0)).toBe('T+0');
     expect(attributeEntries({ 'ibkr.primaryExchange': 'NASDAQ', fixture: true, a: 1 }).map(([k]) => k)).toEqual(['fixture', 'a', 'ibkr.primaryExchange']);
     expect(attributeEntries(undefined)).toEqual([]);
+    // A *_ns attribute is listed once, with the API's exact digits (JSON.parse rounded the number).
+    const parsed = JSON.parse('{"listed_ns": 1792675849903999999, "listed_ns_str": "1792675849903999999", "lot": 1}') as Record<string, unknown>;
+    expect(attributeEntries(parsed)).toEqual([['listed_ns', '1792675849903999999'], ['lot', 1]]);
   });
 });
 

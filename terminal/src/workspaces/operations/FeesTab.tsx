@@ -4,6 +4,7 @@
  * or an accepted estimate (FEES_NOT_FINAL); a later broker report replaces the estimate in the ledger.
  */
 import { useRef, useState, type ReactNode } from 'react';
+import { nsStrOf } from '../../api/nsStrings';
 import { defaultCommandId } from '../../api/client';
 import type { Execution } from '../../api/types';
 import type { QueryResult } from '../../state/react';
@@ -66,7 +67,7 @@ export function FeesTab({ bar, executions }: { bar: ReactNode; executions: Query
   };
 
   const columns: Column<Execution>[] = [
-    { id: 'time', header: 'Executed', sortKind: 'number', sortValue: (e) => e.exec_time_ns, cell: (e) => <Timestamp ns={e.exec_time_ns} /> },
+    { id: 'time', header: 'Executed', sortKind: 'number', sortValue: (e) => e.exec_time_ns, cell: (e) => <Timestamp ns={e.exec_time_ns} nsStr={nsStrOf(e, 'exec_time_ns')} /> },
     {
       id: 'trade',
       header: 'Trade',

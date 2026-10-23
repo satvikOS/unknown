@@ -4,6 +4,7 @@
  * audit trail. Cancel posts to /api/research/jobs/<id>/cancel.
  */
 import { useEffect, useState, type FormEvent } from 'react';
+import { nsStrOf } from '../../api/nsStrings';
 import { describeError, encodePathSegment } from '../../api/client';
 import { formatMoney } from '../../format/decimal';
 import { bpsToPercent } from '../../format/exact';
@@ -239,7 +240,7 @@ export function ProposalPanel({ d }: { d: JobDetail }) {
             </dd>
             <dt>Recorded</dt>
             <dd>
-              <Timestamp ns={rec.recorded_at_ns} never="unknown" />
+              <Timestamp ns={rec.recorded_at_ns} nsStr={nsStrOf(rec, 'recorded_at_ns')} never="unknown" />
             </dd>
             <dt>Matches the job's output</dt>
             <dd>
@@ -365,7 +366,11 @@ function SpendPanel({ d }: { d: JobDetail }) {
           </dd>
           <dt>Deadline</dt>
           <dd>
-            <Timestamp ns={env?.deadline_ns ?? d.job.deadline_ns} never="—" />
+            <Timestamp
+              ns={env?.deadline_ns ?? d.job.deadline_ns}
+              nsStr={env?.deadline_ns !== null && env?.deadline_ns !== undefined ? nsStrOf(env, 'deadline_ns') : nsStrOf(d.job, 'deadline_ns')}
+              never="—"
+            />
           </dd>
           <dt>Output schema</dt>
           <dd>
@@ -409,13 +414,13 @@ export function JobDetailView({ jobId }: { jobId: string }) {
 
   const eventCols: Column<JobEvent>[] = [
     { id: 'seq', header: 'Seq', numeric: true, cell: (e) => e.seq },
-    { id: 'at', header: 'At', cell: (e) => <Timestamp ns={e.at_ns} withMs /> },
+    { id: 'at', header: 'At', cell: (e) => <Timestamp ns={e.at_ns} nsStr={nsStrOf(e, 'at_ns')} withMs /> },
     { id: 'kind', header: 'Event', cell: (e) => e.kind },
     { id: 'detail', header: 'Detail', cell: (e) => <span className="cmd-id">{e.detail}</span>, wrap: true },
   ];
   const auditCols: Column<AuditRecord>[] = [
     { id: 'seq', header: 'Seq', numeric: true, cell: (a) => a.seq },
-    { id: 'at', header: 'At', cell: (a) => <Timestamp ns={a.at_ns} withMs /> },
+    { id: 'at', header: 'At', cell: (a) => <Timestamp ns={a.at_ns} nsStr={nsStrOf(a, 'at_ns')} withMs /> },
     { id: 'actor', header: 'Actor', cell: (a) => a.actor },
     { id: 'kind', header: 'Record', cell: (a) => a.kind },
     { id: 'summary', header: 'Summary', cell: (a) => <span className="rj-hint">{auditSummary(a.record)}</span>, wrap: true },
@@ -465,20 +470,20 @@ export function JobDetailView({ jobId }: { jobId: string }) {
                     </dd>
                     <dt>Submitted</dt>
                     <dd>
-                      <Timestamp ns={d.job.submitted_ns} /> by {d.job.submitted_by || 'unknown'}
+                      <Timestamp ns={d.job.submitted_ns} nsStr={nsStrOf(d.job, 'submitted_ns')} /> by {d.job.submitted_by || 'unknown'}
                     </dd>
                     <dt>Started</dt>
                     <dd>
-                      <Timestamp ns={d.job.started_ns} never="not started" />
+                      <Timestamp ns={d.job.started_ns} nsStr={nsStrOf(d.job, 'started_ns')} never="not started" />
                       {d.job.start_attempts ? <span className="muted"> (attempt {d.job.start_attempts}{d.job.worker_id ? `, worker ${d.job.worker_id}` : ''})</span> : null}
                     </dd>
                     <dt>Finished</dt>
                     <dd>
-                      <Timestamp ns={d.job.finished_ns} never="not finished" />
+                      <Timestamp ns={d.job.finished_ns} nsStr={nsStrOf(d.job, 'finished_ns')} never="not finished" />
                     </dd>
                     <dt>Deadline</dt>
                     <dd>
-                      <Timestamp ns={d.job.deadline_ns} never="—" />
+                      <Timestamp ns={d.job.deadline_ns} nsStr={nsStrOf(d.job, 'deadline_ns')} never="—" />
                     </dd>
                     <dt>Delivery</dt>
                     <dd>
@@ -519,7 +524,7 @@ export function JobDetailView({ jobId }: { jobId: string }) {
                     <dd>{d.request?.fields?.length ? d.request.fields.join(', ') : <span className="muted">{d.request?.issuer_ids.length ? 'server default set' : '—'}</span>}</dd>
                     <dt>Evidence as of</dt>
                     <dd>
-                      <Timestamp ns={d.evidence?.selection?.as_of_ns} never="—" />
+                      <Timestamp ns={d.evidence?.selection?.as_of_ns} nsStr={nsStrOf(d.evidence?.selection, 'as_of_ns')} never="—" />
                     </dd>
                     <dt>Entities</dt>
                     <dd>{d.evidence?.selection?.entity_ids.join(', ') || <span className="muted">—</span>}</dd>
