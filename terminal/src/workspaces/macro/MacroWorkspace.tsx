@@ -4,7 +4,8 @@
  * value with its availability time, publication and observation id. A past "as of" never reveals data that
  * became available later. Missing tenors stay missing (a gap in the chart, never interpolated).
  *
- * Route: `#/macro/as_of=…/date=…/compare=…/fx_date=…/base=…`.
+ * Route: `#/macro/as_of=…/date=…/compare=…/fx_date=…/base=…/col=…/countries=…`. Below them, the cross-country
+ * comparison of World Bank, OECD, BIS and FRED series (GlobalMacro.tsx).
  */
 import { useEffect, useState, type FormEvent } from 'react';
 import { formatDecimal } from '../../format/decimal';
@@ -15,6 +16,7 @@ import { LineChart, type ChartSeries } from '../research-common/charts';
 import { POPULATE, checkInstant } from '../research-common/format';
 import { Commands, ErrorNotice, Flags, IsoTime, KV, Loading, Section, StatusTag, Unavailable } from '../research-common/parts';
 import { AsOfField, TextField } from '../company/CompanyWorkspace';
+import { GlobalMacroPanels } from './GlobalMacro';
 import type { WorkspaceProps } from '../types';
 import { isUnavailable, type UnavailableBody } from '../company/model';
 import {
@@ -44,7 +46,7 @@ export function MacroWorkspace({ route, navigate }: WorkspaceProps) {
   return (
     <WorkspaceFrame
       title="Markets & macro"
-      description="US Treasury par yield curve and ECB euro reference rates from the point-in-time research store, with availability times."
+      description="US Treasury par yield curve, ECB euro reference rates and a cross-country comparison (World Bank, OECD, BIS, FRED) from the point-in-time research store, with availability times."
       queries={queries}
     >
       <AsOfBar o={o} go={go} />
@@ -58,6 +60,7 @@ export function MacroWorkspace({ route, navigate }: WorkspaceProps) {
           <FxPanel o={o} go={go} fx={fx.data} error={fx.error} />
         </>
       )}
+      <GlobalMacroPanels o={o} go={go} />
     </WorkspaceFrame>
   );
 }

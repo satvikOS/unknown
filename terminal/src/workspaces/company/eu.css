@@ -1,0 +1,26 @@
+/* EU issuer view (EuIssuer.tsx): only what the shared research styles do not cover. Design tokens only. */
+.eu-cell {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  text-align: right;
+}
+.eu-cell:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.eu-cell .muted,
+.eu-compare .muted {
+  color: var(--text-muted);
+}
+.eu-mark {
+  color: var(--warn);
+  margin-left: 2px;
+}
+.eu-compare td:nth-child(n + 2) {
+  text-align: right;
+  font-family: var(--font-mono);
+}

@@ -113,11 +113,11 @@ export const TENORS = ['1M', '1.5M', '2M', '3M', '4M', '6M', '1Y', '2Y', '3Y', '
 
 // ------------------------------------------------------------------ route
 
-export const MACRO_KEYS = ['as_of', 'date', 'compare', 'fx_date', 'base'] as const;
+export const MACRO_KEYS = ['as_of', 'date', 'compare', 'fx_date', 'base', 'col', 'countries'] as const;
 export type MacroKey = (typeof MACRO_KEYS)[number];
 export type MacroOptions = Partial<Record<MacroKey, string>>;
 
-/** `#/macro/as_of=…/date=…/compare=…/fx_date=…/base=…` */
+/** `#/macro/as_of=…/date=…/compare=…/fx_date=…/base=…/col=…/countries=US,IN` */
 export function parseMacroRoute(rest: readonly string[]): MacroOptions {
   const out: MacroOptions = {};
   for (const seg of rest) {
