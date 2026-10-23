@@ -50,8 +50,12 @@ entries before the broken one are applied first; then the gateway records the
 failure in the core (stop latched, INCOMPLETE reconciliation), moves the file
 with its ``-wal``/``-shm`` into ``<account>.events.set-aside-<UTC time>-<journal
 id>/`` with a ``report.json``, and continues on a fresh journal (new journal
-id, same database). Events from the broken entry on are recovered by the
-reconciliation the desk then requires.
+id, same database). Events from the broken entry on are left to the
+reconciliation the desk then requires, which recovers executions only inside
+the broker's history window; the set-aside file keeps them as evidence. A file
+that cannot be moved stays in place, failing closed: the failure is recorded
+once and every drain tries the move again. Damage anywhere the gateway's
+admission reads (entries, marks, prune records) sets the file aside too.
 
 Retention: ``prune`` deletes applied entries (and their marks) appended more
 than a retention ago, as a prefix of the journal, and records the last pruned
@@ -467,6 +471,7 @@ class EventJournal:
             except sqlite3.Error as exc:
                 report["contents"] = {"error": f"{type(exc).__name__}: {exc}"}
         self._drop(self._conn)
+        aside = None
         try:
             base = f"{self.path.name}.set-aside-{_utc_stamp(now)}-{self.journal_id or 'unreadable'}"
             aside, n = self.path.parent / base, 1
@@ -489,8 +494,15 @@ class EventJournal:
             _fsync_dir(aside)
             _fsync_dir(self.path.parent)
         except OSError as exc:
+            report["error"] = f"{type(exc).__name__}: {exc}"
+            if aside is not None:
+                try:
+                    aside.rmdir()   # only if nothing was moved into it: a retry must not leave a directory per cycle
+                except OSError:
+                    pass
             if not self.path.exists():   # the file is gone: never reopen a new one under the old journal's id
                 self._start_fresh(database_id, why)
+                self.set_asides.append(report)
             raise self._failed(exc) from exc
         self._start_fresh(database_id, why)
         self.set_asides.append(report)

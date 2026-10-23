@@ -304,6 +304,27 @@ def _drill_journal(backup: Path, recorded: dict | None, home: Paths, account_key
     return out
 
 
+def _journal_copy_problem(copy: Path, account_key: str, database_id: str | None) -> str | None:
+    """Why a backup's journal copy must not be installed by a restore, or None: unreadable, damaged, another
+    account's, or another core database's."""
+    try:
+        conn = sqlite3.connect(f"file:{copy}?mode=ro", uri=True)
+        try:
+            ok = conn.execute("PRAGMA integrity_check").fetchone()[0]
+            held = describe(conn) if ok == "ok" else None
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        return f"it cannot be read ({type(exc).__name__}: {exc})"
+    if held is None:
+        return f"it fails integrity_check ({ok})"
+    if held["account_key"] != account_key:
+        return f"it belongs to account {held['account_key']!r}, not {account_key!r}"
+    if held["database_id"] not in (None, database_id):
+        return f"it belongs to core database {held['database_id']}, not the backup's ({database_id})"
+    return None
+
+
 def _journal_plan(paths: Paths, account_key: str, backup: Path) -> dict:
     """What a restore does with the journal, decided before anything moves (``restore_backup``)."""
     live = journal_file(paths, account_key)
@@ -326,6 +347,13 @@ def _journal_plan(paths: Paths, account_key: str, backup: Path) -> dict:
                            "copy: the next start applies the entries the restored database lacks")
             return plan
     if copy.exists():
+        # Checked here, before anything moves: found only while installing it (as before this review fix), a bad
+        # copy failed the restore after the database had been replaced and the live journal moved aside.
+        problem = _journal_copy_problem(copy, account_key, backup_database_id)
+        if problem is not None:
+            raise RuntimeError(f"the backup's journal copy {copy.name} cannot be installed: {problem}. Nothing was "
+                               "moved. Run restore-drill on this backup; to restore it without its journal copy, move "
+                               "the copy out of the backups directory first")
         plan["action"], plan["why"] = "installed", "the backup's journal copy belongs to the restored database"
     elif live.exists():
         plan["action"], plan["why"] = "moved_aside", "the live journal is not the restored database's; the backup has none"

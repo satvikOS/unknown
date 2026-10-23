@@ -319,6 +319,46 @@ class JournalBackupTests(unittest.TestCase):
                          "the installed journal is this database's: nothing is set aside")
         self.assertEqual(self.h.verify(), [])
 
+    def test_restore_refuses_a_journal_copy_it_cannot_install_before_moving_anything(self):
+        """Review regression: the backup's journal copy is damaged (or another account's or database's). The
+        restore must refuse before anything moves -- before the fix it replaced the database and moved the live
+        journal aside, and only then failed on the copy's integrity check, leaving a half-done restore. Without
+        the copy (moved out by the owner) the restore goes ahead."""
+        backup, _ = self.backup_while_a_fill_lands_between_the_copies()
+        copy = backup.with_suffix(".events")
+        original = copy.read_bytes()
+        live = journal_file(self.paths, ACCOUNT)
+        detach_journal(self.h.broker)
+        self.journal.close()
+        live.unlink()
+        foreign = EventJournal(live, ACCOUNT, self.h.clock.now_ns, database_id="f" * 32)
+        foreign.open().close()
+        self.journal = foreign
+        h = self.h
+        detach_journal(h.broker)
+        h.desk.store.release_lease()
+        h.desk.store.close()
+        database = self.paths.db(ACCOUNT)
+        before = (database.read_bytes(), live.read_bytes())
+        other = self.paths.root / "other.events"
+        EventJournal(other, "SIM-2", h.clock.now_ns).open().close()
+        damaged = bytearray(original)
+        damaged[4096:8192] = b"\xff" * 4096
+        for name, content, expected in (("damaged", bytes(damaged), "fails integrity_check"),
+                                        ("another account's", other.read_bytes(), "belongs to account 'SIM-2'")):
+            with self.subTest(name):
+                copy.write_bytes(content)
+                with self.assertRaises(RuntimeError) as caught:
+                    restore_backup(self.paths, ACCOUNT, backup, now_ns=h.clock.now_ns())
+                self.assertIn(expected, str(caught.exception))
+                self.assertIn("Nothing was moved", str(caught.exception))
+                self.assertEqual((database.read_bytes(), live.read_bytes()), before, "nothing moved")
+                self.assertEqual([p.name for p in self.paths.data.iterdir() if p.name.startswith("replaced-")], [])
+        copy.unlink()
+        report = restore_backup(self.paths, ACCOUNT, backup, now_ns=h.clock.now_ns())
+        self.assertEqual(report["journal"]["action"], "moved_aside")
+        self.assertFalse(live.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

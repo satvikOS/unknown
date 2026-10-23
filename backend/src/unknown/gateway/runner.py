@@ -82,6 +82,7 @@ log = logging.getLogger("unknown.gateway")
 JOURNAL_STOP_REASON = "EVENT_JOURNAL_UNWRITABLE"
 JOURNAL_SET_ASIDE_REASON = "EVENT_JOURNAL_SET_ASIDE"
 JOURNAL_GAP_REASON = "EVENT_JOURNAL_GAP"
+GAP_COMMAND_PREFIX = "sys.bevgap."   # the stop reporting a pruning gap: sys.bevgap.<journal id>.<floor>
 REWIND_BEAT_EVERY = 100   # marks read and looked up in the core between heartbeats (rewind_to_core)
 
 
@@ -358,27 +359,33 @@ class GatewayRunner:
            journal of another database -- the database was recreated, or restored from another database's
            backup, next to an old journal -- is set aside without applying any of its entries. A journal written
            before identities existed is bound to this database if this database holds one of its applied entries
-           (or it has none); otherwise it is set aside too. A file SQLite reports damaged is set aside.
-        2. ``rewind_to_core``: marked entries this database does not have are applied again."""
+           (or it has none); otherwise it is set aside too.
+        2. ``rewind_to_core``: marked entries this database does not have are applied again.
+
+        A file SQLite reports damaged anywhere admission reads it (its entries, its marks, its prune records) is
+        set aside: what this database lacks cannot be decided from it. (Before, damage that only the rewind read
+        left the journal failing closed on every drain, never set aside.)"""
         if journal.heartbeat is None and self.heartbeat is not None:
             journal.heartbeat = self.heartbeat   # long passes inside the journal keep the writer lease fresh
-        if not journal.identity_checked:
-            try:
+        try:
+            if not journal.identity_checked:
                 bound = journal.database_id   # opens the file and verifies every unapplied entry
-            except JournalCorrupt:
-                self._set_aside(journal)
-            core = self.desk.store.database_id
-            if bound is not None and bound != core:
-                self._set_aside(journal, f"it belongs to core database {bound}, not to this one ({core}); none of "
-                                         "its entries is applied")
-            if bound is None:
-                if journal.has_entries() and self._anchor(journal)[0] is None:
-                    self._set_aside(journal, "it records no core database and this core database holds none of its "
-                                             "applied entries; none of its entries is applied")
-                journal.bind(core)
-            journal.identity_checked = True
-        if not journal.rewound:
-            self.rewind_to_core(journal)
+                core = self.desk.store.database_id
+                if bound is not None and bound != core:
+                    self._set_aside(journal, f"it belongs to core database {bound}, not to this one ({core}); none "
+                                             "of its entries is applied")
+                if bound is None:
+                    if journal.has_entries() and self._anchor(journal)[0] is None:
+                        self._set_aside(journal, "it records no core database and this core database holds none of "
+                                                 "its applied entries; none of its entries is applied")
+                    journal.bind(core)
+                journal.identity_checked = True
+            if not journal.rewound:
+                self.rewind_to_core(journal)
+        except JournalCorrupt:
+            if journal.broken is None:
+                raise
+            self._set_aside(journal)
 
     def apply_entry(self, entry: JournalEntry, journal: EventJournal | None = None) -> Result:
         """Apply one journal entry. Its command id is the entry's own, so a re-application returns the
@@ -452,7 +459,11 @@ class GatewayRunner:
         again. Re-application is in journal order under the entries' own command ids; anything the restored
         core already holds under other command ids (a reconciliation's ingest, a duplicate callback) is a
         duplicate by the handlers' broker keys. Entries pruned before the restore point cannot be applied
-        again: that gap is recorded (stop latched, reconciliation required) and reconciliation recovers them."""
+        again: that gap is recorded (stop latched, reconciliation required) and reconciliation recovers them.
+        It is recorded once per restored database: the stop that reports it carries the command id
+        ``sys.bevgap.<journal id>.<floor>``, and a start that finds it does not record the gap again (before this
+        review fix, every start re-latched the stop and required a new reconciliation until a new broker event
+        was applied, even after the owner's green start)."""
         anchor, missing = self._anchor(journal)
         ours = journal.database_id == self.desk.store.database_id
         floor = journal.pruned_through
@@ -460,12 +471,14 @@ class GatewayRunner:
             journal.reapply_after(anchor if anchor is not None else floor)
             log.warning("the core lacks %d broker events this journal marked applied after entry %d (restored "
                         "database): applying them again in journal order", missing, anchor or floor)
-        if ours and anchor is None and floor and not self._core_holds(f"{COMMAND_ID_PREFIX}{journal.journal_id}.{floor}"):
+        gap = f"{GAP_COMMAND_PREFIX}{journal.journal_id}.{floor}"
+        lacks_floor = floor and not self._core_holds(f"{COMMAND_ID_PREFIX}{journal.journal_id}.{floor}")
+        if ours and anchor is None and lacks_floor and not self._core_holds(gap):
             self._fail_closed(journal, JournalUnavailable(
                 f"this core database lacks broker events of journal {journal.journal_id} up to entry {floor}, which "
                 "were pruned (retention) before it was restored: they cannot be applied again; reconciliation "
                 "recovers what the broker still reports"), reason=JOURNAL_GAP_REASON,
-                what="journaled broker events were pruned before the restore point")
+                what="journaled broker events were pruned before the restore point", stop_command_id=gap)
         journal.rewound = True
         return missing if (anchor is not None or ours) else 0
 
@@ -473,18 +486,27 @@ class GatewayRunner:
         """Set a foreign, corrupt or conflicting journal aside, never skipping it silently: record the failure in
         the core first (stop latched with ``EVENT_JOURNAL_SET_ASIDE``, INCOMPLETE reconciliation, so
         ``needs_reconciliation``), then move the file aside with its report (``EventJournal.set_aside``) and
-        continue on a fresh journal of this database. Raises ``JournalSetAside``."""
+        continue on a fresh journal of this database. Raises ``JournalSetAside``.
+
+        If the file cannot be moved, ``JournalSetAside`` is raised with ``report`` None and the next drain tries
+        again: the failure is already recorded, and no caller may record it a second time under another
+        description, which would defeat the once-per-episode record and write a stop and an INCOMPLETE
+        reconciliation on every cycle while the move keeps failing."""
         broken = journal.broken
         cause = why or f"{type(broken).__name__}: {broken}"
         error = JournalSetAside(f"event journal {journal.path.name} (journal {journal.journal_id}) set aside: {cause}")
         self._fail_closed(journal, error, reason=JOURNAL_SET_ASIDE_REASON, what="the broker event journal was set aside")
-        error.report = journal.set_aside(str(error), database_id=self.desk.store.database_id)
+        try:
+            error.report = journal.set_aside(str(error), database_id=self.desk.store.database_id)
+        except JournalUnavailable as exc:
+            log.critical("%s, but it could not be moved aside (%s); retried at the next drain", error, exc)
+            raise error from exc
         log.critical("%s. Moved to %s with report.json; continuing on a fresh journal. Reconcile before a green start.",
                      error, error.report.get("aside_dir"))
         raise error
 
     def _fail_closed(self, journal: EventJournal, exc: JournalUnavailable, *, reason: str = JOURNAL_STOP_REASON,
-                     what: str = "broker events could not be journaled") -> None:
+                     what: str = "broker events could not be journaled", stop_command_id: str | None = None) -> None:
         """BR-ORD-20: broker events cannot be made durable or applied, so the desk must not trade on a partial view.
 
         Latches the stop through the system ``stop`` command (which also cancels open buys) with the reason
@@ -502,7 +524,8 @@ class GatewayRunner:
         ctl = json.loads(rows[0]["row"])
         new_failure = journal.reported_failure != detail
         if new_failure or not ctl["stop_latched"]:
-            self.desk.run_system("stop", {"account_key": self.account_key, "reason": f"{reason}: {detail}"[:400]})
+            self.desk.run_system("stop", {"account_key": self.account_key, "reason": f"{reason}: {detail}"[:400]},
+                                 command_id=stop_command_id)
         if new_failure or not ctl["needs_reconciliation"]:
             from ..reconcile.reconciler import record_incomplete   # the reconciler imports this module
             record_incomplete(self.desk, self.account_key, f"{what}: {detail}")

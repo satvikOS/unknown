@@ -479,6 +479,27 @@ class RetentionTest(unittest.TestCase):
         self.assertEqual((o["cum_qty"], o["fees_final"]), ("5", "2.000000"))
         self.assertEqual(j.h.verify(), [])
 
+    def test_prune_keeps_an_unmarked_entry_even_when_the_applied_prefix_claims_it(self):
+        """Review regression (isolation): prune has two guards for unapplied entries, the in-memory applied
+        prefix and the check that every deleted entry is marked. With the second deleted, every other test
+        stayed green, because the first alone carried them. Here the prefix is forced past three unmarked
+        entries: prune still stops at the first of them."""
+        j = Journaled()
+        self.addCleanup(j.close)
+        h, journal = j.h, j.journal
+        running_session(h)
+        self.assertTrue(h.intent("B1", "BUY", "5", "10.00", "A").accepted)
+        h.pump()
+        h.broker.fill("B1", F("2"), F("10.00"), commission=F("1.00"))
+        h.runner.drain_events()
+        k = max(journal.marks())
+        h.broker.fill("B1", F("3"), F("10.00"), commission=F("1.00"))
+        self.assertEqual(h.runner.journal_broker_events(), 3)
+        h.clock.advance(31 * DAY)
+        journal._applied_through = k + 3   # a wrong prefix (fixture): it must not be enough to delete anything
+        self.assertEqual(journal.prune(30 * DAY), k)
+        self.assertEqual([e.seq for e in journal.entries()], [k + 1, k + 2, k + 3])
+
     def test_prune_never_deletes_what_a_rewind_will_apply_again(self):
         """A restored database lacks three marked entries: they are to be applied again. A prune with no
         retention at all, before they are, keeps them (and prunes only up to the newest entry the core holds)."""
@@ -544,6 +565,49 @@ class RetentionTest(unittest.TestCase):
         held = describe_file(home.journal_path)
         self.assertGreaterEqual(held["pruned_through"], old)
         self.assertEqual(held["unmarked"], 0)
+
+    def test_the_pruning_gap_is_recorded_once_per_restored_database_not_on_every_start(self):
+        """Review regression: every journaled entry was pruned and nothing was journaled since, so a restored
+        database has no anchor at any start. The gap is recorded at the first start only (its stop carries
+        ``sys.bevgap.<journal id>.<floor>``); before the fix every start latched the stop again and recorded a
+        new INCOMPLETE reconciliation, until a new broker event was applied -- even after a green start."""
+        home = Home(self)
+        h = home.harness()
+        self.addCleanup(lambda: h.desk.store.close())
+        running_session(h)
+        self.assertTrue(h.intent("B1", "BUY", "5", "10.00", "A").accepted)
+        h.pump()   # no journal yet
+        take_backup(home.paths, ACCOUNT, now_ns=h.clock.now_ns())
+        (backup,) = backups_for(home.paths, ACCOUNT)
+        journal = EventJournal(home.journal_path, ACCOUNT, h.clock.now_ns, database_id=h.desk.store.database_id)
+        attach_journal(h.broker, journal)
+        h.broker.fill("B1", F("2"), F("10.00"), commission=F("1.00"))
+        self.assertEqual(h.runner.drain_events(), 3)
+        h.clock.advance(31 * DAY)
+        self.assertEqual(journal.prune(30 * DAY), 3)
+        jid = journal.journal_id
+        stop_process(h, journal)
+        restore_backup(home.paths, ACCOUNT, backup, now_ns=h.clock.now_ns())
+
+        def incomplete() -> int:
+            return h.desk.store.query("SELECT COUNT(*) AS n FROM reconciliations WHERE status='INCOMPLETE'")[0]["n"]
+
+        for start in range(3):
+            h.desk = h._open()
+            before = incomplete()
+            journal = EventJournal(home.journal_path, ACCOUNT, h.clock.now_ns, database_id=h.desk.store.database_id)
+            attach_journal(h.broker, journal)
+            self.assertEqual(h.runner.replay_journal(), 0)
+            with self.subTest(start=start):
+                self.assertEqual(len(journal_stops(h, JOURNAL_GAP_REASON)), 1)
+                self.assertEqual(incomplete() - before, 1 if start == 0 else 0, "a reconciliation required once")
+            stop_process(h, journal)
+        h.desk = h._open()
+        self.assertEqual(h.desk.store.query("SELECT kind FROM commands WHERE command_id=?",
+                                            (f"sys.bevgap.{jid}.3",))[0]["kind"], "stop")
+        self.assertEqual(h.reconcile().body["status"], "CLEAN")
+        self.assertEqual(h.row("orders", "order_id", "B1")["cum_qty"], "2")
+        self.assertEqual(h.verify(), [])
 
     def test_a_database_restored_from_before_pruned_entries_records_the_gap(self):
         """The backup predates entries that were since pruned: they cannot be applied again. The newer marked
@@ -660,6 +724,98 @@ class CorruptJournalTest(unittest.TestCase):
         self.assertTrue(ctl["stop_latched"] and ctl["needs_reconciliation"])
         self.assertEqual(h.runner.drain_events(), 1)
         self.assertEqual([e.event_type for e in journal.entries()], ["ConnectivityEvent"])
+        self.assertEqual(h.verify(), [])
+
+    @staticmethod
+    def _journal_with_unapplied_fill(j: Journaled) -> None:
+        h = j.h
+        running_session(h)
+        assert h.intent("B1", "BUY", "5", "10.00", "A").accepted
+        h.pump()
+        h.broker.fill("B1", F("2"), F("10.00"), commission=F("1.00"))
+        assert h.runner.journal_broker_events() == 3   # journaled, not applied
+
+    def test_damage_only_the_admission_reads_sets_the_journal_aside_in_a_new_process(self):
+        """Review regression: a page only the start-up admission reads is damaged (here the prune records, read
+        by the rewind). A new process must set the journal aside, as for any damaged file -- before the fix the
+        admission raised JournalCorrupt on every drain and the desk failed closed (EVENT_JOURNAL_UNWRITABLE)
+        forever with the file still in place."""
+        j = Journaled()
+        self.addCleanup(j.close)
+        self._journal_with_unapplied_fill(j)
+        j.journal.close()
+        conn = sqlite3.connect(j.path)
+        try:
+            page = conn.execute("PRAGMA page_size").fetchone()[0]
+            root = conn.execute("SELECT rootpage FROM sqlite_master WHERE name='prunes'").fetchone()[0]
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        finally:
+            conn.close()
+        data = bytearray(j.path.read_bytes())
+        data[(root - 1) * page:root * page] = b"\xff" * page
+        j.path.write_bytes(bytes(data))
+        j.crash_and_restart()
+        h = j.h
+        with self.assertRaises(JournalSetAside) as caught:
+            h.runner.drain_events()
+        self.assertIn("damaged", caught.exception.report["reason"])
+        self.assertTrue(aside_file(caught.exception.report).exists())
+        self.assertTrue(h.control()["latch_reason"].startswith(JOURNAL_SET_ASIDE_REASON), h.control()["latch_reason"])
+        self.assertTrue(h.control()["needs_reconciliation"])
+        h.broker.disconnect()
+        h.broker.reconnect()
+        self.assertEqual(h.runner.drain_events(), 2, "a fresh journal takes the next events")
+        self.assertEqual(h.reconcile().body["status"], "CLEAN")   # recovers the fill from the broker
+        self.assertEqual(h.row("orders", "order_id", "B1")["cum_qty"], "2")
+        self.assertEqual(h.verify(), [])
+
+    def test_a_journal_that_cannot_be_moved_aside_is_recorded_once_not_on_every_cycle(self):
+        """Review regression: while the file cannot be moved (here os.replace is refused), every cycle tries
+        again, but the failure is recorded in the core once -- before the fix each pump wrote four stops and four
+        INCOMPLETE reconciliations (two descriptions of one failure alternated, defeating the once-per-episode
+        record) and left three empty set-aside directories. When the move works, the journal is set aside."""
+        j = Journaled()
+        self.addCleanup(j.close)
+        h, journal = j.h, j.journal
+        self._journal_with_unapplied_fill(j)
+        execution = journal.unapplied()[0]
+        journal.close()
+        conn = sqlite3.connect(journal.path)
+        conn.execute("DROP TRIGGER entries_no_update")
+        conn.execute("UPDATE entries SET event=replace(event, 'E1', 'E9') WHERE seq=?", (execution.seq,))
+        conn.commit()
+        conn.close()
+
+        def records() -> tuple[int, int, int]:
+            q = h.desk.store.query
+            return (q("SELECT COUNT(*) AS n FROM events WHERE type IN ('StopLatched','StopReasserted')")[0]["n"],
+                    q("SELECT COUNT(*) AS n FROM reconciliations")[0]["n"],
+                    len([p for p in journal.path.parent.iterdir() if ".set-aside-" in p.name]))
+
+        stops, runs, _ = records()
+
+        def refused(*a, **kw):
+            raise PermissionError(1, "Operation not permitted")
+
+        local_os = mock.Mock(wraps=journal_module.os)
+        local_os.replace = refused
+        with mock.patch.object(journal_module, "os", local_os):
+            for _ in range(4):
+                with self.assertRaises(JournalSetAside):
+                    h.runner.pump()   # the outbox pass still runs; its drain raises again
+                with self.assertRaises(JournalSetAside) as caught:
+                    h.runner.drain_events()
+                self.assertIsNone(caught.exception.report)
+                self.assertEqual(records(), (stops + 1, runs + 1, 0), "recorded once; no directory left behind")
+        self.assertTrue(journal.path.exists(), "the file stays in place while it cannot be moved")
+        self.assertIn("Operation not permitted", journal.status()["failure"])
+        self.assertTrue(h.control()["latch_reason"].startswith(JOURNAL_SET_ASIDE_REASON))
+        with self.assertRaises(JournalSetAside) as caught:
+            h.runner.drain_events()
+        self.assertEqual(caught.exception.report["broken_seq"], execution.seq)
+        self.assertEqual(records()[2], 1)
+        self.assertEqual(executions(h), 0)
+        self.assertEqual(h.reconcile().body["status"], "CLEAN")
         self.assertEqual(h.verify(), [])
 
 
