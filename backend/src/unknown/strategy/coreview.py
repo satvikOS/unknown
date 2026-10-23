@@ -187,6 +187,20 @@ class CoreView:
                 conn.rollback()
             conn.close()
 
+    def open_orders(self, account_key: str, session_id: str, instrument_id: str) -> tuple[dict, ...]:
+        """The session's open orders in one instrument (BR-DAT-02 pending states), with the fields the snapshot's
+        ``open_orders`` carries: what the runner re-checks at transmission, hours after its decision."""
+        conn = self._open()
+        try:
+            tx = Tx(conn)
+            return tuple({k: o.get(k) for k in ("order_id", "state", "side", "leaves_qty", "principal_id", "principal_role")}
+                         for o in state.orders(tx, account_key, session_id=session_id, open_only=True)
+                         if o["instrument_id"] == instrument_id)
+        finally:
+            if conn.in_transaction:
+                conn.rollback()
+            conn.close()
+
     def order(self, order_id: str) -> dict | None:
         """The core's order row, or None."""
         conn = self._open()

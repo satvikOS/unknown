@@ -11,10 +11,13 @@ One cycle (``run_once``):
 
 1. Load the artifact and refuse unless the registry status permits the mode, the bundle is intact, the spec is
    schema v2, the artifact has not expired (its expiry bounded by the retention of its evidence data, BR-DAT-16)
-   and this checkout's code hash is the registered one (``artifacts.load``).
+   and this checkout's code hash is the registered one (``artifacts.load``). A refused cycle, or one that fails
+   before deciding, decides nothing but still cancels the remainder of intents it sent whose window has ended
+   (``_cancel_without_deciding``).
 2. At the first cycle of a process, re-warm the strategy from the point-in-time store as of the journal's latest
    decision and compare the feature rows and targets with the journal's snapshot; a mismatch blocks new entries
-   for the life of the process (``_rewarm_check``, BR-DAT-18).
+   for the life of the process, including buys planned before the restart and not yet sent (``_rewarm_check``,
+   BR-DAT-18).
 3. Find the latest eligible session ``D``: the latest business day of the calendar whose decision instant
    (``D`` at the spec's ``decision_clock_utc``, as in the backtest) has passed. Only ``D`` is ever decided; missed
    sessions are not back-filled. Decisions an earlier cycle left unrecorded (outage, crash) are finished first,
@@ -32,7 +35,8 @@ One cycle (``run_once``):
    (BR-DAT-04), cash).
 6. Journal every decision (PLANNED) with deterministic ids. In live mode each intent waits for its submission
    window, ``[open + N, close - M]`` of the next regular session (``research.execution``, BR-DAT-19); in the window
-   its limit is set from a fresh validated quote (min(model bound, collar) for a buy), journaled, and sent
+   the BR-DAT-02 gates are re-checked against the core's open orders (``pending_gate``; a closed gate keeps it
+   PLANNED), its limit is set from a fresh validated quote (min(model bound, collar) for a buy), journaled, and sent
    (``submit_intent``, DAY LIMIT, ``deadline_ns`` = the window's end, ``purpose`` ENTRY/EXIT, ``policy_hash`` of
    the session mandate); at the window's end its remainder is cancelled. Every decision is recorded with
    ``record_strategy_decision``: ``INTENT_SUBMITTED``, ``BLOCKED`` (the core's rejection code, or a runner gate),
@@ -245,6 +249,24 @@ def _strategy_note(note: Any) -> tuple[str, str | None]:
     return ", ".join(f"{k}={v}" for k, v in sorted(note.items()) if not isinstance(v, (dict, list)))[:200], None
 
 
+def pending_gate(open_orders, artifact_id: str, *, exclude_order_id: str | None = None) -> str:
+    """BR-DAT-02, one rule for the decision and the transmission: "" when an intent may be emitted for the instrument,
+    else the blocking reason. No intent beside an order whose outcome (UNKNOWN) or cancellation (CANCEL_PENDING) is
+    unresolved, whoever placed it (it may still fill), and at most one live intent per session, artifact and
+    instrument. ``exclude_order_id``: the intent being transmitted is not its own obstacle."""
+    others = [o for o in open_orders if o["order_id"] != exclude_order_id]
+    unresolved = [o for o in others if o["state"] in UNRESOLVED_STATES]
+    if unresolved:
+        return "PENDING_UNRESOLVED: " + ", ".join(f"{o['order_id']} is {o['state']} with leaves {o['leaves_qty']}"
+                                                  for o in unresolved) + \
+            "; no new intent for this instrument until it resolves (BR-DAT-02)"
+    own = [o for o in others if (o["principal_id"], o["principal_role"]) == (artifact_id, "STRATEGY")]
+    if own:
+        return "OPEN_INTENT: " + ", ".join(f"{o['order_id']} ({o['state']}, leaves {o['leaves_qty']})" for o in own) + \
+            " still works: at most one live intent per session, artifact and instrument (BR-DAT-02)"
+    return ""
+
+
 def _claimed(command_id: str, stored: dict) -> dict:
     """The refusal body for one of our command ids that another principal's stored command holds."""
     return {"code": "COMMAND_ID_CLAIMED",
@@ -422,6 +444,17 @@ class StrategyRunner:
 
     # ------------------------------------------------------------------ cycle
     def run_once(self) -> dict:
+        try:
+            return self._cycle()
+        except CoreUnreachable:
+            raise                             # nothing can be cancelled either; the next cycle retries everything
+        except Exception as exc:
+            # A cycle that cannot decide (artifact refused, calendar or session hours unknown, store missing, ...)
+            # still ends the intents it already sent at their window's end (BR-DAT-19).
+            self._cancel_without_deciding(exc)
+            raise
+
+    def _cycle(self) -> dict:
         now = self.clock.now_ns()
         today = datetime.fromtimestamp(now // NS_PER_S, tz=timezone.utc).date()
         art = self._load_artifact(today)
@@ -587,15 +620,44 @@ class StrategyRunner:
             out[f"{row['session_date']}|{inst}"] = note
         return out
 
+    def _cancel_without_deciding(self, why: BaseException) -> None:
+        """The window-end cancellations (BR-DAT-19) of a cycle that makes no decision: the artifact is refused
+        (quarantined, retired, expired, code drift, ...) or the cycle fails before it decides (calendar horizon,
+        session hours, point-in-time store). An intent sent earlier keeps working until it is cancelled, and cancelling
+        at the window's end only tightens (quarantine never loosens), so it is done anyway. Best effort: without a
+        token or a reachable core it is retried at the next cycle."""
+        try:
+            cancels = self._cancel_at_window_end()
+        except (ArtifactRefused, CoreUnreachable) as exc:
+            log.error("%s: no decision this cycle (%s), and its window-end cancellations are not possible now: %s",
+                      self.cfg.artifact_id, why, exc)
+            return
+        if cancels:
+            log.warning("%s: no decision this cycle (%s); window-end cancellation of intents it sent: %s",
+                        self.cfg.artifact_id, why, {k: v.get("accepted", v.get("skipped")) for k, v in cancels.items()})
+
     def _price(self, row: dict) -> dict | None:
         """Set the intent's limit at transmission (BR-DAT-19): min(model bound, collar above a fresh validated quote's
         mid) for a buy, max(model bound, collar below it) for a sell, by ``research.execution.transmission_limit``.
         The priced payload is journaled before it is sent (write-ahead), so a resend after a crash is identical.
-        Returns the updated row, or None (still PLANNED) when no valid quote is available yet."""
+        Returns the updated row, or None (still PLANNED, retried next cycle until the deadline) when the instrument's
+        pending orders block it (``pending_gate``) or no valid quote is available yet."""
         detail = row["detail"] or {}
         if detail.get("transmission") is not None or detail.get("window") is None:
             return row                                         # priced already, or a row planned before windows existed
         day, inst, sub = date.fromisoformat(row["session_date"]), row["instrument_id"], row["submit_payload"]
+        # BR-DAT-02 at transmission: what was pending at the decision may have changed overnight (an order gone
+        # UNKNOWN or CANCEL_PENDING, a working intent of ours). The intent waits, as for a missing quote.
+        try:
+            working = self.core.open_orders(self.cfg.account_key, sub["session_id"], inst)
+        except (CoreUnavailable, sqlite3.Error) as exc:
+            raise CoreUnreachable("CORE_DB_UNAVAILABLE", str(exc)) from None
+        gate = pending_gate(working, row["artifact_id"], exclude_order_id=row["order_id"])
+        if gate:
+            now = self.clock.now_ns()
+            self.journal.update(day, inst, now, detail={**detail, "pricing_refusal": {"at_ns": now, "why": gate}})
+            log.warning("%s %s %s: not transmitted yet: %s", row["artifact_id"], day, inst, gate)
+            return None
         try:
             quotes = self.client().query("quotes")
         except (IpcError, OSError) as exc:
@@ -687,17 +749,11 @@ class StrategyRunner:
                 d.outcome, d.reason = "BLOCKED", "FIXTURE_DATA_NOT_ALLOWED by the spec's data requirements"
             elif any(b.fixture for b in bars) and snap.account_mode != "SIMULATED":
                 d.outcome, d.reason = "BLOCKED", f"FIXTURE_DATA_ON_{snap.account_mode}_ACCOUNT: synthetic bars never drive this account"
-            elif unresolved := [o for o in snap.open_orders.get(i, ()) if o["state"] in UNRESOLVED_STATES]:
+            elif gate := pending_gate(snap.open_orders.get(i, ()), art.artifact_id):
                 # BR-DAT-02: an order whose outcome (UNKNOWN) or cancellation (CANCEL_PENDING) is unresolved may still
-                # fill; its leaves count as pending exposure, and no new intent is emitted beside it.
-                d.outcome, d.reason = "BLOCKED", "PENDING_UNRESOLVED: " + ", ".join(
-                    f"{o['order_id']} is {o['state']} with leaves {o['leaves_qty']}" for o in unresolved) + \
-                    "; no new intent for this instrument until it resolves (BR-DAT-02)"
-            elif own := [o for o in snap.open_orders.get(i, ()) if (o["principal_id"], o["principal_role"]) ==
-                         (art.artifact_id, "STRATEGY")]:
-                d.outcome, d.reason = "BLOCKED", "OPEN_INTENT: " + ", ".join(
-                    f"{o['order_id']} ({o['state']}, leaves {o['leaves_qty']})" for o in own) + \
-                    " still works: at most one live intent per session, artifact and instrument (BR-DAT-02)"
+                # fill; its leaves count as pending exposure, and no new intent is emitted beside it. Re-checked at
+                # transmission (``_price``): the intent is sent hours after this decision.
+                d.outcome, d.reason = "BLOCKED", gate
             elif window.basis == FIXTURE_SESSION_BASIS and not all(b.fixture for b in bars):
                 d.outcome, d.reason = "BLOCKED", (f"SESSION_HOURS_UNKNOWN: {self.cfg.calendar.calendar_id} has no session "
                                                   "hours, and only FIXTURE data may use the fixture session convention "
@@ -920,6 +976,11 @@ class StrategyRunner:
                     and self.clock.now_ns() >= valid_until:
                 # BR-DAT-18: the decision's feature values are past their validity window; it is never transmitted
                 self._withhold(row, "FEATURE_EXPIRED", f"the decision's feature values were valid until {valid_until}")
+            elif sub is not None and sub["side"] == "BUY" and (self.rewarm or {}).get("status") == "MISMATCH":
+                # BR-DAT-18: this process's re-warm disagrees with the journal's snapshot, so no new entry is sent,
+                # including a buy an earlier process planned on that snapshot and did not transmit
+                self._withhold(row, "FEATURE_STATE_MISMATCH", "the feature state re-warmed from the point-in-time store at "
+                               f"restart differs from the snapshot of {self.rewarm['session_date']}; no new entries")
             elif sub is not None and self.clock.now_ns() < ((row["detail"] or {}).get("window") or {}).get("start_ns", 0):
                 return row          # BR-DAT-19: waits for its submission window (open + N of the execution session)
             elif sub is not None:
@@ -1001,9 +1062,15 @@ class StrategyRunner:
             try:
                 now = self.clock.now_ns()
                 today = datetime.fromtimestamp(now // NS_PER_S, tz=timezone.utc).date()
-                art = self._load_artifact(today)
-                hh, mm = (int(x) for x in art.spec.execution["decision_clock_utc"].split(":"))
-                day = latest_eligible_session(now, self.cfg.calendar, time(hh, mm))
+                try:
+                    art = self._load_artifact(today)
+                    hh, mm = (int(x) for x in art.spec.execution["decision_clock_utc"].split(":"))
+                    day = latest_eligible_session(now, self.cfg.calendar, time(hh, mm))
+                except CoreUnreachable:
+                    raise
+                except Exception as exc:
+                    self._cancel_without_deciding(exc)      # ``run_once`` does the same for its own failures
+                    raise
                 if now >= decision_instant(day, time(hh, mm)) + grace_s * NS_PER_S:
                     summary = self.run_once()
                     self.cycles += 1

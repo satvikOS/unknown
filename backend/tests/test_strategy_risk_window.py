@@ -107,6 +107,9 @@ class PricingRefusalTest(unittest.TestCase):
         def transmission_context(self, account_key, instrument_id):
             return fixture_instrument(instrument_id), 5000, "SIMULATED"
 
+        def open_orders(self, account_key, session_id, instrument_id):
+            return ()                                         # nothing pending in the instrument (BR-DAT-02 gate passes)
+
         def commands(self, ids):
             return {}
 

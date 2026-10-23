@@ -199,6 +199,40 @@ class RunnerFeatureGateTest(unittest.TestCase):
         spread = {f["feature_id"]: f for f in d["FIX-EQ-1"]["detail"]["features"]}["ema_spread_log_price"]
         self.assertEqual((spread["missing_reason"], spread["value"]), ("SOURCE_GAP", None))   # journaled with the decision
 
+    def test_a_feature_outside_its_validity_window_at_the_decision_blocks_it(self):
+        """Review fix (an untested gate): the validity window is checked at the decision as well as at transmission. A
+        one-minute freshness budget on the spread makes a 15-minute-old close unusable at the 21:30 decision."""
+        from unknown.domain.money import Money
+        from unknown.policy.model import FeeModel
+        from unknown.research.fixtures import fixture_instrument
+        from unknown.strategy import artifacts
+        from unknown.strategy.coreview import CoreSnapshot
+        (self.root / "research").mkdir()
+        t = decision_instant(DAY, CLOCK_UTC)
+        store = ResearchStore(self.root / "research" / "research.sqlite")
+        insts = ("FIX-EQ-1", "FIX-EQ-2")
+        for i in insts:
+            record_bars(store, trend_bars(i, DAY, 60, 800, 1000), DATASET, t)
+        store.close()
+        body = copy.deepcopy(runtime_spec().body)
+        body["features"][0]["freshness_budget_s"] = 60
+        art = artifacts.LoadedArtifact(self.AID, "0" * 64, "paper", parse_spec(body), {}, date(2099, 1, 1), DATASET, True)
+        fees = FeeModel(Fixed.parse("0.005"), Money("USD", Fixed.parse("1.00")), 100, 2000, "TEST FIXTURE", "test")
+        snap = CoreSnapshot(ACCOUNT, "SIMULATED", "S1", "RUNNING", "p" * 64, "USD", 6, {i: fixture_instrument(i) for i in insts},
+                            {}, Fixed.parse("10000"), Fixed.parse("10000"), fees)
+        with StrategyRunner(RunnerConfig(self.AID, ACCOUNT, "live", self.paths), clock=ManualClock(t)) as r:
+            rows = r._decide(art, DAY, t, t + 86_400 * NS_PER_S, t, snap, list(insts), {})
+        for x in rows:
+            self.assertEqual(x["decision_payload"]["outcome"], "BLOCKED", x["instrument_id"])
+            self.assertTrue(x["decision_payload"]["reason"].startswith(
+                "FEATURE_OUTSIDE_VALIDITY_WINDOW: ema_spread_log_price valid ["), x["decision_payload"]["reason"])
+            self.assertIsNone(x["submit_payload"])
+        # the same data under the spec's own budget decides an intent
+        art = artifacts.LoadedArtifact(self.AID, "0" * 64, "paper", runtime_spec(), {}, date(2099, 1, 1), DATASET, True)
+        with StrategyRunner(RunnerConfig(self.AID, ACCOUNT, "live", self.paths), clock=ManualClock(t)) as r:
+            rows = r._decide(art, DAY, t, t + 86_400 * NS_PER_S, t, snap, list(insts), {})
+        self.assertTrue(all(x["submit_payload"] is not None for x in rows), [x["decision_payload"] for x in rows])
+
     def test_an_intent_whose_features_expired_is_never_transmitted(self):
         _, wt = submission_window(runtime_spec(), DAY, WEEKDAYS_ONLY, fixture=True)
 
