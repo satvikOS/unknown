@@ -111,7 +111,7 @@ def poll_source(store: NewsStore, src: NewsSource, fetcher, index: IssuerIndex, 
                 if hw is not None and times and min(times) < hw:
                     reached = True
                     break
-                if len(filings) < EDGAR_PAGE // 2:   # end of the feed's window
+                if resp.body.count(b"<entry") < EDGAR_PAGE:   # a short page (raw entries, before merging) ends the window
                     reached = True
                     break
             if not reached:
