@@ -195,6 +195,16 @@ Identical messages are de-duplicated on the R4 key (permId or (clientId, orderId
 avgFillPrice, lastFillPrice, whyHeld, mktCapPrice). Foreign orders never share our id namespace: their
 `broker_order_id` is `perm:<permId>` or `client:<id>:order:<id>`.
 
+**What the core does with INACTIVE (decision 2026-10-22; ADR-0009 amendment, `core/order_machine.py`).** The core
+reads Inactive as an order that exists but is not working: a precaution, a hold, or a rejection whose reason has not
+arrived yet. Nothing in the status says it is final, so the core no longer releases it as REJECTED. The order becomes UNKNOWN and keeps every reservation; the report is kept as
+`broker_held`, and a blocking `unknown-order:<id>` case opens. A buy also gets a cancel request. The reservation is
+released only by a later terminal status (Cancelled, Filled, or a rejection), or by the owner's
+`close_unknown_order` on broker evidence after a reconciliation shows nothing working (RB-13). A locally terminal
+order that a reconciliation finds INACTIVE is a blocking anomaly, and a buy gets a cancel. `TERMINAL_BROKER_STATUSES`
+in `broker/port.py` no longer lists INACTIVE. Which real sequences lead to Inactive (precautions, holds, rejects
+whose reason arrives later) is still to be captured on the paper account (section 5, item 4).
+
 **Executions and fees (R5).**
 
 - `exec_key` is `ibkr:<account>:<execId>`. BOT maps to BUY and SLD maps to SELL. Shares come from the
@@ -424,6 +434,7 @@ PYTHONPATH=src ~/.unknown/venvs/ibkr/bin/python -m unknown.broker.ibkr.serve --a
   - `... ack-history-gap <YYYY-MM-DD> --note "..."`, which forces a fresh reconciliation.
   - `python -m unknown.cli alerts` lists adapter anomalies and entry blocks.
 - **Order ids.** `submit()` allocates the IBKR orderId and fsyncs it before `placeOrder`. A crash therefore never reuses an id, and a re-submission of a transmitted client order id is reported UNKNOWN, never re-sent.
+- **Broker-event journal (BR-ORD-20; ADR-0012 amendment).** IBKR does not redeliver callbacks, so `CoreService` appends every event drained from the adapter to `~/.unknown/data/<account>.events` (fsync'd, hash-chained) before applying it. At start it applies whatever an earlier process journaled but did not apply. Health reports `event_journal`, and RB-15 covers a full or corrupt journal. An event the adapter had received but not yet handed over when the process died is still recovered only by reconciliation, inside the `executions_since` history window.
 
 ## 7a. Paper bootstrap (after the paper account is live and IB Gateway is logged in)
 

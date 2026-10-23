@@ -46,3 +46,21 @@ A risk stop (loss budget, drawdown or reconciliation failure) sets the latch. Cl
 ## Consequence
 
 The system can stay alive (monitoring, research, reconciliation) while correctly refusing to trade. The terminal shows the reason.
+
+## Amendment (2026-10-22): a red stop is never blocked by persistence
+
+Implemented on `impl/foundation` at 8b98d00 (book-review findings BR-SES-13, BR-REF-19, BR-ORD-20). The latch above stays per broker account and stays in the fenced writer's control row; this section decides what happens when that row cannot be written.
+
+**Invariant failures.** The stop is recorded even when a ledger invariant check fails after it (`RECORD_DESPITE_INVARIANTS`). The failure opens a blocking `LEDGER_INVARIANT` case and latches the stop, so damage in a projection the stop touches never blocks it.
+
+**Memory latch.** If the database cannot record a stop at all (disk full, I/O error, a locked or damaged store, or a control row the desk cannot read), the core service (`service/core.py`) latches it in memory. Only an OWNER or SYSTEM stop of the core's own account, with a well-formed command id, can do this. Then:
+
+1. exposure-increasing commands are refused at the socket (`start`, `start_session`, `resume_session`, `create_session`, `amend_session_request`, `authorize_capital`, and `submit_intent` for a buy);
+2. the gateway records a claimed buy as `REJECTED` (`NOT_TRANSMITTED`) instead of sending it, while sells and cancels still go out;
+3. every open buy, from the ledger and from the broker's open orders carrying our client order id, gets a best-effort cancel sent to the broker directly;
+4. the failure is logged CRITICAL and repeated every 10 s while it lasts; the health query shows `memory_latch`, and preflight reports `STOP_LATCHED_IN_MEMORY`;
+5. the latch is mirrored in an fsync'd file, `<UNKNOWN_HOME>/data/<account>.stop-latch.json`, so a restart keeps it. A latch file that cannot be read, or that holds anything but stops of this account, makes the service start latched with its own SYSTEM stop (`UNREADABLE_STOP_LATCH_FILE`).
+
+The caller's answer says `persisted: false`. As soon as the database accepts writes (the first command or loop cycle), the service records each stop under its own command id. It then records a SYSTEM stop with reason `MEMORY_LATCH_PERSISTED`, whose `StopReasserted` event carries the evidence: the error, the cancels sent and the ids it stood in for. Only then is the memory latch released and its file removed. Clearing the stop still needs the owner's green start. If the latch file cannot be written either, the latch holds in that process only (logged CRITICAL).
+
+**Other latch reasons added by this release:** `ORDER_TRANSITION_REFUSED` (ADR-0009 amendment) and `EVENT_JOURNAL_UNWRITABLE: <error>` (the broker-event journal cannot be written or trusted; ADR-0012 amendment). The runbooks are RB-12 and RB-15.
