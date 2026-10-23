@@ -22,7 +22,7 @@ Only the owner can do the actions below. Each step names the command and the doc
    PYTHONPATH=src ~/.unknown/venvs/ibkr/bin/python -m unknown.broker.ibkr.bootstrap_paper --account IBKR-PAPER-1 --deployment mac-dev --universe AAPL:NASDAQ,MSFT:NASDAQ
    ```
 6. Open the terminal and review preflight. Press **green start** only when every blocker is clear.
-7. Work through the evidence checklist in `docs/integrations/ibkr.md` section 5. A capability moves to `paper-verified` only when its item passes.
+7. Work through the evidence checklist in `docs/integrations/ibkr.md` section 5. A capability moves to `paper-verified` only when its item passes. Item 4 now matters more: the core holds an IBKR **Inactive** order as UNKNOWN with its reservation (a held buy is canceled automatically). Record which real sequences produce Inactive.
 
 ## 2. Terminal on this Mac
 
@@ -49,6 +49,20 @@ The list is in `docs/status/STATUS.md` → "Owner decisions needed":
 - the daily loss window;
 - stale quotes on sells;
 - unverified fee and data terms;
-- EU trading permissions on the IBKR account.
+- EU trading permissions on the IBKR account;
+- a review of the Wave D trading-behaviour decisions (Inactive orders, same-id execution amendments, late effects after completion, the memory stop latch), recorded as ADR amendments.
 
 The book-review findings that are still open are tracked with an owner and a missing item for each in `docs/design/book-resolutions.md`.
+
+## 5. Running a strategy (offline data; never IBKR yet)
+
+The promotion ladder changed: `validated -> paper` no longer exists. An artifact reaches `shadow` first, by your approval or by the SYSTEM inside a shadow envelope you approved. Only then can you promote it to `paper`, and live mode needs `paper`. Run one artifact per session, because exposure is counted per session. The steps are in `docs/strategy/README.md`, "Running it (owner)".
+
+## 6. When something goes wrong (Wave D runbooks)
+
+These owner actions exist only for the situations below. Two of them have no terminal form yet: send them through `POST /api/commands` as the runbook shows.
+
+- **RB-12: a stop the database could not record.** STOP answers `persisted: false`, and preflight shows `STOP_LATCHED_IN_MEMORY`. Fix the disk or the database. Never delete `<account>.stop-latch.json`. Green start after the stop is recorded.
+- **RB-13: an UNKNOWN order that the broker cannot report.** Get a statement, confirm or support reference, wait for a complete and fresh reconciliation, then send `resolve_exception` with `close_unknown_order` and the evidence (API only). Acknowledging the case in the terminal does not close the order.
+- **RB-14: inventory an ended session left behind** (a `POST_COMPLETION_ADJUSTMENT` case). Confirm it with the broker, resolve any `EXECUTION_ANOMALY`, then send a `submit_intent` SELL with purpose `DISPOSAL` naming the ended session (API only).
+- **RB-15: a full or corrupt broker-event journal** (stop reason `EVENT_JOURNAL_UNWRITABLE`). Free the disk; or stop the core, move the journal aside and reconcile.
