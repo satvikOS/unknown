@@ -85,6 +85,20 @@ class ExpiryBoundedByRetentionTest(RetentionBase):
                            today=TODAY + timedelta(days=11), code_hash="c" * 64)
         self.assertEqual(cm.exception.code, "ARTIFACT_EXPIRED")
 
+    def test_the_owner_may_step_down_an_active_artifact_whose_evidence_retention_has_passed(self):
+        # Review fix 2026-10-22: the expiry check guards promotions, not the step down out of a slot.
+        m = self.retained_manifest(self.spec, DEV[1], (TODAY + timedelta(days=10)).isoformat(), name="VENDOR.short")
+        self.store_manifest(m)
+        art = self.register(m["manifest_hash"], TODAY + timedelta(days=10))
+        self.to_eligible(art)
+        self.promo.transition(art, "active", self.owner(), reason="owner", slot="S")
+        self.promo._today = lambda: TODAY + timedelta(days=11)            # past the data's retention
+        self.promo.transition(art, "eligible", self.owner(), reason="owner steps the expired artifact down")
+        self.assertEqual((self.promo.status(art), self.promo.active_in_slot("S")), ("eligible", None))
+        with self.assertRaises(EvidenceError):                              # and it cannot go back up
+            self.promo.transition(art, "active", self.owner(), reason="owner", slot="S")
+        self.assertEqual(self.promo.verify_chain(), [])
+
 
 class EvidenceExpiredTest(RetentionBase):
     def setUp(self):
@@ -222,6 +236,10 @@ class EvidenceExpiredTest(RetentionBase):
                                                  evaluation_started_at_ns=self.started)["passed"])
         self.assertFalse(self.promo.add_evidence(art, "EVIDENCE_DELETION", {**payload, "deleted_at_ns": 0}, refs=refs,
                                                  principal=self.owner(), evaluation_started_at_ns=self.started)["passed"])
+        uncited = self.promo.add_evidence(art, "EVIDENCE_DELETION", payload, refs=[], principal=self.owner(),
+                                          evaluation_started_at_ns=self.started)
+        self.assertFalse(uncited["passed"])
+        self.assertIn("the evidence does not cite the recorded deletion", uncited["reasons"])
         missed = self.promo.add_evidence(other, "EVIDENCE_DELETION", payload, refs=refs, principal=self.owner(),
                                          evaluation_started_at_ns=self.started)
         self.assertFalse(missed["passed"])
@@ -250,6 +268,47 @@ class EvidenceExpiredTest(RetentionBase):
             self.assertEqual(self.promo.sweep_store_deletions(store, principal=SYSTEM)["expired"], [])
         finally:
             store.close()
+
+    # ---- review regressions (2026-10-22)
+    def test_a_deletion_dated_after_it_was_recorded_expires_the_artifact_from_the_recording(self):
+        art = self.register(self.m["manifest_hash"], date(2099, 1, 1))
+        self.to_eligible(art)                                              # eligible may run live
+        later = self.reg.now() + 30 * 86_400 * 10**9
+        self.promo.record_evidence_deletion("VENDOR.bars", principal=SYSTEM, reason="deletion scheduled", deleted_at_ns=later)
+        self.assertEqual(self.promo.evidence_status(art)["status"], "EVIDENCE_EXPIRED")
+        self.assertLess(self.promo.effective_expiry(art), TODAY)
+        for mode in artifacts.MODES:                                       # it never runs again, not until `later`
+            with self.assertRaises(ArtifactRefused) as cm:
+                self.load(art, mode)
+            self.assertEqual(cm.exception.code, "ARTIFACT_EXPIRED")
+
+    def test_an_active_artifact_that_already_cites_the_deletion_still_leaves_its_slot(self):
+        from unknown.data.pit import ResearchStore
+        art = self.register(self.m["manifest_hash"], date(2099, 1, 1))
+        self.to_eligible(art)
+        self.promo.transition(art, "active", self.owner(), reason="owner", slot="S")
+        # a deletion recorded by the earlier code, and the owner filing it as evidence before any sweep
+        self.reg.conn.execute("INSERT INTO evidence_deletion VALUES (?,?,?,?,?,?)",
+                              ("VENDOR.bars", self.reg.now(), "licence ended", self.reg.now(), SYSTEM.id, "SYSTEM"))
+        (d,) = self.promo.deletions()
+        filed = self.promo.add_evidence(art, "EVIDENCE_DELETION", {"deletion_id": d["deletion_id"], "dataset": d["dataset"],
+                                                                   "deleted_at_ns": d["deleted_at_ns"]},
+                                        refs=[{"type": "deletion", "id": d["deletion_id"]}], principal=self.owner(),
+                                        evaluation_started_at_ns=self.started)
+        self.assertTrue(filed["passed"], filed["reasons"])
+        store = ResearchStore(":memory:")
+        try:
+            out = self.promo.sweep_store_deletions(store, principal=SYSTEM)
+        finally:
+            store.close()
+        self.assertEqual([(x["artifact_hash"], x["deactivated"], x["evidence_id"]) for x in out["expired"]],
+                         [(art, True, filed["evidence_id"])])
+        last = self.promo.history(art)[-1]
+        self.assertEqual((last["from_status"], last["to_status"], last["evidence_ids"]),
+                         ("active", "eligible", [filed["evidence_id"]]))
+        self.assertIsNone(self.promo.active_in_slot("S"))
+        self.assertEqual(len(self.deletion_evidence(art)), 1)              # the owner's filing is reused, not repeated
+        self.assertEqual(self.promo.verify_chain(), [])
 
     def test_a_legacy_entry_without_retention_is_reported_unrecorded(self):
         art = self.artifact()                                              # Base's FIXTURE manifest states no retention

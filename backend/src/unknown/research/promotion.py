@@ -68,7 +68,7 @@ A deletion is recorded in the research registry in two ways, both append-only:
 the OWNER or the SYSTEM records that a whole dataset was deleted
 (``record_evidence_deletion``), or the deletion sweep reads the point-in-time
 store's deletion events (retention elapsed, rights withdrawn) for every dataset
-the registry's artifacts rest on (``sweep_store_deletions``, pull-based and
+a registry manifest names (``sweep_store_deletions``, pull-based and
 idempotent). A store event touches a manifest when it deleted observations of
 an entity the manifest's ``scope`` names, available by its cutoff; a manifest
 without a scope is touched by any deletion of its dataset.
@@ -77,12 +77,14 @@ An artifact a recorded deletion touches is EVIDENCE_EXPIRED (``evidence_status``
 In the same transaction that records the deletion, every such artifact that is
 not retired receives EVIDENCE_DELETION evidence naming the deletion (filed by
 the recording principal), and an active one steps down to eligible citing that
-evidence, so it leaves its slot. Its effective expiry is at most the day before
-the deletion, so it never runs again: the strategy runner refuses it as
-ARTIFACT_EXPIRED in every mode, and no expiry-checked path (activation,
-automatic selection, automatic shadow promotion) accepts it. Every other upward
-transition, including the quarantined -> reproducible re-validation path, is
-refused as EVIDENCE_EXPIRED; quarantine and retirement still apply. The expiry
+evidence, so it leaves its slot (an active one that already cites it steps
+down too). Its effective expiry is at most the day before the deletion, or
+before its recording if that is earlier, so it never runs again: the strategy
+runner refuses it as ARTIFACT_EXPIRED in every mode, and no expiry-checked path
+(activation, automatic selection, automatic shadow promotion) accepts it. Every
+other upward transition, including the quarantined -> reproducible
+re-validation path, is refused as EVIDENCE_EXPIRED; quarantine, retirement and
+stepping down out of a slot (even once expired) still apply. The expiry
 is part of the immutable registration, so there is no renewal: new evidence on
 retained data is a new artifact. Registration refuses an evaluation manifest
 that rests on deleted data, and evidence citing a trial whose data was deleted
@@ -602,7 +604,9 @@ class PromotionService:
             raise AuthorityError("the evaluator must differ from the artifact's author (BR-OPS-10)")
         if not rule.owner_approval and principal.role not in (Role.SYSTEM, Role.OWNER):
             raise AuthorityError("only the SYSTEM evaluator or the OWNER may execute this transition")
-        if to in ("eligible", "active") and self._expired(artifact_hash):
+        # The expiry guards promotions into eligible or active; stepping an expired artifact down out of its slot
+        # (active -> eligible) stays possible (review fix 2026-10-22).
+        if to in ("eligible", "active") and _upward(frm, to) and self._expired(artifact_hash):
             raise EvidenceError("artifact expired (registered expiry, or the retention of the data its evidence rests "
                                 "on); it needs new evidence before promotion")
         if _upward(frm, to):
@@ -750,7 +754,8 @@ class PromotionService:
 
     def effective_expiry(self, artifact_hash: str) -> date:
         """min(registered expires_on, retention_until of every evidence dataset, the day before any recorded deletion
-        of the data the evidence rests on): the date every expiry check uses."""
+        of the data the evidence rests on): the date every expiry check uses. A deletion counts from when it happened or,
+        if earlier, from when it was recorded (a deletion dated in the future still ends the artifact when recorded)."""
         return self._expiry(artifact_hash, self.evidence_datasets(artifact_hash), self.deletions())
 
     def _expiry(self, artifact_hash: str, datasets: dict[str, dict], deletions: list[dict]) -> date:
@@ -760,7 +765,7 @@ class PromotionService:
                 expiry = ds["retention_until"]
         for d in deletions:
             if self._touching(datasets, d):
-                expiry = min(expiry, retention_date(d["deleted_at_ns"]))
+                expiry = min(expiry, retention_date(min(d["deleted_at_ns"], d["recorded_at_ns"])))
         return expiry
 
     def record_evidence_deletion(self, dataset: str, *, principal: Principal, reason: str,
@@ -786,15 +791,18 @@ class PromotionService:
 
     def sweep_store_deletions(self, store, *, principal: Principal) -> dict:
         """The pull-based link to the point-in-time store (BR-DAT-16): read the store's deletion events for every
-        dataset the registry's artifacts rest on (``ResearchStore.deletion_events``), record each new one once
+        dataset a registry manifest names (``ResearchStore.deletion_events``), record each new one once
         (append-only) and, in the same transaction, make every artifact it touches EVIDENCE_EXPIRED with the deletion
         as its evidence. Idempotent: run it after every retention run or rights withdrawal, and on a schedule. It also
         completes a deletion recorded earlier whose artifacts do not cite it yet (a deletion recorded before deletions
-        were filed as evidence)."""
+        were filed as evidence) or are still active (it steps them down)."""
         self._no_agents(principal, "sweep evidence deletions")
         if principal.role not in (Role.OWNER, Role.SYSTEM):
             raise AuthorityError("only the OWNER or the SYSTEM data-retention process sweeps deletions")
-        datasets = sorted({name for a in self.artifacts() for name in self.evidence_datasets(a["artifact_hash"])})
+        # Every dataset any registry manifest names, not only those artifacts rest on today: registration and evidence
+        # refuse deleted data only once the deletion is recorded here (review fix 2026-10-22).
+        datasets = sorted({name for r in self.c.execute("SELECT body FROM manifest")
+                           for name in (json.loads(r["body"]).get("datasets") or {})})
         events = store.deletion_events(datasets=datasets) if datasets else []
         known = {d["deletion_id"] for d in self.deletions()}
         recorded, expired = [], []
@@ -817,43 +825,53 @@ class PromotionService:
                     expired += self._apply_deletion(c, d["deletion_id"], principal)
         return {"datasets": datasets, "events_read": len(events), "recorded": recorded, "expired": expired}
 
-    def _cites_deletion(self, artifact_hash: str, deletion_id: str) -> bool:
-        return any(e["kind"] == "EVIDENCE_DELETION" and e["passed"] and e["payload"].get("deletion_id") == deletion_id
-                   for e in self.evidence(artifact_hash))
+    def _citing_evidence(self, artifact_hash: str, deletion_id: str) -> str | None:
+        """The id of the artifact's passed EVIDENCE_DELETION evidence naming ``deletion_id`` (None: none)."""
+        return next((e["evidence_id"] for e in self.evidence(artifact_hash) if e["kind"] == "EVIDENCE_DELETION"
+                     and e["passed"] and e["payload"].get("deletion_id") == deletion_id), None)
 
     def _pending(self, deletion: dict) -> list[dict]:
-        """The artifacts (not retired) a deletion touches that do not cite it yet, with the manifests it touched."""
+        """The artifacts (not retired) a deletion touches that do not cite it yet, or that are still active (evidence
+        filed by hand does not take an artifact out of its slot), with the manifests it touched and the evidence that
+        already cites it."""
         out = []
         for a in self.artifacts():
             if a["status"] == "retired":
                 continue
             touched = self._touching(self.evidence_datasets(a["artifact_hash"]), deletion)
-            if touched and not self._cites_deletion(a["artifact_hash"], deletion["deletion_id"]):
-                out.append({**a, "manifests": touched})
+            if not touched:
+                continue
+            cited = self._citing_evidence(a["artifact_hash"], deletion["deletion_id"])
+            if cited is None or a["status"] == "active":
+                out.append({**a, "manifests": touched, "cited_by": cited})
         return out
 
     def _apply_deletion(self, c, deletion_id: str, principal: Principal) -> list[dict]:
-        """Inside the caller's transaction: every artifact the deletion touches (``_pending``) receives passed
-        EVIDENCE_DELETION evidence naming it, filed by ``principal``; an active one steps down to eligible in the slot it
-        held, citing that evidence. Its effective expiry is already bounded by the deletion (``_expiry``)."""
+        """Inside the caller's transaction: every artifact the deletion touches (``_pending``) that does not cite it yet
+        receives passed EVIDENCE_DELETION evidence naming it, filed by ``principal``; an active one steps down to
+        eligible in the slot it held, citing that evidence (or the evidence that already cited it). Its effective expiry
+        is already bounded by the deletion (``_expiry``)."""
         d = next(x for x in self.deletions() if x["deletion_id"] == deletion_id)
         out = []
         for a in self._pending(d):
             h, status = a["artifact_hash"], a["status"]
-            payload = {"deletion_id": deletion_id, "dataset": d["dataset"], "cause": d["cause"], "reason": d["reason"],
-                       "deleted_at_ns": d["deleted_at_ns"], "scope": d["scope"], "manifests": a["manifests"]}
-            ev = self.add_evidence(h, "EVIDENCE_DELETION", payload, refs=[{"type": "deletion", "id": deletion_id}],
-                                   principal=principal, evaluation_started_at_ns=self.r.now())
-            if not ev["passed"]:
-                raise EvidenceError(f"the deletion evidence for {h} did not pass: {ev['reasons']}")
+            evidence_id = a["cited_by"]
+            if evidence_id is None:
+                payload = {"deletion_id": deletion_id, "dataset": d["dataset"], "cause": d["cause"], "reason": d["reason"],
+                           "deleted_at_ns": d["deleted_at_ns"], "scope": d["scope"], "manifests": a["manifests"]}
+                ev = self.add_evidence(h, "EVIDENCE_DELETION", payload, refs=[{"type": "deletion", "id": deletion_id}],
+                                       principal=principal, evaluation_started_at_ns=self.r.now())
+                if not ev["passed"]:
+                    raise EvidenceError(f"the deletion evidence for {h} did not pass: {ev['reasons']}")
+                evidence_id = ev["evidence_id"]
             record_hash = None
             if status == "active":
                 slot = c.execute("SELECT slot FROM transition WHERE artifact_hash=? AND to_status='active' ORDER BY seq "
                                  "DESC LIMIT 1", (h,)).fetchone()["slot"]
-                record_hash = self._append(c, h, "active", "eligible", principal, [ev["evidence_id"]], None, slot, None,
+                record_hash = self._append(c, h, "active", "eligible", principal, [evidence_id], None, slot, None,
                                            f"EVIDENCE_EXPIRED: {d['cause']} of {d['dataset']} ({d['reason']})")["record_hash"]
             out.append({"artifact_hash": h, "status_before": status, "deletion_id": deletion_id,
-                        "evidence_id": ev["evidence_id"], "deactivated": record_hash is not None,
+                        "evidence_id": evidence_id, "deactivated": record_hash is not None,
                         "record_hash": record_hash})
         return out
 

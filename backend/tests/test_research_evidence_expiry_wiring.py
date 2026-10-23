@@ -219,9 +219,11 @@ class RetentionElapsesTest(WiringBase):
         self.assertIsNone(self.promo.active_in_slot(SLOT))
         for mode in ("live", "shadow"):
             self.assertEqual(self.runner_cycle_refusal(art, mode, at_ns=deadline), "ARTIFACT_EXPIRED")
-        with self.assertRaises(EvidenceError) as cm:                             # and it never comes back
+        # and it never comes back: the deletion (dated at the licence deadline, recorded today) already ended its expiry
+        self.assertLess(self.promo.effective_expiry(art), self.today)
+        with self.assertRaises(EvidenceError) as cm:
             self.promo.transition(art, "active", self.owner(), reason="owner", slot=SLOT)
-        self.assertIn("EVIDENCE_EXPIRED", str(cm.exception))
+        self.assertIn("artifact expired", str(cm.exception))
         self.assertEqual((self.promo.status(other), self.promo.evidence_status(other)["status"]), ("eligible", "CURRENT"))
         again = self.promo.sweep_store_deletions(self.store, principal=SYSTEM)  # idempotent
         self.assertEqual((again["recorded"], again["expired"]), ([], []))
@@ -306,6 +308,47 @@ class RightsWithdrawnTest(WiringBase):
         self.assertEqual((sorted(out["recorded"]), out["expired"]), (sorted([expired_late["event_id"], other["event_id"]]), []))
         self.assertEqual((self.promo.status(art), self.promo.evidence_status(art)["status"]), ("proposed", "CURRENT"))
         self.assertEqual(len(load_series(self.store, PARTNER, [A], CUTOFF)[A].dates), SESSIONS)
+
+
+class ReviewRegressionTest(WiringBase):
+    """Adversarial review of the wiring (2026-10-22)."""
+
+    def test_the_sweep_records_deletions_of_data_no_artifact_rests_on_yet(self):
+        # A run read the partner's data, but no artifact rests on it when the rights are withdrawn and the sweep runs.
+        self.ingest(PARTNER, [A])
+        m, _ = self.pit_manifest(PARTNER, [A], "a")
+        (trial,) = [t for t in self.reg.trials("EXP-P", "WALK_FORWARD") if t["manifest_hash"] == m["manifest_hash"]]
+        art = self.artifact()                                                   # rests on the FIXTURE manifest only
+        event = self.store.withdraw_rights(PARTNER, reason="partner withdrew the rights", at_ns=self.now_ns)
+        out = self.promo.sweep_store_deletions(self.store, principal=SYSTEM)
+        self.assertIn(PARTNER, out["datasets"])
+        self.assertEqual((out["recorded"], out["expired"]), ([event["event_id"]], []))
+        with self.assertRaises(EvidenceError) as cm:                             # nothing new may rest on it
+            self.register(m["manifest_hash"], date(2099, 1, 1), "5")
+        self.assertIn("EVIDENCE_EXPIRED", str(cm.exception))
+        r = self.promo.add_evidence(art, "WALK_FORWARD_OOS", PASSING["WALK_FORWARD_OOS"],
+                                    refs=[{"type": "trial", "id": trial["trial_id"]}], principal=EVAL,
+                                    evaluation_started_at_ns=self.started, protocol_hash=self.protocol)
+        self.assertFalse(r["passed"])
+        self.assertTrue(any("whose data was deleted" in why for why in r["reasons"]), r["reasons"])
+        self.assertEqual(self.promo.evidence_status(art)["status"], "CURRENT")
+
+    def test_a_withdrawal_whose_data_spans_the_cutoff_touches_the_run(self):
+        self.ingest(PARTNER, [A])
+        late = synthetic_bars("trend", A, start=date(2023, 6, 1), sessions=3, seed=5)      # available after the cutoff
+        sha = self.store.put_raw(json.dumps([b.to_json() for b in late]).encode(), provider="fixture-vendor",
+                                 dataset=PARTNER, request={"instrument": A, "part": "late"}, receipt_time_ns=self.received,
+                                 media_type="application/json")
+        record_bars(self.store, [dataclasses.replace(b, source=f"raw:{sha}") for b in late], PARTNER, self.received)
+        m, _ = self.pit_manifest(PARTNER, [A], "a")
+        art = self.register(m["manifest_hash"], date(2099, 1, 1), "5")
+        ev = self.store.withdraw_rights(PARTNER, reason="rights to FIX-PRO-1 withdrawn", at_ns=self.now_ns, entity_ids=[A])
+        span = ev["entities"][A]
+        self.assertLessEqual(int(span["first_available_ns"]), CUTOFF)
+        self.assertGreater(int(span["last_available_ns"]), CUTOFF)
+        out = self.promo.sweep_store_deletions(self.store, principal=SYSTEM)
+        self.assertEqual([x["artifact_hash"] for x in out["expired"]], [art])
+        self.assertEqual(self.promo.evidence_status(art)["status"], "EVIDENCE_EXPIRED")
 
 
 if __name__ == "__main__":
