@@ -21,8 +21,13 @@ as strings when they exceed 2^53.
   - `data_type` is `REALTIME`, `DELAYED`, `FROZEN` or `SYNTHETIC`. A SYNTHETIC quote is never shown without its
     label.
   - Quotes are coalesced per key: at most one event per key every 50 ms, always the latest state.
+  - Additive fields (2026-10-23, ADR-0018): `feed` names the provider feed and its consolidation (e.g. `alpaca:iex`
+    single venue, `alpaca:sip` consolidated, `ibkr:live`, `synthetic`); `size_unit` is `shares`, `round_lots` or
+    `null` when the source does not state it. Clients ignore fields they do not know.
 - `trade`: `{"key", "seq", "price", "size", "exchange", "conditions", "ts_source_ns", "ts_recv_ns", "ts_pub_ns",
-  "source", "data_type"}`. Trades are never coalesced.
+  "source", "data_type"}` (plus the additive `feed`). Trades are never coalesced and never silently dropped: when a
+  client's buffer is full the bus sends a `status` (`STALE`, reason naming the count) and the trade `seq` shows the gap;
+  the trades remain in the tick store (`GET /api/marketdata/trades?key=&before_ns=&limit=`, newest first).
 - `depth`: `{"key", "seq", "side", "levels": [{"price", "size", "mm"}], "source", "data_type", "ts_recv_ns"}`.
   Each event is a full snapshot of that side, not a delta.
 - `status`: `{"key", "state", "reason"}`. `state` is one of `SUBSCRIBED`, `UNAVAILABLE`, `NOT_ENTITLED`,
@@ -30,7 +35,10 @@ as strings when they exceed 2^53.
 - `heartbeat`: `{"ts_pub_ns"}`, sent every 5 s.
 
 `seq` increases per key and per event type. A gap means the client must re-read the snapshot from
-`GET /api/marketdata/snapshot?keys=...` (same `quote` objects).
+`GET /api/marketdata/snapshot?keys=...` (same `quote` objects): `{"quotes": [quote, ...], "status": [status, ...],
+"ts_pub_ns"}`, with a `status` for each requested key that has no quote yet or is not streaming.
+`GET /api/marketdata/sources` lists the configured sources, their capabilities, data types, line budgets and lines
+in use, and the routes.
 
 ## Latency
 
