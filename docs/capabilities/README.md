@@ -24,7 +24,7 @@ call under the cited `describe` titles; `--run-tests` runs the cited backend tes
 Playwright end-to-end tests (`terminal/e2e`) and the tests marked IBKR venv run only locally. Passing offline tests is
 evidence of offline behaviour only.
 
-Checked against `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d00` on 2026-10-22.
+Checked against `feat/workstation-shell@c052431` on 2026-10-23; `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d00` on 2026-10-22.
 
 ## Summary by area
 
@@ -39,14 +39,14 @@ Checked against `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d0
 | multiasset | 14 | 14 | 0 | 0 | 0 | 0 | 0 |
 | strategy-research | 14 | 2 | 0 | 3 | 9 | 0 | 0 |
 | execution-oms | 14 | 5 | 0 | 1 | 8 | 0 | 0 |
-| workspace-ux | 12 | 5 | 0 | 3 | 4 | 0 | 0 |
+| workspace-ux | 12 | 3 | 0 | 3 | 6 | 0 | 0 |
 | agent-operations | 14 | 4 | 0 | 3 | 7 | 0 | 0 |
 | ibkr-integration | 14 | 2 | 0 | 2 | 10 | 0 | 0 |
 | data-providers | 14 | 8 | 0 | 2 | 4 | 0 | 0 |
 | model-providers | 12 | 1 | 0 | 1 | 10 | 0 | 0 |
 | regulatory | 13 | 7 | 0 | 2 | 4 | 0 | 0 |
 | ops-aws | 14 | 7 | 0 | 4 | 3 | 0 | 0 |
-| **all** | 217 | 103 | 0 | 28 | 86 | 0 | 0 |
+| **all** | 217 | 101 | 0 | 28 | 88 | 0 | 0 |
 
 ## Capabilities
 
@@ -226,8 +226,8 @@ Checked against `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d0
 |---|---|---|---|---|---|---|
 | CAP-UX-01 | P0 | Command line / palette for function, instrument, document and help search | Bloomberg Terminal, LSEG Workspace, S&P Capital IQ Pro, W3C WAI-ARIA Authoring P | tested | 3 | no instrument, document or help search index in the palette (AC1-AC4) |
 | CAP-UX-02 | P0 | Keyboard-first operation: scoped, rebindable shortcuts, hint mode, history and safe order hotkeys | Bloomberg Terminal, IBKR Trader Workstation, LSEG Workspace, LSEG Workspace (acc | tested | 4 | shortcuts are not rebindable (AC2, AC7) |
-| CAP-UX-03 | P1 | Linked panels: numbered/coloured instrument-context channels with source/destination roles | Bloomberg Terminal, Bloomberg Terminal (via HERE Core 'Bloomberg integration v1. | proposed |  | not yet implemented |
-| CAP-UX-04 | P1 | Persistent, versioned multi-panel workspace layouts with templates, lock mode and recovery | Bloomberg Terminal, IBKR Trader Workstation, LSEG Workspace, S&P Capital IQ (pla | proposed |  | not yet implemented |
+| CAP-UX-03 | P1 | Linked panels: numbered/coloured instrument-context channels with source/destination roles | Bloomberg Terminal, Bloomberg Terminal (via HERE Core 'Bloomberg integration v1. | tested | 6 | No source/destination roles: every panel both sends and receives. |
+| CAP-UX-04 | P1 | Persistent, versioned multi-panel workspace layouts with templates, lock mode and recovery | Bloomberg Terminal, IBKR Trader Workstation, LSEG Workspace, S&P Capital IQ (pla | tested | 10 | Browser localStorage only: no backend layout service, no cross-device sync and n |
 | CAP-UX-05 | P2 | Bookmarks, favourites bar and deep links that restore a panel with instrument and parameters (live or as-of) | Bloomberg Terminal, LSEG Workspace | implemented | 2 | no bookmarks or favourites bar (AC1, AC5) |
 | CAP-UX-06 | P1 | Accessibility: WCAG 2.2 AA conformance for dense financial screens, with a published conformance report | LSEG Workspace, W3C WAI-ARIA APG, W3C WCAG 2.2 | tested | 4 | no manual WCAG 2.2 audit and no published conformance report (AC2, AC7) |
 | CAP-UX-07 | P1 | Export any grid to CSV/XLSX with provenance, exact decimals, injection protection and licence gating; validated re-import | Bloomberg Terminal, IBKR Client Portal, IBKR Trader Workstation, LSEG Workspace, | proposed |  | not yet implemented |
@@ -792,10 +792,10 @@ Checked against `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d0
 ### CAP-RES-12: Strategy artifact registry, status lifecycle and predeclared promotion gates (tested)
 
 - Files: `backend/src/unknown/research/promotion.py`, `backend/src/unknown/research/spec.py`, `backend/src/unknown/core/handlers/strategy.py`, `backend/src/unknown/domain/principal.py`, `docs/adr/0017-strategy-artifacts-promotion-and-runtime.md`
-- Tests: `test_research_promotion::LifecycleTest.test_full_ladder_with_evidence_and_owner_approvals`; `test_research_promotion::LifecycleTest.test_failed_gate_refuses_validation_and_leaves_status_unchanged`; `test_research_promotion::AuthorityTest.test_agents_can_propose_but_never_approve_or_transition`; `test_research_promotion::AuthorityTest.test_the_evaluator_must_not_be_the_author`; `test_research_promotion::SelectionPolicyTest.test_automatic_selection_only_inside_the_owner_approved_policy`; `test_research_promotion::ProtocolTest.test_protocol_is_strict`; `test_research_spec::SpecCoverageTest.test_every_res01_field_is_present_and_required`; `test_strategy_decisions::StrategyTokenBindingTests.test_issued_token_is_bound_to_its_artifact`; `test_research_shadow::ShadowLadderTest.test_shadow_sits_between_validated_and_paper`; `test_research_shadow::ShadowEnvelopeTest.test_automatic_promotion_inside_the_envelope_is_recorded_with_its_evidence_and_envelope`; `test_research_evidence_retention::EvidenceExpiredTest.test_an_active_artifact_on_deleted_data_keeps_running_but_is_never_promoted_again`
+- Tests: `test_research_promotion::LifecycleTest.test_full_ladder_with_evidence_and_owner_approvals`; `test_research_promotion::LifecycleTest.test_failed_gate_refuses_validation_and_leaves_status_unchanged`; `test_research_promotion::AuthorityTest.test_agents_can_propose_but_never_approve_or_transition`; `test_research_promotion::AuthorityTest.test_the_evaluator_must_not_be_the_author`; `test_research_promotion::SelectionPolicyTest.test_automatic_selection_only_inside_the_owner_approved_policy`; `test_research_promotion::ProtocolTest.test_protocol_is_strict`; `test_research_spec::SpecCoverageTest.test_every_res01_field_is_present_and_required`; `test_strategy_decisions::StrategyTokenBindingTests.test_issued_token_is_bound_to_its_artifact`; `test_research_shadow::ShadowLadderTest.test_shadow_sits_between_validated_and_paper`; `test_research_shadow::ShadowEnvelopeTest.test_automatic_promotion_inside_the_envelope_is_recorded_with_its_evidence_and_envelope`; `test_research_evidence_retention::EvidenceExpiredTest.test_an_active_artifact_on_deleted_data_is_evidence_expired_and_never_runs_again`
 - Evidence: Artifact statuses proposed -> reproducible -> validated -> shadow -> paper -> eligible -> active (plus quarantined, retired) in a hash-chained transition log; gates recomputed under an owner-approved protocol; owner approvals need re-authentication within 15 minutes; strategy tokens are bound to one artifact id.
 - Evidence: evaluated on SYNTHETIC fixtures only; no market history has been run
-- Evidence: A 'shadow' status sits between validated and paper. The owner sets it, or the SYSTEM inside an owner-approved, immutable shadow envelope. Expiry is bounded by the retention of the evidence data, and an artifact whose evidence data was deleted is EVIDENCE_EXPIRED and is never promoted again (BR-DAT-16). No ingested dataset records a retention deadline yet.
+- Evidence: A 'shadow' status sits between validated and paper. The owner sets it, or the SYSTEM inside an owner-approved, immutable shadow envelope. Expiry is bounded by the retention of the evidence data, and an artifact whose evidence data was deleted is EVIDENCE_EXPIRED and is never promoted again (BR-DAT-16). Manifests record each dataset's retention and a store deletion expires the artifacts resting on it (sweep_store_deletions); no production schedule runs the sweep and no ingested dataset records a retention deadline yet.
 - Gap: ADR-0017 is proposed, not accepted
 - Gap: 'signed' transitions are tamper-evident hash chains, not cryptographic signatures
 - Gap: PAPER_RECONCILIATION evidence cannot be produced until the IBKR paper account exists: no artifact can reach eligible
@@ -950,6 +950,31 @@ Checked against `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d0
 - Gap: no hint mode, no order hotkeys, no stop chord from every route (AC5, AC6)
 - Gap: no keyboard-only enumeration of every action (AC1)
 - Requirements: TRM-01
+
+### CAP-UX-03: Linked panels: numbered/coloured instrument-context channels with source/destination roles (tested)
+
+- Files: `terminal/src/ui/link.ts`, `terminal/src/ui/workstation/Workstation.tsx`, `terminal/src/ui/workstation/layout.ts`, `terminal/src/ui/CommandLine.tsx`, `terminal/src/ui/functions.ts`, `terminal/src/ui/panel.ts`, `terminal/src/ui/StatusBar.tsx`
+- Tests: `src/ui/live.test.ts::linked security channels > keeps channels independent and notifies only the changed channel`; `src/ui/live.test.ts::linked security channels > reads the enclosing panel channel by default and keeps the old default-channel API`; `src/ui/functions.test.ts::command execution > publishes the security on the target channel and opens the function there`; `src/ui/functions.test.ts::command execution > uses the channel security when none is typed, and refuses a security function without one`; `src/ui/workstation/layout.test.ts::workstation layout > changing the workspace clears the sub-route; unlinked channels are per panel`; `e2e/05-workstation.spec.ts::command line, linked panels, saved layouts, lock and recovery from a corrupt layout`
+- Evidence: Eight numbered, named, coloured channels (FDC3 order) plus unlinked; each workstation panel joins one channel through a React context, so useLinkedSecurity()/useSetLinkedSecurity() follow the panel's channel while the exported link.ts API stays compatible.
+- Evidence: A security typed in the command line (or SECURITY FUNCTION) is published on the active panel's channel; linked panels show it and an unlinked panel does not (unit tests and the e2e spec).
+- Evidence: Channel membership is saved with the layout; the status bar and command line show the target channel by number and name, never colour alone.
+- Gap: No source/destination roles: every panel both sends and receives.
+- Gap: Context is a security key (SYMBOL.MIC or core id) only; no ISIN/FIGI/CIK crosswalk object and no portfolio/order/as-of contexts.
+- Gap: Propagation latency (p95 target) and the randomized multi-panel invariant harness are not measured.
+- Gap: No FDC3 or external-application bridge.
+- Gap: Workspaces on this branch do not yet read the linked security; the chart and monitor branches adopt useLinkedSecurity().
+
+### CAP-UX-04: Persistent, versioned multi-panel workspace layouts with templates, lock mode and recovery (tested)
+
+- Files: `terminal/src/ui/workstation/layout.ts`, `terminal/src/ui/workstation/storage.ts`, `terminal/src/ui/workstation/Workstation.tsx`, `terminal/src/ui/workstation/workstation.css`
+- Tests: `src/ui/workstation/layout.test.ts::workstation layout > splits a panel, inserts siblings in the same direction and activates the new panel on the same channel`; `src/ui/workstation/layout.test.ts::workstation layout > closes panels, collapses one-child splits, renormalises sizes and never closes the last panel`; `src/ui/workstation/layout.test.ts::workstation layout > resizes a divider within 10% bounds and keeps the sum at 100`; `src/ui/workstation/layout.test.ts::workstation layout > lock mode refuses every structural change but still lets the owner pick the active panel`; `src/ui/workstation/layout.test.ts::workstation layout > validates untrusted documents: every template passes, malformed ones are rejected`; `src/ui/workstation/layout.test.ts::layout persistence > round-trips the draft and named versions, and restores an older version`; `src/ui/workstation/layout.test.ts::layout persistence > recovers from a corrupt store: opens the template, says so and sets the bad text aside`; `src/ui/workstation/layout.test.ts::layout persistence > skips one damaged saved layout and keeps the rest`; `src/ui/workstation/layout.test.ts::layout persistence > never throws when storage is unavailable`; `e2e/05-workstation.spec.ts::command line, linked panels, saved layouts, lock and recovery from a corrupt layout`
+- Evidence: Tiled split layout (row/column, resizable by pointer or arrow keys on a focusable separator) where each panel hosts any registered workspace; hash routes still open a single workspace.
+- Evidence: Draft autosaved to localStorage; Save creates a new immutable version of a named layout and the last 10 versions are restorable; four own templates; lock mode refuses split, close, resize and workspace changes.
+- Evidence: A layout holds only workspace ids, route segments and channels and is validated on load; a corrupt or unknown-schema store is set aside under its own key and a template opens with a plain notice (unit tests and the e2e spec).
+- Gap: Browser localStorage only: no backend layout service, no cross-device sync and no concurrent-edit conflict prompt.
+- Gap: Panel view state (columns, sort, filters) is not saved, only workspace, sub-route and channel.
+- Gap: No layout export/import file, tabs/pages, pop-out windows or keyboard move of panels (resize only).
+- Gap: Only schema 1 exists; there is no migration path yet, other schemas are set aside.
 
 ### CAP-UX-05: Bookmarks, favourites bar and deep links that restore a panel with instrument and parameters (live or as-of) (implemented)
 

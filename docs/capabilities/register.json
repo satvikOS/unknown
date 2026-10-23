@@ -21331,11 +21331,38 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "tested",
+        "files": [
+          "terminal/src/ui/link.ts",
+          "terminal/src/ui/workstation/Workstation.tsx",
+          "terminal/src/ui/workstation/layout.ts",
+          "terminal/src/ui/CommandLine.tsx",
+          "terminal/src/ui/functions.ts",
+          "terminal/src/ui/panel.ts",
+          "terminal/src/ui/StatusBar.tsx"
         ],
+        "tests": [
+          "terminal/src/ui/live.test.ts::linked security channels > keeps channels independent and notifies only the changed channel",
+          "terminal/src/ui/live.test.ts::linked security channels > reads the enclosing panel channel by default and keeps the old default-channel API",
+          "terminal/src/ui/functions.test.ts::command execution > publishes the security on the target channel and opens the function there",
+          "terminal/src/ui/functions.test.ts::command execution > uses the channel security when none is typed, and refuses a security function without one",
+          "terminal/src/ui/workstation/layout.test.ts::workstation layout > changing the workspace clears the sub-route; unlinked channels are per panel",
+          "terminal/e2e/05-workstation.spec.ts::command line, linked panels, saved layouts, lock and recovery from a corrupt layout"
+        ],
+        "evidence": [
+          "Eight numbered, named, coloured channels (FDC3 order) plus unlinked; each workstation panel joins one channel through a React context, so useLinkedSecurity()/useSetLinkedSecurity() follow the panel's channel while the exported link.ts API stays compatible.",
+          "A security typed in the command line (or SECURITY FUNCTION) is published on the active panel's channel; linked panels show it and an unlinked panel does not (unit tests and the e2e spec).",
+          "Channel membership is saved with the layout; the status bar and command line show the target channel by number and name, never colour alone."
+        ],
+        "gaps": [
+          "No source/destination roles: every panel both sends and receives.",
+          "Context is a security key (SYMBOL.MIC or core id) only; no ISIN/FIGI/CIK crosswalk object and no portfolio/order/as-of contexts.",
+          "Propagation latency (p95 target) and the randomized multi-panel invariant harness are not measured.",
+          "No FDC3 or external-application bridge.",
+          "Workspaces on this branch do not yet read the linked security; the chart and monitor branches adopt useLinkedSecurity()."
+        ],
+        "verified_against": "feat/workstation-shell@c052431",
+        "updated": "2026-10-23",
         "requirements": []
       }
     },
@@ -21485,11 +21512,38 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "tested",
+        "files": [
+          "terminal/src/ui/workstation/layout.ts",
+          "terminal/src/ui/workstation/storage.ts",
+          "terminal/src/ui/workstation/Workstation.tsx",
+          "terminal/src/ui/workstation/workstation.css"
         ],
+        "tests": [
+          "terminal/src/ui/workstation/layout.test.ts::workstation layout > splits a panel, inserts siblings in the same direction and activates the new panel on the same channel",
+          "terminal/src/ui/workstation/layout.test.ts::workstation layout > closes panels, collapses one-child splits, renormalises sizes and never closes the last panel",
+          "terminal/src/ui/workstation/layout.test.ts::workstation layout > resizes a divider within 10% bounds and keeps the sum at 100",
+          "terminal/src/ui/workstation/layout.test.ts::workstation layout > lock mode refuses every structural change but still lets the owner pick the active panel",
+          "terminal/src/ui/workstation/layout.test.ts::workstation layout > validates untrusted documents: every template passes, malformed ones are rejected",
+          "terminal/src/ui/workstation/layout.test.ts::layout persistence > round-trips the draft and named versions, and restores an older version",
+          "terminal/src/ui/workstation/layout.test.ts::layout persistence > recovers from a corrupt store: opens the template, says so and sets the bad text aside",
+          "terminal/src/ui/workstation/layout.test.ts::layout persistence > skips one damaged saved layout and keeps the rest",
+          "terminal/src/ui/workstation/layout.test.ts::layout persistence > never throws when storage is unavailable",
+          "terminal/e2e/05-workstation.spec.ts::command line, linked panels, saved layouts, lock and recovery from a corrupt layout"
+        ],
+        "evidence": [
+          "Tiled split layout (row/column, resizable by pointer or arrow keys on a focusable separator) where each panel hosts any registered workspace; hash routes still open a single workspace.",
+          "Draft autosaved to localStorage; Save creates a new immutable version of a named layout and the last 10 versions are restorable; four own templates; lock mode refuses split, close, resize and workspace changes.",
+          "A layout holds only workspace ids, route segments and channels and is validated on load; a corrupt or unknown-schema store is set aside under its own key and a template opens with a plain notice (unit tests and the e2e spec)."
+        ],
+        "gaps": [
+          "Browser localStorage only: no backend layout service, no cross-device sync and no concurrent-edit conflict prompt.",
+          "Panel view state (columns, sort, filters) is not saved, only workspace, sub-route and channel.",
+          "No layout export/import file, tabs/pages, pop-out windows or keyboard move of panels (resize only).",
+          "Only schema 1 exists; there is no migration path yet, other schemas are set aside."
+        ],
+        "verified_against": "feat/workstation-shell@c052431",
+        "updated": "2026-10-23",
         "requirements": []
       }
     },

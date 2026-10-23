@@ -234,7 +234,7 @@ Text tokens on their surfaces, as computed from `styles.css`:
 | START text / START fill | 5.4 | 6.2 |
 | control border (inputs, buttons) / surface | 4.0 | 3.8 |
 
-The end-to-end suite measures these on the rendered pages; see `e2e/README.md`. On the last run it checked 5,251 text elements across 29 views per theme. The lowest text contrast was 5.35:1 (dark) and 4.78:1 (light), with no violations.
+The end-to-end suite measures these on the rendered pages; see `e2e/README.md`. On the last run it checked 6,233 text elements per theme across every audited view, including `#/workstation`. The lowest text contrast was 5.35:1 (dark) and 5.16:1 (light), with no violations.
 
 ## API notes for the backend
 

@@ -130,7 +130,7 @@ for (const scheme of ['dark', 'light'] as const) {
     await page.goto(`${baseUrl()}/#/overview`);
     await settle(page);
     await page.keyboard.press('ControlOrMeta+k');
-    await expect(page.getByRole('combobox')).toBeFocused();
+    await expect(page.getByRole('combobox', { name: /^Search workspaces/ })).toBeFocused();
     found.push(...(await audit(page, 'palette')));
     await page.keyboard.press('Escape');
     await page.locator('#main').focus();

@@ -95,18 +95,22 @@
 .ws-cell > .ws-split {
   flex: 1 1 auto;
 }
+/* The divider takes 8 px of the layout but its pointer target is 24 px (WCAG 2.5.8): it overlaps the panel edges. */
 .ws-splitter {
   flex: none;
   background: transparent;
   position: relative;
+  z-index: 2;
   touch-action: none;
 }
 .ws-splitter.is-v {
-  width: 8px;
+  width: 24px;
+  margin: 0 -8px;
   cursor: col-resize;
 }
 .ws-splitter.is-h {
-  height: 8px;
+  height: 24px;
+  margin: -8px 0;
   cursor: row-resize;
 }
 .ws-splitter::after {
@@ -117,13 +121,13 @@
 .ws-splitter.is-v::after {
   top: 0;
   bottom: 0;
-  left: 3px;
+  left: 11px;
   width: 2px;
 }
 .ws-splitter.is-h::after {
   left: 0;
   right: 0;
-  top: 3px;
+  top: 11px;
   height: 2px;
 }
 .ws-splitter:hover::after,
@@ -195,7 +199,16 @@
   }
   .ws-splitter.is-v {
     width: auto;
-    height: 8px;
+    height: 24px;
+    margin: -8px 0;
+  }
+  .ws-splitter.is-v::after {
+    top: 11px;
+    bottom: auto;
+    left: 0;
+    right: 0;
+    width: auto;
+    height: 2px;
   }
   .ws-cell {
     min-height: 260px;
