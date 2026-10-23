@@ -22,16 +22,28 @@ Storage: ``<UNKNOWN_HOME>/data/<account>.events``, an SQLite file opened with
 the core store's durability settings (WAL, ``synchronous=FULL``, F_FULLFSYNC on
 macOS; ``store.db.connect``). Tables are append-only (triggers refuse UPDATE
 and DELETE). Each entry carries a SHA-256 hash chained to the previous entry;
-entries are re-verified before they are applied, and a broken chain makes the
-journal unavailable instead of applying untrusted data. Marks are committed
-with ``synchronous=NORMAL``: a mark lost to a power failure only causes a
-duplicate re-application, never a lost or doubled event.
+entries are re-verified before they are applied. A broken chain is never
+applied from the broken entry on: the verified entries before it are applied,
+and the journal then refuses new appends (they could never be applied behind
+it) until the owner stops the core and moves the file aside; events from then
+on are recovered by reconciliation. Marks are committed with
+``synchronous=NORMAL``: a mark lost to a power failure only causes a duplicate
+re-application, never a lost or doubled event.
+
+The core, not the marks, decides what was applied: ``reapply_after`` makes
+marked entries unapplied again when the core does not have their commands
+(a core database restored from an older backup next to this journal), and an
+entry whose command id the core holds for a different command
+(``JournalConflict``: a journal older than the core) breaks the journal the
+same way a bad checksum does.
 
 What this does not cover: an event the adapter received but the gateway had
 not yet appended when the process died (the adapter's own memory) is
 recovered only by reconciliation (executions inside the broker's history
 window, statuses through the open-order list and lookups). The journal is not
-part of the core's online backup and is not pruned."""
+part of the core's online backup and is not pruned; a restore of the core
+database (RB-10) leaves it in place, and the next process applies what the
+restored core is missing (``GatewayRunner.replay_journal``)."""
 from __future__ import annotations
 
 import dataclasses
@@ -41,7 +53,7 @@ import os
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Iterable, Iterator, Sequence
 
 from ..domain.canonical import canonical_json, sha256_hex
 from ..domain.fixed import Fixed
@@ -74,7 +86,12 @@ class JournalUnavailable(RuntimeError):
 
 
 class JournalCorrupt(JournalUnavailable):
-    """An entry fails its checksum or the chain is broken: nothing after it is applied."""
+    """An entry fails its checksum or the chain is broken: nothing from it on is applied."""
+
+
+class JournalConflict(JournalUnavailable):
+    """An entry's command id is recorded in the core for a different command: this journal is not the history
+    of this core (for example a journal file rolled back to an older copy), so nothing from it on is applied."""
 
 
 @dataclass(frozen=True)
@@ -141,7 +158,9 @@ class EventJournal:
         self._requested_id = journal_id
         self._conn: sqlite3.Connection | None = None
         self.journal_id: str | None = None
-        self._applied_through = 0          # every seq <= this is marked applied
+        self._applied_through = 0          # every seq <= this is applied (marked, and not to be re-applied)
+        self._reapply_through = 0          # marked entries up to this seq are applied again (reapply_after)
+        self._broken: JournalUnavailable | None = None   # a corrupt or conflicting entry: no appends, apply stops
         self.failure: str | None = None    # the last failure; cleared by the next successful append
         self.reported_failure: str | None = None   # the failure the gateway recorded in the core (episode)
 
@@ -181,11 +200,18 @@ class EventJournal:
             first = conn.execute("SELECT MIN(e.seq) AS s FROM entries e WHERE NOT EXISTS "
                                  "(SELECT 1 FROM applied a WHERE a.seq = e.seq)").fetchone()["s"]
             last = conn.execute("SELECT MAX(seq) AS s FROM entries").fetchone()["s"] or 0
+            through = (first - 1) if first is not None else last
+            # Reopened after a dropped connection: keep a rewind (reapply_after) that is still being re-applied.
+            self._applied_through = through if self.journal_id is None else min(through, self._applied_through)
             self.journal_id = meta["journal_id"]
-            self._applied_through = (first - 1) if first is not None else last
             self._conn = conn
             # Every unapplied entry (and its link to the last applied one) is checked before anything is applied.
-            self._verified_rows(self._applied_through, None)
+            # A broken entry leaves the journal open: the verified entries before it can still be applied,
+            # and ``append`` refuses from now on.
+            try:
+                self._verified_rows(self._applied_through, None)
+            except (JournalCorrupt, JournalConflict):
+                pass   # ``broken`` is set: unapplied() raises once the verified entries are applied
         except JournalUnavailable:
             self._drop(conn)
             raise
@@ -213,6 +239,26 @@ class EventJournal:
     def close(self) -> None:
         self._drop(self._conn)
 
+    @property
+    def broken(self) -> JournalUnavailable | None:
+        """The corrupt or conflicting entry that stops this journal (until the file is moved aside), if any."""
+        return self._broken
+
+    def _break(self, error: JournalUnavailable) -> JournalUnavailable:
+        """Record the first broken entry (sticky for this journal object) and return a fresh error for it."""
+        if self._broken is None:
+            self._broken = error
+        self.failure = f"{type(self._broken).__name__}: {self._broken}"
+        return type(self._broken)(str(self._broken))
+
+    def conflict(self, entry: JournalEntry, why: str) -> JournalConflict:
+        """Mark the journal broken at ``entry`` (its command id names something else in the core); returns the error."""
+        error = JournalConflict(f"event journal {self.path.name}: entry {entry.seq} conflicts with the core: {why}; "
+                                "nothing from this entry on is applied and nothing more is appended (stop the core, move "
+                                "the journal file aside, restart and reconcile)")
+        error.seq = entry.seq
+        return self._break(error)
+
     # ------------------------------------------------------------ write
     def append(self, records: Sequence[tuple[Any, str, dict]]) -> list[JournalEntry]:
         """Append ``(event, command_kind, command_payload)`` records in order, in ONE fsync'd transaction.
@@ -222,6 +268,8 @@ class EventJournal:
             return []
         prepared = [(type(ev).__name__, event_json(ev), kind, canonical_json(payload)) for ev, kind, payload in records]
         conn = self._connection()
+        if self._broken is not None:   # appended behind a broken entry, an event could never be applied
+            raise self._break(self._broken)
         entries: list[JournalEntry] = []
         try:
             conn.execute("PRAGMA synchronous=FULL")
@@ -264,9 +312,42 @@ class EventJournal:
         if entry.seq == self._applied_through + 1:
             self._applied_through = entry.seq
 
+    def marked_newest_first(self, page: int = 500) -> Iterator[tuple[int, str]]:
+        """``(seq, command_id)`` of every marked entry, newest first, read a page at a time (no open cursor)."""
+        below = None
+        while True:
+            conn = self._connection()
+            try:
+                rows = conn.execute("SELECT seq, command_id FROM applied WHERE seq < COALESCE(?, seq + 1) "
+                                    "ORDER BY seq DESC LIMIT ?", (below, page)).fetchall()
+            except sqlite3.Error as exc:
+                raise self._failed(exc) from exc
+            if not rows:
+                return
+            yield from ((r["seq"], r["command_id"]) for r in rows)
+            below = rows[-1]["seq"]
+
+    def reapply_after(self, seq: int) -> int:
+        """Treat every entry after ``seq`` as unapplied, marked or not: the core does not have their commands
+        (it was restored from a backup taken before they were applied). Returns how many marked entries that
+        makes unapplied again. Their old marks stay (append-only); a re-application adds no second mark."""
+        conn = self._connection()
+        try:
+            last_mark = conn.execute("SELECT MAX(seq) AS s FROM applied").fetchone()["s"] or 0
+            again = conn.execute("SELECT COUNT(*) AS n FROM applied WHERE seq > ?", (seq,)).fetchone()["n"]
+        except sqlite3.Error as exc:
+            raise self._failed(exc) from exc
+        if seq < self._applied_through:
+            self._applied_through = seq
+        self._reapply_through = max(self._reapply_through, last_mark)
+        return again
+
     # ------------------------------------------------------------ read
     def unapplied(self, limit: int | None = None) -> list[JournalEntry]:
-        """Unapplied entries, oldest first, each verified against its checksum and its predecessor."""
+        """Unapplied entries, oldest first, each verified against its checksum and its predecessor.
+
+        On a broken chain this returns the verified entries before the broken one and raises only when there
+        are none (``broken`` stays set)."""
         self._connection()
         return self._verified_rows(self._applied_through, limit)
 
@@ -277,7 +358,7 @@ class EventJournal:
             if after > 0:
                 anchor = conn.execute("SELECT hash FROM entries WHERE seq=?", (after,)).fetchone()
                 if anchor is None:
-                    raise self._corrupt(f"entry {after} is missing")
+                    raise self._break(self._corrupt(f"entry {after} is missing", after))
                 prev = anchor["hash"]
             else:
                 prev = GENESIS
@@ -286,14 +367,22 @@ class EventJournal:
             out: list[JournalEntry] = []
             expected = after + 1
             for r in rows:
-                if r["seq"] != expected:
-                    raise self._corrupt(f"entry {expected} is missing (next is {r['seq']})")
-                if r["prev_hash"] != prev or r["hash"] != _entry_hash(
+                problem = None
+                if self._broken is not None and r["seq"] >= self._broken_seq:
+                    problem = self._broken
+                elif r["seq"] != expected:
+                    problem = self._corrupt(f"entry {expected} is missing (next is {r['seq']})", expected)
+                elif r["prev_hash"] != prev or r["hash"] != _entry_hash(
                         prev, r["seq"], r["appended_ns"], r["event_type"], r["event"], r["command_kind"], r["command_payload"]):
-                    raise self._corrupt(f"entry {r['seq']} fails its checksum")
+                    problem = self._corrupt(f"entry {r['seq']} fails its checksum", r["seq"])
+                if problem is not None:
+                    error = self._break(problem)
+                    if out:
+                        return out   # the verified entries before the broken one; the next call raises
+                    raise error
                 prev = r["hash"]
                 expected += 1
-                if not r["done"]:
+                if not r["done"] or r["seq"] <= self._reapply_through:
                     out.append(JournalEntry(self.journal_id, r["seq"], r["appended_ns"], r["event_type"], r["event"],
                                             r["command_kind"], json.loads(r["command_payload"]), r["hash"]))
                     if limit is not None and len(out) >= limit:
@@ -302,15 +391,23 @@ class EventJournal:
         except sqlite3.Error as exc:
             raise self._failed(exc) from exc
 
-    def _corrupt(self, what: str) -> JournalCorrupt:
-        self.failure = f"JournalCorrupt: {what}"
-        return JournalCorrupt(f"event journal {self.path.name}: {what}; nothing from this entry on is applied")
+    @property
+    def _broken_seq(self) -> int:
+        return getattr(self._broken, "seq", 0) or 0
+
+    def _corrupt(self, what: str, seq: int) -> JournalCorrupt:
+        error = JournalCorrupt(f"event journal {self.path.name}: {what}; nothing from this entry on is applied and "
+                               "nothing more is appended (stop the core, move the journal file aside, restart and "
+                               "reconcile)")
+        error.seq = seq
+        return error
 
     def unapplied_count(self) -> int:
         conn = self._connection()
         try:
-            return conn.execute("SELECT COUNT(*) AS n FROM entries e WHERE e.seq > ? AND NOT EXISTS "
-                                "(SELECT 1 FROM applied a WHERE a.seq = e.seq)", (self._applied_through,)).fetchone()["n"]
+            return conn.execute("SELECT COUNT(*) AS n FROM entries e WHERE e.seq > ? AND (e.seq <= ? OR NOT EXISTS "
+                                "(SELECT 1 FROM applied a WHERE a.seq = e.seq))",
+                                (self._applied_through, self._reapply_through)).fetchone()["n"]
         except sqlite3.Error as exc:
             raise self._failed(exc) from exc
 

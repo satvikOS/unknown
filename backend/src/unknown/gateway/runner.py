@@ -27,6 +27,20 @@ reconciliation (so reconciliation is required before a green start) and raises
 ``JournalUnavailable``; journaled entries are still applied. The first
 successful append ends the failure; the stop stays latched for the owner.
 
+The core, not the journal's marks, decides what was applied. At process start
+(``replay_journal``) marked entries whose commands the core does not have are
+applied again, when the core shares the journal's history up to them (a core
+database restored from an older backup: RB-10 leaves the journal in place).
+Applying an entry whose command id the core holds for a different command, or
+for a non-system principal, would be a conflict: the journal is then treated
+as broken (``JournalConflict``), like a bad checksum, and the desk fails
+closed. The same command under another deployment's system principal (the
+core restarted with another ``--deployment``) is a duplicate.
+
+An event the gateway cannot map to a command blocks itself and what follows
+(head-of-line), but the events before it are journaled and applied, and so are
+entries already journaled.
+
 The hand-off stays a pop (``drain_events``) and is not peek/ack: the adapter
 and the runner share one process, so an event waiting in the adapter's deque
 and one waiting in this backlog are lost alike by a crash, and the IBKR API
@@ -44,7 +58,9 @@ from typing import Callable
 from ..broker.port import (BrokerOrder, BrokerPort, CommissionEvent, CommissionRow, ConnectivityEvent, ExecutionEvent,
                            ExecutionRow, OrderStatusEvent, SubmitStatus)
 from ..core.desk import Desk, Result
+from ..domain.canonical import canonical_json, sha256_hex
 from ..domain.fixed import Fixed
+from ..domain.principal import Role
 from .journal import EventJournal, JournalEntry, JournalUnavailable
 
 log = logging.getLogger("unknown.gateway")
@@ -127,6 +143,11 @@ def journal_of(broker: BrokerPort) -> EventJournal | None:
         return pinned[1] if pinned is not None and pinned[0] is broker else None
 
 
+def entry_payload_hash(entry: JournalEntry) -> str:
+    """The core's payload hash of an entry's command (``Desk.execute``)."""
+    return sha256_hex(canonical_json({"kind": entry.command_kind, "payload": entry.command_payload}))
+
+
 def _outcome(result: Result) -> str:
     if result.duplicate:
         return "duplicate"
@@ -204,22 +225,24 @@ class GatewayRunner:
         journal = self.journal
         if journal is None:
             return self._drain_backlog(limit)
-        intake_error: JournalUnavailable | None = None
+        intake_error: Exception | None = None
         try:
             self.journal_broker_events(limit)
-        except JournalUnavailable as exc:
+        except Exception as exc:   # an unwritable journal, or an event that cannot be mapped (head-of-line)
             intake_error = exc
+        journal_error = intake_error if isinstance(intake_error, JournalUnavailable) else None
         try:
-            applied = self._apply_journal(journal, limit)
+            applied = self._apply_journal(journal, limit)   # what is journaled is applied either way
         except JournalUnavailable as exc:
-            self._fail_closed(journal, intake_error or exc)
+            self._fail_closed(journal, journal_error or exc)
             raise
         except Exception:
-            if intake_error is not None:
-                self._fail_closed(journal, intake_error)
+            if journal_error is not None:
+                self._fail_closed(journal, journal_error)
             raise
+        if journal_error is not None:
+            self._fail_closed(journal, journal_error)
         if intake_error is not None:
-            self._fail_closed(journal, intake_error)
             raise intake_error
         journal.reported_failure = None   # a drain without a journal error ends a failure episode
         return applied
@@ -248,35 +271,66 @@ class GatewayRunner:
         backlog = event_backlog(self.broker)
         if not (journal.failure and backlog) and len(backlog) < limit:
             backlog.extend(self.broker.drain_events(limit - len(backlog)))
-        if not backlog:
-            return 0
-        batch = list(backlog)
-        journal.append([(ev, *event_command(self.account_key, ev)) for ev in batch])
-        for _ in batch:
-            backlog.popleft()
-        return len(batch)
+        records, unmappable = [], None
+        for ev in backlog:
+            try:
+                records.append((ev, *event_command(self.account_key, ev)))
+            except Exception as exc:   # it and everything after it wait at the head of the backlog
+                unmappable = exc
+                break
+        if records:
+            journal.append(records)
+            for _ in records:
+                backlog.popleft()
+        if unmappable is not None:
+            raise unmappable
+        return len(records)
 
     def _apply_journal(self, journal: EventJournal, limit: int | None) -> int:
         n = 0
         for entry in journal.unapplied(limit):
-            result = self.apply_entry(entry)
+            result = self.apply_entry(entry, journal)
             journal.mark_applied(entry, _outcome(result))
             n += 1
             self._beat()
+        if journal.broken is not None:   # the verified entries before a broken one are applied; then fail closed
+            raise journal.broken.__class__(str(journal.broken))
         return n
 
-    def apply_entry(self, entry: JournalEntry) -> Result:
+    def apply_entry(self, entry: JournalEntry, journal: EventJournal | None = None) -> Result:
         """Apply one journal entry. Its command id is the entry's own, so a re-application returns the
-        stored result (a duplicate with no new event)."""
+        stored result (a duplicate with no new event).
+
+        The id is looked up first. Held by the core for a different command (payload) or principal role,
+        it is not this entry's command: the journal is broken there (``JournalConflict``) and the core is
+        not asked, so a conflict is never re-presented on every cycle. Held for the same command by the
+        system principal of another deployment, it is a duplicate."""
+        rows = self.desk.store.query("SELECT payload_hash, status, result, principal_id, principal_role FROM commands "
+                                     "WHERE command_id=?", (entry.command_id,))
+        if rows:
+            row = rows[0]
+            journal = journal if journal is not None else self.journal
+            if row["principal_role"] != Role.SYSTEM.value or row["payload_hash"] != entry_payload_hash(entry):
+                why = (f"the core holds {entry.command_id} for a different command"
+                       if row["principal_role"] == Role.SYSTEM.value else
+                       f"the core holds {entry.command_id} for a {row['principal_role']} principal")
+                if journal is None:
+                    raise JournalUnavailable(why)
+                raise journal.conflict(entry, why)
+            if row["principal_id"] != self.desk.system().id:
+                return Result(entry.command_id, row["status"] == "ACCEPTED", True, json.loads(row["result"]))
         return self.desk.run_system(entry.command_kind, entry.command_payload, command_id=entry.command_id)
 
     def replay_journal(self, batch: int = 1000) -> int:
-        """Apply every unapplied journal entry in order without taking new events (process start)."""
+        """Apply every unapplied journal entry in order without taking new events (process start).
+
+        First, marked entries the core does not have are made unapplied again (``rewind_to_core``)."""
         journal = self.journal
         if journal is None:
             return 0
         total = 0
         try:
+            self.rewind_to_core(journal)
             while True:
                 n = self._apply_journal(journal, batch)
                 total += n
@@ -285,6 +339,24 @@ class GatewayRunner:
         except JournalUnavailable as exc:
             self._fail_closed(journal, exc)
             raise
+
+    def rewind_to_core(self, journal: EventJournal) -> int:
+        """Make marked entries unapplied again when the core does not have their commands; returns how many.
+
+        Walks the marks newest first to the newest one whose command the core holds (the anchor): every
+        entry is applied strictly in journal order, so the core has every entry up to the anchor and none of
+        the marked ones after it -- it was restored from a backup taken in between. Without an anchor the core
+        shares no history with this journal (a new database next to an old journal): nothing is re-applied."""
+        missing = 0
+        for seq, command_id in journal.marked_newest_first():
+            if self.desk.store.query("SELECT 1 FROM commands WHERE command_id=?", (command_id,)):
+                if missing:
+                    journal.reapply_after(seq)
+                    log.warning("the core lacks %d broker events this journal marked applied after entry %d "
+                                "(restored database): applying them again in journal order", missing, seq)
+                return missing
+            missing += 1
+        return 0
 
     def _fail_closed(self, journal: EventJournal, exc: JournalUnavailable) -> None:
         """BR-ORD-20: broker events cannot be made durable, so the desk must not trade on a partial view.

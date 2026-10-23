@@ -24,6 +24,7 @@ import threading
 import time
 import unittest
 from contextlib import contextmanager
+from dataclasses import dataclass as _dataclass
 from pathlib import Path
 from unittest import mock
 
@@ -49,6 +50,10 @@ from unknown.store.schema import PROJECTION_TABLES  # noqa: E402
 F = Fixed.parse
 NS = 1_000_000_000
 JID = "j0"
+
+
+def dataclass_frozen(cls):
+    return _dataclass(frozen=True)(cls)
 
 
 class Crash(BaseException):
@@ -925,6 +930,319 @@ class ServiceWiringTest(unittest.TestCase):
         self.assertEqual(reopened.journal_id, journal_id)
         self.assertEqual(len(list(reopened.entries())), 1 + 3 + 3)   # acknowledgement, first fill, second fill
         self.assertEqual(replay_and_compare(db, Path(tmp.name) / "replay.sqlite"), [])
+
+
+
+class ReviewRegressionTest(unittest.TestCase):
+    """Adversarial review of BR-ORD-20 (feat/gateway-event-journal): each test failed on the branch as built."""
+
+    def setUp(self):
+        quiet(self)
+
+    # ------------------------------------------------------------------ restore
+    def restored(self):
+        """A core whose second fill was applied and marked after a backup, restored (RB-10) from that backup.
+        Returns the harness on the restored database, a journal reopened on the same file, and the entry count."""
+        from unknown.ops.backup import backups_for, restore_backup, take_backup
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        paths = Paths(Path(tmp.name) / "home")
+        paths.ensure()
+        h = Harness(db_path=paths.db(ACCOUNT))
+        self.addCleanup(lambda: h.desk.store.close())
+        path = paths.data / f"{ACCOUNT}.events"
+        journal = EventJournal(path, ACCOUNT, h.clock.now_ns, journal_id=JID)
+        attach_journal(h.broker, journal)
+        running_session(h)
+        self.assertTrue(h.intent("B1", "BUY", "5", "10.00", "A").accepted)
+        h.pump()
+        h.broker.fill("B1", F("2"), F("10.00"), commission=F("1.00"))
+        h.runner.drain_events()
+        take_backup(paths, ACCOUNT, now_ns=h.clock.now_ns())
+        (backup,) = backups_for(paths, ACCOUNT)
+        at_backup = len(list(journal.entries()))
+        h.broker.fill("B1", F("3"), F("10.00"), commission=F("1.00"))
+        h.runner.drain_events()
+        self.assertEqual(h.row("orders", "order_id", "B1")["state"], "FILLED")
+        after = len(list(journal.entries()))
+        self.assertEqual(after - at_backup, 3)
+        self.assertEqual(journal.unapplied_count(), 0)
+        # The core stops cleanly; the owner restores the backup; a new process starts on the restored file.
+        h.desk.store.release_lease()
+        h.desk.store.close()
+        restore_backup(paths, ACCOUNT, backup, now_ns=h.clock.now_ns())
+        detach_journal(h.broker)
+        journal.close()
+        h.desk = h._open()
+        self.assertEqual(h.control()["latch_reason"], "RESTORED_FROM_BACKUP")
+        self.assertEqual(h.desk.store.query("SELECT COUNT(*) AS n FROM executions")[0]["n"], 1)
+        journal = EventJournal(path, ACCOUNT, h.clock.now_ns, journal_id=JID)
+        attach_journal(h.broker, journal)
+        self.addCleanup(lambda: (detach_journal(h.broker), journal.close()))
+        return h, journal, after
+
+    def assert_restored_core_complete(self, h: Harness, journal: EventJournal, entries: int) -> None:
+        self.assertEqual(journal_commands(h), list(range(1, entries + 1)), "each entry executed once in this core")
+        self.assertEqual(h.desk.store.query("SELECT COUNT(*) AS n FROM executions")[0]["n"], 2)
+        o = h.row("orders", "order_id", "B1")
+        self.assertEqual((o["cum_qty"], o["fees_final"]), ("5", "2.000000"))
+        self.assertEqual(journal.unapplied_count(), 0)
+        self.assertEqual(h.runner.replay_journal(), 0, "a second start re-applies nothing")
+        self.assertEqual(h.verify(), [])
+        self.assertEqual(h.reconcile().body["status"], "CLEAN")
+        self.assertEqual(h.verify(), [])
+
+    def test_entries_marked_applied_after_a_restored_backup_point_are_applied_to_the_restored_core(self):
+        """RB-10 restore (ops.backup.restore_backup) puts an older core database in place and leaves the event
+        journal where it is. Entries the old core applied and marked after the backup point are not in the
+        restored core: the next process applies them again (in journal order, under their own command ids)
+        instead of trusting the marks, so the journaled fills are not lost beyond the broker's history window.
+        Entries the restored core already has are not applied again. On the branch nothing was applied."""
+        h, journal, entries = self.restored()
+        self.assertEqual(h.runner.replay_journal(), 3, "the three entries applied after the backup point")
+        self.assert_restored_core_complete(h, journal, entries)
+
+    def test_a_dropped_journal_connection_does_not_cancel_the_reapplication(self):
+        """The re-application decided at start survives the journal reopening its connection (an I/O error)
+        before the entries are applied: the reopened journal does not take its marks for the truth again."""
+        h, journal, entries = self.restored()
+        self.assertEqual(h.runner.rewind_to_core(journal), 3)
+        journal.close()   # the connection is dropped; the object (and the service's reference) stays
+        self.assertEqual(journal.unapplied_count(), 3)
+        self.assertEqual(h.runner.drain_events(), 3)
+        self.assert_restored_core_complete(h, journal, entries)
+
+    def test_a_fresh_core_never_receives_an_old_journals_history(self):
+        """A core database that never applied anything from this journal (a new database next to an old
+        journal) shares no history with it: the marks are kept, nothing old is applied."""
+        j = Journaled()
+        self.addCleanup(j.close)
+        running_session(j.h)
+        self.assertTrue(j.h.intent("B1", "BUY", "5", "10.00", "A").accepted)
+        j.h.pump()
+        j.h.broker.fill("B1", F("5"), F("10.00"), commission=F("1.00"))
+        j.h.runner.drain_events()
+        entries = len(list(j.journal.entries()))
+        fresh = Harness()
+        self.addCleanup(fresh.close)
+        journal = EventJournal(j.path, ACCOUNT, fresh.clock.now_ns, journal_id=JID)
+        self.addCleanup(journal.close)
+        attach_journal(fresh.broker, journal)
+        self.addCleanup(lambda: detach_journal(fresh.broker))
+        running_session(fresh)
+        self.assertEqual(fresh.runner.replay_journal(), 0)
+        self.assertEqual(journal_commands(fresh), [])
+        self.assertEqual(len(list(journal.entries())), entries)
+        self.assertEqual(fresh.verify(), [])
+
+    # ------------------------------------------------------------------ id conflicts
+    def test_a_reapplication_after_a_deployment_id_change_is_a_duplicate_not_a_conflict(self):
+        """An entry applied by a core running as one deployment, unmarked at the crash, is re-applied by the next
+        process running as another (``--deployment`` names the system principal). Same command id, same
+        payload, both SYSTEM: a duplicate. On the branch the core raised CommandConflict (a different principal)
+        on every drain, recorded a CommandIdConflict event each time, and nothing behind it was ever applied."""
+        from unknown.core.desk import open_desk
+        j = Journaled()
+        self.addCleanup(j.close)
+        h = j.h
+        running_session(h)
+        self.assertTrue(h.intent("B1", "BUY", "5", "10.00", "A").accepted)
+        h.pump()
+        h.broker.fill("B1", F("5"), F("10.00"), commission=F("1.00"))
+        real_mark = j.journal.mark_applied
+
+        def dies_before_first_mark(entry, outcome):
+            raise Crash()
+
+        with mock.patch.object(j.journal, "mark_applied", dies_before_first_mark):
+            with self.assertRaises(Crash):
+                h.runner.drain_events()
+        del real_mark
+        h.broker._events.clear()
+        detach_journal(h.broker)
+        j.journal.close()
+        h.desk.store.close()
+        h.desk = open_desk(h.db_path, h.clock, h.ids, deployment_id="renamed-host", takeover=True, quotes=None,
+                           health=h.health, calendars={"WEEKDAYS": WEEKDAYS_ONLY})
+        j.journal = j._open()
+        conflicts = h.desk.store.query("SELECT COUNT(*) AS n FROM events WHERE type='CommandIdConflict'")[0]["n"]
+        self.assertEqual(h.runner.replay_journal(), 3)
+        self.assertEqual(j.journal.unapplied_count(), 0)
+        self.assertEqual(h.desk.store.query("SELECT COUNT(*) AS n FROM events WHERE type='CommandIdConflict'")[0]["n"],
+                         conflicts)
+        o = h.row("orders", "order_id", "B1")
+        self.assertEqual((o["state"], o["cum_qty"], o["fees_final"]), ("FILLED", "5", "1.000000"))
+        self.assertEqual(sorted(m["outcome"] for m in j.journal.marks().values()).count("duplicate"), 1)
+        self.assertEqual(h.verify(), [])
+
+    def test_a_journal_older_than_the_core_fails_closed_without_flooding_the_event_log(self):
+        """The journal file is rolled back to an older copy (a file-level restore of the home directory) while
+        the core database keeps later commands of the same journal: the next entry's command id names a
+        different broker event in the core. The gateway must not apply it; it fails closed (stop latched,
+        reconciliation required) and does not record a CommandIdConflict event on every cycle."""
+        j = Journaled()
+        self.addCleanup(j.close)
+        h = j.h
+        running_session(h)
+        self.assertTrue(h.intent("B1", "BUY", "5", "10.00", "A").accepted)
+        h.pump()
+        old_copy = Path(h.tmp.name) / "old.events"
+        dst = sqlite3.connect(old_copy)
+        j.journal._connection().backup(dst)
+        dst.close()
+        h.broker.fill("B1", F("2"), F("10.00"), commission=F("1.00"))
+        h.runner.drain_events()
+        detach_journal(h.broker)
+        j.journal.close()
+        for suffix in ("-wal", "-shm"):
+            Path(f"{j.path}{suffix}").unlink(missing_ok=True)
+        old_copy.replace(j.path)
+        h.restart()
+        j.journal = j._open()
+        h.broker.fill("B1", F("3"), F("10.00"), commission=F("1.00"))
+        conflicts = h.desk.store.query("SELECT COUNT(*) AS n FROM events WHERE type='CommandIdConflict'")[0]["n"]
+        for _ in range(3):
+            with self.assertRaises(JournalUnavailable):
+                h.runner.drain_events()
+        self.assertLessEqual(h.desk.store.query("SELECT COUNT(*) AS n FROM events WHERE type='CommandIdConflict'")[0]["n"],
+                             conflicts + 1)
+        ctl = h.control()
+        self.assertTrue(ctl["stop_latched"] and ctl["needs_reconciliation"])
+        self.assertTrue(ctl["latch_reason"].startswith(JOURNAL_STOP_REASON), ctl["latch_reason"])
+        self.assertEqual(h.row("orders", "order_id", "B1")["cum_qty"], "2", "the colliding entry was not applied")
+        self.assertEqual(h.verify(), [])
+
+    # ------------------------------------------------------------------ corruption
+    def test_valid_entries_before_a_corrupt_one_are_applied_and_nothing_is_appended_behind_it(self):
+        """The last of three unapplied entries fails its checksum: the two before it are verified against the
+        chain and applied (``nothing from this entry on is applied`` -- not nothing at all); the drain fails
+        closed; and new broker events are not appended behind the broken entry, where they could never be
+        applied, but wait in memory (bounded) for the owner to move the journal aside."""
+        j = Journaled()
+        self.addCleanup(j.close)
+        h, journal = j.h, j.journal
+        running_session(h)
+        self.assertTrue(h.intent("B1", "BUY", "5", "10.00", "A").accepted)
+        h.pump()
+        h.broker.fill("B1", F("5"), F("10.00"), commission=F("1.00"))
+        h.runner.journal_broker_events()
+        execution, commission, status = journal.unapplied()
+        journal.close()
+        conn = sqlite3.connect(journal.path)
+        conn.execute("DROP TRIGGER entries_no_update")
+        conn.execute("UPDATE entries SET command_payload=replace(command_payload, 'FILLED', 'CANCELLED') WHERE seq=?",
+                     (status.seq,))
+        conn.commit()
+        conn.close()
+        with self.assertRaises(JournalUnavailable):
+            h.runner.drain_events()
+        self.assertEqual(h.desk.store.query("SELECT COUNT(*) AS n FROM executions")[0]["n"], 1)
+        self.assertEqual(h.row("executions", "exec_key", "sim:SIM:E1")["fee_status"], "FINAL")
+        self.assertEqual(sorted(journal.marks())[-2:], [execution.seq, commission.seq])
+        ctl = h.control()
+        self.assertTrue(ctl["stop_latched"] and ctl["needs_reconciliation"])
+        entries = len(list(journal.entries()))
+        h.broker.disconnect()
+        with self.assertRaises(JournalUnavailable):
+            h.runner.drain_events()
+        self.assertEqual(len(list(journal.entries())), entries, "nothing appended behind a broken entry")
+        self.assertEqual(len(event_backlog(h.broker)), 1)
+        self.assertEqual(h.verify(), [])
+
+    # ------------------------------------------------------------------ intake
+    def test_an_unknown_event_type_blocks_only_itself_and_what_follows(self):
+        """An event the gateway cannot map to a command is at the head-of-line, as before the journal: but the
+        events the broker handed over before it are journaled and applied, and so are entries already in the
+        journal. On the branch nothing of the batch was journaled and no journaled entry was applied."""
+
+        @dataclass_frozen
+        class StrangeEvent:
+            what: str
+
+        j = Journaled()
+        self.addCleanup(j.close)
+        h, journal = j.h, j.journal
+        running_session(h)
+        self.assertTrue(h.intent("B1", "BUY", "5", "10.00", "A").accepted)
+        h.pump()
+        h.broker.fill("B1", F("2"), F("10.00"), commission=F("1.00"))
+        h.runner.journal_broker_events()                  # three entries journaled, not applied
+        h.broker.fill("B1", F("3"), F("10.00"), commission=F("1.00"))
+        h.broker._events.insert(2, StrangeEvent("x"))    # execution, commission, ?, status
+        with self.assertRaises(TypeError):
+            h.runner.drain_events()
+        self.assertEqual(journal.unapplied_count(), 0)
+        self.assertEqual(h.desk.store.query("SELECT COUNT(*) AS n FROM executions")[0]["n"], 2)
+        self.assertEqual([type(e).__name__ for e in event_backlog(h.broker)], ["StrangeEvent", "OrderStatusEvent"])
+        self.assertEqual(h.verify(), [])
+
+    # ------------------------------------------------------------------ episodes
+    def test_a_second_failure_with_the_same_cause_is_reported_again_while_the_stop_is_still_latched(self):
+        """Two failure episodes with the same cause, separated by drains that succeed and a CLEAN reconciliation,
+        while the owner has not cleared the stop: the second is recorded durably too (a StopReasserted naming
+        the journal error -- the INCOMPLETE run itself keeps no error text). No test covered the episode reset:
+        removing it left every test green."""
+        j = Journaled()
+        self.addCleanup(j.close)
+        h, journal = j.h, j.journal
+        running_session(h)
+        self.assertTrue(h.intent("B1", "BUY", "5", "10.00", "A").accepted)
+        h.pump()
+
+        def journal_stops() -> list[str]:
+            rows = h.desk.store.query("SELECT type, payload FROM events WHERE type IN ('StopLatched','StopReasserted') "
+                                      "ORDER BY seq")
+            return [r["type"] for r in rows if json.loads(r["payload"])["info"]["reason"].startswith(JOURNAL_STOP_REASON)]
+
+        previous = fill_page_cap(journal)
+        h.broker.fill("B1", F("2"), F("10.00"), commission=F("1.00"), duplicate_callbacks=8)
+        with self.assertRaises(JournalUnavailable):
+            h.runner.drain_events()
+        self.assertEqual(journal_stops(), ["StopLatched"])
+        free_page_cap(journal, previous)
+        h.runner.drain_events()   # the stop's cancel of B1 is still in the outbox: B1 keeps working at the broker
+        self.assertEqual(h.reconcile().body["status"], "CLEAN")
+        self.assertTrue(h.control()["stop_latched"])
+        self.assertFalse(h.control()["needs_reconciliation"])
+        fill_page_cap(journal)
+        h.broker.fill("B1", F("3"), F("10.00"), commission=F("1.00"), duplicate_callbacks=8)
+        with self.assertRaises(JournalUnavailable):
+            h.runner.drain_events()
+        self.assertEqual(journal_stops(), ["StopLatched", "StopReasserted"])
+        self.assertTrue(h.control()["needs_reconciliation"])
+        free_page_cap(journal, previous)
+        h.pump()
+        self.assertEqual(h.row("orders", "order_id", "B1")["cum_qty"], "5")
+        self.assertEqual(h.verify(), [])
+
+    # ------------------------------------------------------------------ the bound
+    def test_while_the_journal_fails_no_further_events_are_taken_from_the_broker(self):
+        """The claimed bound: while appends fail, the in-memory backlog does not grow; later broker events stay
+        in the adapter. (No test exercised it: removing the condition left every test green.)"""
+        j = Journaled()
+        self.addCleanup(j.close)
+        h, journal = j.h, j.journal
+        running_session(h)
+        self.assertTrue(h.intent("B1", "BUY", "5", "10.00", "A").accepted)
+        h.pump()
+        previous = fill_page_cap(journal)
+        h.broker.fill("B1", F("2"), F("10.00"), commission=F("1.00"), duplicate_callbacks=8)
+        with self.assertRaises(JournalUnavailable):
+            h.runner.drain_events()
+        held = len(event_backlog(h.broker))
+        self.assertEqual(held, 11)
+        h.broker.fill("B1", F("3"), F("10.00"), commission=F("1.00"))
+        later = h.broker.pending_event_count()
+        self.assertEqual(later, 3)
+        with self.assertRaises(JournalUnavailable):
+            h.runner.drain_events()
+        self.assertEqual((len(event_backlog(h.broker)), h.broker.pending_event_count()), (held, later))
+        free_page_cap(journal, previous)
+        h.runner.drain_events()
+        h.runner.drain_events()
+        self.assertEqual(h.row("orders", "order_id", "B1")["cum_qty"], "5")
+        self.assertEqual(journal.unapplied_count(), 0)
+        self.assertEqual(h.verify(), [])
 
 
 if __name__ == "__main__":
