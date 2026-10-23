@@ -43,7 +43,11 @@ recovered only by reconciliation (executions inside the broker's history
 window, statuses through the open-order list and lookups). The journal is not
 part of the core's online backup and is not pruned; a restore of the core
 database (RB-10) leaves it in place, and the next process applies what the
-restored core is missing (``GatewayRunner.replay_journal``)."""
+restored core is missing (``GatewayRunner.rewind_to_core``, before the first
+entry is applied) -- but only when the restored core holds at least one entry
+of this journal: a backup taken before the journal's first applied entry
+shares no history with it, and nothing is re-applied (reconciliation, which
+the restore requires, recovers what the broker still reports)."""
 from __future__ import annotations
 
 import dataclasses
@@ -163,6 +167,7 @@ class EventJournal:
         self._broken: JournalUnavailable | None = None   # a corrupt or conflicting entry: no appends, apply stops
         self.failure: str | None = None    # the last failure; cleared by the next successful append
         self.reported_failure: str | None = None   # the failure the gateway recorded in the core (episode)
+        self.rewound = False   # GatewayRunner.rewind_to_core ran for this object (before its first apply)
 
     # ------------------------------------------------------------ open
     def _connection(self) -> sqlite3.Connection:

@@ -30,10 +30,12 @@ fails, fails closed before the pass: cancels still go out, but no new buy is
 transmitted while events cannot be journaled. The first successful append
 ends the failure; the stop stays latched for the owner.
 
-The core, not the journal's marks, decides what was applied. At process start
-(``replay_journal``) marked entries whose commands the core does not have are
-applied again, when the core shares the journal's history up to them (a core
-database restored from an older backup: RB-10 leaves the journal in place).
+The core, not the journal's marks, decides what was applied. Before a journal
+object's first entry is applied (normally by the start-up ``replay_journal``;
+by the first drain if that replay failed), marked entries whose commands the
+core does not have are applied again, when the core shares the journal's
+history up to them (a core database restored from an older backup: RB-10
+leaves the journal in place).
 Applying an entry whose command id the core holds for a different command, or
 for a non-system principal, would be a conflict: the journal is then treated
 as broken (``JournalConflict``), like a bad checksum, and the desk fails
@@ -290,6 +292,11 @@ class GatewayRunner:
         return len(records)
 
     def _apply_journal(self, journal: EventJournal, limit: int | None) -> int:
+        if not journal.rewound:
+            # Once per journal object, before its first entry is applied by anyone: the start-up replay
+            # normally does it, but if that failed (the journal could not be opened) the first drain must,
+            # or entries applied afterwards would hide the marked entries a restored core is missing.
+            self.rewind_to_core(journal)
         n = 0
         for entry in journal.unapplied(limit):
             result = self.apply_entry(entry, journal)
@@ -327,13 +334,13 @@ class GatewayRunner:
     def replay_journal(self, batch: int = 1000) -> int:
         """Apply every unapplied journal entry in order without taking new events (process start).
 
-        First, marked entries the core does not have are made unapplied again (``rewind_to_core``)."""
+        First (once per journal object, in ``_apply_journal``), marked entries the core does not have are made
+        unapplied again (``rewind_to_core``)."""
         journal = self.journal
         if journal is None:
             return 0
         total = 0
         try:
-            self.rewind_to_core(journal)
             while True:
                 n = self._apply_journal(journal, batch)
                 total += n
@@ -357,8 +364,10 @@ class GatewayRunner:
                     journal.reapply_after(seq)
                     log.warning("the core lacks %d broker events this journal marked applied after entry %d "
                                 "(restored database): applying them again in journal order", missing, seq)
+                journal.rewound = True
                 return missing
             missing += 1
+        journal.rewound = True
         return 0
 
     def _fail_closed(self, journal: EventJournal, exc: JournalUnavailable) -> None:

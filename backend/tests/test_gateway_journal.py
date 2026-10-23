@@ -1249,6 +1249,8 @@ class SecondReviewTest(unittest.TestCase):
     """Second adversarial review of BR-ORD-20 (feat/gateway-event-journal). Each test failed before its fix, or
     (marked "coverage") was the only test to fail when the code it names was removed."""
 
+    restored = ReviewRegressionTest.restored
+
     def setUp(self):
         quiet(self)
 
@@ -1284,6 +1286,128 @@ class SecondReviewTest(unittest.TestCase):
         self.assertEqual((b0["state"], b0["cum_qty"]), ("CANCELED", "2"))
         self.assertEqual(j.journal.unapplied_count(), 0)
         self.assertEqual(h.reconcile().body["status"], "CLEAN")
+        self.assertEqual(h.verify(), [])
+
+    def test_events_the_broker_sent_are_journaled_before_the_outbox_pass(self):
+        """Coverage. Events waiting in the adapter when a pump starts are journaled before the outbox pass, so a
+        crash during that (possibly slow) pass loses none of them: the next process applies them. Removing the
+        pump's first append left every other test green."""
+        j = Journaled()
+        self.addCleanup(j.close)
+        h = j.h
+        running_session(h)
+        self.assertTrue(h.intent("B1", "BUY", "5", "10.00", "A").accepted)
+        h.pump()
+        h.broker.fill("B1", F("2"), F("10.00"), commission=F("1.00"))
+        self.assertTrue(h.intent("B2", "BUY", "1", "10.00", "A").accepted)
+        with mock.patch.object(h.broker, "submit", side_effect=Crash()):
+            with self.assertRaises(Crash):
+                h.pump()   # the process dies inside the outbox pass, transmitting B2
+        self.assertEqual(j.crash_and_restart(), 0, "the fill's events were only in memory at the crash")
+        self.assertEqual(j.journal.status()["unapplied"], 3, "the health query reports what waits in the journal")
+        self.assertEqual(j.h.runner.replay_journal(), 3)
+        o = j.h.row("orders", "order_id", "B1")
+        self.assertEqual((o["cum_qty"], o["fees_final"]), ("2", "1.000000"))
+        self.assertEqual(j.h.verify(), [])
+
+    def test_at_most_one_batch_waits_in_memory_while_the_journal_fails(self):
+        """Coverage: the in-memory bound is one batch. With a batch limit of 4 and a journal that cannot be
+        written, four events wait in the runner and the other seven stay in the adapter, on every failing drain;
+        once the journal works, all eleven are journaled in broker order and applied. Taking events from the
+        broker without the batch limit left every test green."""
+        j = Journaled()
+        self.addCleanup(j.close)
+        h = j.h
+        running_session(h)
+        self.assertTrue(h.intent("B1", "BUY", "5", "10.00", "A").accepted)
+        h.pump()
+        h.broker.fill("B1", F("5"), F("10.00"), commission=F("1.00"), duplicate_callbacks=8)
+        emitted = [event_json(e) for e in h.broker._events]
+        first = len(list(j.journal.entries()))
+
+        def unwritable(records):
+            raise j.journal._failed(sqlite3.OperationalError("disk I/O error"))
+
+        with mock.patch.object(j.journal, "append", unwritable):
+            for _ in range(2):
+                with self.assertRaises(JournalUnavailable):
+                    h.runner.drain_events(limit=4)
+                self.assertEqual((len(event_backlog(h.broker)), h.broker.pending_event_count()), (4, 7))
+        while h.runner.drain_events(limit=4):
+            pass
+        self.assertEqual([e.event for e in j.journal.entries()][first:], emitted)
+        self.assertEqual(j.journal.unapplied_count(), 0)
+        o = h.row("orders", "order_id", "B1")
+        self.assertEqual((o["state"], o["cum_qty"], o["fees_final"]), ("FILLED", "5", "1.000000"))
+        self.assertEqual(h.verify(), [])
+
+    def test_the_lease_heartbeat_beats_between_journal_entries(self):
+        """Coverage (review finding 57 on the journal path, which the core service always uses): the runner's
+        heartbeat runs between the entries of a long apply pass, so the writer lease stays fresh. Removing it
+        left every test green."""
+        j = Journaled()
+        self.addCleanup(j.close)
+        h = j.h
+        running_session(h)
+        self.assertTrue(h.intent("B1", "BUY", "5", "10.00", "A").accepted)
+        h.pump()
+        h.broker.fill("B1", F("2"), F("10.00"), commission=F("1.00"))
+        h.broker.fill("B1", F("3"), F("10.00"), commission=F("1.00"))
+        applied: list[int] = []
+        runner = runner_module.GatewayRunner(h.desk, h.broker, ACCOUNT,
+                                             heartbeat=lambda: applied.append(len(journal_commands(h))))
+        before = len(journal_commands(h))
+        self.assertEqual(runner.drain_events(), 6)
+        self.assertEqual(applied, list(range(before + 1, before + 7)), "one beat after each entry's command")
+        self.assertEqual(h.verify(), [])
+
+    def test_a_failed_start_up_replay_still_reapplies_what_a_restored_core_is_missing(self):
+        """The first process after an RB-10 restore cannot open the journal for its start-up replay (another
+        process holds it locked). The next drain opens it and must still apply the entries the restored core is
+        missing, before anything newer. Before the fix the rewind ran only in the start-up replay: the drain
+        applied the new entries, their marks then hid the missing ones, and the second fill was never applied."""
+        h, journal, entries = self.restored()
+
+        def locked(journal_self):
+            raise journal_self._failed(sqlite3.OperationalError("database is locked"))
+
+        with mock.patch.object(EventJournal, "_connection", locked):
+            with self.assertRaises(JournalUnavailable):
+                h.runner.replay_journal()
+        h.broker.disconnect()
+        h.broker.reconnect()
+        self.assertEqual(h.runner.drain_events(), 3 + 2)
+        total = len(list(journal.entries()))
+        self.assertEqual(total, entries + 2)
+        self.assertEqual(journal_commands(h), list(range(1, total + 1)), "each entry executed once, in order")
+        self.assertEqual(h.desk.store.query("SELECT COUNT(*) AS n FROM executions")[0]["n"], 2)
+        o = h.row("orders", "order_id", "B1")
+        self.assertEqual((o["cum_qty"], o["fees_final"]), ("5", "2.000000"))
+        self.assertEqual(journal.unapplied_count(), 0)
+        self.assertEqual(h.runner.replay_journal(), 0)
+        self.assertEqual(h.verify(), [])
+        self.assertEqual(h.reconcile().body["status"], "CLEAN")
+        self.assertEqual(h.verify(), [])
+
+    def test_a_journal_of_another_format_is_refused(self):
+        """Coverage: a journal file written in another format is unavailable (never read as this one) and the
+        drain fails closed. Removing the format check left every test green."""
+        j = Journaled()
+        self.addCleanup(j.close)
+        h = j.h
+        running_session(h)
+        j.journal.close()
+        conn = sqlite3.connect(j.path)
+        conn.execute("UPDATE meta SET value='2' WHERE key='format'")
+        conn.commit()
+        conn.close()
+        h.broker.disconnect()
+        with self.assertRaises(JournalUnavailable) as caught:
+            h.runner.drain_events()
+        self.assertIn("format", str(caught.exception))
+        self.assertEqual(len(event_backlog(h.broker)), 1, "the event waits in memory")
+        ctl = h.control()
+        self.assertTrue(ctl["stop_latched"] and ctl["needs_reconciliation"])
         self.assertEqual(h.verify(), [])
 
 
