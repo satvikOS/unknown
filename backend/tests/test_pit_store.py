@@ -254,3 +254,47 @@ class RetentionAndDeletionTests(unittest.TestCase):
         ro = ResearchStore.open_readonly(old)
         self.assertEqual(ro.deletion_events(), [])
         ro.close()
+
+    # ---- review regressions (2026-10-22)
+    def test_retention_facts_take_the_earliest_receipt_and_ignore_versions_no_longer_current(self):
+        from unknown.data.pit import NS_PER_DAY as day
+        early = self.raw(b"superseded", self.deadline - 100)             # received at INGESTED
+        late = self.s.put_raw(b"current", provider="fixture", dataset=D, request={}, receipt_time_ns=INGESTED + 3 * day,
+                              media_type="application/json", retention_until_ns=self.deadline)
+        self.s.record(obs("1000", FILED_10K, source_ref=f"raw:{early}#a"), INGESTED)
+        # a silent correction of the same publication: the run reads only this current version
+        self.s.record(obs("1001", FILED_10K, source_ref=f"raw:{late}#a", receipt_time_ns=INGESTED + 3 * day),
+                      INGESTED + 3 * day)
+        self.s.record(obs("2000", FILED_10K, entity_id="ISSUER-2", receipt_time_ns=INGESTED + day,
+                          source_ref="owner:fixture"), INGESTED + day)
+        facts = self.s.retention_facts(D, ["ISSUER-1", "ISSUER-2"], FILED_10K)
+        # neither the superseded version's earlier deadline nor its earlier receipt binds; the earliest current receipt does
+        self.assertEqual((facts["observations"], facts["raw_retention_until_ns"], facts["first_receipt_ns"]),
+                         (2, self.deadline, INGESTED + day))
+
+    def test_a_registry_retention_period_also_deletes_the_raw_payloads_received_that_long_ago(self):
+        from unknown.data.pit import NS_PER_DAY
+        sha = self.raw(b"vendor file")                                   # received at INGESTED
+        # extracted later: the observation's own receipt is a day after the payload's
+        self.s.record(obs("1000", FILED_10K, source_ref=f"raw:{sha}#a", receipt_time_ns=INGESTED + NS_PER_DAY),
+                      INGESTED + NS_PER_DAY)
+        facts = self.s.retention_facts(D, ["ISSUER-1"], FILED_10K)
+        self.assertEqual(facts["first_receipt_ns"], INGESTED)            # the period runs from the payload's receipt
+        self.assertEqual(self.s.enforce_retention(INGESTED + 30 * NS_PER_DAY - 1, retention_days={D: 30}), [])
+        (ev,) = self.s.enforce_retention(INGESTED + 30 * NS_PER_DAY, retention_days={D: 30})
+        self.assertEqual((ev["observations"], ev["raw_objects"]), (1, [sha]))
+        self.assertFalse((self.s.raw_dir / sha).exists())                 # the payload is not kept past the period
+        self.assertIsNone(self.s.latest_as_of("ISSUER-1", "Revenues", FILED_10K))
+
+    def test_a_deletion_interrupted_before_its_files_were_removed_is_finished_by_the_next_run(self):
+        from pathlib import Path
+        from unittest import mock
+        sha = self.raw(b"withdrawn payload")
+        self.s.record(obs("1000", FILED_10K, source_ref=f"raw:{sha}#a"), INGESTED)
+        with mock.patch.object(Path, "unlink", side_effect=KeyboardInterrupt):   # the process dies after its commit
+            with self.assertRaises(KeyboardInterrupt):
+                self.s.withdraw_rights(D, reason="rights withdrawn", at_ns=INGESTED + 1)
+        self.assertTrue((self.s.raw_dir / sha).exists())                  # recorded deleted, file still on disk
+        self.assertEqual(len(self.s.deletion_events()), 1)
+        self.assertEqual(self.s.enforce_retention(INGESTED + 2), [])      # nothing new is due ...
+        self.assertFalse((self.s.raw_dir / sha).exists())                 # ... but the earlier deletion is finished

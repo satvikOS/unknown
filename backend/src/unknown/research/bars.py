@@ -312,7 +312,8 @@ def pit_manifest_entry(store, dataset_id: str, series: dict[str, BarSeries], unt
     ``load_series(store, dataset_id, series, cutoff_ns)`` loads):
 
         deadline = min(earliest retention_until_ns of the raw payloads they were extracted from,
-                       earliest receipt time + the provider registry's retention_days for the dataset)
+                       earliest receipt time (of the observations or of those payloads)
+                           + the provider registry's retention_days for the dataset)
         retention_until = retention_date(deadline)        or "unbounded" when neither bounds it
 
     The dataset must be registered in the provider registry (``providers``, default ``config/providers``):

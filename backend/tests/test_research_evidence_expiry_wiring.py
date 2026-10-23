@@ -239,7 +239,9 @@ class RetentionElapsesTest(WiringBase):
         days = {ROLLING: 30}
         self.assertEqual(self.store.enforce_retention(self.now_ns, retention_days=days), [])
         (event,) = self.store.enforce_retention(self.received + 30 * NS_PER_DAY, retention_days=days)
-        self.assertEqual((event["dataset"], event["observations"], event["raw_objects"]), (ROLLING, SESSIONS * 6, []))
+        sha = self.shas[(ROLLING, A)]
+        self.assertEqual((event["dataset"], event["observations"], event["raw_objects"]), (ROLLING, SESSIONS * 6, [sha]))
+        self.assertFalse((self.raw_dir / sha).exists())          # the vendor file goes with what was extracted from it
         out = self.promo.sweep_store_deletions(self.store, principal=SYSTEM)
         self.assertEqual([(x["artifact_hash"], x["deactivated"]) for x in out["expired"]], [(art, False)])
         self.assertEqual((self.promo.status(art), self.promo.evidence_status(art)["status"]), ("proposed", "EVIDENCE_EXPIRED"))

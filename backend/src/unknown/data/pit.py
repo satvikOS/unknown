@@ -303,13 +303,17 @@ class ResearchStore:
         earliest ``retention_until_ns`` of the raw payloads they were extracted from."""
         ids = sorted(set(entity_ids))
         row = self.conn.execute(
-            "SELECT COUNT(*) AS n, MIN(o.receipt_time_ns) AS first_receipt, MIN(r.retention_until_ns) AS raw_until, "
-            "COUNT(r.retention_until_ns) AS bounded, COUNT(r.deleted_at_ns) AS on_deleted_raw "
+            "SELECT COUNT(*) AS n, MIN(o.receipt_time_ns) AS first_receipt, MIN(r.receipt_time_ns) AS first_raw_receipt, "
+            "MIN(r.retention_until_ns) AS raw_until, COUNT(r.retention_until_ns) AS bounded, "
+            "COUNT(r.deleted_at_ns) AS on_deleted_raw "
             f"FROM observation o LEFT JOIN raw_object r ON {_RAW_JOIN} "
             "WHERE o.dataset=? AND o.entity_id IN (SELECT value FROM json_each(?)) AND o.available_time_ns<=? "
             "AND o.known_to_ns=?", (dataset, json.dumps(ids), available_until_ns, OPEN_END)).fetchone()
+        # A registry retention period runs from the earlier of the observation's receipt and its payload's
+        # (``enforce_retention`` deletes a payload that old with every observation extracted from it).
+        receipts = [t for t in (row["first_receipt"], row["first_raw_receipt"]) if t is not None]
         return {"dataset": dataset, "entities": ids, "available_until_ns": available_until_ns, "observations": row["n"],
-                "first_receipt_ns": row["first_receipt"], "raw_retention_until_ns": row["raw_until"],
+                "first_receipt_ns": min(receipts) if receipts else None, "raw_retention_until_ns": row["raw_until"],
                 "bounded_observations": row["bounded"], "observations_on_deleted_raw": row["on_deleted_raw"]}
 
     def deletion_events(self, *, datasets: Iterable[str] | None = None, after_seq: int = 0) -> list[dict]:
@@ -334,29 +338,37 @@ class ResearchStore:
     def enforce_retention(self, now_ns: int, *, retention_days: Mapping[str, int | None] | None = None,
                           reason: str = "licence retention elapsed") -> list[dict]:
         """Delete what the licences no longer allow the store to hold at ``now_ns``: every raw payload whose
-        ``retention_until_ns`` has been reached, with the observations extracted from it, and, for each dataset given
-        a retention period in ``retention_days`` (the provider registry's ``retention_days``), every observation
-        received that many days ago or earlier. One RETENTION_ELAPSED event per dataset; nothing due, no event."""
+        ``retention_until_ns`` has been reached and, for each dataset given a retention period in ``retention_days``
+        (the provider registry's ``retention_days``), every raw payload and every observation received that many days
+        ago or earlier; with each deleted payload, every observation extracted from it. One RETENTION_ELAPSED event per
+        dataset; nothing due, no event. It also finishes any earlier deletion whose files were not removed."""
         for ds, days in (retention_days or {}).items():
             if days is not None and (type(days) is not int or days < 0):
                 raise ValueError(f"retention_days[{ds!r}] must be a non-negative integer or None")
 
         def plan() -> dict[str, tuple[set[int], set[str]]]:
             out: dict[str, tuple[set[int], set[str]]] = {}
+            due: dict[str, str] = {}        # raw sha256 -> its dataset
             for r in self.conn.execute("SELECT sha256, dataset FROM raw_object WHERE retention_until_ns IS NOT NULL "
                                        "AND retention_until_ns<=? AND deleted_at_ns IS NULL", (now_ns,)):
-                out.setdefault(r["dataset"], (set(), set()))[1].add(r["sha256"])
-            due = sorted(s for _, raws in out.values() for s in raws)
-            if due:
-                for r in self.conn.execute(f"SELECT o.obs_id, o.dataset FROM observation o JOIN raw_object r ON {_RAW_JOIN} "
-                                           "WHERE r.sha256 IN (SELECT value FROM json_each(?))", (json.dumps(due),)):
-                    out.setdefault(r["dataset"], (set(), set()))[0].add(r["obs_id"])
+                due[r["sha256"]] = r["dataset"]
             for ds, days in sorted((retention_days or {}).items()):
                 if days is None:
                     continue
+                limit = now_ns - days * NS_PER_DAY
+                # The payload is held under the same licence as what was extracted from it (review fix 2026-10-22).
+                for r in self.conn.execute("SELECT sha256 FROM raw_object WHERE dataset=? AND receipt_time_ns<=? "
+                                           "AND deleted_at_ns IS NULL", (ds, limit)):
+                    due[r["sha256"]] = ds
                 for r in self.conn.execute("SELECT obs_id FROM observation WHERE dataset=? AND receipt_time_ns<=?",
-                                           (ds, now_ns - days * NS_PER_DAY)):
+                                           (ds, limit)):
                     out.setdefault(ds, (set(), set()))[0].add(r["obs_id"])
+            for sha, ds in due.items():
+                out.setdefault(ds, (set(), set()))[1].add(sha)
+            if due:
+                for r in self.conn.execute(f"SELECT o.obs_id, o.dataset FROM observation o JOIN raw_object r ON {_RAW_JOIN} "
+                                           "WHERE r.sha256 IN (SELECT value FROM json_each(?))", (json.dumps(sorted(due)),)):
+                    out.setdefault(r["dataset"], (set(), set()))[0].add(r["obs_id"])
             return out
 
         return self._delete("RETENTION_ELAPSED", reason, now_ns, plan)
@@ -389,7 +401,8 @@ class ResearchStore:
 
     def _delete(self, cause: str, reason: str, at_ns: int, plan, *, always: tuple[str, ...] = ()) -> list[dict]:
         """Apply a deletion plan {dataset: (observation ids, raw sha256s)} in one transaction (the plan is computed
-        inside it), append one event per dataset, then remove the raw files."""
+        inside it), append one event per dataset, then remove the raw files: those of this deletion and of every
+        earlier one, so a process that died between its commit and its file removal leaves no payload behind."""
         if cause not in DELETION_CAUSES:
             raise ValueError(f"unknown deletion cause {cause}")
         if not isinstance(reason, str) or not reason.strip():
@@ -434,7 +447,8 @@ class ResearchStore:
             self.conn.execute("ROLLBACK")
             raise
         if self.raw_dir is not None:
-            for sha in files:
+            files += [r["sha256"] for r in self.conn.execute("SELECT sha256 FROM raw_object WHERE deleted_at_ns IS NOT NULL")]
+            for sha in sorted(set(files)):
                 (self.raw_dir / sha).unlink(missing_ok=True)
         return [self._event(self.conn.execute("SELECT * FROM deletion_event WHERE event_id=?", (e,)).fetchone())
                 for e in event_ids]

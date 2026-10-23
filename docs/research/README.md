@@ -212,12 +212,12 @@ Rules the promotion service enforces:
 
 - **Where it comes from.** `research.bars.pit_manifest_entry(store, dataset, series, until, cutoff_ns)` builds the entry of a point-in-time dataset a run reads. It records the `scope` the run read (instruments, availability cutoff) and the retention of exactly those observations (`ResearchStore.retention_facts`). The deadline is the earlier of:
   - the earliest `retention_until_ns` of the raw payloads they were extracted from (`source_ref` `raw:<sha256>`);
-  - the earliest receipt time plus the provider registry's `retention_days` for the dataset.
+  - the earliest receipt time (of those observations or of the payloads they were extracted from) plus the provider registry's `retention_days` for the dataset.
 
   `retention_until` is the UTC day before that deadline (`manifest.retention_date`), so a day-granular expiry never reaches the deadline instant. An unregistered dataset is refused: it has no recorded rights, so no retention can be stated for it. The fixture study's synthetic datasets are `"unbounded"`.
 - **Expiry.** An artifact's evidence datasets are those of its evaluation manifest and of the trials its *passed* evidence cites (failed or agent-filed evidence supports nothing, so it bounds nothing). Registration refuses an `expires_on` after the evaluation manifest's earliest `retention_until`. The effective expiry is `min(expires_on, retention_until of every evidence dataset, the day before any recorded deletion of that data)`. Every expiry check uses it: activation, automatic selection, automatic shadow promotion and the strategy runner.
 - **Deletion in the point-in-time store** (`data.pit`):
-  - `enforce_retention(now_ns, retention_days=...)` deletes every raw payload whose deadline has passed, with the observations extracted from it, and the observations of a dataset whose registry retention period has elapsed since receipt.
+  - `enforce_retention(now_ns, retention_days=...)` deletes every raw payload whose deadline has passed and, for a dataset whose registry retention period has elapsed since receipt, the raw payloads and observations received that long ago. With every deleted payload go the observations extracted from it. Each run also removes the files of any earlier deletion that a crash left on disk between its commit and its file removal.
   - `withdraw_rights(dataset, reason, at_ns, entity_ids=None)` deletes the observations of the dataset (or of some entities), every version, and the raw payloads they came from.
   - Both remove the raw files, keep the raw rows (hash, request, `deleted_at_ns`), and append one `deletion_event` per dataset (append-only). The event records, per entity, how many observations went and their availability span. A deleted payload is not stored again.
 - **Recording a deletion in the research registry.** There are two ways, both append-only:
@@ -235,7 +235,7 @@ Rules the promotion service enforces:
 - There is no renewal: the expiry is part of the immutable registration. New evidence on retained data is a new artifact (a new spec version or parameter set: the artifact hash does not cover the evaluation manifest).
 - **Not covered.** Between a store deletion and the next sweep, the registry does not know about the deletion. A retention deletion is already covered by the date bound recorded in the manifest. A rights withdrawal is not: in that window an artifact on withdrawn data still runs. Derived metrics (`derived_metric`) computed from deleted observations are not deleted. Whether a licence allows keeping derived features after the raw data is deleted (`derived_storage`) is not modelled: deletion removes the observations too.
 
-Tests: `test_research_evidence_retention` (10), `test_research_evidence_expiry_wiring` (8, end to end with the point-in-time store, the deletion sweep and a real strategy-runner cycle), and `test_pit_store` `RetentionAndDeletionTests` (5).
+Tests: `test_research_evidence_retention` (10), `test_research_evidence_expiry_wiring` (8, end to end with the point-in-time store, the deletion sweep and a real strategy-runner cycle), and `test_pit_store` `RetentionAndDeletionTests` (8).
 
 The promotion protocol (BR-DAT-10) has exactly these fields: confidence, replications, mean block, statistic, utility coefficients, hurdle per period (net of trading costs), min n_eff, min OOS observations, min OOS Sharpe, max PBO, min DSR, required cost multiplier, max stress drawdown, holdout minimum difference, min paper days and seed.
 
