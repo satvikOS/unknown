@@ -14,13 +14,20 @@ checked the session's CSRF token (``X-CSRF-Token``), exactly as for
 the research job store), never the core database, and raises LookupError (404),
 ValueError (400), PermissionError (403) or ``RouteConflict`` (409).
 
+A module may also expose ``STREAM_ROUTES``: a list of (exact_path_parts, handler)
+for Server-Sent Events, where handler(ctx, query) validates the request (raising
+ValueError for 400 or LookupError for 404 before any header is sent) and returns
+run(last_event_id, write, flush, stopping). The server sends the event-stream
+headers, then calls run on the request thread until ``stopping`` is set or the
+client goes away. A stream never opens the core database.
+
 To add a domain: create ``routes/<domain>.py`` and append its module name to
 MODULES below (one line; keep the list sorted)."""
 from __future__ import annotations
 
 import importlib
 
-MODULES: list[str] = ["charts", "company", "marketdata", "portfolio", "research", "research_jobs"]
+MODULES: list[str] = ["charts", "company", "marketdata", "news", "portfolio", "research", "research_jobs"]
 
 
 class RouteConflict(RuntimeError):
@@ -44,3 +51,10 @@ def load_post():
     for mod in _modules():
         routes.extend(getattr(mod, "POST_ROUTES", []))
     return sorted(routes, key=lambda r: -len(r[0]))
+
+
+def load_stream():
+    routes = []
+    for mod in _modules():
+        routes.extend(getattr(mod, "STREAM_ROUTES", []))
+    return routes

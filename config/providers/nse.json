@@ -1,0 +1,34 @@
+{
+  "provider_id": "nse",
+  "name": "National Stock Exchange of India — corporate announcements (BLOCKED)",
+  "access": "none: terms of use prohibit automated data collection",
+  "cost_model": "Free to view in a browser; automated use needs NSE's written permission or a licensed product",
+  "budget": "none required",
+  "rate_limit": {"max_requests": 1, "per_seconds": 60.0,
+                 "source": "Not polled. Recorded only so the source shows as blocked with its reason."},
+  "requires_local_config": [],
+  "failure_behavior": "The poller never fetches a blocked source; the terminal lists it as blocked with the reason.",
+  "sources": [
+    "https://www.nseindia.com/static/nse-terms-of-use",
+    "https://www.nseindia.com/static/rss-feed"
+  ],
+  "verified_on": "2026-10-23",
+  "verdict": "blocked",
+  "verdict_reason": "NSE's terms of use say users may not conduct any systematic or automated data collection activities (including scraping, data mining, data extraction and data harvesting) on its website or app, and content may not be copied, reproduced or stored without NSE's prior written permission (fetched for CAP-NEWS-03 on 2026-10-22; on 2026-10-23 the page timed out for a declared-User-Agent client and the clause was confirmed from the search index). Next step: NSE written permission or a licensed announcements product (CAP-NEWS-03).",
+  "datasets": [
+    {
+      "dataset_id": "nse.announcements",
+      "description": "NSE corporate announcements and RSS feeds (not ingested)",
+      "endpoint": "https://www.nseindia.com/static/rss-feed (not fetched)",
+      "coverage": "none (blocked)",
+      "history_depth": "none",
+      "update_frequency": "n/a",
+      "availability_rule": "n/a: not ingested",
+      "allowed_uses": [],
+      "retention_days": 0,
+      "vintage_support": false,
+      "rights_source": "https://www.nseindia.com/static/nse-terms-of-use",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}

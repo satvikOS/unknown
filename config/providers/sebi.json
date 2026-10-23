@@ -1,0 +1,34 @@
+{
+  "provider_id": "sebi",
+  "name": "Securities and Exchange Board of India — RSS feed",
+  "access": "HTTPS GET to www.sebi.gov.in/sebirss.xml (RSS 2.0, <ttl>60</ttl>); no key",
+  "cost_model": "Free",
+  "budget": "none required",
+  "rate_limit": {"max_requests": 1, "per_seconds": 5.0,
+                 "source": "No request-rate policy found on https://www.sebi.gov.in/website-policy.html (2026-10-23). The feed declares <ttl>60</ttl> (minutes), so it is polled at most once an hour."},
+  "requires_local_config": ["data_user_agent or sec_user_agent (declared contact User-Agent)"],
+  "failure_behavior": "Connection errors, 429 or 5xx: bounded exponential backoff, then the source's run is recorded FAILED; stored items remain with their first-seen times.",
+  "sources": [
+    "https://www.sebi.gov.in/sebirss.xml",
+    "https://www.sebi.gov.in/website-policy.html"
+  ],
+  "verified_on": "2026-10-23",
+  "verdict": "allowed_with_conditions",
+  "verdict_reason": "SEBI's Website Policy: 'Material featured on this Website may be reproduced free of charge after taking proper permission by sending a mail to us.' No clause found that forbids reading the published RSS feed. Without that permission the feed is used only as a private feed reader: headline, link and date for the owner's own reading; nothing is reproduced, exported or redistributed.",
+  "datasets": [
+    {
+      "dataset_id": "sebi.rss",
+      "description": "SEBI orders, circulars, press releases and other updates (headline, link, publication date; the feed gives a date without a time)",
+      "endpoint": "https://www.sebi.gov.in/sebirss.xml",
+      "coverage": "SEBI web site updates (30 items on 2026-10-23)",
+      "history_depth": "the feed's recent window",
+      "update_frequency": "feed ttl 60 min (polled hourly)",
+      "availability_rule": "first_seen receipt time; the feed's date is kept with day precision and never shown as a time",
+      "allowed_uses": ["display", "storage"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "https://www.sebi.gov.in/website-policy.html (Copyright Policy section)",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}

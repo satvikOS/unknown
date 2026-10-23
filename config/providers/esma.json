@@ -1,0 +1,34 @@
+{
+  "provider_id": "esma",
+  "name": "European Securities and Markets Authority — news feed (BLOCKED)",
+  "access": "none: www.esma.europa.eu refuses automated clients",
+  "cost_model": "Free (if reachable)",
+  "budget": "none required",
+  "rate_limit": {"max_requests": 1, "per_seconds": 60.0,
+                 "source": "Not polled. Recorded only so the source shows as blocked with its reason."},
+  "requires_local_config": [],
+  "failure_behavior": "The poller never fetches a blocked source; the terminal lists it as blocked with the reason.",
+  "sources": [
+    "https://www.esma.europa.eu/",
+    "https://www.esma.europa.eu/legal-notice"
+  ],
+  "verified_on": "2026-10-23",
+  "verdict": "blocked",
+  "verdict_reason": "On 2026-10-23 www.esma.europa.eu answered HTTP 403 Forbidden to a declared-User-Agent client for the home page, the news page and /rss.xml, and also to a second fetcher for the legal notice, so neither a feed URL nor the reuse terms could be read. The block is not circumvented. Next step: the owner reads the legal notice in a browser and asks ESMA for an automated-access route.",
+  "datasets": [
+    {
+      "dataset_id": "esma.news",
+      "description": "ESMA news and press releases (not ingested)",
+      "endpoint": "unverified",
+      "coverage": "none (blocked)",
+      "history_depth": "none",
+      "update_frequency": "n/a",
+      "availability_rule": "n/a: not ingested",
+      "allowed_uses": [],
+      "retention_days": 0,
+      "vintage_support": false,
+      "rights_source": "terms not retrievable (HTTP 403) on 2026-10-23",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}

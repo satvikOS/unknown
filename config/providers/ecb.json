@@ -29,6 +29,21 @@
       "rights_source": "ECB disclaimer and copyright (free reuse if reproduced accurately with the ECB cited; modifications such as cross rates must be stated). ECB: rates are 'for information purposes only' and 'using the rates for transaction purposes is strongly discouraged' — valuation and reporting only, never order pricing or funding. Cloud-model processing not addressed by the ECB pages; withheld until the owner sets it (CAP-DATA-07).",
       "rights_status": "recorded from the capability register (CAP-DATA-07, CAP-MAC-12)",
       "rights_verified_on": "2026-10-22"
+    },
+    {
+      "dataset_id": "ecb.press_rss",
+      "description": "ECB press releases RSS (https://www.ecb.europa.eu/home/html/rss.en.html): headline, link and publication time; the feed carries no summary",
+      "endpoint": "https://www.ecb.europa.eu/rss/press.html",
+      "coverage": "ECB press releases, statements and decisions (15 items on 2026-10-23)",
+      "history_depth": "the feed's recent window",
+      "update_frequency": "as releases are published (polled every 10 min)",
+      "availability_rule": "first_seen receipt time; the feed's pubDate is kept as the publication time",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "https://www.ecb.europa.eu/services/using-our-site/disclaimer/html/index.en.html ('Users of this website may make free use of the information obtained directly from it subject to the following conditions: When such information is distributed or reproduced, it must appear accurately and the ECB must be cited as the source'). Headlines and links only; cloud-model processing not addressed, withheld as for ecb.exr_reference",
+      "rights_verified_on": "2026-10-23",
+      "verdict": "allowed"
     }
   ]
 }

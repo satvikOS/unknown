@@ -1,0 +1,33 @@
+{
+  "provider_id": "bse",
+  "name": "BSE Ltd — corporate announcements (BLOCKED)",
+  "access": "none: www.bseindia.com refuses automated clients and its terms could not be read",
+  "cost_model": "Free to view in a browser; automated use unresolved",
+  "budget": "none required",
+  "rate_limit": {"max_requests": 1, "per_seconds": 60.0,
+                 "source": "Not polled. Recorded only so the source shows as blocked with its reason."},
+  "requires_local_config": [],
+  "failure_behavior": "The poller never fetches a blocked source; the terminal lists it as blocked with the reason.",
+  "sources": [
+    "https://www.bseindia.com/"
+  ],
+  "verified_on": "2026-10-23",
+  "verdict": "blocked",
+  "verdict_reason": "On 2026-10-23 www.bseindia.com answered HTTP 403 Forbidden to a declared-User-Agent client for its terms-of-use pages, so the terms that would allow automated access could not be verified; without verified permission the source is not fetched. Next step: the owner reads BSE's terms in a browser, or obtains BSE's permission or a licensed feed (CAP-NEWS-03).",
+  "datasets": [
+    {
+      "dataset_id": "bse.announcements",
+      "description": "BSE corporate announcements (not ingested)",
+      "endpoint": "unverified",
+      "coverage": "none (blocked)",
+      "history_depth": "none",
+      "update_frequency": "n/a",
+      "availability_rule": "n/a: not ingested",
+      "allowed_uses": [],
+      "retention_days": 0,
+      "vintage_support": false,
+      "rights_source": "terms not retrievable (HTTP 403) on 2026-10-23",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}

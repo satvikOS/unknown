@@ -85,6 +85,7 @@ _EVENT_ID = re.compile(r"[0-9]{1,18}")
 
 _PLUGINS = None
 _POST_PLUGINS = None
+_STREAM_PLUGINS = None
 
 
 def _plugin_routes():
@@ -93,6 +94,14 @@ def _plugin_routes():
         from .routes import load
         _PLUGINS = load()
     return _PLUGINS
+
+
+def _plugin_stream_routes():
+    global _STREAM_PLUGINS
+    if _STREAM_PLUGINS is None:
+        from .routes import load_stream
+        _STREAM_PLUGINS = load_stream()
+    return _STREAM_PLUGINS
 
 
 def _plugin_post_routes():
@@ -334,6 +343,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._stream(q)
         if parts == ["marketdata", "stream"]:
             return self._marketdata_stream(q)
+        for prefix, handler in _plugin_stream_routes():
+            if parts == list(prefix):
+                return self._plugin_stream(handler, q)
         try:
             conn = self.ctx.ro()
         except sqlite3.Error as exc:
@@ -563,6 +575,32 @@ class Handler(BaseHTTPRequestHandler):
         stopping = getattr(self.server, "stopping", None) or threading.Event()
         try:
             sse.serve(bus, keys, refused, self.wfile.write, self.wfile.flush, stopping)
+        except _DISCONNECTS:
+            return
+
+    def _plugin_stream(self, handler, q: dict) -> None:
+        """Plugin SSE (routes/__init__.py STREAM_ROUTES contract); never opens the core database."""
+        try:
+            run = handler(self.ctx, q)
+        except LookupError as exc:
+            return self._error(404, str(exc))
+        except ValueError as exc:
+            return self._error(400, str(exc))
+        last = None
+        for candidate in (self.headers.get("Last-Event-ID"), q.get("last_event_id")):
+            if candidate is not None and _EVENT_ID.fullmatch(candidate.strip()):
+                last = int(candidate.strip())
+                break
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Accel-Buffering", "no")
+        for k, v in SECURITY_HEADERS.items():
+            self.send_header(k, v)
+        self.end_headers()
+        stopping = getattr(self.server, "stopping", None) or threading.Event()
+        try:
+            run(last, self.wfile.write, self.wfile.flush, stopping)
         except _DISCONNECTS:
             return
 
