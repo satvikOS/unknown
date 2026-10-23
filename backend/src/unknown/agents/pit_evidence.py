@@ -19,6 +19,10 @@ Each span has a matching ``TypedFact`` (same concept, period and unit, exact dec
 claims are checked exactly. Per concept the newest 3 annual durations (350-380 days), 4 quarterly
 durations (80-100 days) and 4 instants are kept; year-to-date and other durations are skipped.
 Where two publications report the same period, the later-available one wins (a restatement).
+
+Each span also carries its row's typed provenance for research_proposal v2: ``ref_id`` ``obs:<obs_id>``,
+``available_ns`` (the row's available time, never after the pinned instant) and ``observed_ns`` (the event
+time, else the period-end date at 00:00 UTC). These come from the store row, not from the span text.
 """
 from __future__ import annotations
 
@@ -162,6 +166,18 @@ def _iso(ns: int) -> str:
     return datetime.fromtimestamp(ns // 1_000_000_000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def observed_ns(row: Mapping[str, Any]) -> int | None:
+    """When the observed fact happened: the row's event time when the source gives one, otherwise the period-end
+    date at 00:00 UTC (for an XBRL fact, the end of the reported period). None when neither is known."""
+    if row["event_time_ns"] is not None:
+        return int(row["event_time_ns"])
+    try:
+        end = date.fromisoformat(row["period_end"])
+    except (TypeError, ValueError):
+        return None
+    return int(datetime(end.year, end.month, end.day, tzinfo=timezone.utc).timestamp()) * 1_000_000_000
+
+
 def _form(quality: str) -> str:
     try:
         tags = json.loads(quality or "[]")
@@ -217,16 +233,53 @@ def derive(store: ResearchStore, sel: EvidenceSelection) -> Evidence:
                             f"available {_iso(r['available_time_ns'])}.")
                     span_id = f"S{len(spans) + 1}"
                     spans.append(EvidenceSpan(span_id, f"{eid}/{r['publication_id']}", dataset, text,
-                                              content_hash=span_hash(span_id, dataset, text), source=r["source_ref"]))
+                                              content_hash=span_hash(span_id, dataset, text), source=r["source_ref"],
+                                              ref_type="observation", ref_id=f"obs:{r['obs_id']}",
+                                              observed_ns=observed_ns(r), available_ns=r["available_time_ns"]))
                     facts.append(TypedFact(field, period, r["unit"], Fixed.parse(r["value"])))
                     if len(spans) > MAX_SPANS:
                         raise EvidenceError(f"more than {MAX_SPANS} evidence spans; name fewer issuers or concepts")
     return Evidence(tuple(spans), tuple(facts))
 
 
-def task_text(question: str, sel: EvidenceSelection | None, evidence: Evidence) -> str:
+INSTRUMENT_LINE_PREFIX = "Instruments (internal instrument ids): "
+
+
+def instrument_line(instrument_ids: Sequence[str]) -> str:
+    """The task line naming the instruments a job is about. It puts the ids into the task hash (and so into the
+    dedupe key), and the worker refuses a job whose stored ids are not the ones in its task
+    (``task_names_instruments``)."""
+    return INSTRUMENT_LINE_PREFIX + ", ".join(instrument_ids) + "."
+
+
+def question_has_instrument_line(question: str) -> bool:
+    """Whether a line of ``question`` starts like the task's instrument line. Such a question is refused at
+    submission and by the worker: otherwise a task could be split into question and instrument line two ways."""
+    return any(line.lstrip().startswith(INSTRUMENT_LINE_PREFIX.strip()) for line in question.splitlines())
+
+
+def task_names_instruments(task: str, question: str, instrument_ids: Sequence[str]) -> bool:
+    """Whether ``task`` is the stored question followed by exactly the instrument line ``task_text`` writes for
+    ``instrument_ids`` (and by none when there are none). Anchored at the line after the question, so an id list
+    that was emptied, shortened, reordered or replaced is caught. A question with a line of its own that starts
+    like the instrument line is refused (``question_has_instrument_line``), so the question's text cannot stand in
+    for the instrument line, even when the stored question and ids are rewritten together."""
+    if question_has_instrument_line(question):
+        return False
+    head = question.strip() + "\n"
+    if not task.startswith(head):
+        return False
+    rest = task[len(head):]
+    if instrument_ids:
+        return rest.startswith(instrument_line(instrument_ids) + "\n")
+    return not rest.startswith(INSTRUMENT_LINE_PREFIX)
+
+
+def task_text(question: str, sel: EvidenceSelection | None, evidence: Evidence, instrument_ids: Sequence[str] = ()) -> str:
     """The TASK block sent to the model: the owner's question plus how to use the evidence."""
     lines = [question.strip()]
+    if instrument_ids:
+        lines.append(instrument_line(instrument_ids))
     if sel is not None and evidence.spans:
         lines.append("")
         lines.append(f"The EVIDENCE spans are point-in-time SEC XBRL facts as recorded at {_iso(sel.as_of_ns)}. "

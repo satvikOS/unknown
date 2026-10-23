@@ -65,7 +65,7 @@ from .config import BreakerConfig, OwnerPolicy, OwnerPolicyError, default_policy
 from .envelope import EnvelopeError, JobEnvelope
 from .gate import DataUseGate, GateError, load_provider_policies
 from .jobstore import MAX_START_ATTEMPTS, JobStore, StateConflict, default_jobs_path, store_state_for
-from .pit_evidence import EMPTY, Evidence, EvidenceError, EvidenceSelection, derive, manifest_matches
+from .pit_evidence import EMPTY, Evidence, EvidenceError, EvidenceSelection, derive, manifest_matches, task_names_instruments
 from .prompts import agent_principal_id, proposal_command_id
 from .providers.anthropic import AnthropicAdapter
 from .providers.base import CircuitBreaker, ProviderAdapter, RetryPolicy, SendRefused
@@ -391,6 +391,23 @@ class Worker:
             raise EvidenceError(f"the evidence no longer matches the submission ({diff}); resubmit the question")
         return evidence
 
+    @staticmethod
+    def _subject(inputs: Mapping[str, Any], env: JobEnvelope, task: str) -> tuple[int, tuple[str, ...], tuple[str, ...]]:
+        """The typed subject of the job's proposal (research_proposal v2): the evidence selection's pinned instant
+        (else the submission time), the selection's entity ids, and the owner's instrument ids, which must be the
+        ones the task names (the task is in the input hashes)."""
+        raw = (inputs.get("evidence") or {}).get("selection")
+        sel = EvidenceSelection.from_dict(raw) if raw is not None else None
+        request = inputs.get("request") or {}
+        instruments = request.get("instrument_ids") or []
+        if not isinstance(instruments, list) or not all(isinstance(i, str) for i in instruments):
+            raise EvidenceError("the stored instrument ids are malformed")
+        question = request.get("question")
+        if not isinstance(question, str) or not task_names_instruments(task, question, instruments):
+            raise EvidenceError("the stored instrument ids are not the ones named in the job's task")
+        return (sel.as_of_ns if sel is not None else env.created_ns, tuple(instruments),
+                sel.entity_ids if sel is not None else ())
+
     def _ensure_catalog(self, job_id: str, provider: str, adapter: ProviderAdapter) -> None:
         now = self.clock.now_ns()
         snap = self.catalog.last_good.get(provider)
@@ -439,6 +456,7 @@ class Worker:
             return _fail("denied_by_policy", "the stored task does not match the envelope's input hashes")
         try:
             evidence = self._evidence(inputs)
+            as_of_ns, instrument_ids, entity_ids = self._subject(inputs, env, task)
         except EvidenceError as exc:
             return _fail("denied_by_policy", f"evidence: {exc}")
         try:
@@ -517,7 +535,8 @@ class Worker:
             retry=RetryPolicy(r.max_attempts, r.base_ms, r.max_ms, r.jitter_ms), breaker=self._breaker,
             estimate=policy.estimate, is_cancelled=self.jobs.cancel_requested, principal_id=agent_principal_id(env.role),
             defer_submission=True, on_record=lambda rec: self._audit(jid, rec, actor="runner"))
-        result = JobRunner(deps).run(env, JobInputs(task, evidence.spans, inputs["horizon_seconds"], max_out, evidence.facts),
+        result = JobRunner(deps).run(env, JobInputs(task, evidence.spans, inputs["horizon_seconds"], max_out, evidence.facts,
+                                                    as_of_ns=as_of_ns, instrument_ids=instrument_ids, entity_ids=entity_ids),
                                      usable)
         state = store_state_for(result.status)
         deliver = result.proposal is not None and result.discarded_output_hash is None and state in ("SUCCEEDED", "FAILED")

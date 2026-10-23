@@ -22,6 +22,7 @@ import {
   parseCancelResponse,
   parseDetail,
   proposalHeadline,
+  proposalLabelExplanation,
   reasonSource,
   spendUse,
   stateExplanation,
@@ -54,17 +55,44 @@ export function ModelOutput({ p, context }: { p: Proposal; context: string }) {
       )}
       <h3>{p.abstain ? 'Why it abstained (model text)' : 'Reasoning (model text)'}</h3>
       <blockquote>{p.reason || '(empty)'}</blockquote>
-      <h3>Cited evidence ({p.evidence.length})</h3>
-      {p.evidence.length ? (
-        <ol>
-          {p.evidence.map((e, i) => (
-            <li key={i}>{e}</li>
-          ))}
-        </ol>
+      {p.schema_version === 2 ? (
+        <>
+          <h3>Verified claims ({p.claims.length})</h3>
+          {p.claims.length ? (
+            <ol>
+              {p.claims.map((c, i) => (
+                <li key={i}>
+                  {c.text}
+                  {c.quote ? (
+                    <div className="rj-hint">
+                      Quote checked verbatim against the span: <q>{c.quote}</q>
+                    </div>
+                  ) : null}
+                  <div className="rj-hint">Cites {citedSpans(p, c.evidence_indexes)}.</div>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="muted" style={{ margin: '2px 0 8px' }}>
+              None carried as evidence (a claim counts only when it is verified and cites a span with store provenance).
+            </p>
+          )}
+        </>
       ) : (
-        <p className="muted" style={{ margin: '2px 0 8px' }}>
-          None cited.
-        </p>
+        <>
+          <h3>Cited evidence ({p.evidence.length})</h3>
+          {p.evidence.length ? (
+            <ol>
+              {p.evidence.map((e, i) => (
+                <li key={i}>{e}</li>
+              ))}
+            </ol>
+          ) : (
+            <p className="muted" style={{ margin: '2px 0 8px' }}>
+              None cited.
+            </p>
+          )}
+        </>
       )}
       <h3>Assumptions ({p.assumptions.length})</h3>
       {p.assumptions.length ? (
@@ -79,6 +107,73 @@ export function ModelOutput({ p, context }: { p: Proposal; context: string }) {
         </p>
       )}
       {p.horizon_seconds !== null ? <p className="rj-hint" style={{ margin: 0 }}>Horizon: {horizonText(p.horizon_seconds)}.</p> : null}
+    </div>
+  );
+}
+
+/** The span ids behind a claim's evidence indexes (an index with no reference is shown as such, never dropped). */
+function citedSpans(p: Proposal, indexes: readonly number[]): string {
+  if (!indexes.length) return 'no evidence reference';
+  return indexes.map((i) => `[${i}] ${p.evidence_refs[i]?.span_id ?? 'missing reference'}`).join(', ');
+}
+
+/**
+ * The typed fields of a version-2 proposal. They come from the job and from the research-store rows behind the
+ * cited spans, never from the model, so they sit outside the model-output fence.
+ */
+export function ProposalTypedFields({ p }: { p: Proposal }) {
+  if (p.schema_version !== 2) {
+    return (
+      <p className="rj-hint" style={{ margin: '8px 0 0' }}>
+        Proposal schema version {p.schema_version ?? 'unknown'}: free-text evidence, with no typed evidence references, instrument ids or timestamps.
+      </p>
+    );
+  }
+  const w = p.observation_window;
+  return (
+    <div role="group" aria-label="Typed fields from the job and the research store" style={{ marginTop: 10 }}>
+      <h3>Typed fields (from the job and the research store, not model text)</h3>
+      <dl className="kv">
+        <dt>As of</dt>
+        <dd>
+          <Timestamp ns={p.as_of_ns} never="—" />
+        </dd>
+        <dt>Instruments</dt>
+        <dd>{p.instrument_ids.length ? p.instrument_ids.join(', ') : <span className="muted">none named</span>}</dd>
+        <dt>Entities</dt>
+        <dd>{p.entity_ids.length ? p.entity_ids.join(', ') : <span className="muted">none</span>}</dd>
+        <dt>Observation window</dt>
+        <dd>
+          {w ? (
+            <>
+              <Timestamp ns={w.from_ns} never="—" /> to <Timestamp ns={w.to_ns} never="—" />
+            </>
+          ) : (
+            <span className="muted">none</span>
+          )}
+        </dd>
+        <dt>Forecast</dt>
+        <dd>{p.has_forecast ? 'present' : <span className="muted">none (the agent layer never emits one)</span>}</dd>
+      </dl>
+      <h3>Evidence references ({p.evidence_refs.length})</h3>
+      {p.evidence_refs.length ? (
+        <ul className="rj-spans">
+          {p.evidence_refs.map((r, i) => (
+            <li key={`${i}-${r.span_id}`}>
+              <span className="muted">[{i}]</span> <strong className="cmd-id">{r.span_id}</strong> <span className="muted">{r.dataset_id}</span> {r.ref_type}{' '}
+              <span className="cmd-id">{r.ref_id}</span>
+              <div className="rj-hint">
+                observed <Timestamp ns={r.observed_at_ns} never="unknown" />, available <Timestamp ns={r.available_at_ns} never="unknown" />, span hash{' '}
+                <ShortId value={r.content_hash} head={12} />
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted" style={{ margin: '2px 0 8px' }}>
+          None.
+        </p>
+      )}
     </div>
   );
 }
@@ -111,7 +206,16 @@ export function ProposalPanel({ d }: { d: JobDetail }) {
         ) : null}
       </header>
       <div className="panel-body">
-        {d.proposal ? <ModelOutput p={d.proposal} context="the job's proposal" /> : <p className="muted" style={{ margin: 0 }}>{empty}</p>}
+        {d.proposal ? (
+          <>
+            <ModelOutput p={d.proposal} context="the job's proposal" />
+            <ProposalTypedFields p={d.proposal} />
+          </>
+        ) : (
+          <p className="muted" style={{ margin: 0 }}>
+            {empty}
+          </p>
+        )}
         {rec ? (
           <dl className="kv" style={{ marginTop: 10 }}>
             <dt>Core proposal</dt>
@@ -122,6 +226,17 @@ export function ProposalPanel({ d }: { d: JobDetail }) {
             </dd>
             <dt>Author</dt>
             <dd>{rec.author ?? <span className="muted">unknown</span>}</dd>
+            <dt>Core label</dt>
+            <dd>
+              {rec.label ? (
+                <>
+                  <StatusPill label={rec.label} tone={rec.label === 'FORECAST_QUANTIFIED' ? 'info' : 'neutral'} compact />{' '}
+                  <span className="rj-hint">{proposalLabelExplanation(rec.label)}</span>
+                </>
+              ) : (
+                <span className="muted">none (the core labels only schema version 2)</span>
+              )}
+            </dd>
             <dt>Recorded</dt>
             <dd>
               <Timestamp ns={rec.recorded_at_ns} never="unknown" />
@@ -398,6 +513,8 @@ export function JobDetailView({ jobId }: { jobId: string }) {
                   <dl className="kv">
                     <dt>Issuers</dt>
                     <dd>{d.request?.issuer_ids.length ? d.request.issuer_ids.join(', ') : <span className="muted">none (no evidence)</span>}</dd>
+                    <dt>Instruments</dt>
+                    <dd>{d.request?.instrument_ids.length ? d.request.instrument_ids.join(', ') : <span className="muted">none named</span>}</dd>
                     <dt>Concepts</dt>
                     <dd>{d.request?.fields?.length ? d.request.fields.join(', ') : <span className="muted">{d.request?.issuer_ids.length ? 'server default set' : '—'}</span>}</dd>
                     <dt>Evidence as of</dt>

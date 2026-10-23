@@ -11,6 +11,11 @@ Claim verification (CAP-MODEL-12 verifiers 1, 2 and 4):
     number it states agrees with a typed fact; claims with no verified evidence are
     ``unsupported`` and are never presented as fact.
 
+Typed provenance (research_proposal v2, finding BR-DAT-12): a span built from a store row also
+carries the row's reference (``ref_type``, ``ref_id``) and times (``observed_ns``,
+``available_ns``). The runner turns the spans cited by verified claims into typed evidence
+references from these fields only, so text inside a span cannot change them.
+
 Untrusted input (CAP-AGT-06): documents, tool outputs and owner uploads are data. They are
 rendered into delimited data blocks whose boundary carries a random nonce the document
 cannot predict, so a document cannot close its own block. Instruction-pattern screening
@@ -43,6 +48,17 @@ class EvidenceSpan:
     text: str
     content_hash: str = ""
     source: str = ""
+    # Typed provenance for research_proposal v2. The evidence builder sets these from the store row the span
+    # was rendered from (never from span text or model output). A span without them can be quoted and
+    # verified, but it never becomes a typed evidence reference.
+    ref_type: str = ""                  # "observation" (a research-store observation) or "document_span"
+    ref_id: str = ""                    # e.g. "obs:42": the store record or document span the text came from
+    observed_ns: int | None = None      # when the observed fact happened (period end, event time), if known
+    available_ns: int | None = None     # earliest legitimate decision-use time (ADR-0015 available_time)
+
+    @property
+    def typed(self) -> bool:
+        return bool(self.ref_type and self.ref_id) and type(self.available_ns) is int
 
 
 @dataclass(frozen=True)

@@ -1,17 +1,154 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "ResearchProposalOnly",
+  "description": "The agent layer's only core write (ADR-0016): a non-executable research proposal. Version 1 (free-text evidence) stays accepted. Version 2 adds typed evidence references, instrument and research-entity identity, the job's as-of instant, an observation-time window, an optional forecast block and abstain-dependent requirements. The core (submit_research_proposal) also checks what this schema cannot express: hexadecimal hashes and identifier syntax, timestamps not in the future and not after as_of_ns, window containment, instrument ids known to the instrument master, claim-to-evidence indexes, forecast ordering and units. Neither version can reserve, order or change policy.",
   "type": "object",
-  "additionalProperties": false,
-  "required": ["schema_version", "job_id", "hypothesis", "evidence", "horizon_seconds", "assumptions", "abstain", "reason"],
-  "properties": {
-    "schema_version": {"const": 1},
-    "job_id": {"type": "string", "minLength": 1, "maxLength": 160},
-    "hypothesis": {"type": "string", "maxLength": 4000},
-    "evidence": {"type": "array", "maxItems": 50, "items": {"type": "string", "maxLength": 500}},
-    "horizon_seconds": {"type": "integer", "minimum": 1, "maximum": 31536000},
-    "assumptions": {"type": "array", "maxItems": 30, "items": {"type": "string", "maxLength": 500}},
-    "abstain": {"type": "boolean"},
-    "reason": {"type": "string", "maxLength": 2000}
+  "required": ["schema_version"],
+  "properties": {"schema_version": {"enum": [1, 2]}},
+  "if": {"properties": {"schema_version": {"const": 1}}},
+  "then": {"$ref": "#/$defs/v1"},
+  "else": {"$ref": "#/$defs/v2"},
+  "$defs": {
+    "v1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "job_id", "hypothesis", "evidence", "horizon_seconds", "assumptions", "abstain", "reason"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "job_id": {"type": "string", "minLength": 1, "maxLength": 160},
+        "hypothesis": {"type": "string", "maxLength": 4000},
+        "evidence": {"type": "array", "maxItems": 50, "items": {"type": "string", "maxLength": 500}},
+        "horizon_seconds": {"type": "integer", "minimum": 1, "maximum": 31536000},
+        "assumptions": {"type": "array", "maxItems": 30, "items": {"type": "string", "maxLength": 500}},
+        "abstain": {"type": "boolean"},
+        "reason": {"type": "string", "maxLength": 2000}
+      }
+    },
+    "v2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "job_id", "as_of_ns", "hypothesis", "claims", "evidence", "instrument_ids", "entity_ids",
+                   "observation_window", "horizon_seconds", "assumptions", "forecast", "abstain", "reason"],
+      "properties": {
+        "schema_version": {"const": 2},
+        "job_id": {"type": "string", "minLength": 1, "maxLength": 160},
+        "as_of_ns": {"$ref": "#/$defs/time_ns", "description": "The job's point-in-time instant: evidence was read as recorded and available at this instant. Not after the core's clock."},
+        "hypothesis": {"type": "string", "maxLength": 4000},
+        "claims": {"type": "array", "maxItems": 20, "items": {"$ref": "#/$defs/claim"}},
+        "evidence": {"type": "array", "maxItems": 50, "items": {"$ref": "#/$defs/evidence_ref"}},
+        "instrument_ids": {"type": "array", "maxItems": 20, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"},
+                           "description": "Internal instrument ids; each must be registered in the core's instrument master."},
+        "entity_ids": {"type": "array", "maxItems": 20, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"},
+                       "description": "Point-in-time research-store entity ids (issuer, series or country keys), never display tickers."},
+        "observation_window": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/window"}],
+                               "description": "Covers the observation time of every evidence reference (observed_at_ns, or available_at_ns when that is null); to_ns is not after as_of_ns."},
+        "horizon_seconds": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/horizon"}]},
+        "assumptions": {"type": "array", "maxItems": 30, "items": {"type": "string", "maxLength": 500}},
+        "forecast": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/forecast"}]},
+        "abstain": {"type": "boolean"},
+        "reason": {"type": "string", "maxLength": 2000}
+      },
+      "if": {"properties": {"abstain": {"const": true}}, "required": ["abstain"]},
+      "then": {"properties": {"reason": {"minLength": 1}, "forecast": {"type": "null"}}},
+      "else": {"properties": {"hypothesis": {"minLength": 1}, "claims": {"minItems": 1}, "evidence": {"minItems": 1},
+                              "observation_window": {"type": "object"}, "horizon_seconds": {"type": "integer"}}}
+    },
+    "time_ns": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
+    "identifier": {"type": "string", "minLength": 1, "maxLength": 160},
+    "horizon": {"type": "integer", "minimum": 1, "maximum": 31536000},
+    "decimal": {"type": "string", "minLength": 1, "maxLength": 40, "description": "A plain decimal string, never a JSON number."},
+    "optional_text": {"anyOf": [{"type": "null"}, {"type": "string", "minLength": 1, "maxLength": 200}]},
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_ns", "to_ns"],
+      "properties": {"from_ns": {"$ref": "#/$defs/time_ns"}, "to_ns": {"$ref": "#/$defs/time_ns"}}
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "quote", "evidence_indexes"],
+      "properties": {
+        "text": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "quote": {"anyOf": [{"type": "null"}, {"type": "string", "minLength": 1, "maxLength": 1000}]},
+        "evidence_indexes": {"type": "array", "minItems": 1, "maxItems": 10, "uniqueItems": true,
+                             "items": {"type": "integer", "minimum": 0, "maximum": 49}}
+      }
+    },
+    "evidence_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["span_id", "dataset_id", "ref_type", "ref_id", "content_hash", "observed_at_ns", "available_at_ns"],
+      "properties": {
+        "span_id": {"type": "string", "minLength": 1, "maxLength": 64, "description": "The job-local span id the claim cited."},
+        "dataset_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "ref_type": {"enum": ["observation", "document_span"]},
+        "ref_id": {"type": "string", "minLength": 1, "maxLength": 200, "description": "Observation id in the research store, or a document span id."},
+        "content_hash": {"type": "string", "minLength": 64, "maxLength": 64, "description": "Lowercase hex SHA-256 of the cited span, as listed in the job envelope's input hashes."},
+        "observed_at_ns": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/time_ns"}]},
+        "available_at_ns": {"$ref": "#/$defs/time_ns"}
+      }
+    },
+    "interval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "level", "lower", "upper"],
+      "properties": {"kind": {"const": "interval"}, "level": {"$ref": "#/$defs/decimal"},
+                     "lower": {"$ref": "#/$defs/decimal"}, "upper": {"$ref": "#/$defs/decimal"}}
+    },
+    "quantiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "points"],
+      "properties": {
+        "kind": {"const": "quantiles"},
+        "points": {"type": "array", "minItems": 2, "maxItems": 99, "items": {
+          "type": "object", "additionalProperties": false, "required": ["p", "value"],
+          "properties": {"p": {"$ref": "#/$defs/decimal"}, "value": {"$ref": "#/$defs/decimal"}}}}
+      }
+    },
+    "forecast": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "A forecast of a measurable quantity, never a trade instruction. Without every calibration and uncertainty field (book Chapter 4) the core labels it FORECAST_UNCALIBRATED.",
+      "required": ["target", "horizon_seconds", "unit", "distribution", "calibration", "uncertainty", "invalidation_conditions"],
+      "properties": {
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["subject_id", "quantity", "definition"],
+          "properties": {
+            "subject_id": {"$ref": "#/$defs/identifier", "description": "One of instrument_ids or entity_ids."},
+            "quantity": {"enum": ["return", "log_return", "price", "volatility", "fundamental", "probability"]},
+            "definition": {"type": "string", "minLength": 1, "maxLength": 500}
+          }
+        },
+        "horizon_seconds": {"$ref": "#/$defs/horizon"},
+        "unit": {"type": "string", "minLength": 1, "maxLength": 32,
+                 "description": "fraction, percent, bp, ratio, count, an ISO 4217 code, or <ISO 4217>/share."},
+        "distribution": {"anyOf": [{"$ref": "#/$defs/interval"}, {"$ref": "#/$defs/quantiles"}]},
+        "calibration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "version"],
+          "properties": {"method": {"$ref": "#/$defs/optional_text"}, "version": {"$ref": "#/$defs/optional_text"}}
+        },
+        "uncertainty": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["observation_count", "effective_sample_size", "training_window", "evaluation_window", "interval_method", "data_version"],
+          "properties": {
+            "observation_count": {"anyOf": [{"type": "null"}, {"type": "integer", "minimum": 0, "maximum": 1000000000000}]},
+            "effective_sample_size": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/decimal"}]},
+            "training_window": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/window"}]},
+            "evaluation_window": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/window"}]},
+            "interval_method": {"$ref": "#/$defs/optional_text"},
+            "data_version": {"$ref": "#/$defs/optional_text"}
+          }
+        },
+        "invalidation_conditions": {"type": "array", "minItems": 1, "maxItems": 10,
+                                    "items": {"type": "string", "minLength": 1, "maxLength": 500}}
+      }
+    }
   }
 }
