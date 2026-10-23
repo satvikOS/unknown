@@ -191,6 +191,23 @@ class ProposalVersionTwoValidationTest(CoreCase):
         self.assertEqual(self.count(), len(cases))
         self.assertEqual(self.h.verify(), [])
 
+    def test_one_missing_uncertainty_field_makes_a_forecast_uncalibrated(self):
+        """Book Ch. 4 line 54: output lacking ANY of the uncertainty-record fields is not quantified confidence.
+        Regression (review of BR-DAT-12): the label rule was only tested with every field present or every field
+        null, so a rule that checked two of the eight fields passed. Each field is nulled alone here."""
+        paths = ["calibration.method", "calibration.version"] + [f"uncertainty.{k}" for k in (
+            "observation_count", "effective_sample_size", "training_window", "evaluation_window", "interval_method",
+            "data_version")]
+        for path in paths:
+            with self.subTest(null=path):
+                body = v2(forecast=nested(forecast(), path, None))
+                self.assertEqual(CONTRACT.errors(body), [])
+                r = self.submit(body)
+                self.assertTrue(r.accepted, r.body)
+                self.assertEqual(r.body["label"], "FORECAST_UNCALIBRATED")
+        self.assertEqual(self.count(), len(paths))
+        self.assertEqual(self.h.verify(), [])
+
     def test_invalid_v2_proposals_are_rejected_and_record_nothing(self):
         """The core rejects every case. ``schema`` says whether the JSON contract alone also rejects it; the rest
         (timestamps, hashes, identifiers, the instrument master, indexes, ordering, units) only the core can check."""
@@ -213,6 +230,8 @@ class ProposalVersionTwoValidationTest(CoreCase):
             "claims_21": (v2(claims=[{"text": "t", "quote": None, "evidence_indexes": [0]}] * 21), True),
             "claim_without_evidence": (v2(claims=[{"text": "t", "quote": None, "evidence_indexes": []}]), True),
             "claim_index_bool": (v2(claims=[{"text": "t", "quote": None, "evidence_indexes": [False]}]), True),
+            "claim_index_repeated": (v2(claims=[{"text": "t", "quote": None, "evidence_indexes": [0, 0]}]), True),
+            "claim_quote_empty": (v2(claims=[{"text": "t", "quote": "", "evidence_indexes": [0]}]), True),
             "instruments_21": (v2(instrument_ids=[f"I-{i}" for i in range(21)]), True),
             "instruments_duplicate": (v2(instrument_ids=[INSTRUMENT, INSTRUMENT]), True),
             "horizon_zero": (v2(horizon_seconds=0), True),
@@ -249,6 +268,7 @@ class ProposalVersionTwoValidationTest(CoreCase):
             "duplicate_reference": (v2(evidence=[ref(0), ref(0, span_id="S9")]), False),
             "claim_index_out_of_range": (v2(claims=[{"text": "t", "quote": None, "evidence_indexes": [1]}]), False),
             "claim_text_blank": (v2(claims=[{"text": " ", "quote": None, "evidence_indexes": [0]}]), False),
+            "claim_quote_blank": (v2(claims=[{"text": "t", "quote": "  ", "evidence_indexes": [0]}]), False),
             # forecast block
             "forecast_missing_invalidation": (v2(forecast=forecast(invalidation_conditions=[])), True),
             "forecast_trade_instruction": (v2(forecast=nested(f, "target.quantity", "buy")), True),
@@ -282,7 +302,7 @@ class ProposalVersionTwoValidationTest(CoreCase):
             "entity_bad_syntax": "entity_ids[0]", "hash_uppercase": "content_hash", "hash_not_hex": "content_hash",
             "dataset_id_bad": "dataset_id", "ref_id_bad": "ref_id", "span_id_bad": "span_id",
             "duplicate_reference": "duplicate evidence reference", "claim_index_out_of_range": "evidence_indexes[0]",
-            "claim_text_blank": "claims[0].text", "forecast_subject_not_named": "subject_id",
+            "claim_text_blank": "claims[0].text", "claim_quote_blank": "claims[0].quote", "forecast_subject_not_named": "subject_id",
             "forecast_unit_missing_currency": "forecast.unit", "forecast_p_not_increasing": "probabilities must increase",
             "forecast_values_decreasing": "values must not decrease", "forecast_p_one": "points[2].p",
             "forecast_not_a_decimal": "not a plain decimal", "forecast_exponent": "not a plain decimal",
@@ -497,6 +517,30 @@ class AgentEmitsVersionTwoTest(TempDirCase, unittest.TestCase):
         self.assertEqual((len(p["evidence"]), [c["text"] for c in p["claims"]]), (50, [f"claim {k}" for k in range(5)]))
         self.assertNotIn("s50", [r["span_id"] for r in p["evidence"]])
         self.assertTrue(any("claim 5" in a for a in p["assumptions"]), p["assumptions"])
+
+    def test_a_verified_answer_without_a_hypothesis_becomes_an_abstention_the_core_records(self):
+        """Verified claims but an empty or blank hypothesis: a non-abstaining v2 proposal would fail the contract
+        (empty) or be refused by the core (blank), so the runner abstains and the real core records it."""
+        h = Harness(clock=ManualClock(T0 + 3600 * SECOND))
+        self.addCleanup(h.close)
+        h.bootstrap()
+        for hypothesis in ("", "   \n "):
+            with self.subTest(hypothesis=hypothesis):
+                core = DeskCore(h)
+                r = self.runner([result(answer(hypothesis=hypothesis))], core=core).run(
+                    envelope(job_id=f"job-hyp-{len(hypothesis)}"), self.inputs(), [Candidate("anthropic", MODEL)])
+                self.assertEqual(r.status, JobState.SUCCEEDED, r.reason)
+                p = r.proposal
+                self.assertEqual(CONTRACT.errors(p), [])
+                self.assertTrue(p["abstain"])
+                self.assertIn("no hypothesis or horizon was stated", p["reason"])
+                self.assertEqual(len(p["claims"]), 1)          # the verified claim and its evidence stay on record
+                rec = core.results[0]
+                self.assertTrue(rec["accepted"], rec["body"])
+                self.assertEqual(rec["body"]["label"], "ABSTENTION")
+                self.tearDown()
+                self.setUp()
+        self.assertEqual(h.verify(), [])
 
     def test_malformed_job_subjects_are_denied_and_the_abstention_stays_valid(self):
         cases = {"as_of_in_future": dict(as_of_ns=T0 + SECOND), "bad_instrument": dict(instrument_ids=("FIX EQ",)),
