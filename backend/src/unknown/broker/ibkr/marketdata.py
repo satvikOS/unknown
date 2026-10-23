@@ -94,6 +94,8 @@ PAIRED_SIZE = {"bid": "bid_size", "ask": "ask_size", "last": "last_size"}
 DELAYED_TICK_IDS = frozenset(DELAYED_PRICE_TICKS) | frozenset(DELAYED_SIZE_TICKS) | frozenset(DELAYED_STRING_TICKS) \
     | frozenset(DELAYED_GENERIC_TICKS)
 NO_DATA_REASON = "no data currently available"     # CAP-MKT-01 wording
+_BUS_FIELDS = frozenset({"bid", "ask", "last", "high", "low", "close", "open", "bid_size", "ask_size", "last_size",
+                         "volume"})
 
 # ------------------------------------------------------------------ error codes
 # Texts: IBKR message codes page (interactivebrokers.github.io/tws-api/message_codes.html, fetched 2026-10-22).
@@ -123,7 +125,8 @@ DATA_FARM_OK = 2104
 # ------------------------------------------------------------------ SDK citations used by the conformance test
 EWRAPPER_CALLBACKS = ("error", "connectAck", "connectionClosed", "nextValidId", "managedAccounts", "marketDataType",
                       "tickPrice", "tickSize", "tickString", "tickGeneric", "tickReqParams", "tickSnapshotEnd",
-                      "historicalData", "historicalDataEnd", "contractDetails", "contractDetailsEnd", "marketRule")
+                      "historicalData", "historicalDataEnd", "contractDetails", "contractDetailsEnd", "marketRule",
+                      "tickByTickAllLast", "updateMktDepth", "updateMktDepthL2")
 ECLIENT_METHODS = {
     "connect": ["self", "host", "port", "clientId"], "disconnect": ["self"], "isConnected": ["self"],
     "run": ["self"],
@@ -134,6 +137,11 @@ ECLIENT_METHODS = {
                           "useRTH", "formatDate", "keepUpToDate", "chartOptions"],
     "cancelHistoricalData": ["self", "reqId"], "reqContractDetails": ["self", "reqId", "contract"],
     "reqMarketRule": ["self", "marketRuleId"],
+    # Market-data bus source (mdsource.py): only when the owner's configuration asserts the entitlement.
+    "reqTickByTickData": ["self", "reqId", "contract", "tickType", "numberOfTicks", "ignoreSize"],
+    "cancelTickByTickData": ["self", "reqId"],
+    "reqMktDepth": ["self", "reqId", "contract", "numRows", "isSmartDepth", "mktDepthOptions"],
+    "cancelMktDepth": ["self", "reqId", "isSmartDepth"],
 }
 
 
@@ -506,6 +514,18 @@ def _md_wrapper_class(base: type) -> type:
         def marketRule(self, marketRuleId: int, priceIncrements):
             self._session._dispatch("marketRule", marketRuleId, priceIncrements)
 
+        def tickByTickAllLast(self, reqId: int, tickType: int, time: int, price: float, size, tickAttribLast,
+                              exchange: str, specialConditions: str):
+            self._session._dispatch("tickByTickAllLast", reqId, tickType, time, price, size, tickAttribLast, exchange,
+                                    specialConditions)
+
+        def updateMktDepth(self, reqId, position: int, operation: int, side: int, price: float, size):
+            self._session._dispatch("updateMktDepth", reqId, position, "", operation, side, price, size)
+
+        def updateMktDepthL2(self, reqId, position: int, marketMaker: str, operation: int, side: int, price: float,
+                             size, isSmartDepth: bool):
+            self._session._dispatch("updateMktDepth", reqId, position, marketMaker, operation, side, price, size)
+
     return MarketDataWrapper
 
 
@@ -574,6 +594,7 @@ class IbkrMarketDataSession:
         self.entitlement_errors = 0
         self.pacing_violations = 0
         self.publish_clock_regressions = 0      # publishes whose wall-clock time was behind the stored quote
+        self._quote_listeners: list[Callable[[dict], None]] = []   # market-data bus source (mdsource.py)
 
     # ------------------------------------------------------------------ properties used by history/contracts
     @property
@@ -742,6 +763,12 @@ class IbkrMarketDataSession:
     def add_market_rule_listener(self, fn: Callable[[int, list], None]) -> None:
         with self.cv:
             self._rule_listeners.append(fn)
+
+    def add_quote_listener(self, fn: Callable[[dict], None]) -> None:
+        """Called (under ``cv``, so it must not block or call back into this session) after every QuoteBook publish
+        with the full field state: see ``_publish``. Used by the market-data bus source (mdsource.py)."""
+        with self.cv:
+            self._quote_listeners.append(fn)
 
     def remove_market_rule_listener(self, fn) -> None:
         with self.cv:
@@ -966,6 +993,14 @@ class IbkrMarketDataSession:
                              currency=sub.contract.currency, source=source, event_time_ns=None,
                              receipt_time_ns=receipt, delayed=not live, fixture=False,
                              consolidation=sub.consolidation() if live else "unknown", market_data_type=kind))
+        if self._quote_listeners:
+            fields = {} if blank else {name: (None if fv.value is None else str(fv.value))
+                                       for name, fv in sub.fields().items() if name in _BUS_FIELDS}
+            info = {"instrument_id": sub.instrument_id, "fields": fields, "kind": kind, "live": live, "blank": blank,
+                    "stale": stale, "unavailable": dict(sub.unavailable) if sub.unavailable else None,
+                    "active": sub.active, "currency": sub.contract.currency, "receipt_ns": receipt}
+            for fn in list(self._quote_listeners):
+                _safe(lambda: fn(info))
 
     def _invalidate_fields(self, sub: _Subscription, why: str) -> None:
         """Discard every value received before an interruption (called under ``cv``).
@@ -1267,6 +1302,18 @@ class IbkrMarketDataSession:
         pass   # snapshots are never requested by this module
 
     # forwarded to history / contracts handlers registered by request id
+    def _on_tickByTickAllLast(self, req_id, tick_type, time_s, price, size, attrib, exchange, conditions) -> None:
+        with self.cv:
+            handler = self._handlers.get(req_id)
+        if handler is not None:
+            handler.on_tick_by_tick(int(time_s), price, size, attrib, exchange, conditions)
+
+    def _on_updateMktDepth(self, req_id, position, market_maker, operation, side, price, size) -> None:
+        with self.cv:
+            handler = self._handlers.get(req_id)
+        if handler is not None:
+            handler.on_depth(int(position), market_maker or None, int(operation), int(side), price, size)
+
     def _on_historicalData(self, req_id, bar) -> None:
         with self.cv:
             handler = self._handlers.get(req_id)

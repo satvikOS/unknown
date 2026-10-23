@@ -345,7 +345,7 @@ class RegistryTests(unittest.TestCase):
         self.registry = load_registry(VENUES, CALENDARS)
 
     def test_venues_and_identity(self):
-        self.assertEqual(set(self.registry.mics), {"XNYS", "XNSE", "XBOM", "XETR", "XPAR", "XAMS", "XBRU", "XLIS", "XMIL", "XMAD"})
+        self.assertEqual(set(self.registry.mics), {"XNYS", "XNAS", "ARCX", "XNSE", "XBOM", "XETR", "XPAR", "XAMS", "XBRU", "XLIS", "XMIL", "XMAD"})
         expect = {"XNYS": ("US", "USD"), "XNSE": ("IN", "INR"), "XBOM": ("IN", "INR"), "XETR": ("DE", "EUR"),
                   "XPAR": ("FR", "EUR"), "XAMS": ("NL", "EUR"), "XBRU": ("BE", "EUR"), "XLIS": ("PT", "EUR"),
                   "XMIL": ("IT", "EUR"), "XMAD": ("ES", "EUR")}

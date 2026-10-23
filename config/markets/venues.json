@@ -1,6 +1,6 @@
 {
   "registry_id": "venues",
-  "version": "2026-10-22.1",
+  "version": "2026-10-23.1",
   "statement": "Venue registry for cash equities in the US, India and the EU: identity (ISO 10383 MIC), country, trading currency, time zone, trading and settlement calendars, settlement cycle by trade date with primary sources, and lot/tick conventions only where a primary source states them. Reference data for research, risk days and expected settlement; it grants no trading eligibility (see docs/markets/README.md).",
   "sources": {
     "ISO10383": {
@@ -87,6 +87,11 @@
       "url": "https://www.interactivebrokers.com/lib/cstools/faq/#/content/40342168", "retrieved_on": "2026-10-22",
       "title": "IBKR FAQ 'How do I add India trading permissions?' (reached from https://ibkb.interactivebrokers.com/node/848)",
       "quote": "Trading of products listed on the National Stock Exchange of India is limited to Indian residents and Non-Resident Indians (NRIs). Trading must be conducted via an account opened through IB India."
+    },
+    "NASDAQTRADER-HOLIDAYS-2026": {
+      "url": "https://www.nasdaqtrader.com/Trader.aspx?id=Calendar", "retrieved_on": "2026-10-23",
+      "title": "Nasdaq Trader: U.S. Equity and Options Markets Holiday Schedule 2026",
+      "quote": "Closed January 1, January 19, February 16, April 3, May 25, June 19, July 3, September 7, November 26 and December 25, 2026; early close 1:00 p.m. on November 27 and December 24, 2026 (the same dates as config/calendars/XNYS.json for 2026)."
     }
   },
   "venues": [
@@ -103,6 +108,34 @@
       "provider_codes": {"ibkr": "NYSE"},
       "sources": ["ISO10383", "IBKR-EXCHANGES"],
       "notes": ["Existing venue; included so US, India and EU settlement use one code path."]
+    },
+    {
+      "mic": "XNAS", "operating_mic": "XNAS", "segment_mic": null,
+      "name": "Nasdaq - All Markets", "country": "US", "currency": "USD", "timezone": "America/New_York",
+      "trading_calendar": "XNYS", "settlement_calendar": "XNYS",
+      "settlement_calendar_note": "The XNYS trading calendar is used as a conservative settlement-expectation calendar (as in config/policies/paper-default.v1.json); the DTC settlement calendar is not verified. Settlement is confirmed only from broker evidence.",
+      "settlement_cycles": [
+        {"from_trade_date": "2024-05-28", "business_days": 1, "sources": ["SEC-RULE-15C6-1", "SEC-PR-2023-29"],
+         "statement": "T+1 under Exchange Act Rule 15c6-1 from the May 28, 2024 compliance date. Earlier trade dates (T+2) are not encoded and are refused."}
+      ],
+      "lot": null, "tick": null,
+      "provider_codes": {"ibkr": "NASDAQ"},
+      "sources": ["ISO10383", "NASDAQTRADER-HOLIDAYS-2026", "IBKR-EXCHANGES"],
+      "notes": ["Uses the XNYS trading calendar: the 2026 U.S. equity holiday schedule published by Nasdaq Trader lists the same full-day closures and early closes as config/calendars/XNYS.json (compared 2026-10-23). Regular session 09:30-16:00 America/New_York; extended sessions are not modelled.", "IBKR primary-exchange code as used by broker/ibkr/bootstrap_paper.py (US_PRIMARY_EXCHANGES); the IBKR exchange list returned HTTP 403 on 2026-10-23, and contract resolution verifies each listing's primary exchange (CAP-INS-04). The owner can override it in the IBKR market-data source configuration."]
+    },
+    {
+      "mic": "ARCX", "operating_mic": "XNYS", "segment_mic": null,
+      "name": "NYSE Arca", "country": "US", "currency": "USD", "timezone": "America/New_York",
+      "trading_calendar": "XNYS", "settlement_calendar": "XNYS",
+      "settlement_calendar_note": "The XNYS trading calendar is used as a conservative settlement-expectation calendar (as in config/policies/paper-default.v1.json); the DTC settlement calendar is not verified. Settlement is confirmed only from broker evidence.",
+      "settlement_cycles": [
+        {"from_trade_date": "2024-05-28", "business_days": 1, "sources": ["SEC-RULE-15C6-1", "SEC-PR-2023-29"],
+         "statement": "T+1 under Exchange Act Rule 15c6-1 from the May 28, 2024 compliance date. Earlier trade dates (T+2) are not encoded and are refused."}
+      ],
+      "lot": null, "tick": null,
+      "provider_codes": {"ibkr": "ARCA"},
+      "sources": ["ISO10383", "NASDAQTRADER-HOLIDAYS-2026", "IBKR-EXCHANGES"],
+      "notes": ["Uses the XNYS trading calendar: the 2026 U.S. equity holiday schedule published by Nasdaq Trader lists the same full-day closures and early closes as config/calendars/XNYS.json (compared 2026-10-23). Regular session 09:30-16:00 America/New_York; extended sessions are not modelled.", "IBKR primary-exchange code as used by broker/ibkr/bootstrap_paper.py (US_PRIMARY_EXCHANGES); the IBKR exchange list returned HTTP 403 on 2026-10-23, and contract resolution verifies each listing's primary exchange (CAP-INS-04). The owner can override it in the IBKR market-data source configuration."]
     },
     {
       "mic": "XNSE", "operating_mic": "XNSE", "segment_mic": null,

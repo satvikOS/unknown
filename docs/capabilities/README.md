@@ -24,14 +24,14 @@ call under the cited `describe` titles; `--run-tests` runs the cited backend tes
 Playwright end-to-end tests (`terminal/e2e`) and the tests marked IBKR venv run only locally. Passing offline tests is
 evidence of offline behaviour only.
 
-Checked against `feat/workstation-shell@c052431` on 2026-10-23; `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d00` on 2026-10-22.
+Checked against `feat/live-market-data@77c16d1` on 2026-10-23; `feat/workstation-shell@c052431` on 2026-10-23; `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d00` on 2026-10-22.
 
 ## Summary by area
 
 | Area | Capabilities | proposed | specified | implemented | tested | paper-verified | live-verified |
 |---|---|---|---|---|---|---|---|
 | instruments | 14 | 6 | 0 | 2 | 6 | 0 | 0 |
-| market-data | 13 | 8 | 0 | 2 | 3 | 0 | 0 |
+| market-data | 13 | 5 | 0 | 5 | 3 | 0 | 0 |
 | company-research | 14 | 4 | 0 | 2 | 8 | 0 | 0 |
 | news-documents | 14 | 14 | 0 | 0 | 0 | 0 | 0 |
 | macro-rates-fx | 14 | 12 | 0 | 1 | 1 | 0 | 0 |
@@ -46,7 +46,7 @@ Checked against `feat/workstation-shell@c052431` on 2026-10-23; `impl/foundation
 | model-providers | 12 | 1 | 0 | 1 | 10 | 0 | 0 |
 | regulatory | 13 | 7 | 0 | 2 | 4 | 0 | 0 |
 | ops-aws | 14 | 7 | 0 | 4 | 3 | 0 | 0 |
-| **all** | 217 | 101 | 0 | 28 | 88 | 0 | 0 |
+| **all** | 217 | 98 | 0 | 31 | 88 | 0 | 0 |
 
 ## Capabilities
 
@@ -76,12 +76,12 @@ Checked against `feat/workstation-shell@c052431` on 2026-10-23; `impl/foundation
 |---|---|---|---|---|---|---|
 | CAP-MKT-01 | P0 | Level 1 quotes with explicit real-time / delayed / frozen / snapshot status, source and age | Bloomberg B-PIPE, IBKR (all APIs), IBKR TWS API, IBKR Web API, LSEG Workspace, L | tested | 11 | Web API status codes (R, D, Z, Y, N, O, P, p) not mapped (TWS only) |
 | CAP-MKT-02 | P1 | Consolidated (NBBO / tape) versus single-venue and derived best quotes across US, Europe and India | Bloomberg B-PIPE, IBKR Web API, LSEG Workspace, US SIP (CTA Plan) | tested | 5 | no derived best across venues and no venue panel (AC2, AC3) |
-| CAP-MKT-03 | P1 | Trades and time & sales (live tick-by-tick and historical) with conditions, corrections and halts | Bloomberg B-PIPE, IBKR TWS, IBKR TWS API, LSEG Workspace | proposed |  | not yet implemented |
+| CAP-MKT-03 | P1 | Trades and time & sales (live tick-by-tick and historical) with conditions, corrections and halts | Bloomberg B-PIPE, IBKR TWS, IBKR TWS API, LSEG Workspace | implemented | 6 | no historical backfill (reqHistoricalTicks or vendor history) |
 | CAP-MKT-04 | P0 | Intraday bars (seconds to hours), live-updating and historical, with explicit completeness | IBKR TWS API, IBKR Web API, LSEG Data Library (Workspace) | tested | 5 | no live-updating bars and no platform bars built from trades (AC2) |
 | CAP-MKT-05 | P0 | Daily/weekly/monthly bars with raw and versioned split/dividend-adjusted series | IBKR TWS API, LSEG Data Library (Workspace) | implemented | 2 | no split/dividend adjustment factors, no total-return series, no factor versions |
-| CAP-MKT-06 | P2 | Market depth (Level 2) by price and by order, where entitled | Bloomberg B-PIPE, IBKR TWS, IBKR TWS API, LSEG Workspace / Data Library | proposed |  | not yet implemented |
+| CAP-MKT-06 | P2 | Market depth (Level 2) by price and by order, where entitled | Bloomberg B-PIPE, IBKR TWS, IBKR TWS API, LSEG Workspace / Data Library | implemented | 4 | no depth by order (only by price, with market maker where IBKR sends it) |
 | CAP-MKT-07 | P1 | Price charts with technical studies, comparisons and annotations | Bloomberg Terminal, IBKR TWS API, S&P Capital IQ Pro | proposed |  | not yet implemented |
-| CAP-MKT-08 | P0 | Watchlists / monitors with per-cell status, as-of dates and market-data line budgeting | Bloomberg Terminal, IBKR (all platforms), IBKR Web API, S&P Capital IQ Pro | proposed |  | not yet implemented |
+| CAP-MKT-08 | P0 | Watchlists / monitors with per-cell status, as-of dates and market-data line budgeting | Bloomberg Terminal, IBKR (all platforms), IBKR Web API, S&P Capital IQ Pro | implemented | 7 | rows beyond the budget are refused, not polled or served delayed (AC1) |
 | CAP-MKT-09 | P1 | Alerts on price, volume, time, study values, news and filings | Bloomberg Terminal, IBKR Web API, LSEG Workspace, S&P Capital IQ Pro | proposed |  | not yet implemented |
 | CAP-MKT-10 | P1 | Equity screening with point-in-time criteria, reproducible as-of runs and real-time scans | Bloomberg Terminal, Bloomberg Terminal (via MATLAB Datafeed Toolbox), IBKR TWS A | proposed |  | not yet implemented |
 | CAP-MKT-11 | P0 | Market-data entitlement, professional status, display vs non-display use and fee registry | Bloomberg B-PIPE, IBKR (all APIs), IBKR (all platforms) | implemented | 2 | no entitlement and fee registry with display vs non-display use, no cost report, |
@@ -458,6 +458,19 @@ Checked against `feat/workstation-shell@c052431` on 2026-10-23; `impl/foundation
 - Gap: not paper-verified: no IBKR paper session has run (BRK-02)
 - Requirements: DAT-06
 
+### CAP-MKT-03: Trades and time & sales (live tick-by-tick and historical) with conditions, corrections and halts (implemented)
+
+- Files: `backend/src/unknown/marketdata/`, `backend/src/unknown/api/routes/marketdata.py`, `backend/src/unknown/api/server.py`, `backend/src/unknown/broker/ibkr/mdsource.py`, `backend/src/unknown/broker/alpaca/stream.py`, `terminal/src/state/marketdata.ts`, `terminal/src/workspaces/monitor/panels.tsx`
+- Tests: `test_marketdata_bus::BusTests.test_trades_are_never_coalesced_and_overflow_is_reported`; `test_marketdata_bus::TickStoreTests.test_paging_and_bounded_retention`; `test_marketdata_ibkr_source::IbkrSourceTests.test_tick_by_tick_within_five_percent_of_lines`; `test_marketdata_alpaca::ParsingTests.test_documented_messages_map_to_contract_fields_without_floats`; `test_marketdata_perf::StreamPerformanceTest.test_500_keys_at_4hz_bus_to_client_p99`; `src/state/marketdata.test.ts::market-data client > keeps trades newest first, re-reads time & sales on a trade gap, and counts overflow notices`
+- Evidence: Live prints stream per key with price, size, venue, conditions, source and data type; trades are never coalesced and a full client buffer produces a status event and a counter, never a silent drop.
+- Evidence: Time & sales history is kept outside the core database in a tick store with bounded retention (age and rows per key) and paged newest first (GET /api/marketdata/trades).
+- Evidence: IBKR trades come only from tick-by-tick AllLast when the owner asserts the entitlement, within 5% of lines; Alpaca trades from the documented T=t messages (fixtures from docs.alpaca.markets).
+- Gap: no historical backfill (reqHistoricalTicks or vendor history)
+- Gap: no corrections/cancels linked to the original print
+- Gap: no halt/resume events inline
+- Gap: no size/condition filters or date search in the panel
+- Gap: no live run recorded
+
 ### CAP-MKT-04: Intraday bars (seconds to hours), live-updating and historical, with explicit completeness (tested)
 
 - Files: `backend/src/unknown/broker/ibkr/history.py`, `backend/src/unknown/api/routes/marketdata.py`, `backend/src/unknown/research/bars.py`
@@ -476,6 +489,32 @@ Checked against `feat/workstation-shell@c052431` on 2026-10-23; `impl/foundation
 - Gap: no split/dividend adjustment factors, no total-return series, no factor versions (AC1-AC4): corporate actions are not ingested
 - Gap: not paper-verified: no IBKR paper session has run (BRK-02)
 - Requirements: DAT-02, DAT-03
+
+### CAP-MKT-06: Market depth (Level 2) by price and by order, where entitled (implemented)
+
+- Files: `backend/src/unknown/marketdata/`, `backend/src/unknown/api/routes/marketdata.py`, `backend/src/unknown/api/server.py`, `backend/src/unknown/broker/ibkr/mdsource.py`, `backend/src/unknown/broker/ibkr/marketdata.py`, `terminal/src/workspaces/monitor/panels.tsx`
+- Tests: `test_marketdata_ibkr_source::IbkrSourceTests.test_depth_book_operations_and_reset`; `test_marketdata_ibkr_source::SessionRoutingTests.test_wrapper_routes_tick_by_tick_and_depth_to_registered_handlers`; `test_marketdata_bus::SyntheticTests.test_events_through_the_bus_carry_the_synthetic_label`; `src/workspaces/monitor/render.test.ts::monitor rendering > renders time & sales, depth with cumulative size, and the ticker tape`
+- Evidence: IBKR depth (reqMktDepth, smart or venue, updateMktDepth and updateMktDepthL2 with market maker) is requested only with the owner's depth allowance; insert/update/delete maintain the book and each update publishes the full side; error 317 resets it.
+- Evidence: The depth panel shows price levels per side with size and cumulative size, labelled with source and data type, and says when the serving source has no depth.
+- Gap: no depth by order (only by price, with market maker where IBKR sends it)
+- Gap: no imbalance figure
+- Gap: no explicit stale marker beyond the key status
+- Gap: Alpaca stock stream has no depth
+- Gap: no live run recorded
+
+### CAP-MKT-08: Watchlists / monitors with per-cell status, as-of dates and market-data line budgeting (implemented)
+
+- Files: `backend/src/unknown/marketdata/`, `backend/src/unknown/api/routes/marketdata.py`, `backend/src/unknown/api/server.py`, `terminal/src/state/marketdata.ts`, `terminal/src/workspaces/monitor/`
+- Tests: `test_marketdata_bus::BusTests.test_line_budget_refuses_with_a_status_per_key_and_falls_back`; `test_marketdata_bus::BusTests.test_quotes_coalesce_per_key_to_the_latest_state`; `test_marketdata_bus::BusTests.test_refusal_falls_back_and_every_event_names_its_source`; `test_marketdata_bus::ApiTests.test_stream_snapshot_latency_sources_and_trades`; `src/workspaces/monitor/model.test.ts::monitor model > edits watchlists and refuses duplicates and invalid keys`; `src/workspaces/monitor/render.test.ts::monitor rendering > shows quotes with change, sizes and the SYNTHETIC label, and line-budget refusals per row`; `src/state/marketdata.test.ts::market-data client > resyncs from the snapshot on a quote seq gap and ignores older quotes`
+- Evidence: Watchlists hold security keys (SYMBOL.MIC), not broker ids, and are edited and persisted in the browser; each row shows last, change, %change (exact decimals), bid/ask with sizes, volume, time and a source/data-type badge; SYNTHETIC is always labelled.
+- Evidence: The bus enforces each source's line budget before subscribing; a key no source can take shows LINE_BUDGET, NOT_ENTITLED or UNAVAILABLE with the reason in its row.
+- Gap: rows beyond the budget are refused, not polled or served delayed (AC1)
+- Gap: no CSV/XLSX export (AC3)
+- Gap: no fundamental columns with as-of dates
+- Gap: no IBKR watchlist sync (AC4)
+- Gap: no column chooser or grouping
+- Gap: watchlists are per browser, not stored server-side
+- Gap: no paper run against the 100-line budget recorded
 
 ### CAP-MKT-11: Market-data entitlement, professional status, display vs non-display use and fee registry (implemented)
 

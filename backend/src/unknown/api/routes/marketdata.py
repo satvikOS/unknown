@@ -11,6 +11,14 @@ Endpoints (GET, owner session required by the server; nothing here writes):
 * ``/api/marketdata/bars/series``: the stored series. ``/api/marketdata/bars/gaps``: recorded coverage gaps.
 * ``/api/marketdata/contracts``: the latest contract resolution per instrument (CAP-INS-04 verification table).
 
+Live bus (ADR-0018; wire format docs/design/marketdata-stream-contract.md; the SSE stream itself is served by
+``server.py`` because it is not a JSON response):
+
+* ``/api/marketdata/snapshot?keys=``: the latest ``quote`` object per streaming key (same objects as the stream).
+* ``/api/marketdata/latency``: p50, p99 and max per stage (source_to_recv, recv_to_pub, pub_to_write).
+* ``/api/marketdata/trades?key=&before_ns=&limit=``: time & sales history from the tick store (newest first).
+* ``/api/marketdata/sources``: configured sources, capabilities, data types, line budgets and lines in use, routes.
+
 When the source is absent, every endpoint returns an explicit ``unavailable_reason``, never placeholder data.
 FIXTURE rows are excluded unless ``include_fixture=1`` and are always labelled.
 
@@ -369,8 +377,46 @@ def contracts(ctx, q: dict) -> dict:
 
 
 # ============================================================================ dispatch
+def _bus(ctx):
+    return ctx.marketdata_bus()
+
+
+def live_snapshot(ctx, q: dict) -> dict:
+    from ...marketdata.sse import parse_keys
+    keys, refused = parse_keys(q.get("keys"))
+    out = _bus(ctx).snapshot(keys)
+    out["status"] = refused + out["status"]
+    return out
+
+
+def live_latency(ctx, q: dict) -> dict:
+    bus = _bus(ctx)
+    d = bus.describe()
+    return {"stages": bus.latency.report(), "unit": "ns", "counters": d["counters"], "clients": d["clients"],
+            "keys": d["keys"], "percentile": "nearest-rank over the most recent samples per stage"}
+
+
+def live_trades(ctx, q: dict) -> dict:
+    from ...marketdata.events import parse_key
+    key = q.get("key") or ""
+    parse_key(key)                                   # ValueError -> 400
+    bus = _bus(ctx)
+    if bus.store is None:
+        return {"key": key, "trades": [], "unavailable_reason": "no tick store configured"}
+    rows = bus.store.trades(key, before_ns=_int(q, "before_ns"), limit=_int(q, "limit", 500))
+    return {"key": key, "trades": rows, "retention": bus.store.stats()}
+
+
 def handle(ctx, parts, q, account_key, conn):
     sub = list(parts[1:])
+    if sub == ["snapshot"]:
+        return live_snapshot(ctx, q)
+    if sub == ["latency"]:
+        return live_latency(ctx, q)
+    if sub == ["trades"]:
+        return live_trades(ctx, q)
+    if sub == ["sources"]:
+        return _bus(ctx).describe()
     if sub == ["status"]:
         return status(ctx, q)
     if sub == ["bars"]:

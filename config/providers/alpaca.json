@@ -1,0 +1,35 @@
+{
+  "provider_id": "alpaca",
+  "name": "Alpaca Market Data API — real-time stock stream (market data only)",
+  "access": "Websocket wss://stream.data.alpaca.markets/v2/{iex|sip|delayed_sip}; API key id and secret from <UNKNOWN_HOME>/secrets/alpaca.json (outside git)",
+  "cost_model": "Basic plan: no charge stated for IEX real-time data; Algo Trader Plus (all US exchanges, unlimited websocket symbols) is a paid plan. Price not recorded here; never enabled without the owner's choice.",
+  "budget": "none required for the Basic (IEX) feed",
+  "rate_limit": {"max_requests": 1, "per_seconds": 1.0,
+                 "source": "No message rate is documented for the stream. Self-imposed: at most one connection attempt per second (back-off 1 s to 30 s). Documented limits: Basic 'Websocket subscriptions: 30 symbols' (about-market-data-api, enforced as the bus line budget) and error 406 'connection limit exceeded', 1 connection for many subscriptions (streaming-market-data)."},
+  "requires_local_config": ["<UNKNOWN_HOME>/secrets/alpaca.json (key_id, secret_key)", "<UNKNOWN_HOME>/config/marketdata.json source ALPACA"],
+  "failure_behavior": "Disconnect: every key shows STALE and the adapter reconnects with exponential back-off (1 s to 30 s). 405 symbol limit: LINE_BUDGET for the keys of that request; 409/410: NOT_ENTITLED, and the bus fails the key over to the next configured source.",
+  "sources": [
+    "https://docs.alpaca.markets/docs/real-time-stock-pricing-data",
+    "https://docs.alpaca.markets/docs/streaming-market-data",
+    "https://docs.alpaca.markets/docs/about-market-data-api",
+    "https://alpaca.markets/disclosures"
+  ],
+  "verified_on": "2026-10-23",
+  "datasets": [
+    {
+      "dataset_id": "alpaca.stock_stream",
+      "description": "US stock and ETF quotes (bid/ask with sizes in round lots) and trades (price, size, exchange, conditions) with RFC-3339 nanosecond timestamps",
+      "endpoint": "wss://stream.data.alpaca.markets/v2/iex (default), v2/sip, v2/delayed_sip",
+      "coverage": "US stocks and ETFs. Basic plan: IEX only (a single venue, not a consolidated quote). Algo Trader Plus: all US exchanges (SIP).",
+      "history_depth": "Live stream; the tick store keeps the owner's received trades for its configured retention (default 3 days)",
+      "update_frequency": "Per message",
+      "availability_rule": "Live: available at receipt time (ts_recv_ns); ts_source_ns is the message timestamp t",
+      "allowed_uses": ["display", "storage"],
+      "retention_days": 3,
+      "vintage_support": false,
+      "rights_source": "Alpaca disclosures list a 'NYSE Market Data Display Services Agreement' (https://files.alpaca.markets/disclosures/library/NYSE+Market+Data+Display+Services+Agreement.pdf), a 'NASDAQ OMX Global Subscriber Agreement' (https://files.alpaca.markets/disclosures/library/NASDAQ+OMX+Global+Subscriber+Agreement.pdf) and Alpaca Terms & Conditions (https://files.alpaca.markets/disclosures/library/TermsAndConditions.pdf). Their texts were not read for this record: display to the account owner only; no redistribution, no non-display use and no cloud-model processing until the owner reviews them.",
+      "rights_status": "unreviewed: display to the owner only",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}
