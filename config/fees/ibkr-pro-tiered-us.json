@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "schedule_id": "fee.ibkr.pro.tiered.us@2026-10-23",
+  "broker": "ibkr",
+  "plan": "IBKR_PRO_TIERED",
+  "market": "US",
+  "products": ["STK", "ETF"],
+  "currency": "USD",
+  "route": "SMART",
+  "route_note": "Tiered applies to SmartRouted orders only: 'Please note that directed API orders cannot use the Tiered fee structure. SmartRouted API orders can use either the Tiered or Fixed structure.' The IBKR adapter sends every order with exchange SMART (broker/ibkr/adapter.py).",
+  "plan_effective": {
+    "status": "unverified",
+    "statement": "Owner-reported: the account was switched to IBKR Pro with Tiered US stock pricing on 2026-10-23, effective within 24 hours. Not yet confirmed from a commission report or statement; the first paper fills' commission reports are the evidence."
+  },
+  "sources": {
+    "IBKR-STK-COMMISSIONS": {"url": "https://www.interactivebrokers.com/en/pricing/commissions-stocks.php", "retrieved_on": "2026-10-23",
+                             "title": "Interactive Brokers: Commissions - Stocks, ETFs and Warrants (United States, IBKR Pro Tiered and Fixed)"},
+    "IBKR-FEES-NASDAQ": {"url": "https://www.interactivebrokers.com/en/accounts/fees/INETstkfee.php?nhf=T", "retrieved_on": "2026-10-23",
+                         "title": "Interactive Brokers: NASDAQ/Island Exchange Fees"},
+    "IBKR-FEES-NYSE": {"url": "https://www.interactivebrokers.com/en/accounts/fees/NYSEstkfee.php?nhf=T", "retrieved_on": "2026-10-23",
+                       "title": "Interactive Brokers: NYSE Exchange Fees"},
+    "IBKR-FEES-ARCA": {"url": "https://www.interactivebrokers.com/en/accounts/fees/ARCAstkfee.php?nhf=T", "retrieved_on": "2026-10-23",
+                       "title": "Interactive Brokers: ARCA Exchange Fees"}
+  },
+  "commission": {
+    "status": "verified",
+    "source": "IBKR-STK-COMMISSIONS",
+    "quote": "United States, IBKR Pro - Tiered: <= 300,000 USD 0.0035; 300,001 - 3,000,000 USD 0.0020; 3,000,001 - 20,000,000 USD 0.0015; 20,000,001 - 100,000,000 USD 0.0010; > 100,000,000 USD 0.0005. Minimum per order USD 0.35. Maximum per order 1% of Trade Value.",
+    "tiers": [
+      {"up_to_shares": 300000, "per_share": "0.0035"},
+      {"up_to_shares": 3000000, "per_share": "0.0020"},
+      {"up_to_shares": 20000000, "per_share": "0.0015"},
+      {"up_to_shares": 100000000, "per_share": "0.0010"},
+      {"up_to_shares": null, "per_share": "0.0005"}
+    ],
+    "tier_basis": "Marginal within the calendar month, on cumulative US and Canadian stock and ETF shares traded under Tiered: 'These fees are applied on a marginal basis for a given calendar month.' 'Orders where the commission cap is applied do not count towards the monthly volume tiers.'",
+    "minimum_per_order": "0.35",
+    "maximum_fraction_of_trade_value": "0.01",
+    "minimum_versus_maximum": "'In the event the calculated maximum per order is less than the minimum per order, the maximum per order will be assessed.' Every other order pays at least the minimum (USD 0.35) before third-party fees.",
+    "notes": [
+      "The page's disclosures also contain the unattached line 'Tiered commissions will be capped at 0.5% of trade value'; the United States table states 1%. The cap only lowers a charge, so the pretrade bound ignores every cap and is unaffected by which one applies.",
+      "Fractional shares (not eligible in the paper policy) have a USD 0.01 minimum; dividend reinvestment has its own minimum. Neither is modelled."
+    ]
+  },
+  "third_party": [
+    {"id": "exchange_remove_liquidity", "kind": "exchange", "side": "BOTH", "basis": "per_share", "rate": "0.0030",
+     "sub_dollar": {"basis": "fraction_of_trade_value", "rate": "0.003"},
+     "status": "verified", "sources": ["IBKR-FEES-NASDAQ", "IBKR-FEES-NYSE", "IBKR-FEES-ARCA"],
+     "quote": "Remove Liquidity: NASDAQ >= $1.00 per share USD 0.0030; NASDAQ per share Trade Value * 0.0030 (NASDAQ/Island); Tape A/B/C >= $1.00 per share USD 0.0030 (NYSE); NASDAQ/NYSE/AMEX >= $1.00 per share USD 0.0030, per share Trade Value * 0.003 (ARCA).",
+     "applies_when": "the order removes liquidity (marketable on arrival). Adding liquidity earns a venue rebate that IBKR may or may not credit; the estimate never counts a rebate.",
+     "venues_verified": ["NASDAQ", "NYSE", "ARCA"],
+     "unverified": "SmartRouting may execute on other venues (the page lists about 30) whose fees were not read; 'IB may route the order to an exchange with a better quoted price but with substantially higher fees'."},
+    {"id": "clearing_nscc_dtc", "kind": "clearing", "side": "BOTH", "basis": "per_share", "rate": "0.00020",
+     "max_fraction_of_trade_value": "0.005",
+     "status": "verified", "sources": ["IBKR-STK-COMMISSIONS"],
+     "quote": "Clearing Fees: NSCC, DTC Fees: USD 0.00020 per share (footnote: Maximum 0.5% of trade value)."},
+    {"id": "nyse_pass_through", "kind": "pass_through", "side": "BOTH", "basis": "fraction_of_commission", "rate": "0.000175",
+     "status": "verified", "sources": ["IBKR-STK-COMMISSIONS"],
+     "quote": "Pass Through Fees: NYSE Pass Through Fees: Commissions * 0.000175"},
+    {"id": "finra_pass_through", "kind": "pass_through", "side": "BOTH", "basis": "fraction_of_commission", "rate": "0.00056",
+     "status": "verified", "sources": ["IBKR-STK-COMMISSIONS"],
+     "quote": "FINRA Pass Through Fees: Commissions * 0.00056"},
+    {"id": "finra_cat", "kind": "regulatory", "side": "BOTH", "basis": "per_share", "rate": "0.000003",
+     "status": "verified", "sources": ["IBKR-STK-COMMISSIONS"],
+     "quote": "FINRA Consolidated Audit Trail Fees: USD 0.000003 * Quantity (footnote: FINRA CAT will reevaluate the Prospective CAT Fees twice a year)."},
+    {"id": "sec_transaction_fee", "kind": "regulatory", "side": "SELL", "basis": "fraction_of_trade_value", "rate": "0.0000206",
+     "status": "verified", "sources": ["IBKR-STK-COMMISSIONS"],
+     "quote": "SEC Transaction Fee: USD 0.0000206 * Value of Aggregate Sales"},
+    {"id": "finra_taf", "kind": "regulatory", "side": "SELL", "basis": "per_share", "rate": "0.00",
+     "valid_from": "2026-10-01", "valid_through": "2026-12-31",
+     "status": "verified", "sources": ["IBKR-STK-COMMISSIONS"],
+     "quote": "FINRA Trading Activity Fee: USD 0.00 * Quantity Sold (footnote: Fee Holiday of Trading Activity Fee for trades from Oct 1, 2026 through Dec 31, 2026)."}
+  ],
+  "upper_bound": {
+    "status": "unverified",
+    "statement": "Conservative envelope for reservations and pretrade checks, never a sourced fact: the first-tier rate on every share with no tier discount and no cap, the per-order minimum, the remove-liquidity exchange fee on every share, every verified third-party fee, and a bound for each component the page does not state.",
+    "exchange_per_share": "0.0030",
+    "exchange_fraction_of_trade_value_sub_dollar": "0.003",
+    "exchange_note": "Bound taken from the three venues read (NASDAQ, NYSE, ARCA); other venues are unverified.",
+    "finra_taf_per_share_outside_verified_window": "0.000200",
+    "finra_taf_note": "The page states USD 0.00 only for trade dates 2026-10-01..2026-12-31; outside that window the rate is not stated, so sells are bounded at USD 0.000200 per share with no per-trade cap (an assumption, not a published rate)."
+  }
+}
