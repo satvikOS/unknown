@@ -40,7 +40,7 @@ from ..domain.calendar import WEEKDAYS_ONLY, load_calendars
 from ..domain.canonical import canonical_json, sha256_hex
 from ..domain.clock import Clock, SystemClock, NS_PER_S
 from ..domain.errors import CommandConflict, LeaseLost
-from ..domain.ids import IdGenerator
+from ..domain.ids import IdGenerator, validate_id
 from ..domain.principal import Principal, Role, permitted
 from ..gateway.runner import GatewayRunner
 from ..reconcile.reconciler import Reconciler
@@ -149,7 +149,13 @@ class CoreService:
         """Whether a failed ``command`` may stand in memory for a recorded stop: only a stop the desk would accept,
         from a role that may stop (OWNER or SYSTEM, ADR-0007) and for this core's own account. Any other request
         that fails is reported like every failed command; it must never engage the latch, cancel at the broker or
-        leave a latch the desk will refuse to record (which would never release)."""
+        leave a latch the desk will refuse to record (which would never release). A command id the desk refuses before
+        any write (``validate_id``) is a malformed request, not a persistence failure: latched, it could never be
+        recorded, so the latch would never release while the database recorded no stop at all."""
+        try:
+            validate_id(command.command_id, "command id")
+        except ValueError:
+            return False
         return (command.kind == "stop" and permitted(command.principal.role, "stop")
                 and isinstance(command.payload, dict) and command.payload.get("account_key") == self.account_key)
 

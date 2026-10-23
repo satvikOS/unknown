@@ -256,12 +256,13 @@ def _close_unknown_order(ctx: Context, case: dict, p: dict, note: str) -> dict:
     hold the broker may still be working: the account's latest reconciliation must be complete, recorded in this
     process, younger than ``max_reconciliation_age_s`` and include the order's last material change (any change but
     cancel bookkeeping, including a held report the broker repeats after a run); the broker's open orders in it must
-    not include the order and its lookup must not have found it; and its only blocking differences may be those of unresolved UNKNOWN orders (an UNKNOWN order the
-    broker cannot find always leaves the run
-    DIFFERENCES, so a literally clean run never contains one, and matching positions and cash in that run are what
-    show no fill is missing). Fresh owner authentication and evidence (a statement, confirm or support reference)
-    are required. The order ends REJECTED (no fills) or CANCELED (fills: the remainder is not working), every hold
-    is released, the related cases are resolved with the evidence and the account must reconcile again."""
+    not include the order and its lookup must not have found it; and its only blocking differences may be those of
+    unresolved UNKNOWN orders (an UNKNOWN order the broker cannot find always leaves the run DIFFERENCES, so a
+    literally clean run never contains one, and matching positions and cash in that run are what show no fill is
+    missing). Fresh owner authentication and evidence (a statement, confirm or support reference) are required. The
+    order ends REJECTED (no fills) or CANCELED (fills: the remainder is not working), every hold is released, the
+    related cases are resolved with the evidence and the account must reconcile again (it already must: the run
+    relied on is never CLEAN, so ``needs_reconciliation`` is set; the close sets it again, defensively)."""
     from .broker import finalize
     key = case["account_key"]
     if case["kind"] not in ("UNKNOWN_ORDER", "RECONCILIATION_DIFFERENCE"):

@@ -920,10 +920,15 @@ def _apply_commission(ctx: Context, p: dict, *, deferred: bool) -> dict:
         lines += [ledger.Line(ledger.COMMISSION, owner, ccy, amount), ledger.Line(against, owner, ccy, -amount)]
         delta = amount
         kind, info = "CommissionFinalized", {"estimate": est.to_str(), "final": amount.to_str()}
-    e = ledger.entry(ctx.new_id("je-"), key, "COMMISSION", f"commission {exec_key}", lines)
-    changes["journal"].append(e)
+    entry_ids: list[str] = []
+    if any(not line.amount.is_zero() for line in lines):
+        e = ledger.entry(ctx.new_id("je-"), key, "COMMISSION", f"commission {exec_key}", lines)
+        changes["journal"].append(e)
+        entry_ids.append(e["entry_id"])
+    # else: a zero fee on an execution with no estimate (e.g. the broker's commission report for a bust, whose row
+    # books nothing): recorded as final, with nothing to post. An empty entry would raise and lose the report.
     changes["executions"].append({**ex, "fee_final": amount.to_str(), "fee_status": "FINAL",
-                                  "fee_entries": ex.get("fee_entries", []) + [e["entry_id"]]})
+                                  "fee_entries": ex.get("fee_entries", []) + entry_ids})
     main = ex.get("settlement_id")
     stl = json.loads(ctx.tx.one("SELECT row FROM settlements WHERE settlement_id=?", (main,))["row"]) if main else None
     # Change in the cash this trade settles for: a higher fee means less cash on either side. A sell's
