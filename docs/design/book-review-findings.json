@@ -1254,7 +1254,7 @@
         "backend/tests/test_orders_lifecycle.py::CallbackTests::test_terminal_status_before_executions_keeps_reservation",
         "backend/tests/test_orders_lifecycle.py::WorkedLifecycleTests::test_cancel_confirmation_before_last_fill_reaches_the_same_state"
       ],
-      "residual": "A gap that persists is reported by reconciliation as a blocking EXECUTIONS_MISSING difference (recon.py:86-89); no test names that difference.",
+      "residual": "A gap that persists is reported by reconciliation as a blocking EXECUTIONS_MISSING difference (recon.py:88-91); no test names that difference.",
       "verified_against": "impl/foundation@73f7b03",
       "verified_on": "2026-10-22"
     }
@@ -1298,7 +1298,7 @@
     "verifier_note": "Quotes verified. ADR-0009 permits a retry only after the broker 'conclusively reports that the order does not exist', and ADR-0012 gives lookup a found / not-found / unknown tri-state, but neither defines 'conclusive' or an owner resolution path. I softened one original claim: reusing an IBKR orderId the broker never received is technically allowed, but a new correlation id is still the safer rule.",
     "disposition": {
       "status": "RESOLVED_IN_CODE",
-      "resolution": "lookup() is tri-state (found / conclusively not found / cannot determine). A conclusive 'not found' for an order with no fills makes it REJECTED and releases it; 'found' applies the broker status; 'cannot determine' keeps the order UNKNOWN, reserved and blocking. Nothing is resubmitted: a retry is a new intent with a new order id. The owner closes a stuck UNKNOWN with resolve_exception action close_unknown_order, which needs fresh authentication, a note and broker evidence (BROKER_STATEMENT, BROKER_CONFIRM or SUPPORT_REFERENCE) and never releases a hold the broker may still work: the latest reconciliation must be complete, in this process, fresh and later than the order's last material change (a repeated Inactive report counts), must not list the order as open or have found it by lookup, and may hold no other blocking difference; otherwise CLOSE_NOT_PROVEN names every unmet condition and nothing changes. The order ends REJECTED (no fills) or CANCELED (fills kept), its holds are released, UnknownOrderClosedByOwner records the evidence, run and lookup, and the account must reconcile again (RB-13).",
+      "resolution": "lookup() is tri-state (found / conclusively not found / cannot determine). A conclusive 'not found' for an order with no fills makes it REJECTED and releases it; 'found' applies the broker status; 'cannot determine' keeps the order UNKNOWN, reserved and blocking. Nothing is resubmitted: a retry is a new intent with a new order id. The owner closes a stuck UNKNOWN with resolve_exception action close_unknown_order, which needs fresh authentication, a note and broker evidence (BROKER_STATEMENT, BROKER_CONFIRM or SUPPORT_REFERENCE) and never releases a hold the broker may still work: the latest reconciliation must be complete, in this process, fresh and later than the order's last material change (a repeated Inactive report counts), must not list the order as open or have found it by lookup, and its only blocking differences may be those of unresolved UNKNOWN orders (a working order's difference refuses the close); otherwise CLOSE_NOT_PROVEN names every unmet condition and nothing changes. Only an UNKNOWN order is closed this way (ORDER_NOT_UNKNOWN). The order ends REJECTED (no fills) or CANCELED (fills kept), its holds are released, UnknownOrderClosedByOwner records the evidence, run and lookup, and the account must reconcile again (RB-13).",
       "where": [
         "backend/src/unknown/broker/port.py:138-145",
         "backend/src/unknown/core/handlers/recon.py:92-125",
@@ -1317,7 +1317,8 @@
         "backend/tests/test_core_lifecycle_review.py::CloseEvidenceTests::test_a_held_report_after_the_run_with_the_same_broker_id_blocks_the_close",
         "backend/tests/test_core_lifecycle_review.py::CloseEvidenceTests::test_a_reconciliation_from_before_a_restart_cannot_close_the_order",
         "backend/tests/test_core_lifecycle_review.py::CloseEvidenceTests::test_an_unknown_order_with_fills_is_closed_canceled_and_its_fills_stay_booked",
-        "backend/tests/test_ibkr_adapter.py::OpenOrderAndLookupTests::test_lookup_tri_state [IBKR venv]"
+        "backend/tests/test_ibkr_adapter.py::OpenOrderAndLookupTests::test_lookup_tri_state [IBKR venv]",
+        "backend/tests/test_core_lifecycle_guards.py::CloseGuardTests::test_a_working_orders_difference_blocks_the_close_and_a_working_order_is_never_closed_on_evidence"
       ],
       "residual": "The IBKR adapter is conclusive only when placeOrder was never called, so a transmitted order with no trace always needs the owner's close. The evidence reference is recorded, not checked against a statement (statement ingestion, CAP-OMS-07, is not built). Neither the terminal nor the CLI offers the close: the owner sends it through POST /api/commands, and the terminal's acknowledge action resolves the case without closing the order (RB-13).",
       "verified_against": "impl/foundation@8b98d00",
@@ -1430,7 +1431,7 @@
         "backend/tests/test_ibkr_adapter.py::ExecutionTests::test_corrections_link_to_the_latest_prior_revision [IBKR venv]",
         "backend/tests/test_review_fixes.py::ExecutionLedgerTests::test_f38_redelivery_of_an_execution_with_an_unmapped_instrument_is_a_duplicate"
       ],
-      "residual": "The reviewer's rule for a late lower or equal revision (store, do not apply) is not in the core: such a revision is not distinguished there. The IBKR adapter records an OUT_OF_ORDER_REVISION anomaly for it, which has no test. There is no provider_version column; the revision is parsed from the execution id.",
+      "residual": "The reviewer's rule for a late lower or equal revision (store, do not apply) is not in the core. A lower revision that arrives after a higher one is linked by the IBKR adapter to the latest lower revision it saw, so the core reverses the higher, effective revision and books the stale one in its place, and opens no case (checked against 8b98d00 by a probe, not by a test). Only the adapter's OUT_OF_ORDER_REVISION alert (in memory, `unknown.cli alerts`; no test) and a later reconciliation difference, if the revisions differ in quantity or price, show it. There is no provider_version column; the revision is parsed from the execution id.",
       "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
@@ -1487,7 +1488,7 @@
         "backend/tests/test_orders_lifecycle.py::SubmissionOutcomeTests::test_unknown_stays_unknown_and_reserved_while_broker_unreachable",
         "backend/tests/test_ibkr_adapter.py::OpenOrderAndLookupTests::test_open_orders_incomplete_without_end [IBKR venv]"
       ],
-      "residual": "The ORDER_MISSING_AT_BROKER and ORDER_UNRESOLVED branches (recon.py:98-101, 122-123) have no test of their own.",
+      "residual": "The ORDER_MISSING_AT_BROKER and ORDER_UNRESOLVED branches (recon.py:100-103, 124-125) have no test of their own.",
       "verified_against": "impl/foundation@73f7b03",
       "verified_on": "2026-10-22"
     }
@@ -2174,7 +2175,7 @@
         "backend/tests/test_orders_lifecycle.py::SubmissionOutcomeTests::test_transport_error_on_submit_is_unknown",
         "backend/tests/test_ibkr_adapter.py::SubmitTests::test_socket_loss_during_wait_is_unknown [IBKR venv]"
       ],
-      "residual": "No test asserts that an ACKNOWLEDGED order keeps its state across a disconnect; broker_connectivity (broker.py:791-803) only updates the control row.",
+      "residual": "No test asserts that an ACKNOWLEDGED order keeps its state across a disconnect; broker_connectivity (broker.py:969-981) only updates the control row.",
       "verified_against": "impl/foundation@73f7b03",
       "verified_on": "2026-10-22"
     }
@@ -2830,7 +2831,7 @@
         "backend/tests/test_policy_mandate.py::MandateSnapshotTests::test_new_default_does_not_change_a_running_session",
         "backend/tests/test_policy_mandate.py::MandateSnapshotTests::test_new_default_does_not_change_a_waiting_request"
       ],
-      "residual": "Account-level limits and eligibility are read from the active policy (orders.py:72), so a new owner-published policy changes them for running sessions in either direction; this is not stated in ADR-0007.",
+      "residual": "Account-level limits and eligibility are read from the active policy (orders.py:87), so a new owner-published policy changes them for running sessions in either direction; this is not stated in ADR-0007.",
       "verified_against": "impl/foundation@73f7b03",
       "verified_on": "2026-10-22"
     }
@@ -3105,7 +3106,7 @@
     "verifier_note": "Confirmed. Added the Ch.26:19 'affected account' quote to show the global-versus-account inconsistency. ADR-0011 covers execution-ownership transfer but this verifier did not check whether it covers latch mirroring at the gateway.",
     "disposition": {
       "status": "RESOLVED_IN_CODE",
-      "resolution": "The latch is per broker account, stored in the fenced writer's control row, enforced in pretrade and again in outbox_begin, survives restart, and is set on restore and on a new account; the broker adapter runs in the core process (ADR-0002), so no separate gateway copy is needed. A stop is never blocked by persistence (ADR-0010 amendment): when the database cannot record an OWNER or SYSTEM stop of this account, the core service latches it in memory, refuses exposure-increasing commands at its socket, transmits no buy (a claimed buy is recorded REJECTED NOT_TRANSMITTED), sends a best-effort cancel for every open buy straight to the broker, logs CRITICAL, shows the latch in health and preflight (STOP_LATCHED_IN_MEMORY) and mirrors it in an fsync'd <account>.stop-latch.json, so a restart starts latched. As soon as writes work, the stop is recorded under its own id, then a SYSTEM stop carrying the evidence (error, cancels, the ids it stood in for); only then is the memory latch released. A malformed id, a role that may not stop or another account never engages it, and an unreadable or tampered latch file fails closed with the service's own stop (RB-12).",
+      "resolution": "The latch is per broker account, stored in the fenced writer's control row, enforced in pretrade and again in outbox_begin, survives restart, and is set on restore and on a new account; the broker adapter runs in the core process (ADR-0002), so no separate gateway copy is needed. A stop is never blocked by persistence (ADR-0010 amendment): when the database cannot record an OWNER or SYSTEM stop of this account, the core service latches it in memory, refuses exposure-increasing commands at its socket, transmits no buy (a claimed buy is recorded REJECTED NOT_TRANSMITTED), sends a best-effort cancel straight to the broker for every open buy in the ledger and every buy the broker lists with our client order id (either source alone suffices; foreign orders are not touched), logs CRITICAL, shows the latch in health and preflight (STOP_LATCHED_IN_MEMORY) and mirrors it in an fsync'd <account>.stop-latch.json, so a restart starts latched. As soon as writes work, the stop is recorded under its own id, then a SYSTEM stop carrying the evidence (error, cancels, the ids it stood in for); only then is the memory latch released. A malformed id, a role that may not stop or another account never engages it, and an unreadable or tampered latch file fails closed with the service's own stop (RB-12).",
       "where": [
         "backend/src/unknown/core/handlers/control.py:18-25",
         "backend/src/unknown/risk/pretrade.py:94",
@@ -3127,7 +3128,11 @@
         "backend/tests/test_core_lifecycle_review.py::MemoryLatchAuthorityTests::test_a_latch_file_holding_anything_but_a_stop_of_this_account_fails_closed",
         "backend/tests/test_control_recovery.py::RedStopTests::test_owner_stop_latches_durably_with_actor_reason_and_command",
         "backend/tests/test_control_recovery.py::RestartRecoveryTests::test_stop_survives_restart_and_restart_sets_recovery_hold",
-        "backend/tests/test_control_recovery.py::RestoreDetectionTests::test_restore_of_backup_taken_in_current_process_is_detected"
+        "backend/tests/test_control_recovery.py::RestoreDetectionTests::test_restore_of_backup_taken_in_current_process_is_detected",
+        "backend/tests/test_core_lifecycle_guards.py::MemoryLatchGuardTests::test_an_unreadable_ledger_still_cancels_every_buy_the_broker_lists_as_ours",
+        "backend/tests/test_core_lifecycle_guards.py::MemoryLatchGuardTests::test_unreadable_broker_open_orders_still_cancel_every_open_buy_in_the_ledger",
+        "backend/tests/test_core_lifecycle_guards.py::MemoryLatchGuardTests::test_every_exposure_increasing_command_waits_while_the_stop_is_latched_only_in_memory",
+        "backend/tests/test_core_lifecycle_guards.py::MemoryLatchGuardTests::test_the_latch_is_recorded_under_the_owners_id_then_as_memory_latch_persisted"
       ],
       "residual": "The memory latch lives in one core process, and its file sits on the same volume as the database: if the file cannot be written either, a restart before the database recovers starts without the stop, held only by the restart's recovery hold (RB-12). Red from the terminal needs the API and the core socket; with the core down, the broker's own cancel-all is the only path (RB-01). There is no installation-wide latch across accounts (one core per account), and the terminal shows STOP_LATCHED_IN_MEMORY only as a generic preflight blocker.",
       "verified_against": "impl/foundation@8b98d00",
@@ -3802,10 +3807,11 @@
     "verifier_note": "All quotes verified verbatim. I strengthened the case with the status-ladder conflict (validated comes before paper and eligible), which the original did not cite. One softening: the original said the automated evaluator assigns 'validated'. The book does not say that. Chapter 20 line 29 gives the evaluator write access to evidence, and the promotion service records transitions. Chapter 10 line 31 also uses an envelope ('If any of these change beyond the envelope, it is a new approval object'), so the two chapters partly agree; the conflict is the approval unit, the status rung and the timing. ADR-0007 (STRATEGY may act only for a session whose mandate lists its artifact) already addresses point 3 in the implementation, but the book remains contradictory.",
     "disposition": {
       "status": "RESOLVED_IN_CODE",
-      "resolution": "Resolved for the research side. Artifacts have the statuses proposed, reproducible, validated, paper, eligible, active, quarantined and retired in a hash-chained transition log. paper, eligible and active need a fresh owner approval per artifact; automatic selection runs as SYSTEM only under an owner-approved, immutable selection policy (the envelope) and considers only eligible, unexpired artifacts inside it. Point (3) holds in the core: a STRATEGY principal is an artifact id `<class>@<16 hex of the artifact hash>` bound to its token, acts only for sessions whose frozen mandate lists that id, and a new default never changes a running session's list.",
+      "resolution": "Resolved for the research side. Artifacts have the statuses proposed, reproducible, validated, shadow, paper, eligible, active, quarantined and retired in a hash-chained transition log. validated -> shadow needs the owner's approval or the SYSTEM inside an owner-approved, immutable shadow envelope, and in shadow the strategy runner only records decisions; paper, eligible and active need a fresh owner approval per artifact; automatic selection runs as SYSTEM only under an owner-approved, immutable selection policy (the envelope) and considers only eligible, unexpired artifacts inside it. Point (3) holds in the core: a STRATEGY principal is an artifact id `<class>@<16 hex of the artifact hash>` bound to its token, acts only for sessions whose frozen mandate lists that id, and a new default never changes a running session's list.",
       "where": [
         "backend/src/unknown/research/promotion.py:108-123",
         "backend/src/unknown/research/promotion.py:744-792",
+        "backend/src/unknown/research/promotion.py:862-880",
         "backend/src/unknown/core/handlers/orders.py:56-61",
         "backend/src/unknown/core/handlers/orders.py:118-119",
         "backend/src/unknown/domain/principal.py:62",
@@ -3815,11 +3821,14 @@
         "backend/tests/test_research_promotion.py::SelectionPolicyTest::test_automatic_selection_only_inside_the_owner_approved_policy",
         "backend/tests/test_research_promotion.py::AuthorityTest::test_eligible_and_active_need_the_owner",
         "backend/tests/test_research_promotion.py::LifecycleTest::test_skipping_rungs_is_refused",
+        "backend/tests/test_research_shadow.py::ShadowLadderTest::test_shadow_sits_between_validated_and_paper",
+        "backend/tests/test_research_shadow.py::ShadowEnvelopeTest::test_automatic_promotion_inside_the_envelope_is_recorded_with_its_evidence_and_envelope",
+        "backend/tests/test_research_shadow.py::RunnerModeGateTest::test_shadow_status_permits_shadow_mode_only",
         "backend/tests/test_desk_commands.py::StrategyScopeTests::test_strategy_permission_follows_the_session_mandate_not_the_active_default",
         "backend/tests/test_strategy_decisions.py::StrategyTokenBindingTests::test_issued_token_is_bound_to_its_artifact"
       ],
       "residual": "ADR-0017 is proposed, not accepted. The core does not consult the promotion registry: a mandate can list an artifact id whatever its research status, and the id carries 16 hex characters of the hash, not the full hash.",
-      "verified_against": "impl/foundation@73f7b03",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -5529,7 +5538,7 @@
     "verifier_note": "Quotes verified. The claim that bounded learning contradicts hash identity is overstated, because Ch 20 l.27 allows choosing a validated parameter artifact inside a domain. The defect is that production learning never says it produces such artifacts. Promotion is outside the first foundation; severity lowered to medium.",
     "disposition": {
       "status": "RESOLVED_IN_CODE",
-      "resolution": "Resolved. The promotion transition table (RULES) fixes who may move an artifact and with which evidence: up to validated only the SYSTEM evaluator or the OWNER, and never the artifact's author; paper, eligible and active need a fresh owner approval; agents may propose and file evidence but never approve or transition, and agent-filed evidence never satisfies a gate. Evidence and transitions are append-only (database triggers) and keyed by artifact and protocol hash; any parameter change is a new spec hash and so a new artifact.",
+      "resolution": "Resolved. The promotion transition table (RULES) fixes who may move an artifact and with which evidence: up to validated only the SYSTEM evaluator or the OWNER, and never the artifact's author; validated -> shadow needs the owner's approval or the SYSTEM inside an owner-approved shadow envelope; paper, eligible and active need a fresh owner approval; agents may propose and file evidence but never approve or transition, and agent-filed evidence never satisfies a gate. Evidence and transitions are append-only (database triggers) and keyed by artifact and protocol hash; any parameter change is a new spec hash and so a new artifact.",
       "where": [
         "backend/src/unknown/research/promotion.py:108-123",
         "backend/src/unknown/research/promotion.py:534-538"
@@ -5539,10 +5548,11 @@
         "backend/tests/test_research_promotion.py::AuthorityTest::test_agents_can_propose_but_never_approve_or_transition",
         "backend/tests/test_research_promotion.py::AuthorityTest::test_agent_filed_evidence_never_satisfies_a_gate",
         "backend/tests/test_research_promotion.py::AuthorityTest::test_status_cannot_be_edited_outside_the_promotion_service",
-        "backend/tests/test_research_registry.py::TrialRegistryTest::test_only_parameters_may_differ_from_the_preregistered_spec"
+        "backend/tests/test_research_registry.py::TrialRegistryTest::test_only_parameters_may_differ_from_the_preregistered_spec",
+        "backend/tests/test_research_shadow.py::ShadowEnvelopeTest::test_only_the_system_promotes_and_only_validated_artifacts_with_the_envelopes_protocol"
       ],
       "residual": "Evaluator and author are distinguished by principal id; separate evaluator credentials are not built. No online learning exists, so no online parameter update path exists to guard.",
-      "verified_against": "impl/foundation@73f7b03",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },

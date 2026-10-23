@@ -18122,7 +18122,7 @@
           "backend/tests/test_research_evidence_retention.py::EvidenceExpiredTest.test_an_active_artifact_on_deleted_data_keeps_running_but_is_never_promoted_again"
         ],
         "evidence": [
-          "Artifact statuses proposed -> reproducible -> validated -> paper -> eligible -> active (plus quarantined, retired) in a hash-chained transition log; gates recomputed under an owner-approved protocol; owner approvals need re-authentication within 15 minutes; strategy tokens are bound to one artifact id.",
+          "Artifact statuses proposed -> reproducible -> validated -> shadow -> paper -> eligible -> active (plus quarantined, retired) in a hash-chained transition log; gates recomputed under an owner-approved protocol; owner approvals need re-authentication within 15 minutes; strategy tokens are bound to one artifact id.",
           "evaluated on SYNTHETIC fixtures only; no market history has been run",
           "A 'shadow' status sits between validated and paper. The owner sets it, or the SYSTEM inside an owner-approved, immutable shadow envelope. Expiry is bounded by the retention of the evidence data, and an artifact whose evidence data was deleted is EVIDENCE_EXPIRED and is never promoted again (BR-DAT-16). No ingested dataset records a retention deadline yet."
         ],
@@ -19486,7 +19486,7 @@
         ],
         "evidence": [
           "Executions dedupe on a scoped broker key; corrections reverse and rebook linked to the original; fees are estimated at fill and finalized by the commission report; a history gap across the host's midnight needs an owner attestation (broker_admin_action acknowledge_history_gap).",
-          "Every broker event is appended to a durable, hash-chained journal (<account>.events) before it is applied, so a crash after the gateway took an event loses nothing, and a re-application is a duplicate (BR-ORD-20). The same execution id with changed content is recorded and blocks without booking (BR-ORD-05). Late fills, busts and corrections after a session ended are booked to protected:<id> or unallocated with a blocking case (BR-LED-03)."
+          "Every broker event is appended to a durable, hash-chained journal (<account>.events) before it is applied, so a crash after an event is journaled loses nothing (an event taken from the adapter but not yet journaled is not covered), and a re-application is a duplicate (BR-ORD-20). The same execution id with changed content is recorded and blocks without booking (BR-ORD-05). Late fills, busts and corrections after a session ended are booked to protected:<id> or unallocated with a blocking case (BR-LED-03)."
         ],
         "gaps": [
           "history backfill beyond the broker's window needs statements (CAP-OMS-07, not built)",
@@ -19831,7 +19831,8 @@
           "backend/tests/test_replay_randomized.py::RandomizedReplayEquivalenceTest.test_seeded_scenarios_preserve_invariants_replay_and_conservation",
           "backend/tests/test_ibkr_adapter.py::SnapshotTests.test_complete_snapshot_maps_settled_and_total_cash [IBKR venv]",
           "backend/tests/test_core_lifecycle_unknown_orders.py::CloseUnknownOrderTests.test_owner_closes_a_stuck_unknown_order_on_evidence_and_the_account_can_restart",
-          "backend/tests/test_core_lifecycle_unknown_orders.py::CloseUnknownOrderTests.test_refused_while_the_broker_may_still_work_the_order"
+          "backend/tests/test_core_lifecycle_unknown_orders.py::CloseUnknownOrderTests.test_refused_while_the_broker_may_still_work_the_order",
+          "backend/tests/test_core_lifecycle_guards.py::CloseGuardTests.test_a_working_orders_difference_blocks_the_close_and_a_working_order_is_never_closed_on_evidence"
         ],
         "evidence": [
           "Tier 1 (events matched to intents, external trades attributed) and tier 2 (snapshot, executions with overlap, open orders, lookups, convergence loop) run in one consistent cut; the watermark advances only on a clean run.",
@@ -23443,7 +23444,9 @@
           "terminal/e2e/01-flow.spec.ts::red STOP shows its command id and progress, and a new BUY is rejected with STOP_LATCH",
           "backend/tests/test_core_lifecycle_stop.py::MemoryLatchTests.test_stop_with_an_unwritable_database_latches_in_memory_cancels_buys_and_is_recorded_later",
           "backend/tests/test_core_lifecycle_stop.py::MemoryLatchTests.test_the_latch_file_carries_an_unrecorded_stop_across_a_restart",
-          "backend/tests/test_core_lifecycle_stop.py::MemoryLatchTests.test_a_corrupt_control_row_cannot_block_the_red_stop"
+          "backend/tests/test_core_lifecycle_stop.py::MemoryLatchTests.test_a_corrupt_control_row_cannot_block_the_red_stop",
+          "backend/tests/test_core_lifecycle_guards.py::MemoryLatchGuardTests.test_an_unreadable_ledger_still_cancels_every_buy_the_broker_lists_as_ours",
+          "backend/tests/test_core_lifecycle_guards.py::MemoryLatchGuardTests.test_every_exposure_increasing_command_waits_while_the_stop_is_latched_only_in_memory"
         ],
         "evidence": [
           "The red stop latches durably before any cancel and only the owner can start again; the owner cancels research jobs over the API; removing a role's concurrency limit or the agents policy file stops that role or all paid calls.",

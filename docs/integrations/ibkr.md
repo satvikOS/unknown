@@ -434,7 +434,7 @@ PYTHONPATH=src ~/.unknown/venvs/ibkr/bin/python -m unknown.broker.ibkr.serve --a
   - `... ack-history-gap <YYYY-MM-DD> --note "..."`, which forces a fresh reconciliation.
   - `python -m unknown.cli alerts` lists adapter anomalies and entry blocks.
 - **Order ids.** `submit()` allocates the IBKR orderId and fsyncs it before `placeOrder`. A crash therefore never reuses an id, and a re-submission of a transmitted client order id is reported UNKNOWN, never re-sent.
-- **Broker-event journal (BR-ORD-20; ADR-0012 amendment).** IBKR does not redeliver callbacks, so `CoreService` appends every event drained from the adapter to `~/.unknown/data/<account>.events` (fsync'd, hash-chained) before applying it. At start it applies whatever an earlier process journaled but did not apply. Health reports `event_journal`, and RB-15 covers a full or corrupt journal. An event the adapter had received but not yet handed over when the process died is still recovered only by reconciliation, inside the `executions_since` history window.
+- **Broker-event journal (BR-ORD-20; ADR-0012 amendment).** IBKR does not redeliver callbacks, so `CoreService` appends every event drained from the adapter to `~/.unknown/data/<account>.events` (fsync'd, hash-chained) before applying it. At start it applies whatever an earlier process journaled but did not apply. Health reports `event_journal`, and RB-15 covers a full or corrupt journal. An event the adapter had received but the gateway had not yet journaled when the process died is still recovered only by reconciliation, inside the `executions_since` history window.
 
 ## 7a. Paper bootstrap (after the paper account is live and IB Gateway is logged in)
 
