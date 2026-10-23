@@ -24,14 +24,14 @@ call under the cited `describe` titles; `--run-tests` runs the cited backend tes
 Playwright end-to-end tests (`terminal/e2e`) and the tests marked IBKR venv run only locally. Passing offline tests is
 evidence of offline behaviour only.
 
-Checked against `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d00` on 2026-10-22.
+Checked against `feat/live-charts@364aad5` on 2026-10-23; `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d00` on 2026-10-22.
 
 ## Summary by area
 
 | Area | Capabilities | proposed | specified | implemented | tested | paper-verified | live-verified |
 |---|---|---|---|---|---|---|---|
 | instruments | 14 | 6 | 0 | 2 | 6 | 0 | 0 |
-| market-data | 13 | 8 | 0 | 2 | 3 | 0 | 0 |
+| market-data | 13 | 7 | 0 | 2 | 4 | 0 | 0 |
 | company-research | 14 | 4 | 0 | 2 | 8 | 0 | 0 |
 | news-documents | 14 | 14 | 0 | 0 | 0 | 0 | 0 |
 | macro-rates-fx | 14 | 12 | 0 | 1 | 1 | 0 | 0 |
@@ -46,7 +46,7 @@ Checked against `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d0
 | model-providers | 12 | 1 | 0 | 1 | 10 | 0 | 0 |
 | regulatory | 13 | 7 | 0 | 2 | 4 | 0 | 0 |
 | ops-aws | 14 | 7 | 0 | 4 | 3 | 0 | 0 |
-| **all** | 217 | 103 | 0 | 28 | 86 | 0 | 0 |
+| **all** | 217 | 102 | 0 | 28 | 87 | 0 | 0 |
 
 ## Capabilities
 
@@ -80,7 +80,7 @@ Checked against `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d0
 | CAP-MKT-04 | P0 | Intraday bars (seconds to hours), live-updating and historical, with explicit completeness | IBKR TWS API, IBKR Web API, LSEG Data Library (Workspace) | tested | 5 | no live-updating bars and no platform bars built from trades (AC2) |
 | CAP-MKT-05 | P0 | Daily/weekly/monthly bars with raw and versioned split/dividend-adjusted series | IBKR TWS API, LSEG Data Library (Workspace) | implemented | 2 | no split/dividend adjustment factors, no total-return series, no factor versions |
 | CAP-MKT-06 | P2 | Market depth (Level 2) by price and by order, where entitled | Bloomberg B-PIPE, IBKR TWS, IBKR TWS API, LSEG Workspace / Data Library | proposed |  | not yet implemented |
-| CAP-MKT-07 | P1 | Price charts with technical studies, comparisons and annotations | Bloomberg Terminal, IBKR TWS API, S&P Capital IQ Pro | proposed |  | not yet implemented |
+| CAP-MKT-07 | P1 | Price charts with technical studies, comparisons and annotations | Bloomberg Terminal, IBKR TWS API, S&P Capital IQ Pro | tested | 28 | Studies are checked against hand-derived reference values, not yet against TA-Li |
 | CAP-MKT-08 | P0 | Watchlists / monitors with per-cell status, as-of dates and market-data line budgeting | Bloomberg Terminal, IBKR (all platforms), IBKR Web API, S&P Capital IQ Pro | proposed |  | not yet implemented |
 | CAP-MKT-09 | P1 | Alerts on price, volume, time, study values, news and filings | Bloomberg Terminal, IBKR Web API, LSEG Workspace, S&P Capital IQ Pro | proposed |  | not yet implemented |
 | CAP-MKT-10 | P1 | Equity screening with point-in-time criteria, reproducible as-of runs and real-time scans | Bloomberg Terminal, Bloomberg Terminal (via MATLAB Datafeed Toolbox), IBKR TWS A | proposed |  | not yet implemented |
@@ -477,6 +477,19 @@ Checked against `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d0
 - Gap: not paper-verified: no IBKR paper session has run (BRK-02)
 - Requirements: DAT-02, DAT-03
 
+### CAP-MKT-07: Price charts with technical studies, comparisons and annotations (tested)
+
+- Files: `backend/src/unknown/charts`, `backend/src/unknown/api/routes/charts.py`, `terminal/src/workspaces/chart`
+- Tests: `test_charts::AggregationTests.test_five_minute_bucket_is_exact`; `test_charts::AggregationTests.test_null_volume_is_unknown_never_zero`; `test_charts::AggregationTests.test_hour_buckets_anchor_on_the_session_open_and_cut_at_the_close`; `test_charts::AggregationTests.test_missing_bars_become_gaps_and_partial_buckets`; `test_charts::AggregationTests.test_bars_outside_the_session_are_excluded`; `test_charts::AggregationTests.test_daily_week_and_month_follow_the_calendar`; `test_charts::AggregationTests.test_missing_trading_day_is_a_gap`; `test_charts::StoredAndSyntheticTests.test_stored_bars_are_labelled_with_their_provider_and_unadjusted`; `test_charts::StoredAndSyntheticTests.test_any_provider_in_the_store_is_a_source`; `test_charts::StoredAndSyntheticTests.test_fixture_rows_never_chart_and_synthetic_is_labelled`; `test_charts::StoredAndSyntheticTests.test_synthetic_is_refused_when_a_real_source_is_configured`; `test_charts::StoredAndSyntheticTests.test_owner_source_order_is_honoured`; `test_charts::AlpacaTests.test_rest_request_pagination_and_exact_decimals`; `test_charts::AlpacaTests.test_failure_is_reported_and_never_replaced_by_synthetic`; `test_charts::BoundaryTests.test_charts_never_import_a_broker_package`; `test_charts::ChartsServerTests.test_bars_require_the_owner_session`; `src/workspaces/chart/studies.test.ts::studies (chart.studies@1) > EMA is seeded with the SMA and uses alpha = 2/(n+1)`; `src/workspaces/chart/studies.test.ts::studies (chart.studies@1) > RSI uses Wilder smoothing`; `src/workspaces/chart/studies.test.ts::studies (chart.studies@1) > MACD is the EMA difference with an EMA signal`; `src/workspaces/chart/studies.test.ts::studies (chart.studies@1) > ATR uses true range from the previous close and Wilder smoothing`; `src/workspaces/chart/studies.test.ts::studies (chart.studies@1) > Bollinger uses the population standard deviation`; `src/workspaces/chart/studies.test.ts::studies (chart.studies@1) > VWAP is cumulative per session and resets`; `src/workspaces/chart/model.test.ts::parseBarsResponse > never shows synthetic data without its label, and fails closed on an unknown data type`; `src/workspaces/chart/model.test.ts::applyTick (stream contract trade/quote events) > updates the last bar exactly and adds trade volume`; `src/workspaces/chart/model.test.ts::applyTick (stream contract trade/quote events) > opens the next session-anchored bucket from a trade and marks it in progress`; `src/workspaces/chart/model.test.ts::comparison rebasing > rebases both series to percent from the common start`; `src/workspaces/chart/model.test.ts::annotations > persist per security and survive a throwing or missing store`; `src/workspaces/chart/model.test.ts::registration and licence attribution > shows the Lightweight Charts NOTICE attribution and a tradingview.com link on the chart page`
+- Evidence: GET /api/charts/bars aggregates base bars to 1m-1mo with exact decimals, buckets anchored on sourced venue sessions (config/calendars), gaps and partial buckets marked, 'unadjusted' stated.
+- Evidence: Sources are adapters behind one interface: every provider in the research bar store (IBKR history among them, no broker import), Alpaca REST bars when keys exist (fixture-tested, endpoint per docs.alpaca.markets), SYNTHETIC demo bars that are labelled and refused while a real source is configured.
+- Evidence: The chart workspace draws candles/OHLC/line/area, volume, studies over final bars, % comparison, local annotations and a live last bar from stream trade/quote events; source and data type are always shown.
+- Gap: Studies are checked against hand-derived reference values, not yet against TA-Lib outputs (acceptance criterion 1).
+- Gap: No chart templates, CSV/PNG export, session filter choice (regular session only) or adjusted series (no corporate-action data).
+- Gap: Live updates use a minimal EventSource adapter; GET /api/marketdata/stream is built on a parallel branch, so live updates are unexercised end to end.
+- Gap: Alpaca bars are fixture-tested only; no recorded live call. XNAS and other MICs absent from config/markets/venues.json fall back to UTC days without gaps.
+- Gap: No header snapshot tests for real-time, delayed and adjusted cases; no rendered-canvas test of the chart component.
+
 ### CAP-MKT-11: Market-data entitlement, professional status, display vs non-display use and fee registry (implemented)
 
 - Files: `backend/src/unknown/broker/ibkr/marketdata.py`, `backend/src/unknown/data/registry.py`
@@ -792,10 +805,10 @@ Checked against `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d0
 ### CAP-RES-12: Strategy artifact registry, status lifecycle and predeclared promotion gates (tested)
 
 - Files: `backend/src/unknown/research/promotion.py`, `backend/src/unknown/research/spec.py`, `backend/src/unknown/core/handlers/strategy.py`, `backend/src/unknown/domain/principal.py`, `docs/adr/0017-strategy-artifacts-promotion-and-runtime.md`
-- Tests: `test_research_promotion::LifecycleTest.test_full_ladder_with_evidence_and_owner_approvals`; `test_research_promotion::LifecycleTest.test_failed_gate_refuses_validation_and_leaves_status_unchanged`; `test_research_promotion::AuthorityTest.test_agents_can_propose_but_never_approve_or_transition`; `test_research_promotion::AuthorityTest.test_the_evaluator_must_not_be_the_author`; `test_research_promotion::SelectionPolicyTest.test_automatic_selection_only_inside_the_owner_approved_policy`; `test_research_promotion::ProtocolTest.test_protocol_is_strict`; `test_research_spec::SpecCoverageTest.test_every_res01_field_is_present_and_required`; `test_strategy_decisions::StrategyTokenBindingTests.test_issued_token_is_bound_to_its_artifact`; `test_research_shadow::ShadowLadderTest.test_shadow_sits_between_validated_and_paper`; `test_research_shadow::ShadowEnvelopeTest.test_automatic_promotion_inside_the_envelope_is_recorded_with_its_evidence_and_envelope`; `test_research_evidence_retention::EvidenceExpiredTest.test_an_active_artifact_on_deleted_data_keeps_running_but_is_never_promoted_again`
+- Tests: `test_research_promotion::LifecycleTest.test_full_ladder_with_evidence_and_owner_approvals`; `test_research_promotion::LifecycleTest.test_failed_gate_refuses_validation_and_leaves_status_unchanged`; `test_research_promotion::AuthorityTest.test_agents_can_propose_but_never_approve_or_transition`; `test_research_promotion::AuthorityTest.test_the_evaluator_must_not_be_the_author`; `test_research_promotion::SelectionPolicyTest.test_automatic_selection_only_inside_the_owner_approved_policy`; `test_research_promotion::ProtocolTest.test_protocol_is_strict`; `test_research_spec::SpecCoverageTest.test_every_res01_field_is_present_and_required`; `test_strategy_decisions::StrategyTokenBindingTests.test_issued_token_is_bound_to_its_artifact`; `test_research_shadow::ShadowLadderTest.test_shadow_sits_between_validated_and_paper`; `test_research_shadow::ShadowEnvelopeTest.test_automatic_promotion_inside_the_envelope_is_recorded_with_its_evidence_and_envelope`; `test_research_evidence_retention::EvidenceExpiredTest.test_an_active_artifact_on_deleted_data_is_evidence_expired_and_never_runs_again`
 - Evidence: Artifact statuses proposed -> reproducible -> validated -> shadow -> paper -> eligible -> active (plus quarantined, retired) in a hash-chained transition log; gates recomputed under an owner-approved protocol; owner approvals need re-authentication within 15 minutes; strategy tokens are bound to one artifact id.
 - Evidence: evaluated on SYNTHETIC fixtures only; no market history has been run
-- Evidence: A 'shadow' status sits between validated and paper. The owner sets it, or the SYSTEM inside an owner-approved, immutable shadow envelope. Expiry is bounded by the retention of the evidence data, and an artifact whose evidence data was deleted is EVIDENCE_EXPIRED and is never promoted again (BR-DAT-16). No ingested dataset records a retention deadline yet.
+- Evidence: A 'shadow' status sits between validated and paper. The owner sets it, or the SYSTEM inside an owner-approved, immutable shadow envelope. Expiry is bounded by the retention of the evidence data, and an artifact whose evidence data was deleted is EVIDENCE_EXPIRED and is never promoted again (BR-DAT-16). Manifests record each dataset's retention and a store deletion expires the artifacts resting on it (sweep_store_deletions); no production schedule runs the sweep and no ingested dataset records a retention deadline yet.
 - Gap: ADR-0017 is proposed, not accepted
 - Gap: 'signed' transitions are tamper-evident hash chains, not cryptographic signatures
 - Gap: PAPER_RECONCILIATION evidence cannot be produced until the IBKR paper account exists: no artifact can reach eligible

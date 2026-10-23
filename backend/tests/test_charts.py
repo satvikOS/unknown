@@ -24,10 +24,7 @@ from unknown.charts.intervals import INTERVALS, NS, compatible_bases
 from unknown.charts.sessions import SessionClock
 from unknown.service.paths import Paths
 
-try:
-    from test_api_server import LiveCase
-except ImportError:          # pragma: no cover - run from another directory
-    LiveCase = None
+from test_api_server import LiveCase    # one core service and one API server (backend/tests)
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 NY, KOL = ZoneInfo("America/New_York"), ZoneInfo("Asia/Kolkata")
@@ -289,14 +286,13 @@ class BoundaryTests(unittest.TestCase):
         self.assertEqual(out.stdout.strip(), "[]")
 
 
-if LiveCase is not None:
-    class ChartsServerTests(LiveCase):
-        def test_bars_require_the_owner_session(self):
-            status, got, _ = self.call("GET", "/api/charts/bars?key=SAP.XETR&interval=1d")
-            self.assertEqual((status, got["code"]), (401, "LOGIN_REQUIRED"))
-            cookie, _ = self.login()
-            status, got, _ = self.call("GET", "/api/charts/bars?key=SAP.XETR&interval=1w", cookie=cookie)
-            self.assertEqual((status, got["data_type"], got["interval"]), (200, "SYNTHETIC", "1w"))
+class ChartsServerTests(LiveCase):
+    def test_bars_require_the_owner_session(self):
+        status, got, _ = self.call("GET", "/api/charts/bars?key=SAP.XETR&interval=1d")
+        self.assertEqual((status, got["code"]), (401, "LOGIN_REQUIRED"))
+        cookie, _ = self.login()
+        status, got, _ = self.call("GET", "/api/charts/bars?key=SAP.XETR&interval=1w", cookie=cookie)
+        self.assertEqual((status, got["data_type"], got["interval"]), (200, "SYNTHETIC", "1w"))
 
 
 if __name__ == "__main__":
