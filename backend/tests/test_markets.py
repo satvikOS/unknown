@@ -56,7 +56,7 @@ class CalendarFilesTests(unittest.TestCase):
 
     def test_all_calendars_load(self):
         ids = {p.stem for p in self.files}
-        self.assertTrue({"XNYS", "XNSE", "XBOM", "NCL-CM", "ICCL-EQ", "XETR", "XPAR", "XAMS", "XBRU", "XLIS",
+        self.assertTrue({"XNYS", "XNAS", "XNSE", "XBOM", "NCL-CM", "ICCL-EQ", "XETR", "XPAR", "XAMS", "XBRU", "XLIS",
                          "XMIL", "XMAD", "T2S-EUR"} <= ids)
         self.assertEqual(set(self.cals), ids)
 
@@ -427,6 +427,59 @@ class RegistryTests(unittest.TestCase):
                 path.write_text(json.dumps(b))
                 with self.assertRaisesRegex(ValueError, message):
                     load_calendar(path)
+
+
+class NasdaqCalendarTests(unittest.TestCase):
+    """config/calendars/XNAS.json, transcribed from Nasdaq Trader's 2026 holiday schedule and system-hours sheet."""
+
+    def setUp(self):
+        self.cal = load_calendar(CALENDARS / "XNAS.json")
+        self.registry = load_registry(VENUES, CALENDARS)
+
+    def test_nasdaq_trader_2026_closures_and_early_closes(self):
+        closed = [date(2026, 1, 1), date(2026, 1, 19), date(2026, 2, 16), date(2026, 4, 3), date(2026, 5, 25),
+                  date(2026, 6, 19), date(2026, 7, 3), date(2026, 9, 7), date(2026, 11, 26), date(2026, 12, 25)]
+        self.assertEqual(sorted(self.cal.holidays), closed)
+        for d in closed:
+            self.assertFalse(self.cal.is_trading_day(d))
+        self.assertEqual(self.cal.early_close(date(2026, 11, 27)), (True, "13:00"))
+        self.assertEqual(self.cal.early_close(date(2026, 12, 24)), (True, "13:00"))
+        self.assertEqual(self.cal.regular_session, (time(9, 30), time(16, 0)))
+        self.assertTrue(self.cal.is_trading_day(date(2026, 10, 23)))
+        self.assertEqual(self.cal.add_business_days(date(2026, 11, 25), 1), date(2026, 11, 27))
+
+    def test_2027_is_outside_the_published_horizon(self):
+        for d in (date(2027, 1, 4), date(2025, 12, 31)):
+            with self.assertRaises(CalendarHorizonError):
+                self.cal.is_trading_day(d)
+
+    def test_independent_sources_agree_with_xnys_for_2026(self):
+        xnys = load_calendar(CALENDARS / "XNYS.json")
+        self.assertEqual(self.cal.holidays, frozenset(d for d in xnys.holidays if d.year == 2026))
+        self.assertEqual(self.cal.early_closes, tuple(e for e in xnys.early_closes if e[0].year == 2026))
+
+    def test_venues_reference_it_and_charts_use_its_sessions(self):
+        from unknown.charts.sessions import SessionClock
+        self.assertEqual(self.registry.trading_calendar("XNAS").calendar_id, "XNAS")
+        self.assertEqual(self.registry.settlement_calendar("XNAS").calendar_id, "XNYS")
+        self.assertEqual(self.registry.trading_calendar("ARCX").calendar_id, "XNYS")   # "All NYSE markets" (XNYS)
+        self.assertEqual(self.registry.expected_settlement_date("XNAS", date(2026, 11, 25)), date(2026, 11, 27))
+        clock = SessionClock("XNAS")
+        self.assertEqual((clock.calendar_id, clock.timezone, clock.notes), ("XNAS", "America/New_York", []))
+        self.assertIsNone(clock.session(date(2026, 11, 26)))                            # Thanksgiving
+        early = clock.session(date(2026, 11, 27))
+        self.assertTrue(early.known)
+        self.assertEqual(early.close_ns - early.open_ns, (3 * 3600 + 30 * 60) * 1_000_000_000)   # 09:30-13:00
+
+    def test_its_source_is_registered_and_nasdaq_com_is_blocked(self):
+        from unknown.data.registry import ALLOWED_USES, dataset, load_registry as load_providers
+        reg = load_providers()
+        self.assertTrue(dataset(reg, "nasdaqtrader.us_holiday_schedule").permits("storage"))
+        blocked = dataset(reg, "nasdaq.com.holiday_trading_hours")
+        self.assertFalse(any(blocked.permits(use) for use in ALLOWED_USES))
+        body = json.loads((CALENDARS / "XNAS.json").read_text())
+        for url in [body["source"]] + [s["url"] for s in body["sources"]]:
+            self.assertTrue(url.startswith("https://www.nasdaqtrader.com/"), url)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,31 @@
+{
+  "calendar_id": "XNAS",
+  "version": "2026-10-23.1",
+  "kind": "trading",
+  "timezone": "America/New_York",
+  "source": "https://www.nasdaqtrader.com/Trader.aspx?id=Calendar",
+  "retrieved_on": "2026-10-23",
+  "statement": "U.S. Equity and Options Markets Holiday Schedule 2026 (Nasdaq Trader): Closed January 1 (New Years Day, Observed), January 19 (Martin Luther King, Jr. Day), February 16 (President's Day), April 3 (Good Friday), May 25 (Memorial Day), June 19 (Juneteenth Holiday, Observed), July 3 (Independence Day, Observed), September 7 (Labor Day), November 26 (Thanksgiving Day) and December 25 (Christmas Holiday); Early Close 1:00 p.m. on November 27 and December 24. '* Nasdaq will continue to send alerts to notify customers of days when the Market will close early.'",
+  "sources": [
+    {"url": "https://www.nasdaqtrader.com/content/TechnicalSupport/nasdaq_sys_hours.pdf", "retrieved_on": "2026-10-23",
+     "quote": "Nasdaq Systems Hours of Operation: The Nasdaq Stock Market, System hours: 4:00 a.m. - 8:00 p.m., Market hours: 9:30 a.m. - 4:00 p.m. All Times Eastern (ET)."}
+  ],
+  "valid_from": "2026-01-01",
+  "valid_through": "2026-12-31",
+  "regular_session": {"open": "09:30", "close": "16:00"},
+  "holidays": [
+    ["2026-01-01", "New Years Day (Observed)"], ["2026-01-19", "Martin Luther King, Jr. Day"],
+    ["2026-02-16", "President's Day"], ["2026-04-03", "Good Friday"], ["2026-05-25", "Memorial Day"],
+    ["2026-06-19", "Juneteenth Holiday (Observed)"], ["2026-07-03", "Independence Day (Observed)"],
+    ["2026-09-07", "Labor Day"], ["2026-11-26", "Thanksgiving Day"], ["2026-12-25", "Christmas Holiday"]
+  ],
+  "early_closes": [
+    ["2026-11-27", "13:00", "Early Close - U.S."], ["2026-12-24", "13:00", "Early Close - U.S."]
+  ],
+  "notes": [
+    "Nasdaq Trader publishes the current year only; 2027 is refused (CalendarHorizonError) until Nasdaq posts it. Re-check the page each December.",
+    "The holiday page on nasdaq.com is not used: its terms (https://www.nasdaq.com/legal) forbid 'any process, whether automated or manual, to capture data or content from the Service' (config/providers/nasdaq.json).",
+    "Regular session only; the 04:00-09:30 and 16:00-20:00 system hours (pre- and post-market) are not modelled, and the paper policy forbids trading outside regular hours.",
+    "Settlement days are still counted on the XNYS calendar (config/markets/venues.json); the DTC settlement calendar is not verified."
+  ]
+}

@@ -436,7 +436,58 @@ PYTHONPATH=src ~/.unknown/venvs/ibkr/bin/python -m unknown.broker.ibkr.serve --a
 - **Order ids.** `submit()` allocates the IBKR orderId and fsyncs it before `placeOrder`. A crash therefore never reuses an id, and a re-submission of a transmitted client order id is reported UNKNOWN, never re-sent.
 - **Broker-event journal (BR-ORD-20; ADR-0012 amendment).** IBKR does not redeliver callbacks, so `CoreService` appends every event drained from the adapter to `~/.unknown/data/<account>.events` (fsync'd, hash-chained) before applying it. At start it applies whatever an earlier process journaled but did not apply. Health reports `event_journal`, and RB-15 covers a full or corrupt journal. An event the adapter had received but the gateway had not yet journaled when the process died is still recovered only by reconciliation, inside the `executions_since` history window.
 
-## 7a. Paper bootstrap (after the paper account is live and IB Gateway is logged in)
+## 7a. Owner steps for the first paper session (account switched to IBKR Pro Tiered on 2026-10-23)
+
+1. **Client Portal:** share the live account's market data with the paper account (the paper account's
+   settings). Until that is in effect the paper account gets delayed data, and the core refuses buys on
+   delayed quotes (`Quote.delayed`, CAP-MKT-01).
+2. **IB Gateway**, logged in with the paper username: API settings as in section 2.3 (socket clients on,
+   port 4002, 127.0.0.1 only). The check below works with Read-Only API on or off.
+3. **Run the read-only connectivity check** (`unknown.broker.ibkr.check`):
+   ```bash
+   cd backend
+   PYTHONPATH=src ~/.unknown/venvs/ibkr/bin/python -m unknown.broker.ibkr.check --account IBKR-PAPER-1 [--client-id 90] [--symbol AAPL:NASDAQ] [--json]
+   ```
+   It opens one connection with a dedicated client id (default 90; refused if it equals the order adapter's
+   or the market-data connection's id, so it can run while `serve` is up). It verifies the PAPER identity
+   (paper port, `managedAccounts` equals the configured paper account) and prints the server version. It
+   measures clock skew with `reqCurrentTimeInMillis` (server version >= 197), at the midpoint of the round
+   trip, against the policy's `max_clock_skew_ms` (2,000). It reports the market-data type IBKR **delivered**
+   for one streaming AAPL request and whether real-time is entitled: type 1 with no delayed tick ids. Type
+   3/4 or an entitlement error (354, 10089, 10186, 10197) means no. Type 2 (frozen, usually a closed market)
+   or no report means unknown. It then cancels the request and disconnects. It places no order, sends nothing to the core, writes no
+   status file and stores no price. Exit 0 only if every check passes, 1 otherwise, 2 if the configuration
+   is missing or invalid.
+4. **Bootstrap**, `--dry-run` first (section 7b).
+
+**Pricing.** The account uses IBKR Pro **Tiered** US stock pricing. Tiered applies to SmartRouted orders
+only ("directed API orders cannot use the Tiered fee structure"); the adapter sends every order SMART. Under
+Tiered **every order pays at least the USD 0.35 per-order minimum**, plus third-party fees. The page also
+says that when the 1% cap is below the minimum, the cap is charged. `config/fees/ibkr-pro-tiered-us.json`
+records each parameter with its page, retrieval date (2026-10-23) and status:
+
+| Component | Value | Status |
+|---|---|---|
+| Commission, monthly volume <= 300,000 / to 3M / to 20M / to 100M / above | USD 0.0035 / 0.0020 / 0.0015 / 0.0010 / 0.0005 per share, marginal within the month | verified |
+| Minimum / maximum per order | USD 0.35 / 1% of trade value | verified |
+| Exchange (remove liquidity, >= USD 1.00) | USD 0.0030 per share on NASDAQ, NYSE and ARCA; 0.3% of value below USD 1.00 | verified for those three venues; other venues unverified |
+| Clearing (NSCC, DTC) | USD 0.00020 per share, max 0.5% of trade value | verified |
+| NYSE / FINRA pass-through | commission x 0.000175 / x 0.00056 | verified |
+| FINRA CAT | USD 0.000003 x quantity | verified |
+| SEC transaction fee (sells) | 0.0000206 x value of sales | verified |
+| FINRA TAF (sells) | USD 0.00 for trades 2026-10-01..2026-12-31 (fee holiday) | verified for that window; after it **unverified**, bounded at USD 0.000200 per share |
+
+`risk.fee_schedule.TieredSchedule.charge` is the expected fee of a fill. `pretrade_bound` is a conservative
+envelope: the first-tier rate with no discount or cap, the minimum, the remove-liquidity fee on every share,
+and the unverified bounds. A USD 100 buy of 4 shares @ 25.00 is charged USD 0.35 commission and USD 0.36307
+in all; a USD 300 buy of 12 shares, USD 0.35 and USD 0.388694. The core's pretrade reservation still uses the
+paper policy's fee model (USD 0.005/share, USD 1.00 minimum, +20%, so USD 1.20 per buy). Tests prove that it
+covers the Tiered bound for every order up to the policy's USD 100 `max_order_notional`. It does **not** cover
+it above that for low-priced stocks: 300 shares @ USD 1.00 reserve USD 1.80, against a USD 2.01 bound. So
+raising the order limit needs a fee-model review. The plan's effective date is owner-reported; the first paper
+commission reports are the evidence that Tiered is in force.
+
+## 7b. Paper bootstrap (after the paper account is live and IB Gateway is logged in)
 
 ```bash
 cd backend
@@ -460,6 +511,8 @@ It never starts trading. Green start is yours, in the terminal after reviewing p
 ```bash
 cd backend
 PYTHONPATH=src python3 -m unittest tests.test_ibkr_adapter -v                       # pure tests; adapter tests skip
+PYTHONPATH=src python3 -m unittest discover -s tests -p 'test_ibkr_check.py' -v      # connectivity check (fake host)
+PYTHONPATH=src python3 -m unittest tests.test_fee_schedule -v                       # Tiered fee schedule
 PYTHONPATH=src ~/.unknown/venvs/ibkr/bin/python -m unittest tests.test_ibkr_adapter -v # all tests, needs ibapi
 ```
 
