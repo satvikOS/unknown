@@ -139,6 +139,13 @@ describe('describeDetail', () => {
     expect(describeDetail({ note_ns_str: 'x' }).map((f) => f.key)).toEqual(['note_ns_str']);
   });
 
+  it('a timestamp field carries the exact *_ns_str, so it is shown without float rounding', () => {
+    const detail = JSON.parse('{"expected_at_ns": 1792675849903999999, "expected_at_ns_str": "1792675849903999999", "seen_ns": 7}') as Record<string, unknown>;
+    const fields = describeDetail(detail);
+    expect(fields.find((f) => f.key === 'expected_at_ns')).toMatchObject({ kind: 'time', value: 1792675849904000000, exact: '1792675849903999999' });
+    expect(fields.find((f) => f.key === 'seen_ns')).toMatchObject({ kind: 'time', value: 7, exact: null });
+  });
+
   it('never invents a currency: an amount without one stays an unlabelled decimal', () => {
     const late = describeDetail({ settlement_id: 'stl-1', expected_date: '2026-10-20', owner: 'session:ses-1', amount: '41.990000' });
     expect(late.find((f) => f.key === 'amount')).toEqual({ key: 'amount', label: 'Amount', kind: 'decimal', value: '41.990000' });

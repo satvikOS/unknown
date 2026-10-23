@@ -3,6 +3,7 @@
  * non-modal control drawer that shows stop progress and start blockers from /api/preflight.
  */
 import { useEffect, useRef } from 'react';
+import { nsStrOf } from '../api/nsStrings';
 import { canRecheck, canRetry, failedText, lookupNote, type TrackedCommand } from '../state/commands';
 import { useAuth, useQuery, useRuntime, useTrackedCommand } from '../state/react';
 import { Icon } from '../ui/Icon';
@@ -163,7 +164,7 @@ function StopSection() {
           <dd>{control.latch_reason ?? 'not recorded'}</dd>
           <dt>Latched at</dt>
           <dd>
-            <Timestamp ns={control.latched_at_ns} /> by {control.latched_by ?? 'unknown'}
+            <Timestamp ns={control.latched_at_ns} nsStr={nsStrOf(control, 'latched_at_ns')} /> by {control.latched_by ?? 'unknown'}
           </dd>
         </dl>
       ) : (

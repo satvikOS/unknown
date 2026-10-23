@@ -2,7 +2,7 @@
  * Overview (book Ch. 22): mode, account health, capital, exposure and stop state. Every figure comes
  * from GET /api/overview (and the active policy for limits); nothing is computed in floating point.
  */
-import { withoutNsStrings } from '../../api/nsStrings';
+import { exactJson, nsStrOf } from '../../api/nsStrings';
 import type { Bucket, ExceptionCase, Position, SessionSummary } from '../../api/types';
 import { useControl } from '../../controls/ControlProvider';
 import { entryState } from '../../controls/model';
@@ -264,7 +264,7 @@ const exceptionColumns: Column<ExceptionCase>[] = [
     sortValue: (e) => e.blocking,
     cell: (e) => <YesNo value={e.blocking} goodWhen={false} />,
   },
-  { id: 'opened', header: 'Opened', sortKind: 'number', sortValue: (e) => e.opened_at_ns, cell: (e) => <Timestamp ns={e.opened_at_ns} /> },
+  { id: 'opened', header: 'Opened', sortKind: 'number', sortValue: (e) => e.opened_at_ns, cell: (e) => <Timestamp ns={e.opened_at_ns} nsStr={nsStrOf(e, 'opened_at_ns')} /> },
   {
     id: 'ref',
     header: 'Session / order',
@@ -279,7 +279,7 @@ const exceptionColumns: Column<ExceptionCase>[] = [
     id: 'detail',
     header: 'Detail',
     wrap: true,
-    cell: (e) => <span className="cmd-id">{JSON.stringify(withoutNsStrings(e.detail)).slice(0, 220)}</span>,
+    cell: (e) => <span className="cmd-id">{exactJson(e.detail).slice(0, 220)}</span>,
   },
 ];
 
@@ -341,7 +341,7 @@ export function OverviewWorkspace(_props: WorkspaceProps) {
                   <dd className="cmd-id">{control.latch_command_id ?? 'not recorded'}</dd>
                   <dt>Latched</dt>
                   <dd>
-                    <Timestamp ns={control.latched_at_ns} /> <span className="muted">by {control.latched_by ?? 'unknown'}</span>
+                    <Timestamp ns={control.latched_at_ns} nsStr={nsStrOf(control, 'latched_at_ns')} /> <span className="muted">by {control.latched_by ?? 'unknown'}</span>
                   </dd>
                 </>
               ) : null}
@@ -365,7 +365,7 @@ export function OverviewWorkspace(_props: WorkspaceProps) {
               <dd>
                 {control?.last_start ? (
                   <>
-                    <Timestamp ns={control.last_start.at_ns} /> <span className="cmd-id">{control.last_start.command_id}</span>
+                    <Timestamp ns={control.last_start.at_ns} nsStr={nsStrOf(control.last_start, 'at_ns')} /> <span className="cmd-id">{control.last_start.command_id}</span>
                   </>
                 ) : (
                   <span className="muted">never</span>
@@ -520,7 +520,7 @@ export function OverviewWorkspace(_props: WorkspaceProps) {
               <dd>
                 {rec ? (
                   <>
-                    <Timestamp ns={rec.completed_at_ns} />{' '}
+                    <Timestamp ns={rec.completed_at_ns} nsStr={nsStrOf(rec, 'completed_at_ns')} />{' '}
                     <span className="muted">
                       (<Age sinceNs={rec.completed_at_ns} staleAfterMs={limits?.max_reconciliation_age_s !== undefined ? Number(limits.max_reconciliation_age_s) * 1000 : undefined} /> ago)
                     </span>

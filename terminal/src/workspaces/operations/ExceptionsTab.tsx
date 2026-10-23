@@ -4,6 +4,7 @@
  * Nothing changes locally: the case shows RESOLVED only after the stream reports the command's seq.
  */
 import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import { nsStrOf } from '../../api/nsStrings';
 import { defaultCommandId } from '../../api/client';
 import type { CommandPayloads, ExceptionCase } from '../../api/types';
 import { CommandStatus } from '../../controls/Controls';
@@ -76,7 +77,7 @@ const columns: Column<ExceptionCase>[] = [
     sortValue: (e) => e.opened_at_ns,
     cell: (e) => (
       <span>
-        <Timestamp ns={e.opened_at_ns} /> <span className="muted">(<Age sinceNs={e.opened_at_ns} /> ago)</span>
+        <Timestamp ns={e.opened_at_ns} nsStr={nsStrOf(e, 'opened_at_ns')} /> <span className="muted">(<Age sinceNs={e.opened_at_ns} /> ago)</span>
       </span>
     ),
   },
@@ -110,7 +111,7 @@ const columns: Column<ExceptionCase>[] = [
     cell: (e) =>
       e.resolution ? (
         <span>
-          {e.resolution.action ?? 'resolved'} by {e.resolution.by} <Timestamp ns={e.resolution.at_ns} />
+          {e.resolution.action ?? 'resolved'} by {e.resolution.by} <Timestamp ns={e.resolution.at_ns} nsStr={nsStrOf(e.resolution, 'at_ns')} />
         </span>
       ) : (
         <span className="muted">open</span>
@@ -241,7 +242,7 @@ function CaseDetail({
           <dd className="cmd-id">{c.key}</dd>
           <dt>Opened</dt>
           <dd>
-            <Timestamp ns={c.opened_at_ns} withMs /> <span className="muted">(<Age sinceNs={c.opened_at_ns} /> ago)</span>
+            <Timestamp ns={c.opened_at_ns} nsStr={nsStrOf(c, 'opened_at_ns')} withMs /> <span className="muted">(<Age sinceNs={c.opened_at_ns} /> ago)</span>
           </dd>
           <dt>Session</dt>
           <dd>
@@ -278,7 +279,7 @@ function CaseDetail({
         </div>
         {c.resolution ? (
           <div className="callout" style={{ ['--tone' as string]: 'var(--ok)' }}>
-            <strong>Resolved</strong> by {c.resolution.by} at <Timestamp ns={c.resolution.at_ns} withMs />
+            <strong>Resolved</strong> by {c.resolution.by} at <Timestamp ns={c.resolution.at_ns} nsStr={nsStrOf(c.resolution, 'at_ns')} withMs />
             {c.resolution.action ? (
               <>
                 {' '}

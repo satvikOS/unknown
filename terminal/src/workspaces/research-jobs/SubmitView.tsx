@@ -5,6 +5,7 @@
  * the API only writes the job store, and the owner's model worker decides whether the job runs.
  */
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { nsStrOf } from '../../api/nsStrings';
 import { describeError, encodePathSegment } from '../../api/client';
 import { formatMoney } from '../../format/decimal';
 import { useQuery } from '../../state/react';
@@ -110,7 +111,7 @@ function Result({ res }: { res: SubmitResponse }) {
         </dd>
         <dt>Deadline</dt>
         <dd>
-          <Timestamp ns={res.deadline_ns} never="not reported" />
+          <Timestamp ns={res.deadline_ns} nsStr={nsStrOf(res, 'deadline_ns')} never="not reported" />
         </dd>
         <dt>Evidence spans</dt>
         <dd className="num">{res.evidence_spans ?? 'not reported'}</dd>

@@ -5,6 +5,7 @@
  * Read-only: transitions and approvals happen only in unknown.research.promotion, with the owner.
  */
 import { Fragment } from 'react';
+import { nsStrOf } from '../../api/nsStrings';
 import { DataTable, type Column } from '../../ui/DataTable';
 import { StatusPill } from '../../ui/primitives';
 import { apiPath, useApi } from '../research-common/api';
@@ -32,7 +33,7 @@ export function ArtifactList({ ctx }: { ctx: ResearchCtx }) {
     },
     { id: 'strategy', header: 'Strategy', sortValue: (a) => a.strategy_id, cell: (a) => <span className="mono">{a.strategy_id}</span> },
     { id: 'status', header: 'Status (authoritative)', sortValue: (a) => ARTIFACT_STATUSES.indexOf(a.status as never), sortKind: 'number', cell: (a) => <ArtifactStatus status={a.status} /> },
-    { id: 'registered', header: 'Registered', sortValue: (a) => a.registered_at_ns, sortKind: 'number', cell: (a) => <NsTime ns={a.registered_at_ns} /> },
+    { id: 'registered', header: 'Registered', sortValue: (a) => a.registered_at_ns, sortKind: 'number', cell: (a) => <NsTime ns={a.registered_at_ns} nsStr={nsStrOf(a, 'registered_at_ns')} /> },
     { id: 'author', header: 'Author', cell: (a) => `${a.author} (${a.author_role})` },
     { id: 'spec', header: 'Spec', cell: (a) => <Hash value={a.spec_hash} /> },
   ];
@@ -110,7 +111,7 @@ function ArtifactBody({ a, prov }: { a: ArtifactDetail; prov: Envelope<unknown>[
                         {t.from_status ? <ArtifactStatus status={t.from_status} /> : <span className="muted">new</span>} → <ArtifactStatus status={t.to_status} />
                       </td>
                       <td>
-                        <NsTime ns={t.at_ns} />
+                        <NsTime ns={t.at_ns} nsStr={nsStrOf(t, 'at_ns')} />
                       </td>
                       <td>
                         {t.principal} ({t.role})
@@ -172,7 +173,7 @@ function ArtifactBody({ a, prov }: { a: ArtifactDetail; prov: Envelope<unknown>[
               rows={[
                 ['Hash', <Hash value={a.artifact_hash} head={24} />],
                 ['Strategy', <span className="mono">{a.strategy_id} · spec <a href={`#/research/strategies/${a.spec_hash}`}>{a.spec_hash.slice(0, 12)}…</a></span>],
-                ['Registered', <span><NsTime ns={a.registered_at_ns} /> by {a.author} ({a.author_role})</span>],
+                ['Registered', <span><NsTime ns={a.registered_at_ns} nsStr={nsStrOf(a, 'registered_at_ns')} /> by {a.author} ({a.author_role})</span>],
                 Array.isArray(body.instruments) ? ['Instruments', <span className="mono">{(body.instruments as unknown[]).map(String).join(', ')}</span>] : null,
                 Array.isArray(body.allowed_markets) ? ['Allowed markets', (body.allowed_markets as unknown[]).map(String).join(', ')] : null,
                 Array.isArray(body.training_interval) ? ['Training interval', <span className="mono">{(body.training_interval as unknown[]).map(String).join(' → ')}</span>] : null,
@@ -201,7 +202,7 @@ function EvidenceLine({ e }: { e: Evidence }) {
         {e.gate_reasons.length ? <span className="rx-reason">{e.gate_reasons.join('; ')}</span> : <span className="muted">no gate reason (passed)</span>}
       </span>
       <span className="detail">
-        {e.evidence_id} · by {e.created_by} ({e.created_role}) at <NsTime ns={e.created_at_ns} />
+        {e.evidence_id} · by {e.created_by} ({e.created_role}) at <NsTime ns={e.created_at_ns} nsStr={nsStrOf(e, 'created_at_ns')} />
         {e.refs.length ? (
           <>
             {' · refs '}

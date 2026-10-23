@@ -5,7 +5,7 @@
  */
 import { useMemo, useState } from 'react';
 import { ApiError, encodePathSegment } from '../../api/client';
-import { withoutNsStrings } from '../../api/nsStrings';
+import { exactJson, nsStrOf } from '../../api/nsStrings';
 import type { BalanceRow, Bucket, EventRecord, Execution, Order, Position, SessionDetail as Detail, Settlement } from '../../api/types';
 import { useQuery } from '../../state/react';
 import { DataTable, type Column } from '../../ui/DataTable';
@@ -128,7 +128,7 @@ export function SessionDetailView({ id }: { id: string }) {
                         </span>
                       </div>
                       <span style={{ fontSize: 'var(--fs-sm)' }}>
-                        {m.atNs !== null ? <Timestamp ns={m.atNs} /> : <span className="muted">no timestamp</span>}
+                        {m.atNs !== null ? <Timestamp ns={m.atNs} nsStr={m.atNsStr} /> : <span className="muted">no timestamp</span>}
                         {m.seq !== null ? <span className="muted num"> · seq {m.seq}</span> : null}
                       </span>
                       <span className="ms-detail">{m.detail}</span>
@@ -436,7 +436,7 @@ function FundingPanel({
           <dd>{successorId ? <SessionLink id={successorId} /> : <span className="muted">{successorText}</span>}</dd>
           <dt>Funded</dt>
           <dd>
-            <Timestamp ns={session.funded_at_ns} never="not funded" />
+            <Timestamp ns={session.funded_at_ns} nsStr={nsStrOf(session, 'funded_at_ns')} never="not funded" />
           </dd>
         </dl>
       </div>
@@ -499,7 +499,7 @@ function MandatePanel({ session, policyName }: { session: Detail; policyName: st
               </dd>
               <dt>Expires</dt>
               <dd>
-                <Timestamp ns={m.expires_at_ns} never="no expiry" />
+                <Timestamp ns={m.expires_at_ns} nsStr={nsStrOf(m, 'expires_at_ns')} never="no expiry" />
               </dd>
               <dt>Below target after observation</dt>
               <dd>
@@ -523,7 +523,7 @@ function MandatePanel({ session, policyName }: { session: Detail; policyName: st
               <dd className="cmd-id">{m.origin}</dd>
               <dt>Mandate created</dt>
               <dd>
-                <Timestamp ns={m.created_at_ns} withMs />
+                <Timestamp ns={m.created_at_ns} nsStr={nsStrOf(m, 'created_at_ns')} withMs />
               </dd>
             </dl>
           </div>
@@ -736,7 +736,7 @@ const orderColumns: Column<Order>[] = [
       ),
   },
   { id: 'purpose', header: 'Purpose', sortValue: (o) => o.purpose, cell: (o) => <code className="mono">{o.purpose}</code> },
-  { id: 'accepted', header: 'Accepted', sortKind: 'number', sortValue: (o) => o.accepted_at_ns, cell: (o) => <Timestamp ns={o.accepted_at_ns} /> },
+  { id: 'accepted', header: 'Accepted', sortKind: 'number', sortValue: (o) => o.accepted_at_ns, cell: (o) => <Timestamp ns={o.accepted_at_ns} nsStr={nsStrOf(o, 'accepted_at_ns')} /> },
 ];
 
 function OrdersPanel({ orders }: { orders: Order[] }) {
@@ -794,7 +794,7 @@ const executionColumns: Column<Execution>[] = [
   },
   { id: 'feestatus', header: 'Fee status', sortValue: (e) => e.fee_status, cell: (e) => <code className="mono">{e.fee_status}</code> },
   { id: 'status', header: 'Status', sortValue: (e) => e.status, cell: (e) => <StatusPill label={e.status} tone={e.status === 'ACTIVE' ? 'ok' : 'warn'} compact /> },
-  { id: 'time', header: 'Executed', sortKind: 'number', sortValue: (e) => e.exec_time_ns, cell: (e) => <Timestamp ns={e.exec_time_ns} withMs /> },
+  { id: 'time', header: 'Executed', sortKind: 'number', sortValue: (e) => e.exec_time_ns, cell: (e) => <Timestamp ns={e.exec_time_ns} nsStr={nsStrOf(e, 'exec_time_ns')} withMs /> },
 ];
 
 function ExecutionsPanel({ executions }: { executions: Execution[] }) {
@@ -839,7 +839,7 @@ const settlementColumns: Column<Settlement>[] = [
     sortValue: (s) => s.status,
     cell: (s) => <StatusPill label={s.status} tone={s.status === 'SETTLED' ? 'ok' : s.status === 'EXPECTED' ? 'info' : 'warn'} compact />,
   },
-  { id: 'settled', header: 'Settled at', sortKind: 'number', sortValue: (s) => s.settled_at_ns, cell: (s) => <Timestamp ns={s.settled_at_ns} never="not yet" /> },
+  { id: 'settled', header: 'Settled at', sortKind: 'number', sortValue: (s) => s.settled_at_ns, cell: (s) => <Timestamp ns={s.settled_at_ns} nsStr={nsStrOf(s, 'settled_at_ns')} never="not yet" /> },
 ];
 
 function SettlementsPanel({ settlements }: { settlements: Settlement[] }) {
@@ -874,7 +874,7 @@ interface TimelineRow extends EventRecord {
 
 const timelineColumns: Column<TimelineRow>[] = [
   { id: 'seq', header: 'Seq', numeric: true, sortKind: 'number', sortValue: (e) => e.seq, cell: (e) => e.seq },
-  { id: 'time', header: 'Recorded', sortKind: 'number', sortValue: (e) => e.recorded_time_ns, cell: (e) => <Timestamp ns={e.recorded_time_ns} withMs /> },
+  { id: 'time', header: 'Recorded', sortKind: 'number', sortValue: (e) => e.recorded_time_ns, cell: (e) => <Timestamp ns={e.recorded_time_ns} nsStr={nsStrOf(e, 'recorded_time_ns')} withMs /> },
   { id: 'phase', header: 'Phase', sortValue: (e) => e.phase, cell: (e) => <Badge tone={e.phase === 'goal' ? 'ok' : e.phase === 'review' ? 'bad' : 'neutral'}>{PHASE_LABEL[e.phase]}</Badge> },
   { id: 'type', header: 'Event', sortValue: (e) => e.type, cell: (e) => <code className="mono">{e.type}</code> },
   { id: 'by', header: 'By', sortValue: (e) => e.principal_id, cell: (e) => <span className="cmd-id">{e.principal_id}</span> },
@@ -898,7 +898,7 @@ const timelineColumns: Column<TimelineRow>[] = [
     cell: (e) => (
       <details className="ses-info">
         <summary>{eventSummary(e) || 'show recorded detail'}</summary>
-        <pre className="ses-json">{JSON.stringify(withoutNsStrings(e.info), null, 2)}</pre>
+        <pre className="ses-json">{exactJson(e.info, 2)}</pre>
         <span className="muted" style={{ fontSize: 'var(--fs-xs)' }}>
           changed {e.changed_sections.join(', ') || 'nothing'} · chain {e.chain_hash.slice(0, 12)}…
         </span>

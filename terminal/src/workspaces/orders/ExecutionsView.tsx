@@ -3,6 +3,7 @@
  * broker's final figure, an estimate, an owner-accepted estimate or recorded externally.
  */
 import { useMemo, useState, type ReactNode } from 'react';
+import { nsStrOf } from '../../api/nsStrings';
 import type { Execution, Instrument } from '../../api/types';
 import { useQuery } from '../../state/react';
 import { routeHref } from '../../state/router';
@@ -27,7 +28,7 @@ export function feeStatusPill(status: string) {
 
 export function executionColumns(instruments: ReadonlyMap<string, Instrument>, opts: { showOrder: boolean }): Column<Execution>[] {
   const cols: Column<Execution>[] = [
-    { id: 'time', header: 'Executed', sortKind: 'number', sortValue: (e) => e.exec_time_ns, cell: (e) => <Timestamp ns={e.exec_time_ns} withMs /> },
+    { id: 'time', header: 'Executed', sortKind: 'number', sortValue: (e) => e.exec_time_ns, cell: (e) => <Timestamp ns={e.exec_time_ns} nsStr={nsStrOf(e, 'exec_time_ns')} withMs /> },
     {
       id: 'key',
       header: 'Execution',

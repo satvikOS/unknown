@@ -6,6 +6,7 @@
  * form can explain a refusal before sending; the server still decides (and its message is shown).
  * Money (spend caps, consumption) stays a decimal string and is compared exactly.
  */
+import { exactJson, exactNs, isNsStringSibling } from '../../api/nsStrings';
 import { compareDecimal, isDecimal } from '../../format/decimal';
 import { ratioBps } from '../../format/exact';
 import type { Instrument } from '../../api/types';
@@ -670,15 +671,18 @@ export function parseJobsRoute(rest: readonly string[]): JobsRoute {
   return { view: 'job', jobId: first };
 }
 
-/** Audit records carry floats as decimal text already; this is a compact one-line summary for the table. */
+/**
+ * Audit records carry floats as decimal text already; this is a compact one-line summary for the table. A `*_ns`
+ * value is written exactly from the API's `*_ns_str`, and the siblings themselves are left out.
+ */
 export function auditSummary(record: unknown): string {
   if (!isRecord(record)) return '';
   const skip = new Set(['kind', 'at_ns', 'envelope', 'evidence']);
   const parts: string[] = [];
   for (const [k, v] of Object.entries(record)) {
-    if (skip.has(k) || v === null || v === undefined || v === '') continue;
+    if (skip.has(k) || isNsStringSibling(k, record) || v === null || v === undefined || v === '') continue;
     if (Array.isArray(v) && v.length === 0) continue;
-    const text = typeof v === 'string' ? v : JSON.stringify(v);
+    const text = typeof v === 'string' ? v : (exactNs(record, k) ?? exactJson(v));
     parts.push(`${k}: ${text.length > 120 ? `${text.slice(0, 119)}…` : text}`);
   }
   return parts.join('; ');

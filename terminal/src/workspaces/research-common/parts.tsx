@@ -5,6 +5,7 @@
  */
 import { useState, type ReactNode } from 'react';
 import { describeError } from '../../api/client';
+import { exactNs, isNsStringSibling } from '../../api/nsStrings';
 import { formatDecimal, isDecimal } from '../../format/decimal';
 import { Badge, Money, ShortId, StatusPill, Timestamp, type Tone } from '../../ui/primitives';
 import { extractCommands, isCurrencyCode, isoToMs, populateCommands, ratioAsPercent } from './format';
@@ -258,14 +259,16 @@ const MAX_ITEMS = 40;
 
 /**
  * An integer beyond 2^53 (nanosecond timestamps such as `registered_at_ns`) has already been rounded by JSON.parse:
- * 1761148672134721234 arrives as 1761148672134721300. It is never shown as if exact.
+ * 1761148672134721234 arrives as 1761148672134721300. It is never shown as if exact: a `*_ns` value is shown from
+ * the API's exact `*_ns_str` sibling (whose own row is left out), and any other such integer is marked "≈".
  */
 export const INEXACT_INTEGER_NOTE =
   'integer beyond 2^53: the browser rounded it when reading the JSON, so the last digits may differ from the stored value';
 
-function Scalar({ value }: { value: unknown }) {
+function Scalar({ value, exact }: { value: unknown; exact?: string | null }) {
   if (value === null || value === undefined) return <span className="muted">null</span>;
   if (typeof value === 'boolean') return <span className="mono">{value ? 'true' : 'false'}</span>;
+  if (exact) return <span className="num">{exact}</span>;
   if (typeof value === 'number') {
     if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
       return (
@@ -329,7 +332,9 @@ export function JsonTree({ value, depth = 0, label }: { value: unknown; depth?: 
       </ol>
     );
   }
-  const entries = Object.entries(value as Record<string, unknown>);
+  const record = value as Record<string, unknown>;
+  // The API's *_ns_str siblings are not part of the record: they make the *_ns value beside them exact.
+  const entries = Object.entries(record).filter(([k]) => !isNsStringSibling(k, record));
   if (!entries.length) return <span className="muted">{'{}'} (empty)</span>;
   return (
     <dl className="rx-tree" aria-label={label}>
@@ -337,9 +342,7 @@ export function JsonTree({ value, depth = 0, label }: { value: unknown; depth?: 
         isScalar(v) || (Array.isArray(v) && v.every(isScalar)) ? (
           <div key={k} className="rx-tree-row">
             <dt className="mono">{k}</dt>
-            <dd>
-              <JsonTree value={v} depth={depth + 1} />
-            </dd>
+            <dd>{isScalar(v) ? <Scalar value={v} exact={exactNs(record, k)} /> : <JsonTree value={v} depth={depth + 1} />}</dd>
           </div>
         ) : (
           <div key={k} className="rx-tree-row rx-tree-nested">

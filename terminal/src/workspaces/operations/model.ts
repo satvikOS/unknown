@@ -9,7 +9,7 @@ import type {
   HealthResponse,
   Reconciliation,
 } from '../../api/types';
-import { isNsStringSibling } from '../../api/nsStrings';
+import { exactNs, isNsStringSibling } from '../../api/nsStrings';
 import { formatMoney, isDecimal, parseDecimal, signOf } from '../../format/decimal';
 import type { Tone } from '../../ui/primitives';
 
@@ -194,7 +194,8 @@ export type DetailField =
   | { key: string; label: string; kind: 'quantity'; value: string }
   | { key: string; label: string; kind: 'decimal'; value: string }
   | { key: string; label: string; kind: 'id'; value: string; workspace: string | null }
-  | { key: string; label: string; kind: 'time'; value: number }
+  /** `exact`: the API's `*_ns_str` for this value, when it sent one (shown instead of the rounded float). */
+  | { key: string; label: string; kind: 'time'; value: number; exact: string | null }
   | { key: string; label: string; kind: 'text'; value: string }
   | { key: string; label: string; kind: 'number'; value: number }
   | { key: string; label: string; kind: 'bool'; value: boolean }
@@ -233,7 +234,7 @@ export function describeDetail(detail: Record<string, unknown> | null | undefine
     if (value === null || value === undefined || value === '') return { key, label, kind: 'none' };
     if (typeof value === 'boolean') return { key, label, kind: 'bool', value };
     if (typeof value === 'number') {
-      if (key.endsWith('_ns')) return { key, label, kind: 'time', value };
+      if (key.endsWith('_ns')) return { key, label, kind: 'time', value, exact: exactNs(detail, key) };
       return { key, label, kind: 'number', value };
     }
     if (typeof value === 'string') {

@@ -4,6 +4,7 @@
  * (successors included) state exactly why they lack funding.
  */
 import { useMemo, useState } from 'react';
+import { nsStrOf } from '../../api/nsStrings';
 import type { Session } from '../../api/types';
 import { useAccountKey } from '../../controls/ControlProvider';
 import { useQuery } from '../../state/react';
@@ -105,7 +106,7 @@ function columns(): Column<Row>[] {
       header: 'Created',
       sortKind: 'number',
       sortValue: (s) => s.created_at_ns,
-      cell: (s) => <Timestamp ns={s.created_at_ns} />,
+      cell: (s) => <Timestamp ns={s.created_at_ns} nsStr={nsStrOf(s, 'created_at_ns')} />,
     },
   ];
 }

@@ -1,6 +1,8 @@
 /**
  * Timestamp and age formatting. Server timestamps are integer nanoseconds (approximate as JS numbers,
- * see src/api/types.ts); everything here works at millisecond resolution.
+ * see src/api/types.ts); most of this works at millisecond resolution. Where the exact value is shown, the
+ * API's `*_ns_str` decimal string is read with BigInt (`nsStringToMs`, `formatTimestampNsExact`): no float
+ * ever rounds a nanosecond (or, near a millisecond boundary, the millisecond).
  */
 
 export function nsToMs(ns: number): number {
@@ -13,8 +15,7 @@ function pad(n: number, width = 2): string {
 
 export type TimeZoneMode = 'utc' | 'local';
 
-/** "2026-10-22 13:30:28 UTC" (or local time without suffix). `ms` adds ".002". */
-export function formatTimestampMs(ms: number, zone: TimeZoneMode = 'utc', withMs = false): string {
+function formatWithFraction(ms: number, zone: TimeZoneMode, fraction: (d: Date, utc: boolean) => string): string {
   const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return 'invalid time';
   const utc = zone === 'utc';
@@ -24,8 +25,40 @@ export function formatTimestampMs(ms: number, zone: TimeZoneMode = 'utc', withMs
   const h = utc ? d.getUTCHours() : d.getHours();
   const mi = utc ? d.getUTCMinutes() : d.getMinutes();
   const s = utc ? d.getUTCSeconds() : d.getSeconds();
-  const msPart = withMs ? `.${pad(utc ? d.getUTCMilliseconds() : d.getMilliseconds(), 3)}` : '';
-  return `${y}-${pad(mo)}-${pad(da)} ${pad(h)}:${pad(mi)}:${pad(s)}${msPart}${utc ? ' UTC' : ''}`;
+  return `${y}-${pad(mo)}-${pad(da)} ${pad(h)}:${pad(mi)}:${pad(s)}${fraction(d, utc)}${utc ? ' UTC' : ''}`;
+}
+
+/** "2026-10-22 13:30:28 UTC" (or local time without suffix). `ms` adds ".002". */
+export function formatTimestampMs(ms: number, zone: TimeZoneMode = 'utc', withMs = false): string {
+  return formatWithFraction(ms, zone, (d, utc) => (withMs ? `.${pad(utc ? d.getUTCMilliseconds() : d.getMilliseconds(), 3)}` : ''));
+}
+
+const NS_INTEGER = /^-?\d+$/;
+const NS_PER_MS = 1_000_000n;
+const NS_PER_S = 1_000_000_000n;
+
+function floorDiv(n: bigint, d: bigint): bigint {
+  const q = n / d;
+  return n % d !== 0n && n < 0n ? q - 1n : q;
+}
+
+/** Whether `ns` is the API's exact nanosecond string (a decimal integer). */
+export function isNsString(ns: unknown): ns is string {
+  return typeof ns === 'string' && NS_INTEGER.test(ns);
+}
+
+/** Milliseconds since the epoch (floor) of an exact `*_ns_str`, computed without floats; null when malformed. */
+export function nsStringToMs(ns: string): number | null {
+  return isNsString(ns) ? Number(floorDiv(BigInt(ns), NS_PER_MS)) : null;
+}
+
+/** "2026-10-22 13:30:28.123456789 UTC": every nanosecond of the API's `*_ns_str`, exactly. */
+export function formatTimestampNsExact(ns: string, zone: TimeZoneMode = 'utc'): string {
+  if (!isNsString(ns)) return 'invalid time';
+  const v = BigInt(ns);
+  const seconds = floorDiv(v, NS_PER_S);
+  const nanos = (v - seconds * NS_PER_S).toString().padStart(9, '0');
+  return formatWithFraction(Number(seconds) * 1000, zone, () => `.${nanos}`);
 }
 
 export function formatTimestampNs(ns: number, zone: TimeZoneMode = 'utc', withMs = false): string {

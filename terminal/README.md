@@ -53,7 +53,8 @@ src/
                         GET /api/commands/<id> (stored result), 409 COMMAND_ID_CONFLICT
   format/decimal.ts     exact decimal-string formatting and comparison (no floats)
   format/exact.ts       exact decimal arithmetic on BigInt (add, sub, mul, sums, ratios in bps)
-  format/time.ts        ns timestamps, ages, clock
+  format/time.ts        ns timestamps (exact from the API's *_ns_str with BigInt), ages, clock
+  api/nsStrings.ts      the API's exact *_ns_str siblings: nsStrOf / exactNs, exactJson for recorded payloads
   state/stream.ts       /api/stream subscription: seq, version, gap/reset/reconnect detection
   state/queries.ts      query cache keyed by endpoint+params; refetch on version bump or poll
   state/commands.ts     command tracker: sending -> pending (command id) -> applied on stream seq
@@ -152,7 +153,9 @@ useTrackedCommand(commandId) // live record for one command;  <CommandStatus com
 <Money amount={decimalString|null} currency="USD" kind?: 'realized'|'unrealized'|'settled'|'unsettled'|'protected'
        |'available'|'held'|'authorized'|'estimated'|'cost'|'marked' showKind? signed? unavailable?="no quote" />
 <Qty value={decimalString} unit? />
-<Timestamp ns={epochNs} | ms={epochMs} zone?: 'utc'|'local' withMs? never?="never" />
+<Timestamp ns={epochNs} nsStr={nsStrOf(row, 'x_ns')} | ms={epochMs} zone?: 'utc'|'local' withMs? withNs? never?="never" />
+      // nsStr: the API's exact *_ns_str. Every <Timestamp ns> passes it (ui/timestamp.test.ts scans the source): the
+      // millisecond comes from it, the tooltip shows all nine fraction digits, withNs shows them in the text.
 <Age sinceNs? | ageMs + observedAtMs? clockOffsetMs? staleAfterMs? />   // live-ticking; appends "(stale)"
 <StatusPill label="RUNNING" tone: 'ok'|'warn'|'bad'|'info'|'neutral' detail? compact? />  // text + glyph + colour
 <Badge tone?>FIXTURE</Badge>  <FixtureBadge />  <ModeBadge mode="SIMULATED" />  <ShortId value=… />  <YesNo … />
@@ -193,6 +196,6 @@ The end-to-end suite measures these on the rendered pages; see `e2e/README.md`. 
 ## API notes for the backend
 
 See the foundation report. In short:
-- ns timestamps exceed 2^53, so the client displays them at millisecond precision.
-- Path ids are not percent-decoded by the API, so an id containing `/` cannot be addressed.
+- ns timestamps exceed 2^53, so JSON.parse rounds them. The API now sends an exact `*_ns_str` beside every `*_ns`, and the terminal shows exact values from it: the audit event detail shows event, receipt and recorded times to the nanosecond, recorded payloads (audit, session events, operations and overview detail JSON) and the other record dumps (research-job audit summaries, instrument attributes and details, research values, stress resting orders) print every `*_ns` exactly and leave the siblings out (`api/nsStrings.ts` `exactJson`), the research JSON tree shows them without "≈", and every `<Timestamp ns>` also gets the row's `*_ns_str` (`nsStrOf`), so its millisecond comes from the string (a float can be one millisecond late, or a second late at a boundary) and its tooltip shows all nine fraction digits; session milestones carry theirs (`atNsStr`). Floats remain only where a value is not displayed: sort keys and ages.
+- Path segments are percent-decoded by the API after it splits the path, so an id containing `/` is addressed as `%2F` (`encodePathSegment`).
 - `/api/overview` does not carry the active policy's name or `on_stop_liquidation`, so the client also fetches `/api/policy/active`.

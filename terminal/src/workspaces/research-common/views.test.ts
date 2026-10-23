@@ -20,6 +20,19 @@ describe('JSON tree', () => {
     expect(html).not.toContain('≈11');
     expect(html).toMatch(/>0\.25</);
   });
+
+  it('shows a *_ns value exactly from the API\'s *_ns_str sibling, and leaves the sibling out', () => {
+    const parsed = JSON.parse(
+      '{"registered_at_ns": 1761148672134721234, "registered_at_ns_str": "1761148672134721234", "body": {"started_at_ns": 1761148672999999999, "started_at_ns_str": "1761148672999999999"}, "other": 18446744073709551615}',
+    ) as Record<string, unknown>;
+    const html = renderToStaticMarkup(createElement(JsonTree, { value: parsed }));
+    expect(html).toContain('>1761148672134721234<');
+    expect(html).toContain('>1761148672999999999<');
+    expect(html).not.toContain('1761148672134721300');
+    expect(html).not.toContain('_ns_str');
+    // An integer with no exact sibling is still marked approximate.
+    expect(html).toContain('≈18446744073709552000');
+  });
 });
 
 describe('range chart', () => {

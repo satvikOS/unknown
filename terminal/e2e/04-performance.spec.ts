@@ -10,6 +10,8 @@
  *    request log says so) and the page keeps showing the register.
  * 4. Research data is not refetched per core seq: while the Company tearsheet is open, the core writes
  *    events and the core-driven overview refetches, but the tearsheet does not; Refresh fetches it.
+ * 5. Nanosecond timestamps are shown from the API's exact *_ns_str: the audit event detail and its payload JSON,
+ *    and a typed record's time (an order's accepted time: its millisecond and the nanoseconds in its tooltip).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -201,5 +203,75 @@ test('the Company tearsheet is not refetched when the core writes events; Refres
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect.poll(() => count(tearsheet)).toBe(2);
   await expect(page.locator('#main').getByText(/Block status words:/)).toBeVisible();
+  expect(problems).toEqual([]);
+});
+
+/**
+ * The first `*_ns` key in a recorded payload that is beyond 2^53 and carries the API's exact `*_ns_str`. (This
+ * Mac's clock has microsecond resolution, so these values end in 000 and a float may print the same digits; the
+ * unit tests cover values a float does round. Here the check is that the page prints the API's exact string.)
+ */
+function nsField(v: unknown): { key: string; exact: string } | null {
+  if (Array.isArray(v)) {
+    for (const x of v) {
+      const hit = nsField(x);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  if (v === null || typeof v !== 'object') return null;
+  const r = v as Record<string, unknown>;
+  for (const [k, x] of Object.entries(r)) {
+    const key = k.slice(0, -'_str'.length);
+    if (k.endsWith('_ns_str') && typeof x === 'string' && /^\d+$/.test(x) && typeof r[key] === 'number' && BigInt(x) > 2n ** 53n) return { key, exact: x };
+  }
+  for (const x of Object.values(r)) {
+    const hit = nsField(x);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/** "YYYY-MM-DD HH:MM:SS.nnnnnnnnn UTC" from an exact ns string, computed here independently of the terminal. */
+function utcNs(ns: string): string {
+  const v = BigInt(ns);
+  const iso = new Date(Number(v / 1_000_000_000n) * 1000).toISOString(); // 2026-10-22T13:30:49.000Z
+  return `${iso.slice(0, 10)} ${iso.slice(11, 19)}.${(v % 1_000_000_000n).toString().padStart(9, '0')} UTC`;
+}
+
+test('the audit event log shows times and recorded payload timestamps to the nanosecond, from the API strings', async ({ page }) => {
+  const problems = watchProblems(page);
+  await login(page);
+  type Ev = { seq: number; recorded_time_ns: number; recorded_time_ns_str: string; receipt_time_ns_str: string; info: unknown };
+  const events = (await (await page.request.get(`${baseUrl()}/api/events?after=0&limit=2000`)).json()) as Ev[];
+  // An event whose payload holds a nanosecond timestamp (a StartGranted's broker_server_time_ns, for one).
+  const target = events.find((e) => nsField(e.info) !== null);
+  expect(target, 'an event with a nanosecond timestamp in its payload').toBeTruthy();
+  const hit = nsField(target!.info)!;
+  await page.goto(`${baseUrl()}/#/audit/events/after=${target!.seq - 1}`);
+  await page.getByRole('button', { name: `Expand event ${target!.seq}`, exact: true }).click();
+  const detail = page.locator('dl', { has: page.locator('dt', { hasText: 'Writer epoch' }) });
+  const dd = (label: string) => detail.locator('dt', { hasText: new RegExp(`^${label}$`) }).locator('xpath=following-sibling::dd[1]');
+  await expect(dd('Recorded')).toHaveText(utcNs(target!.recorded_time_ns_str));
+  await expect(dd('Received')).toHaveText(utcNs(target!.receipt_time_ns_str));
+  const payload = page.locator('pre.ops-json').first();
+  await expect(payload).toContainText(`"${hit.key}": ${hit.exact}`);
+  await expect(payload).not.toContainText('_ns_str');
+  expect(problems).toEqual([]);
+});
+
+test('a typed record\'s time comes from the API string: an order\'s accepted time and its tooltip', async ({ page }) => {
+  const problems = watchProblems(page);
+  await login(page);
+  type O = { order_id: string; accepted_at_ns: number; accepted_at_ns_str?: string };
+  const orders = (await (await page.request.get(`${baseUrl()}/api/orders?limit=50`)).json()) as O[];
+  const order = orders.find((o) => typeof o.accepted_at_ns_str === 'string' && BigInt(o.accepted_at_ns_str) > 2n ** 53n);
+  expect(order, 'an order from 01-flow, with its exact accepted_at_ns_str').toBeTruthy();
+  const exact = order!.accepted_at_ns_str!;
+  await page.goto(`${baseUrl()}/#/orders/${order!.order_id}`);
+  const at = page.locator('#main dt', { hasText: /^Accepted$/ }).locator('xpath=following-sibling::dd[1]').locator('time');
+  // The text is UTC to the millisecond, the tooltip local time with all nine fraction digits.
+  await expect(at).toHaveText(utcNs(exact).replace(/(\.\d{3})\d{6} UTC$/, '$1 UTC'));
+  await expect(at).toHaveAttribute('title', new RegExp(`\\.${exact.slice(-9)}$`));
   expect(problems).toEqual([]);
 });

@@ -4,6 +4,7 @@
  * its metrics, return series (chart) and reproducibility manifest.
  */
 import { useMemo } from 'react';
+import { exactJson, nsStrOf } from '../../api/nsStrings';
 import type { QueryResult } from '../../state/react';
 import { DataTable, type Column } from '../../ui/DataTable';
 import { Badge, FixtureBadge, Money, StatusPill } from '../../ui/primitives';
@@ -50,7 +51,7 @@ export function ExperimentList({ ctx }: { ctx: ResearchCtx }) {
         </span>
       ),
     },
-    { id: 'created', header: 'Pre-registered', sortValue: (e) => e.created_at_ns, sortKind: 'number', cell: (e) => <NsTime ns={e.created_at_ns} /> },
+    { id: 'created', header: 'Pre-registered', sortValue: (e) => e.created_at_ns, sortKind: 'number', cell: (e) => <NsTime ns={e.created_at_ns} nsStr={nsStrOf(e, 'created_at_ns')} /> },
     { id: 'by', header: 'By', cell: (e) => `${e.created_by} (${e.created_role})` },
     {
       id: 'trials',
@@ -129,7 +130,7 @@ export function ExperimentView({ ctx, id, segment }: { ctx: ResearchCtx; id: str
 }
 
 function str(v: unknown): string {
-  return typeof v === 'string' ? v : v === undefined || v === null ? '' : JSON.stringify(v);
+  return typeof v === 'string' ? v : v === undefined || v === null ? '' : exactJson(v);
 }
 
 function ExperimentBody({ e, prov }: { e: ExperimentDetail; prov: Envelope<unknown>['provenance'] }) {
@@ -144,7 +145,7 @@ function ExperimentBody({ e, prov }: { e: ExperimentDetail; prov: Envelope<unkno
             rows={[
               ['Hash', <span><Hash value={e.prereg_hash} head={16} /> {e.prereg_hash_verified ? <StatusTag status="OK" detail="re-verified by the API on read" /> : <StatusTag status="FAILED" detail="hash did not verify" />}</span>],
               ['Strategy', <span className="mono">{`${str(pre.strategy_id)} · spec `}<a href={`#/research/strategies/${str(pre.spec_hash)}`}>{str(pre.spec_hash).slice(0, 12)}…</a></span>],
-              ['Registered', <span><NsTime ns={typeof pre.registered_at_ns === 'number' ? pre.registered_at_ns : null} /> by {str(pre.registered_by)}</span>],
+              ['Registered', <span><NsTime ns={typeof pre.registered_at_ns === 'number' ? pre.registered_at_ns : null} nsStr={nsStrOf(pre, 'registered_at_ns')} /> by {str(pre.registered_by)}</span>],
               ['Hypothesis', str(hyp.statement)],
               ['Selection metric', <span className="mono">{str(pre.selection_metric)}</span>],
               ['Information clock', str(pre.information_clock)],
@@ -199,7 +200,7 @@ function ExperimentBody({ e, prov }: { e: ExperimentDetail; prov: Envelope<unkno
                     #{h.access_id} <StatusTag status={h.outcome} />
                   </span>
                   <span>
-                    {h.principal} ({h.role}) at <NsTime ns={h.at_ns} />
+                    {h.principal} ({h.role}) at <NsTime ns={h.at_ns} nsStr={nsStrOf(h, 'at_ns')} />
                   </span>
                   <span className="detail">
                     {h.reason}
@@ -273,7 +274,7 @@ function TrialsPanel({ ctx, id, segment, q }: { ctx: ResearchCtx; id: string; se
     { id: 'dd', header: 'Max drawdown', description: 'maxdd@1, % of peak', numeric: true, sortValue: (t) => numberField(rowStats(t), 'max_drawdown'), sortKind: 'number', cell: (t) => statCell(rowStats(t), 'max_drawdown', 'fraction') },
     { id: 'n', header: 'Sessions', numeric: true, sortValue: (t) => numberField(rowStats(t), 'n'), sortKind: 'number', cell: (t) => statCell(rowStats(t), 'n', 'count') },
     { id: 'author', header: 'Author', cell: (t) => `${t.author} (${t.author_role})` },
-    { id: 'started', header: 'Started', sortValue: (t) => t.started_at_ns, sortKind: 'number', cell: (t) => <NsTime ns={t.started_at_ns} /> },
+    { id: 'started', header: 'Started', sortValue: (t) => t.started_at_ns, sortKind: 'number', cell: (t) => <NsTime ns={t.started_at_ns} nsStr={nsStrOf(t, 'started_at_ns')} /> },
     { id: 'manifest', header: 'Manifest', cell: (t) => <Hash value={t.manifest_hash} /> },
   ];
   return (
@@ -379,8 +380,8 @@ function TrialBody({ t, prov }: { t: TrialDetail; prov: Envelope<unknown>['prove
                 ['Parameters', <span className="mono">{Object.entries(t.params).map(([k, v]) => `${k}=${v}`).join(', ')}</span>],
                 ['Parameters hash', <Hash value={t.params_hash} />],
                 ['Author', `${t.author} (${t.author_role})`],
-                ['Started', <NsTime ns={t.started_at_ns} />],
-                ['Finished', <NsTime ns={t.finished_at_ns} />],
+                ['Started', <NsTime ns={t.started_at_ns} nsStr={nsStrOf(t, 'started_at_ns')} />],
+                ['Finished', <NsTime ns={t.finished_at_ns} nsStr={nsStrOf(t, 'finished_at_ns')} />],
                 ['Results hash', <Hash value={t.results_hash} />],
                 ['Returns hash', <Hash value={t.returns_hash} />],
                 ['Manifest hash', <Hash value={t.manifest_hash} />],

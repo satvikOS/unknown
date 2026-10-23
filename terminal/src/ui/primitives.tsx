@@ -5,7 +5,7 @@
 import type { ReactNode } from 'react';
 import type { AccountMode } from '../api/types';
 import { currencyMinorUnits, formatDecimal, isDecimal, signOf } from '../format/decimal';
-import { formatAge, formatTimestampMs, isoFromMs, nsToMs } from '../format/time';
+import { formatAge, formatTimestampMs, formatTimestampNsExact, isNsString, isoFromMs, nsStringToMs, nsToMs } from '../format/time';
 import { useNow } from '../state/react';
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'neutral';
@@ -174,20 +174,29 @@ export function Qty({ value, unit }: QtyProps) {
 export interface TimestampProps {
   /** Server nanoseconds (preferred) */
   ns?: number | null;
+  /**
+   * The API's exact `*_ns_str` for the same instant. When given it is used instead of `ns` (no float rounding),
+   * the tooltip shows every nanosecond, and `withNs` shows them in the text.
+   */
+  nsStr?: string | null;
   /** or browser milliseconds. */
   ms?: number | null;
   zone?: 'utc' | 'local';
   withMs?: boolean;
+  /** All nine fraction digits (needs `nsStr`). */
+  withNs?: boolean;
   /** Text when absent. */
   never?: string;
 }
 
-export function Timestamp({ ns, ms, zone = 'utc', withMs = false, never = 'never' }: TimestampProps) {
-  const at = ms ?? (ns !== null && ns !== undefined ? nsToMs(ns) : null);
+export function Timestamp({ ns, nsStr, ms, zone = 'utc', withMs = false, withNs = false, never = 'never' }: TimestampProps) {
+  const exact = isNsString(nsStr) ? nsStr : null;
+  const at = ms ?? (exact !== null ? nsStringToMs(exact) : ns !== null && ns !== undefined ? nsToMs(ns) : null);
   if (at === null || at === undefined) return <span className="muted">{never}</span>;
+  const other = zone === 'utc' ? 'local' : 'utc';
   return (
-    <time className="num" dateTime={isoFromMs(at)} title={formatTimestampMs(at, zone === 'utc' ? 'local' : 'utc', true)}>
-      {formatTimestampMs(at, zone, withMs)}
+    <time className="num" dateTime={isoFromMs(at)} title={exact !== null ? formatTimestampNsExact(exact, other) : formatTimestampMs(at, other, true)}>
+      {exact !== null && withNs ? formatTimestampNsExact(exact, zone) : formatTimestampMs(at, zone, withMs)}
     </time>
   );
 }

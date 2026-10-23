@@ -7,6 +7,7 @@
  * Routes: #/policy, #/policy/<hash>, #/policy/compare/<a>/<b>, #/policy/draft[/<base hash>].
  */
 import { useEffect, useRef, useState } from 'react';
+import { nsStrOf } from '../../api/nsStrings';
 import type { EventRecord, PolicyRecord, Session } from '../../api/types';
 import { useAccountKey } from '../../controls/ControlProvider';
 import { useQuery } from '../../state/react';
@@ -139,7 +140,7 @@ function PolicyList({ ctx }: { ctx: PolicyContext }) {
       header: 'Published at',
       sortKind: 'number',
       sortValue: (p) => p.published_at_ns,
-      cell: (p) => <Timestamp ns={p.published_at_ns} />,
+      cell: (p) => <Timestamp ns={p.published_at_ns} nsStr={nsStrOf(p, 'published_at_ns')} />,
     },
     {
       id: 'cmd',
@@ -152,7 +153,7 @@ function PolicyList({ ctx }: { ctx: PolicyContext }) {
   ];
 
   const historyColumns: Column<EventRecord>[] = [
-    { id: 'at', header: 'Activated at', sortKind: 'number', sortValue: (e) => e.recorded_time_ns, cell: (e) => <Timestamp ns={e.recorded_time_ns} /> },
+    { id: 'at', header: 'Activated at', sortKind: 'number', sortValue: (e) => e.recorded_time_ns, cell: (e) => <Timestamp ns={e.recorded_time_ns} nsStr={nsStrOf(e, 'recorded_time_ns')} /> },
     {
       id: 'policy',
       header: 'Policy',
@@ -201,7 +202,7 @@ function PolicyList({ ctx }: { ctx: PolicyContext }) {
               </dd>
               <dt>Activated</dt>
               <dd>
-                <Timestamp ns={ctx.active.activation.activated_at_ns} /> <span className="muted">by {ctx.active.activation.activated_by}</span>
+                <Timestamp ns={ctx.active.activation.activated_at_ns} nsStr={nsStrOf(ctx.active.activation, 'activated_at_ns')} /> <span className="muted">by {ctx.active.activation.activated_by}</span>
               </dd>
               <dt>Liquidation on stop</dt>
               <dd>
@@ -328,7 +329,7 @@ function PolicyDetail({ ctx, hash, loading }: { ctx: PolicyContext; hash: string
             <dd className="cmd-id">{policy.policy_hash}</dd>
             <dt>Published</dt>
             <dd>
-              <Timestamp ns={policy.published_at_ns} /> <span className="muted">by {policy.published_by}</span>
+              <Timestamp ns={policy.published_at_ns} nsStr={nsStrOf(policy, 'published_at_ns')} /> <span className="muted">by {policy.published_by}</span>
             </dd>
             <dt>Publish command</dt>
             <dd>
@@ -344,7 +345,7 @@ function PolicyDetail({ ctx, hash, loading }: { ctx: PolicyContext; hash: string
               <>
                 <dt>Activated</dt>
                 <dd>
-                  <Timestamp ns={ctx.active.activation.activated_at_ns} /> <span className="muted">by {ctx.active.activation.activated_by}</span>
+                  <Timestamp ns={ctx.active.activation.activated_at_ns} nsStr={nsStrOf(ctx.active.activation, 'activated_at_ns')} /> <span className="muted">by {ctx.active.activation.activated_by}</span>
                 </dd>
               </>
             ) : null}

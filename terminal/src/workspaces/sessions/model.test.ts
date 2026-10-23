@@ -471,6 +471,20 @@ describe('timeline phases and milestones', () => {
     expect(ms.settlement!.state).toBe('skipped');
   });
 
+  it('carries the API\'s exact *_ns_str with each milestone time: a row time from the session, else the event\'s', () => {
+    // 1792675849903999999 is beyond 2^53: JSON.parse makes it ...904000000, so only the string keeps the 903rd ms.
+    const parsedSession = JSON.parse('{"funded_at_ns": 1792675849903999999, "funded_at_ns_str": "1792675849903999999", "started_at_ns": 7}') as Partial<Session>;
+    const s = session({ state: 'RUNNING', ...parsedSession });
+    const started = { ...ev('SessionStarted'), ...(JSON.parse('{"recorded_time_ns": 1792675850000000001, "recorded_time_ns_str": "1792675850000000001"}') as object) } as ReturnType<typeof ev>;
+    const goal = { ...ev('SessionWindDownStarted', { reason: 'TARGET_OBSERVED' }), ...(JSON.parse('{"recorded_time_ns": 1792675851999999999, "recorded_time_ns_str": "1792675851999999999"}') as object) } as ReturnType<typeof ev>;
+    const ms = Object.fromEntries(sessionMilestones(s, [ev('SessionRequested'), started, goal]).map((m) => [m.id, m]));
+    expect(ms.funded).toMatchObject({ atNs: 1792675849904000000, atNsStr: '1792675849903999999' });
+    // A row time without a sibling is used as is (no exact string), even when an event has one.
+    expect(ms.started).toMatchObject({ atNs: 7, atNsStr: null });
+    expect(ms.goal_observed).toMatchObject({ atNsStr: '1792675851999999999' });
+    expect(ms.reconciliation).toMatchObject({ atNs: null, atNsStr: null });
+  });
+
   it('keeps a waiting session at funding with the exact reason, and a completed-unsettled one at settlement', () => {
     const waiting = Object.fromEntries(sessionMilestones(session(), [ev('SessionRequested'), ev('SessionAwaitingFunds')]).map((m) => [m.id, m]));
     expect(waiting.funded!.state).toBe('current');

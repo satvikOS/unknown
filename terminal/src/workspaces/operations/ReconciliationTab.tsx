@@ -1,5 +1,6 @@
 /** Operations > Reconciliation: run history, the differences of one run, settlements it confirmed. */
 import { useMemo, type ReactNode } from 'react';
+import { nsStrOf } from '../../api/nsStrings';
 import type { Reconciliation, ReconciliationDifference } from '../../api/types';
 import { formatAge } from '../../format/time';
 import { useQuery } from '../../state/react';
@@ -18,7 +19,7 @@ const runColumns: Column<Reconciliation>[] = [
     header: 'Completed',
     sortKind: 'number',
     sortValue: (r) => r.completed_at_ns,
-    cell: (r) => <Timestamp ns={r.completed_at_ns} />,
+    cell: (r) => <Timestamp ns={r.completed_at_ns} nsStr={nsStrOf(r, 'completed_at_ns')} />,
   },
   { id: 'status', header: 'Status', sortValue: (r) => r.status, cell: (r) => <StatusPill label={r.status} tone={reconciliationTone(r.status)} compact /> },
   { id: 'epoch', header: 'Process epoch', numeric: true, sortKind: 'number', sortValue: (r) => r.epoch, cell: (r) => r.epoch },
@@ -128,7 +129,7 @@ export function ReconciliationTab({
             <dl className="kv">
               <dt>Completed</dt>
               <dd>
-                <Timestamp ns={selected.completed_at_ns} withMs />{' '}
+                <Timestamp ns={selected.completed_at_ns} nsStr={nsStrOf(selected, 'completed_at_ns')} withMs />{' '}
                 <span className="muted">
                   (<Age sinceNs={selected.completed_at_ns} staleAfterMs={selected === latest ? staleMs : undefined} /> ago
                   {selected === latest && maxAgeS !== undefined ? `; policy maximum age ${maxAgeS} s` : ''})
@@ -138,7 +139,7 @@ export function ReconciliationTab({
               <dd className="num">{selected.epoch}</dd>
               <dt>Broker snapshot as of</dt>
               <dd>
-                {selected.snapshot_as_of_ns ? <Timestamp ns={selected.snapshot_as_of_ns} withMs /> : <span className="muted">not stated (incomplete run)</span>}
+                {selected.snapshot_as_of_ns ? <Timestamp ns={selected.snapshot_as_of_ns} nsStr={nsStrOf(selected, 'snapshot_as_of_ns')} withMs /> : <span className="muted">not stated (incomplete run)</span>}
               </dd>
               <dt>Execution watermark</dt>
               <dd className="cmd-id">{selected.watermark ?? 'none'}</dd>

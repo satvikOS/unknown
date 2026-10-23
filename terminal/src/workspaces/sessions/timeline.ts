@@ -2,6 +2,7 @@
  * Session event timeline: phases and lifecycle milestones (goal observed, wind-down,
  * reconciliation, completion and settlement are separate steps; book Ch. 22).
  */
+import { nsStrOf } from '../../api/nsStrings';
 import type { EventRecord, Session } from '../../api/types';
 import { moneyText } from './format';
 import { explainFunding } from './model';
@@ -76,8 +77,20 @@ export interface Milestone {
   label: string;
   state: MilestoneState;
   atNs: number | null;
+  /** The API's exact string for `atNs` (its `*_ns_str`), when it sent one: shown instead of the rounded float. */
+  atNsStr: string | null;
   seq: number | null;
   detail: string;
+}
+
+/** When a milestone happened: a row's own time or an event's recorded time, with the API's exact string. */
+type MilestoneTime = Pick<Milestone, 'atNs' | 'atNsStr'>;
+const NO_TIME: MilestoneTime = { atNs: null, atNsStr: null };
+
+/** `record[key]` as a milestone time, or null when the record or the value is absent. */
+function timeOf<T extends object>(record: T | null | undefined, key: Extract<keyof T, string>): MilestoneTime | null {
+  const v = record ? (record as unknown as Record<string, unknown>)[key] : undefined;
+  return typeof v === 'number' ? { atNs: v, atNsStr: nsStrOf(record, key) } : null;
 }
 
 function lastOf(timeline: readonly EventRecord[], pred: (e: EventRecord) => boolean): EventRecord | undefined {
@@ -117,14 +130,14 @@ export function sessionMilestones(session: Session, timeline: readonly EventReco
   const settled = lastOf(timeline, (e) => e.type === 'SessionSettled');
   const cancelledState = st === 'CANCELLED';
   const unstarted = st === 'REQUESTED' || st === 'WAITING_FUNDS' || st === 'READY' || cancelledState;
-  const t = (row: number | null | undefined, ev: EventRecord | undefined) => row ?? ev?.recorded_time_ns ?? null;
+  const t = (row: MilestoneTime | null, ev: EventRecord | undefined): MilestoneTime => row ?? timeOf(ev, 'recorded_time_ns') ?? NO_TIME;
 
   const out: Milestone[] = [];
   out.push({
     id: 'requested',
     label: 'Requested',
     state: 'done',
-    atNs: t(session.created_at_ns, requested),
+    ...t(timeOf(session, 'created_at_ns'), requested),
     seq: requested?.seq ?? null,
     detail: session.predecessor_id ? `Successor of ${session.predecessor_id}; mandate frozen from the active template at creation.` : 'Owner request recorded.',
   });
@@ -134,7 +147,7 @@ export function sessionMilestones(session: Session, timeline: readonly EventReco
     id: 'funded',
     label: 'Funded',
     state: fundedState,
-    atNs: t(session.funded_at_ns, funded),
+    ...t(timeOf(session, 'funded_at_ns'), funded),
     seq: funded?.seq ?? null,
     detail:
       fundedState === 'done'
@@ -149,7 +162,7 @@ export function sessionMilestones(session: Session, timeline: readonly EventReco
     id: 'started',
     label: 'Started',
     state: startedState,
-    atNs: t(session.started_at_ns, started),
+    ...t(timeOf(session, 'started_at_ns'), started),
     seq: started?.seq ?? null,
     detail:
       startedState === 'done'
@@ -168,7 +181,7 @@ export function sessionMilestones(session: Session, timeline: readonly EventReco
     id: 'goal_observed',
     label: 'Goal observed',
     state: goal ? 'done' : unstarted || ended || st === 'CLOSED' ? 'skipped' : 'pending',
-    atNs: goal?.recorded_time_ns ?? null,
+    ...t(null, goal),
     seq: goal?.seq ?? null,
     detail: goal
       ? `Marked equity ${goalEquity ? moneyText(goalEquity, session.currency) : 'unknown'} reached the target ${moneyText(goalTarget ?? session.target, session.currency)}. Observation on marks is not completion.`
@@ -184,7 +197,7 @@ export function sessionMilestones(session: Session, timeline: readonly EventReco
     id: 'wind_down',
     label: 'Wind-down',
     state: windState,
-    atNs: wind ? (session.ended_at_ns ?? wind.recorded_time_ns) : null,
+    ...(wind ? t(timeOf(session, 'ended_at_ns'), wind) : NO_TIME),
     seq: wind?.seq ?? null,
     detail: wind
       ? `Reason ${infoText(wind.info.reason) ?? session.wind_down_reason ?? 'unknown'}.${st === 'WINDING_DOWN' && session.blockers.length ? ` Blockers: ${session.blockers.join(', ')}.` : ''}`
@@ -199,7 +212,7 @@ export function sessionMilestones(session: Session, timeline: readonly EventReco
     id: 'reconciliation',
     label: 'Reconciliation',
     state: reconState,
-    atNs: recon?.recorded_time_ns ?? null,
+    ...t(null, recon),
     seq: recon?.seq ?? null,
     detail: recon
       ? st === 'RECONCILING'
@@ -218,7 +231,7 @@ export function sessionMilestones(session: Session, timeline: readonly EventReco
       id: 'completion',
       label: 'Completed',
       state: 'done',
-      atNs: session.completed_at_ns ?? completed.recorded_time_ns,
+      ...t(timeOf(session, 'completed_at_ns'), completed),
       seq: completed.seq,
       detail: `Target reached. Terminal equity ${optMoney(session.terminal_equity ?? infoText(completed.info.terminal_equity), session.currency)} protected as completed proceeds; no transfer is made.`,
     };
@@ -228,7 +241,7 @@ export function sessionMilestones(session: Session, timeline: readonly EventReco
       label: 'Closed',
       state: 'done',
       // ended_at_ns keeps the wind-down start; the close itself is the SessionClosed event.
-      atNs: closed.recorded_time_ns,
+      ...t(null, closed),
       seq: closed.seq,
       detail: `Outcome ${session.outcome ?? infoText(closed.info.outcome) ?? 'not recorded'}; terminal equity ${optMoney(session.terminal_equity ?? infoText(closed.info.terminal_equity), session.currency)} returned to unallocated. No successor.`,
     };
@@ -237,12 +250,12 @@ export function sessionMilestones(session: Session, timeline: readonly EventReco
       id: 'completion',
       label: 'Cancelled',
       state: 'done',
-      atNs: cancelled.recorded_time_ns,
+      ...t(null, cancelled),
       seq: cancelled.seq,
       detail: 'Cancelled before start.',
     };
   } else {
-    completion = { id: 'completion', label: 'Completion', state: 'pending', atNs: null, seq: null, detail: 'Not completed.' };
+    completion = { id: 'completion', label: 'Completion', state: 'pending', ...NO_TIME, seq: null, detail: 'Not completed.' };
   }
   out.push(completion);
 
@@ -252,7 +265,7 @@ export function sessionMilestones(session: Session, timeline: readonly EventReco
       id: 'settlement',
       label: 'Settled',
       state: 'done',
-      atNs: t(session.settled_at_ns, settled),
+      ...t(timeOf(session, 'settled_at_ns'), settled),
       seq: settled?.seq ?? completed?.seq ?? null,
       detail: settled ? 'Every protected receivable confirmed settled.' : 'Nothing was pending settlement at completion.',
     };
@@ -261,7 +274,7 @@ export function sessionMilestones(session: Session, timeline: readonly EventReco
       id: 'settlement',
       label: 'Settlement',
       state: 'current',
-      atNs: null,
+      ...NO_TIME,
       seq: null,
       detail: 'Protected proceeds include receivables that have not settled yet.',
     };
@@ -270,12 +283,12 @@ export function sessionMilestones(session: Session, timeline: readonly EventReco
       id: 'settlement',
       label: 'Settlement',
       state: 'skipped',
-      atNs: null,
+      ...NO_TIME,
       seq: null,
       detail: st === 'CLOSED' ? 'Not tracked for the session: pending settlements moved to unallocated with the capital.' : 'Not applicable.',
     };
   } else {
-    settlement = { id: 'settlement', label: 'Settlement', state: 'pending', atNs: null, seq: null, detail: 'Not reached.' };
+    settlement = { id: 'settlement', label: 'Settlement', state: 'pending', ...NO_TIME, seq: null, detail: 'Not reached.' };
   }
   out.push(settlement);
   return out;
