@@ -566,6 +566,34 @@ class RetentionTest(unittest.TestCase):
         self.assertGreaterEqual(held["pruned_through"], old)
         self.assertEqual(held["unmarked"], 0)
 
+    def test_both_entry_points_take_the_retention_from_their_command_line(self):
+        """Review regression: ``--journal-retention-days`` reaches the service from the simulator entry point
+        and from the IBKR one (which had no such flag), and a value that would make every prune fail unseen
+        (NaN, infinity) or prune nothing sensible (negative) is refused at the command line."""
+        from unknown.broker.ibkr import serve as ibkr_serve
+        from unknown.service import core as core_module
+        home = Home(self)
+        common = ["--account", ACCOUNT, "--deployment", "mac-dev", "--home", str(home.paths.root)]
+        with mock.patch.object(core_module.logging, "basicConfig"):
+            with mock.patch.object(core_module, "serve") as served:
+                core_module.main(common + ["--journal-retention-days", "7"])
+            self.assertEqual(served.call_args.args[0].intervals.journal_retention_s, 7 * 86400)
+            with mock.patch.object(core_module, "serve") as served:
+                core_module.main(common)
+            self.assertEqual(served.call_args.args[0].intervals.journal_retention_s, 30 * 86400)
+            with mock.patch.object(ibkr_serve, "build_service", return_value=(object(), None)) as built, \
+                    mock.patch.object(ibkr_serve, "serve"):
+                ibkr_serve.main(common + ["--journal-retention-days", "0.5"])
+            self.assertEqual(built.call_args.kwargs["intervals"].journal_retention_s, 0.5 * 86400)
+            for main in (core_module.main, ibkr_serve.main):
+                for bad in ("-1", "nan", "inf", "x"):
+                    with self.subTest(main=main.__module__, value=bad), \
+                            mock.patch("sys.stderr"), mock.patch.object(core_module, "serve"), \
+                            mock.patch.object(ibkr_serve, "build_service") as built:
+                        with self.assertRaises(SystemExit):
+                            main(common + ["--journal-retention-days", bad])
+                        built.assert_not_called()
+
     def test_the_pruning_gap_is_recorded_once_per_restored_database_not_on_every_start(self):
         """Review regression: every journaled entry was pruned and nothing was journaled since, so a restored
         database has no anchor at any start. The gap is recorded at the first start only (its stop carries

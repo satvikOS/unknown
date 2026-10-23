@@ -722,6 +722,28 @@ def _simulated_broker(clock: Clock, cash: str):
     return SimulatedBroker(clock, initial_settled_cash=Fixed.parse(cash), calendar=WEEKDAYS_ONLY, settlement_days=1)
 
 
+def _retention_days(text: str) -> float:
+    try:
+        days = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number of days: {text!r}") from None
+    if not 0 <= days < float("inf"):   # NaN or infinity would make every prune fail, unseen, every hour
+        raise argparse.ArgumentTypeError(f"must be a finite, non-negative number of days, not {text!r}")
+    return days
+
+
+def add_journal_retention_argument(ap: argparse.ArgumentParser) -> None:
+    """``--journal-retention-days`` for every core entry point (this one and ``unknown.broker.ibkr.serve``)."""
+    ap.add_argument("--journal-retention-days", type=_retention_days, default=Intervals.journal_retention_s / 86400,
+                    help="keep applied broker-event journal entries this many days (default 30); unapplied entries "
+                         "are never pruned")
+
+
+def journal_intervals(args: argparse.Namespace) -> Intervals:
+    """The service intervals with the journal retention from ``add_journal_retention_argument``."""
+    return Intervals(journal_retention_s=args.journal_retention_days * 86400)
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description="Project Unknown core service (single writer)")
     ap.add_argument("--account", required=True, help="internal account key, e.g. SIM-1 or IBKR-PAPER-1")
@@ -732,12 +754,8 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--fixture-market", action="store_true", help="run the deterministic FIXTURE market (simulated broker only)")
     ap.add_argument("--sim-cash", default="300.00")
     ap.add_argument("--home", default=None, help="runtime root (default ~/.unknown or $UNKNOWN_HOME)")
-    ap.add_argument("--journal-retention-days", type=float, default=Intervals.journal_retention_s / 86400,
-                    help="keep applied broker-event journal entries this many days (default 30); unapplied entries "
-                         "are never pruned")
+    add_journal_retention_argument(ap)
     args = ap.parse_args(argv)
-    if args.journal_retention_days < 0:
-        ap.error("--journal-retention-days must not be negative")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     paths = Paths(Path(args.home).expanduser()) if args.home else Paths.default()
     clock = SystemClock()
@@ -752,7 +770,7 @@ def main(argv: list[str] | None = None) -> None:
             FixtureInstrument("FIX-EQ-2", Fixed.parse("42.00"), Fixed.parse("0.04"), Fixed.parse("0.01")),
         ])
     svc = CoreService(paths=paths, account_key=args.account, deployment_id=args.deployment, broker=broker, clock=clock,
-                      fixture_market=market, intervals=Intervals(journal_retention_s=args.journal_retention_days * 86400))
+                      fixture_market=market, intervals=journal_intervals(args))
     serve(svc)
 
 

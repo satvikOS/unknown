@@ -24,7 +24,7 @@ from pathlib import Path
 
 from ...domain.clock import SystemClock
 from ...market.quotes import QuoteBook
-from ...service.core import CoreService, serve
+from ...service.core import CoreService, Intervals, add_journal_retention_argument, journal_intervals, serve
 from ...service.paths import Paths
 from .adapter import PROVIDER, IbkrAdapter
 from .config import load_config
@@ -80,8 +80,8 @@ class MarketDataMaintainer:
             self.stop.wait(wait)
 
 
-def build_service(*, account: str, deployment: str, config_path: str | None = None, home: str | None = None
-                  ) -> tuple[CoreService, MarketDataMaintainer | None]:
+def build_service(*, account: str, deployment: str, config_path: str | None = None, home: str | None = None,
+                  intervals: Intervals | None = None) -> tuple[CoreService, MarketDataMaintainer | None]:
     clock = SystemClock()
     cfg = load_config(config_path)
     paths = Paths(Path(home).expanduser()) if home else Paths.default()
@@ -100,7 +100,7 @@ def build_service(*, account: str, deployment: str, config_path: str | None = No
     order_pacer, md_pacer = split_host_budget(cfg, md_cfg) if md_cfg is not None else (None, None)
     adapter = IbkrAdapter(cfg, instrument_resolver=resolve, clock=clock, pacer=order_pacer)
     svc = CoreService(paths=paths, account_key=account, deployment_id=deployment, broker=adapter, clock=clock,
-                      quotes=quotes)
+                      quotes=quotes, intervals=intervals)
     svc.broker_mapping_provider = PROVIDER
     holder.append(svc)
     maintainer = None
@@ -117,10 +117,11 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--deployment", required=True, help="deployment id, e.g. mac-dev")
     ap.add_argument("--config", default=None, help="IBKR config (default ~/.unknown/ibkr.json; must be outside git)")
     ap.add_argument("--home", default=None, help="runtime root (default ~/.unknown or $UNKNOWN_HOME)")
+    add_journal_retention_argument(ap)
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     svc, maintainer = build_service(account=args.account, deployment=args.deployment, config_path=args.config,
-                                    home=args.home)
+                                    home=args.home, intervals=journal_intervals(args))
     if maintainer is not None:
         threading.Thread(target=maintainer.run, name="ibkr-marketdata", daemon=True).start()
     serve(svc)
