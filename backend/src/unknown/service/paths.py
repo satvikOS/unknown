@@ -6,6 +6,7 @@ Default root is ``~/.unknown`` (override with ``UNKNOWN_HOME``):
   secrets/agent_token    token allowing research workers to assert AGENT
   secrets/owner.json     scrypt hash of the owner passphrase
   data/<account>.sqlite  core database (one per execution account)
+  data/<account>.events  broker-event journal (BR-ORD-20; not in the online backup)
   backups/               online backups
 """
 from __future__ import annotations

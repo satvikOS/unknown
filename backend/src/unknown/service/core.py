@@ -42,7 +42,8 @@ from ..domain.clock import Clock, SystemClock, NS_PER_S
 from ..domain.errors import CommandConflict, LeaseLost
 from ..domain.ids import IdGenerator, validate_id
 from ..domain.principal import Principal, Role, permitted
-from ..gateway.runner import GatewayRunner
+from ..gateway.journal import EventJournal
+from ..gateway.runner import GatewayRunner, attach_journal, detach_journal
 from ..reconcile.reconciler import Reconciler
 from .ipc import CoreSocketServer, Grant, OutcomeUnknown, describe_request
 from .paths import Paths
@@ -138,6 +139,7 @@ class CoreService:
         self._last_heartbeat = float("-inf")
         self.memory_latch: MemoryLatch | None = None   # a red stop the database has not recorded yet (BR-SES-13)
         self._last_latch_alarm = float("-inf")
+        self.journal: EventJournal | None = None   # <data>/<account>.events, opened by run() (BR-ORD-20)
 
     # ------------------------------------------------------- memory stop latch
     @property
@@ -166,7 +168,7 @@ class CoreService:
 
     def make_runner(self) -> GatewayRunner:
         return GatewayRunner(self.desk, self.broker, self.account_key, heartbeat=self._heartbeat_if_due,
-                             entry_gate=self._entry_gate)
+                             entry_gate=self._entry_gate, journal=self.journal)
 
     def _latch_in_memory(self, command: Command, exc: BaseException) -> dict:
         """The database did not record the stop ``command``: latch it in memory, cancel open buys at the broker,
@@ -419,7 +421,8 @@ class CoreService:
                         "broker_server_time_ns": h.broker_server_time_ns, "disk_free_mb": h.disk_free_mb,
                         "detail": h.detail, "now_ns": self.clock.now_ns(), "cycle_errors": self.cycle_errors,
                         "provider": self.broker_provider(), "account_mode": h.broker_account_mode,
-                        "memory_latch": self.memory_latch.view() if self.memory_latch is not None else None}
+                        "memory_latch": self.memory_latch.view() if self.memory_latch is not None else None,
+                        "event_journal": self.journal.status() if self.journal is not None else None}
             if name == "preflight":
                 if "OWNER" not in roles:
                     raise PermissionError("preflight dry run requires the owner token")
@@ -600,17 +603,32 @@ class CoreService:
         return open_desk(self.paths.db(self.account_key), self.clock, ids, deployment_id=self.deployment_id,
                          health=self.health, calendars=load_calendars(CALENDAR_DIR), quotes=self.quotes)
 
+    def _replay_journal(self, runner: GatewayRunner) -> None:
+        """Before any request or new broker event, apply what an earlier process journaled but did not
+        apply, in journal order (BR-ORD-20). A failure is logged; the loop's drains retry it and fail closed."""
+        try:
+            if self.desk.store.query("SELECT 1 FROM accounts WHERE account_key=?", (self.account_key,)):
+                n = runner.replay_journal()
+                if n:
+                    log.info("applied %d journaled broker events left unapplied by an earlier process", n)
+        except Exception:
+            log.exception("replaying the broker event journal failed; the loop retries it")
+
     def run(self) -> None:
         self.desk = self.open_desk()
         self._load_latch_file()   # a stop an earlier process latched in memory but never recorded (BR-SES-13)
         if self.fixture_market is not None:
             self.fixture_market.quotes = self.desk.quotes
+        # Every broker event is journaled before it is applied; the reconciler's runner uses the same journal.
+        self.journal = EventJournal(self.paths.data / f"{self.account_key}.events", self.account_key, self.clock.now_ns)
+        attach_journal(self.broker, self.journal)
         tokens = {self.paths.token(name, create=True): roles for name, roles in SOCKET_ROLES.items()}
         tokens.update({token: Grant({"STRATEGY"}, artifact) for artifact, token in self.paths.strategy_tokens().items()})
         self.server = CoreSocketServer(self.paths.socket, tokens, self._enqueue)
         self.server.start()
         runner = self.make_runner()
         reconciler = Reconciler(self.desk, self.broker, self.account_key, heartbeat=self._heartbeat_if_due)
+        self._replay_journal(runner)
         last_val = last_rec = 0.0
         self.ready.set()
         log.info("core started: account=%s deployment=%s epoch=%s", self.account_key, self.deployment_id, self.desk.store.epoch)
@@ -657,6 +675,8 @@ class CoreService:
         self.server.shutdown()
         self.server.server_close()
         self._fail_pending_requests("core stopped")
+        detach_journal(self.broker)
+        self.journal.close()   # unapplied entries stay in the file for the next process
         try:
             self.desk.store.release_lease()
         except LeaseLost:
