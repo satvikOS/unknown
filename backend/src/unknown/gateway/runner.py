@@ -24,8 +24,11 @@ journal cannot be written, the runner stops taking events from the broker (at
 most ``limit`` popped events wait in memory, the rest stay in the adapter),
 latches the stop through the system ``stop`` command, records an INCOMPLETE
 reconciliation (so reconciliation is required before a green start) and raises
-``JournalUnavailable``; journaled entries are still applied. The first
-successful append ends the failure; the stop stays latched for the owner.
+``JournalUnavailable``; journaled entries are still applied. ``pump`` makes
+the broker's events durable before its outbox pass and, when that append
+fails, fails closed before the pass: cancels still go out, but no new buy is
+transmitted while events cannot be journaled. The first successful append
+ends the failure; the stop stays latched for the owner.
 
 The core, not the journal's marks, decides what was applied. At process start
 (``replay_journal``) marked entries whose commands the core does not have are
@@ -389,13 +392,21 @@ class GatewayRunner:
         self.desk.run_system(kind, payload)
 
     def pump(self) -> PumpStats:
-        if self.journal is not None:
-            # Make what the broker has already sent durable before the (possibly slow) outbox pass.
+        journal = self.journal
+        if journal is not None:
+            # Make what the broker has already sent durable before the (possibly slow) outbox pass. A journal
+            # that cannot take them fails closed HERE, before the pass: the stop is latched and reconciliation
+            # is required, so the pass still sends cancels (risk-reducing) but transmits no new buy while the
+            # gateway cannot make broker events durable.
             try:
                 self.journal_broker_events()
+            except JournalUnavailable as exc:
+                try:
+                    self._fail_closed(journal, exc)
+                except Exception:   # the core cannot record it either: never hold back the cancels below
+                    log.exception("could not fail closed before the outbox pass")
             except Exception:
-                pass   # raised again by drain_events below (journal failures fail closed there), after the
-                       # outbox pass: a failing intake must never hold back cancels
+                pass   # an event that cannot be mapped: raised again by drain_events below, after the outbox pass
         stats = self.pump_outbox()
         stats.events = self.drain_events()
         return stats

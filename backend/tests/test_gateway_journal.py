@@ -1245,5 +1245,47 @@ class ReviewRegressionTest(unittest.TestCase):
         self.assertEqual(h.verify(), [])
 
 
+class SecondReviewTest(unittest.TestCase):
+    """Second adversarial review of BR-ORD-20 (feat/gateway-event-journal). Each test failed before its fix, or
+    (marked "coverage") was the only test to fail when the code it names was removed."""
+
+    def setUp(self):
+        quiet(self)
+
+    def test_a_journal_failure_before_the_outbox_pass_transmits_no_new_buy(self):
+        """The pump journals what the broker sent before its outbox pass. When that append fails, the desk fails
+        closed BEFORE the pass: a buy queued in the outbox is not transmitted while broker events cannot be made
+        durable, and the stop's cancel of the working order goes out in the same pass. Before the fix the failure
+        was swallowed until after the pass, so the new buy reached the broker (and was then cancelled)."""
+        j = Journaled()
+        self.addCleanup(j.close)
+        h = j.h
+        running_session(h)
+        self.assertTrue(h.intent("B0", "BUY", "5", "10.00", "A").accepted)
+        h.pump()
+        h.broker.fill("B0", F("2"), F("10.00"), commission=F("1.00"), duplicate_callbacks=8)
+        self.assertTrue(h.intent("B1", "BUY", "5", "10.00", "A").accepted)   # queued in the outbox, not sent
+        previous = fill_page_cap(j.journal)
+        with self.assertRaises(JournalUnavailable):
+            h.pump()
+        self.assertFalse(h.broker.lookup("B1").found, "a new buy reached the broker while the journal was failing")
+        self.assertNotIn(h.row("orders", "order_id", "B1")["state"], ("SUBMIT_PENDING", "ACKNOWLEDGED"))
+        self.assertEqual(h.broker.lookup("B0").status.value, "CANCELED", "the stop's cancel goes out in the same pass")
+        ctl = h.control()
+        self.assertTrue(ctl["stop_latched"] and ctl["needs_reconciliation"])
+        self.assertTrue(ctl["latch_reason"].startswith(JOURNAL_STOP_REASON), ctl["latch_reason"])
+        stops = h.desk.store.query("SELECT COUNT(*) AS n FROM events WHERE type IN ('StopLatched','StopReasserted')")
+        self.assertEqual(stops[0]["n"], 1, "the failure is recorded once, not again by the drain after the pass")
+        self.assertEqual(h.verify(), [])
+        free_page_cap(j.journal, previous)
+        h.pump()
+        h.pump()
+        b0 = h.row("orders", "order_id", "B0")
+        self.assertEqual((b0["state"], b0["cum_qty"]), ("CANCELED", "2"))
+        self.assertEqual(j.journal.unapplied_count(), 0)
+        self.assertEqual(h.reconcile().body["status"], "CLEAN")
+        self.assertEqual(h.verify(), [])
+
+
 if __name__ == "__main__":
     unittest.main()
