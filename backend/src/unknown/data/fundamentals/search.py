@@ -4,7 +4,9 @@ Local sources only (an API read path never calls the network):
 
 1. SEC ``company_tickers_exchange.json`` snapshot received at or before the as-of time
    (``sources.sec_tickers``);
-2. issuers ingested into the research store (SEC submissions: name, former names, SIC, tickers);
+2. issuers ingested into the research store (SEC submissions: name, former names, SIC, tickers) and EU
+   issuers from ESEF filings (``sources.esef``: LEI, name, filing countries, reporting currency) with their
+   ESMA FIRDS listings (ISIN, MIC, CFI, currency; ``sources.firds``);
 3. OpenFIGI mapping outcomes stored at or before the as-of time (``sources.openfigi``);
 4. the core instrument master (``instruments`` and versioned ``provider_mappings``), read through
    the API's read-only core connection.
@@ -22,6 +24,8 @@ import json
 import sqlite3
 
 from ...domain.clock import ns_to_iso
+from ..sources import esef as esef_src
+from ..sources import firds as firds_src
 from ..sources import openfigi as openfigi_src
 from ..sources import sec_tickers
 from ..sources.identifiers import classify
@@ -58,7 +62,7 @@ def search(query: str, *, as_of_ns: int, store=None, core_conn: sqlite3.Connecti
         raise ValueError("query must be 1-100 characters")
     if not 1 <= limit <= 200:
         raise ValueError("limit must be between 1 and 200")
-    qtype = classify(q)
+    qtype = "LEI" if esef_src.lei_valid(q) else classify(q)
     qu = q.upper()
     cik_q = int(qu.removeprefix("CIK")) if qtype == "CIK" else None
     issuers: dict[int, dict] = {}
@@ -67,7 +71,8 @@ def search(query: str, *, as_of_ns: int, store=None, core_conn: sqlite3.Connecti
 
     def issuer(cik: int, name: str) -> dict:
         return issuers.setdefault(cik, {"kind": "issuer", "cik": cik, "entity_id": f"SEC-CIK-{cik:010d}", "name": name,
-                                        "listings": [], "match": None, "ingested": False, "sources": []})
+                                        "listings": [], "match": None, "ingested": False, "sources": [],
+                                        "source_label": "SEC EDGAR (US filer)"})
 
     if qtype == "LICENSED_ID":
         sources.append({"source": "query", "status": "REFUSED", "reason": "CUSIP/SEDOL-shaped query: licensed identifier, not "
@@ -126,6 +131,32 @@ def search(query: str, *, as_of_ns: int, store=None, core_conn: sqlite3.Connecti
                     store.conn.execute("SELECT attributes FROM entity WHERE kind='issuer'")}
         for cik, it in issuers.items():
             it["ingested"] = it["ingested"] or cik in ingested
+        # 2b. EU issuers (ESEF) and their FIRDS listings
+        n_eu = 0
+        isin_leis = {i.get("issuer_lei") for i in firds_src.instruments_by_isin(store, qu)} if qtype == "ISIN" else set()
+        for r in store.conn.execute("SELECT entity_id, name, attributes FROM entity WHERE kind='eu_issuer'"):
+            attrs = json.loads(r["attributes"] or "{}")
+            lei = attrs.get("lei")
+            m = "EXACT_ID" if lei and (lei == qu or lei in isin_leis) else _name_match(q, r["name"])
+            if m is None:
+                continue
+            listings = firds_src.instruments_for_issuer(store, lei)
+            if m != "EXACT_ID" and any((i.get("short_name") or "").upper() == qu for i in listings):
+                m = "EXACT_TICKER"
+            n_eu += 1
+            currency = _esef_currency(store, r["entity_id"])
+            others.append({"kind": "eu_issuer", "lei": lei, "entity_id": r["entity_id"], "name": r["name"], "match": m,
+                           "countries": attrs.get("countries", []), "esef_status": attrs.get("esef_status"), "reason": attrs.get("reason"),
+                           "reporting_currency": currency, "filings": len(attrs.get("filings", [])),
+                           "source": "filings.xbrl.org (ESEF)", "source_label": "ESEF annual reports (EU, IFRS)",
+                           "retrieved_at": attrs.get("index_checked_at"), "ingested": True,
+                           "listings": [{"isin": i.get("isin"), "mic": i.get("mic"), "cfi": i.get("cfi"), "currency": i.get("currency"),
+                                         "name": i.get("full_name"), "source": "esma.firds"} for i in listings]})
+        for i in (firds_src.instruments_by_isin(store, qu) if qtype == "ISIN" else []):
+            others.append({"kind": "eu_instrument", "isin": i.get("isin"), "mic": i.get("mic"), "cfi": i.get("cfi"), "name": i.get("full_name"),
+                           "currency": i.get("currency"), "issuer_lei": i.get("issuer_lei"), "match": "EXACT_ID", "source": "esma.firds",
+                           "file_name": i.get("file_name")})
+        sources.append({"source": "research.eu_issuers", "status": "OK", "matched": n_eu})
         # 3. OpenFIGI outcomes
         n_figi = 0
         for m in openfigi_src.mappings_as_of(store, as_of_ns):
@@ -185,9 +216,17 @@ def search(query: str, *, as_of_ns: int, store=None, core_conn: sqlite3.Connecti
                     seen.add(k)
                     uniq.append(li)
             c["listings"] = uniq
-    cands.sort(key=lambda c: (RANK[c["match"]], 0 if c["kind"] == "instrument" else 1 if c["kind"] == "issuer" else 2,
-                              c.get("name") or "", str(c.get("cik") or c.get("instrument_id") or c.get("figi"))))
+    cands.sort(key=lambda c: (RANK[c["match"]], 0 if c["kind"] == "instrument" else 1 if c["kind"] in ("issuer", "eu_issuer") else 2,
+                              c.get("name") or "", str(c.get("cik") or c.get("instrument_id") or c.get("figi") or c.get("lei") or c.get("isin"))))
     return _result(q, qtype, as_of_ns, cands[:limit], sources, total=len(cands))
+
+
+def _esef_currency(store, entity_id: str) -> str | None:
+    """Reporting currency of the newest ESEF money fact held (label only; statements recompute it as of a time)."""
+    r = store.conn.execute("SELECT unit FROM observation WHERE dataset=? AND entity_id=? AND field IN ('ifrs-full:Assets', "
+                           "'ifrs-full:Revenue', 'ifrs-full:ProfitLoss') AND length(unit)=3 ORDER BY period_end DESC LIMIT 1",
+                           (esef_src.DATASET, entity_id)).fetchone()
+    return r["unit"] if r else None
 
 
 def _former_names(store, attrs: dict) -> list[str]:
