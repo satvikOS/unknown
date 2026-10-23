@@ -129,7 +129,7 @@ There is no persisted feature state to restore: every decision rebuilds the stra
 
 ## Evidence retention (BR-DAT-16)
 
-The runner's expiry check uses the registry's effective expiry: the registered `expires_on`, bounded by the `retention_until` of every dataset the artifact's evidence rests on. An artifact whose evidence data was deleted is `EVIDENCE_EXPIRED` in the registry: it keeps running until its effective expiry (the summary's `evidence_status` says so, with a warning in the log), but it can never be promoted again (`docs/research/README.md`).
+The runner's expiry check uses the registry's effective expiry: the registered `expires_on`, bounded by the `retention_until` of every dataset the artifact's evidence rests on and by the day before any recorded deletion of that data (or before its recording, if earlier). An artifact whose evidence data was deleted is `EVIDENCE_EXPIRED` in the registry, so its effective expiry has passed: the runner refuses it as `ARTIFACT_EXPIRED` in every mode, whatever its lifecycle status, and it can never be promoted again (`docs/research/README.md`). The registry learns of a deletion in the point-in-time store only when the deletion sweep runs; a retention deletion is already bounded by the manifest's retention date, but an artifact on data whose rights were withdrawn runs until that sweep. The cycle summary keeps its `evidence_status` field.
 
 ## Artifact identity and eligibility
 

@@ -51,7 +51,7 @@ from .core_replay import replay_through_core
 from .engine import BacktestConfig, BacktestResult, run_backtest
 from .fixtures import KINDS, fixture_instrument, recipe, synthetic_bars
 from .folds import walk_forward
-from .manifest import build_manifest, compare_replay, git_state
+from .manifest import UNBOUNDED, build_manifest, compare_replay, git_state
 from .promotion import PromotionService
 from .registry import ResearchRegistry
 from .spec import StrategySpec
@@ -120,8 +120,11 @@ class _Study:
                  run_kind: str, extra: dict | None = None) -> dict:
         return build_manifest(run_kind=run_kind, strategy_id=spec.strategy_id, spec_hash=spec.spec_hash,
                               parameters={k: v.to_str() for k, v in spec.parameters.items()}, config=cfg.to_json(),
+                              # Synthetic series regenerated from their recipes: no licensed data, so no deletion
+                              # deadline bounds the artifacts resting on them (BR-DAT-16).
                               datasets={f"FIXTURE.{kind}": {"fingerprint": fingerprint_until(series, until),
-                                                            "until": until.isoformat(), "recipes": recipes}},
+                                                            "until": until.isoformat(), "recipes": recipes,
+                                                            "retention_until": UNBOUNDED}},
                               seeds={"engine": cfg.seed, "fixtures": sum(r["seed"] for r in recipes)}, extra=extra)
 
     def run(self, exp: str, kind: str, spec: StrategySpec, view: DatasetView, series: dict, recipes: list, *, segment: str,

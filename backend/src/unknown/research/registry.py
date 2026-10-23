@@ -66,7 +66,8 @@ def default_path() -> Path:
 
 
 _IMMUTABLE = ("strategy_spec", "experiment", "amendment", "manifest", "holdout_access", "report",
-              "artifact", "evidence", "protocol", "selection_policy", "shadow_envelope", "evidence_deletion", "transition")
+              "artifact", "evidence", "protocol", "selection_policy", "shadow_envelope", "evidence_deletion",
+              "evidence_deletion_event", "transition")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -117,6 +118,10 @@ CREATE TABLE IF NOT EXISTS shadow_envelope (
 CREATE TABLE IF NOT EXISTS evidence_deletion (
   dataset TEXT PRIMARY KEY, deleted_at_ns INTEGER NOT NULL, reason TEXT NOT NULL, recorded_at_ns INTEGER NOT NULL,
   recorded_by TEXT NOT NULL, recorded_role TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS evidence_deletion_event (
+  event_id TEXT PRIMARY KEY, dataset TEXT NOT NULL, cause TEXT NOT NULL, reason TEXT NOT NULL,
+  deleted_at_ns INTEGER NOT NULL, scope TEXT NOT NULL, observations INTEGER NOT NULL, raw_objects TEXT NOT NULL,
+  recorded_at_ns INTEGER NOT NULL, recorded_by TEXT NOT NULL, recorded_role TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS transition (
   seq INTEGER PRIMARY KEY AUTOINCREMENT, artifact_hash TEXT NOT NULL REFERENCES artifact(artifact_hash),
   from_status TEXT, to_status TEXT NOT NULL, at_ns INTEGER NOT NULL, principal TEXT NOT NULL, role TEXT NOT NULL,

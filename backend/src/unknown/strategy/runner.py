@@ -481,7 +481,7 @@ class StrategyRunner:
             "runtime_code_hash": self.runtime_code, "evidence_status": art.evidence_status,
             "calendar": f"{self.cfg.calendar.calendar_id}@{self.cfg.calendar.version}", "instruments": {}, "result": "OK"}
         if art.evidence_status != "CURRENT":
-            log.warning("%s is %s (data its evidence rests on was deleted): it runs until %s and cannot be promoted again",
+            log.warning("%s is %s (its evidence data was deleted) yet loaded, expiry %s: a deletion ends the expiry",
                         art.artifact_id, art.evidence_status, art.expires_on)
         if self.rewarm is None:
             self.rewarm = self._rewarm_check(art, clock_utc)

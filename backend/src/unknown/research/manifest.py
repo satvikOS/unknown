@@ -15,12 +15,23 @@ records the result hash after it finishes. It holds:
 ``manifest_hash`` = SHA-256 over the canonical manifest without that field.
 ``compare_replay`` re-runs and reports ``replay_exact`` (event-log SHA-256
 equality) plus a list of manifest fields that differ.
+
+Evidence retention (BR-DAT-16). Each dataset entry states ``retention_until``:
+the last UTC day a result resting on the data may be used, i.e. the day before
+the earliest instant at which the licence requires the observations the run
+read to be deleted (``retention_date``), or ``"unbounded"`` when the dataset
+has no retention. ``research.bars.pit_manifest_entry`` derives it from the
+point-in-time store and the provider registry, with the ``scope`` (entities and
+availability cutoff) the run read, which the research registry later matches
+against the store's deletion events. Synthetic fixtures are ``"unbounded"``. An
+entry without the field (written before this rule) is reported as unrecorded.
 """
 from __future__ import annotations
 
 import hashlib
 import platform
 import subprocess
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +40,27 @@ from .common import stable_hash
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]          # backend/src/unknown
 REPO_ROOT = Path(__file__).resolve().parents[4]
 CODE_PATHS = ("research", "domain", "data/pit.py")
+UNBOUNDED = "unbounded"                                     # dataset entry retention: the data has no deletion deadline
+
+
+def retention_date(deadline_ns: int) -> date:
+    """The last UTC day on which a result resting on data that must be deleted at ``deadline_ns`` may still be used:
+    the day before the deadline's UTC date. Day-granular expiry (``expires_on < today`` is expired) then never
+    reaches the deadline instant."""
+    if type(deadline_ns) is not int or deadline_ns < 0:
+        raise ValueError("a retention deadline is a non-negative integer of nanoseconds since the epoch")
+    return datetime.fromtimestamp(deadline_ns // 1_000_000_000, tz=timezone.utc).date() - timedelta(days=1)
+
+
+def check_retention(name: str, entry: Any) -> None:
+    """A dataset entry's ``retention_until`` is an ISO date or ``"unbounded"`` (absent or null: not recorded)."""
+    value = entry.get("retention_until") if isinstance(entry, dict) else None
+    if value is None or value == UNBOUNDED:
+        return
+    try:
+        date.fromisoformat(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"dataset {name}: retention_until {value!r} is neither an ISO date nor {UNBOUNDED!r}") from None
 
 
 def code_hash(root: Path = PACKAGE_ROOT) -> dict:
@@ -70,6 +102,8 @@ def _git_state(repo: Path) -> dict:
 def build_manifest(*, run_kind: str, strategy_id: str, spec_hash: str, parameters: dict[str, str], config: dict,
                    datasets: dict[str, dict], seeds: dict[str, int], extra: dict[str, Any] | None = None,
                    include_environment: bool = True) -> dict:
+    for name, entry in datasets.items():
+        check_retention(name, entry)
     m: dict[str, Any] = {
         "manifest_version": 1, "run_kind": run_kind, "strategy_id": strategy_id, "spec_hash": spec_hash,
         "parameters": dict(sorted(parameters.items())), "config_hash": stable_hash(config), "config": config,

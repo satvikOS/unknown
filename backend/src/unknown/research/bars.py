@@ -304,6 +304,42 @@ def bars_as_of_pit(store, dataset_id: str, instrument_id: str, t_ns: int, *, kno
     return [latest[d] for d in sorted(latest)]
 
 
+def pit_manifest_entry(store, dataset_id: str, series: dict[str, BarSeries], until: date, cutoff_ns: int, *,
+                       providers: dict | None = None) -> dict:
+    """The manifest entry of a point-in-time bar dataset a run reads (CAP-RES-11; BR-DAT-16): the content fingerprint
+    of what the view ending at ``until`` contains, the scope the run read (instruments, availability cutoff) and the
+    retention bound of exactly those observations (``ResearchStore.retention_facts``, the observations
+    ``load_series(store, dataset_id, series, cutoff_ns)`` loads):
+
+        deadline = min(earliest retention_until_ns of the raw payloads they were extracted from,
+                       earliest receipt time (of the observations or of those payloads)
+                           + the provider registry's retention_days for the dataset)
+        retention_until = retention_date(deadline)        or "unbounded" when neither bounds it
+
+    The dataset must be registered in the provider registry (``providers``, default ``config/providers``):
+    unregistered data has no recorded rights, so no retention can be stated for it."""
+    from ..data.pit import NS_PER_DAY
+    from ..data.registry import dataset as registered_dataset, load_registry
+    from .manifest import UNBOUNDED, retention_date
+    ds = registered_dataset(providers if providers is not None else load_registry(), dataset_id)
+    facts = store.retention_facts(dataset_id, series, cutoff_ns)
+    bounds = []
+    if facts["raw_retention_until_ns"] is not None:
+        bounds.append(facts["raw_retention_until_ns"])
+    if ds.retention_days is not None and facts["first_receipt_ns"] is not None:
+        bounds.append(facts["first_receipt_ns"] + ds.retention_days * NS_PER_DAY)
+    deadline = min(bounds) if bounds else None
+    return {"fingerprint": fingerprint_until(series, until), "until": until.isoformat(), "source": "point-in-time store",
+            # ns as decimal strings (the API's convention for ns values)
+            "scope": {"entities": sorted(series), "available_until_ns": str(cutoff_ns)},
+            "retention_until": retention_date(deadline).isoformat() if deadline is not None else UNBOUNDED,
+            "retention": {"deadline_ns": str(deadline) if deadline is not None else None,
+                          "observations": facts["observations"], "registry_retention_days": ds.retention_days,
+                          "raw_retention_until_ns": (str(facts["raw_retention_until_ns"])
+                                                     if facts["raw_retention_until_ns"] is not None else None),
+                          "rights_source": ds.rights_source}}
+
+
 def load_series(store, dataset_id: str, instrument_ids: Iterable[str], cutoff_ns: int) -> dict[str, BarSeries]:
     """Every bar version with ``available_time <= cutoff_ns`` under current knowledge, as BarSeries.
 
