@@ -53,7 +53,7 @@
       "where": [
         "backend/src/unknown/core/ledger.py:158-182",
         "backend/src/unknown/core/handlers/sessions.py:230-260",
-        "backend/src/unknown/core/handlers/recon.py:146-197",
+        "backend/src/unknown/core/handlers/recon.py:148-199",
         "docs/adr/0006-ledger-owner-dimension.md#Holds (reservations)"
       ],
       "tests": [
@@ -166,26 +166,32 @@
     ],
     "verifier_note": "Quotes verified. The original said the reference 'would throw an AssertionError on (c)'. There is no reference command that can restore inventory, so that is true only of a direct port of the invariant at line 136; the wording has been tightened. Ch9 line 29 disclaims the simulator, but the book still gives no production rule. ADR-0008 decides 'late fees and corrections after completion post against protected:<id>; the completion stands'.",
     "disposition": {
-      "status": "OPEN",
-      "resolution": "Partly resolved. 'Fees final' is defined and tested: completion needs a broker commission or an owner-accepted estimate for every session execution; a later fee posts to protected:<id>, the completion and successor stand, and an exception is opened (blocking if protected cash would go negative). Price corrections after completion are now booked on protected:<id> (on unallocated after CLOSED) with a POST_COMPLETION_ADJUSTMENT, tested for a buy, a sell, a correction of a correction and after close. A new late execution is routed the same way in code.",
+      "status": "RESOLVED_IN_CODE",
+      "resolution": "'Fees final' is defined: completion needs a broker commission or an owner-accepted estimate for every session execution. Whatever arrives after a session ended is booked to whoever holds its balances now (protected:<id> after completion, unallocated after close; ADR-0008 amendment), and the completion and successor stand. A late fee posts there with a case (blocking if that owner's cash would go negative). A late fill, a bust (a correction to quantity zero, which used to fail the whole command and discard the broker fact) or a price correction is booked there and opens one blocking POST_COMPLETION_ADJUSTMENT per execution; a bust of a buy whose shares were already sold restates the sale's cost there; a cash shortfall moves to exception:<case>. Inventory left in protected:<id> or unallocated is sold by an owner DISPOSAL intent that reserves and books only that owner's lots, runs the full pretrade (the owner's disposal stands in for the session-state check, as the decision records) and reconciles like any trade; a bust, correction or fee change of a disposal fill opens a case too.",
       "where": [
         "backend/src/unknown/core/handlers/sessions.py:382-384",
-        "backend/src/unknown/core/handlers/control.py:232-241",
-        "backend/src/unknown/core/handlers/broker.py:42-58",
-        "backend/src/unknown/core/handlers/broker.py:429-430",
-        "backend/src/unknown/core/handlers/broker.py:781-783",
-        "docs/adr/0008-session-state-machine.md#Late fees and corrections after completion"
+        "backend/src/unknown/core/handlers/broker.py:44-53",
+        "backend/src/unknown/core/handlers/broker.py:490-495",
+        "backend/src/unknown/core/handlers/broker.py:533-554",
+        "backend/src/unknown/core/handlers/broker.py:763-807",
+        "backend/src/unknown/core/handlers/orders.py:93-100",
+        "backend/src/unknown/core/handlers/orders.py:174-183",
+        "docs/adr/0008-session-state-machine.md#Owner disposal"
       ],
       "tests": [
         "backend/tests/test_sessions.py::PostCompletionTest::test_late_commission_after_completion_posts_to_protected_and_opens_exception",
         "backend/tests/test_sessions.py::PostCompletionTest::test_late_fee_making_protected_cash_negative_opens_blocking_exception",
-        "backend/tests/test_review_fixes.py::CorrectionTests::test_f11_f27_buy_correction_after_completion_books_both_legs_on_protected",
-        "backend/tests/test_review_fixes.py::CorrectionTests::test_f11_f27_sell_correction_after_completion_books_both_legs_on_protected",
-        "backend/tests/test_review_fixes.py::CorrectionTests::test_f27_correction_after_close_books_both_legs_on_unallocated"
+        "backend/tests/test_core_lifecycle_post_completion.py::LateFillTests::test_late_fill_after_completion_lands_in_protected_and_is_disposed_and_reconciled",
+        "backend/tests/test_core_lifecycle_post_completion.py::LateFillTests::test_late_fill_after_close_lands_in_unallocated_with_a_case_and_is_disposed",
+        "backend/tests/test_core_lifecycle_post_completion.py::BustAndCorrectionTests::test_bust_of_the_wind_down_sell_returns_the_shares_to_protected_for_disposal",
+        "backend/tests/test_core_lifecycle_post_completion.py::BustAndCorrectionTests::test_bust_of_a_sold_buy_after_completion_restates_on_protected_and_flags_the_sold_shares",
+        "backend/tests/test_core_lifecycle_post_completion.py::BustAndCorrectionTests::test_price_correction_after_completed_settled_books_on_protected_and_the_session_stays_settled",
+        "backend/tests/test_core_lifecycle_review.py::DisposalAdjustmentTests::test_a_bust_of_a_disposal_fill_opens_a_post_completion_case",
+        "backend/tests/test_core_lifecycle_review.py::DisposalAdjustmentTests::test_the_brokers_commission_report_for_a_bust_is_recorded",
+        "backend/tests/test_review_fixes.py::CorrectionTests::test_f11_f27_sell_correction_after_completion_books_both_legs_on_protected"
       ],
-      "owner": "I1",
-      "missing": "Tests for a new execution (late fill) and for a bust (quantity correction to zero) arriving after completion, and a disposal path for inventory that lands in protected:<id> (pretrade SESSION_STATE refuses orders for a COMPLETED session).",
-      "verified_against": "impl/foundation@73f7b03",
+      "residual": "The reviewer's COMPLETED_RESTATED flag was not adopted: a completion is never restated (ADR-0008), and the owner reviews the case instead. Neither the terminal nor the CLI offers a DISPOSAL form; the owner sends submit_intent with purpose DISPOSAL through POST /api/commands (RB-14).",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -290,8 +296,8 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "Executions are keyed by a provider-scoped exec_key. A correction carries correction_of (the IBKR adapter derives it from the execId revision suffix and links to the latest prior revision) and is booked as reversing entries plus a replacement, never as a second fill. A re-delivery with identical economics is a no-op.",
       "where": [
-        "backend/src/unknown/core/handlers/broker.py:191-223",
-        "backend/src/unknown/core/handlers/broker.py:568-648",
+        "backend/src/unknown/core/handlers/broker.py:242-283",
+        "backend/src/unknown/core/handlers/broker.py:653-746",
         "backend/src/unknown/broker/ibkr/mapping.py:166-176",
         "backend/src/unknown/store/schema.py:124-126"
       ],
@@ -355,7 +361,7 @@
       "resolution": "The core schema (not contracts/ledger_schema.sql) has lots, holds (reservations), settlements (obligations with expected date, relieved account code and owner), postings with an owner column (the policy buckets), successors (UNIQUE predecessor) and executions carrying fee_estimate and fee_final. Holds, the order and its outbox row commit in one event.",
       "where": [
         "backend/src/unknown/store/schema.py:73-133",
-        "backend/src/unknown/core/handlers/orders.py:126-144"
+        "backend/src/unknown/core/handlers/orders.py:150-170"
       ],
       "tests": [
         "backend/tests/test_orders_lifecycle.py::ReservationTests::test_reservation_and_outbox_commit_atomically_before_transmission",
@@ -478,10 +484,10 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "A buy credits PAYABLE on trade date (ADR-0006) and availability subtracts payables at once. Settlement moves PAYABLE to CASH only when broker settled cash agrees exactly, and reconciliation compares ledger CASH plus due settlements with broker settled cash, reporting unsettled differences separately.",
       "where": [
-        "backend/src/unknown/core/handlers/broker.py:279-287",
+        "backend/src/unknown/core/handlers/broker.py:339-347",
         "backend/src/unknown/core/ledger.py:158-182",
-        "backend/src/unknown/core/handlers/recon.py:146-197",
-        "backend/src/unknown/core/handlers/recon.py:264-283"
+        "backend/src/unknown/core/handlers/recon.py:148-199",
+        "backend/src/unknown/core/handlers/recon.py:268-287"
       ],
       "tests": [
         "backend/tests/test_sessions.py::SuccessLifecycleTest::test_success_protects_exact_amount_and_creates_exactly_one_successor",
@@ -529,10 +535,10 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "ADR-0006 'External activity'. Any unexplained broker cash change is a blocking CASH_MISMATCH. The owner attributes deposits, withdrawals, interest or charges to `outside` with record_external_cash_flow; a withdrawal larger than outside cash is refused and stays blocking. Only authorize_capital moves value from outside to unallocated. Manual trades are owned by `external` with their own lots and funded from `outside`, otherwise a blocking OVERCOMMITTED case.",
       "where": [
-        "backend/src/unknown/core/handlers/control.py:167-179",
+        "backend/src/unknown/core/handlers/control.py:174-186",
         "backend/src/unknown/core/handlers/admin.py:196-231",
-        "backend/src/unknown/core/handlers/broker.py:481-556",
-        "backend/src/unknown/core/handlers/recon.py:188-192",
+        "backend/src/unknown/core/handlers/broker.py:566-641",
+        "backend/src/unknown/core/handlers/recon.py:190-194",
         "docs/adr/0006-ledger-owner-dimension.md#External activity"
       ],
       "tests": [
@@ -654,9 +660,9 @@
       "resolution": "The envelope is the policy fee model's uncapped per-share estimate (with its minimum) plus a margin, rounded up; the cash hold is ceil(leaves x limit x multiplier) plus the envelope not yet consumed by estimates. At order-terminal the unused envelope is released, but each execution's estimate stays accrued (FEES_ACCRUED, still subtracted from available cash) until the broker's commission replaces it. A final fee above the estimate is booked in full and its shortfall moves to a blocking OVERCOMMITTED case.",
       "where": [
         "backend/src/unknown/risk/fees.py:10-28",
-        "backend/src/unknown/core/handlers/common.py:60-84",
-        "backend/src/unknown/core/handlers/broker.py:324-340",
-        "backend/src/unknown/core/handlers/broker.py:437-459"
+        "backend/src/unknown/core/handlers/common.py:60-90",
+        "backend/src/unknown/core/handlers/broker.py:384-400",
+        "backend/src/unknown/core/handlers/broker.py:502-524"
       ],
       "tests": [
         "backend/tests/test_orders_lifecycle.py::ReservationTests::test_buy_cash_hold_is_limit_notional_plus_fee_envelope",
@@ -765,7 +771,7 @@
       "where": [
         "backend/src/unknown/core/ledger.py:79-104",
         "backend/src/unknown/store/schema.py:73-82",
-        "backend/src/unknown/core/handlers/broker.py:584-591",
+        "backend/src/unknown/core/handlers/broker.py:678-685",
         "backend/src/unknown/core/ledger.py:279-312"
       ],
       "tests": [
@@ -812,11 +818,11 @@
       "resolution": "Rounding is fixed by purpose (ADR-0004): reservations CEILING; execution notional HALF_EVEN at ledger scale with the raw notional kept; broker commissions booked as reported (HALF_EVEN to ledger scale); partial-disposal cost relief HALF_EVEN with the last disposal taking the lot's remaining cost; a settlement gap fully explained by recorded per-trade rounding is booked to ROUNDING.",
       "where": [
         "backend/src/unknown/core/handlers/common.py:60-70",
-        "backend/src/unknown/core/handlers/broker.py:271-272",
-        "backend/src/unknown/core/handlers/broker.py:242-260",
-        "backend/src/unknown/core/handlers/broker.py:731",
-        "backend/src/unknown/core/handlers/recon.py:162-177",
-        "backend/src/unknown/core/handlers/recon.py:243-251"
+        "backend/src/unknown/core/handlers/broker.py:331-332",
+        "backend/src/unknown/core/handlers/broker.py:302-320",
+        "backend/src/unknown/core/handlers/broker.py:901",
+        "backend/src/unknown/core/handlers/recon.py:164-179",
+        "backend/src/unknown/core/handlers/recon.py:247-255"
       ],
       "tests": [
         "backend/tests/test_orders_lifecycle.py::ReservationTests::test_cash_hold_rounds_sub_cent_notional_up_to_ledger_scale",
@@ -864,9 +870,9 @@
       "resolution": "Settlement rows move EXPECTED -> SETTLED, or to CANCELLED by a correction. All items due by the snapshot date are confirmed together, only when broker settled cash equals ledger CASH plus their net amount (or the gap is fully explained by recorded rounding); a partial match is never pro-rated, it is a blocking CASH_MISMATCH. An item still unconfirmed two business days after its expected date opens a non-blocking SETTLEMENT_LATE case and the session stays COMPLETED_UNSETTLED.",
       "where": [
         "backend/src/unknown/core/handlers/recon.py:28",
-        "backend/src/unknown/core/handlers/recon.py:146-197",
-        "backend/src/unknown/core/handlers/recon.py:264-283",
-        "backend/src/unknown/core/handlers/broker.py:615-624",
+        "backend/src/unknown/core/handlers/recon.py:148-199",
+        "backend/src/unknown/core/handlers/recon.py:268-287",
+        "backend/src/unknown/core/handlers/broker.py:709-718",
         "backend/src/unknown/core/handlers/sessions.py:488-492"
       ],
       "tests": [
@@ -916,8 +922,8 @@
       "status": "OPEN",
       "resolution": "Not implemented (LED-09 is `proposed`). A dividend, split, merger or delisting today surfaces only at reconciliation as a blocking POSITION_MISMATCH or CASH_MISMATCH, which keeps entries blocked; the owner can attribute cash only to `outside`, which would misattribute a session's dividend.",
       "where": [
-        "backend/src/unknown/core/handlers/recon.py:125-138",
-        "backend/src/unknown/core/handlers/recon.py:188-192",
+        "backend/src/unknown/core/handlers/recon.py:127-140",
+        "backend/src/unknown/core/handlers/recon.py:190-194",
         "docs/requirements/register.md#LED-09"
       ],
       "tests": [
@@ -966,9 +972,9 @@
       "where": [
         "backend/src/unknown/core/handlers/sessions.py:230-260",
         "backend/src/unknown/core/handlers/sessions.py:277-281",
-        "backend/src/unknown/core/handlers/recon.py:232-235",
+        "backend/src/unknown/core/handlers/recon.py:236-239",
         "backend/src/unknown/core/handlers/admin.py:228-230",
-        "backend/src/unknown/core/handlers/control.py:149-150"
+        "backend/src/unknown/core/handlers/control.py:156-157"
       ],
       "tests": [
         "backend/tests/test_sessions.py::SuccessorFundingTest::test_successor_funds_automatically_after_capital_is_authorized",
@@ -1020,9 +1026,9 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "The production port (ADR-0012) is typed: AccountSnapshot with per-currency CashBalance(settled, total, semantics), positions, as_of and complete, and any incomplete read makes the reconciliation INCOMPLETE. Orders carry account_key, currency, order_type, time_in_force, deadline, policy_hash, strategy_id and decision_ref, and Money refuses arithmetic across currencies.",
       "where": [
-        "backend/src/unknown/broker/port.py:87-111",
-        "backend/src/unknown/reconcile/reconciler.py:49-103",
-        "backend/src/unknown/core/handlers/orders.py:126-138",
+        "backend/src/unknown/broker/port.py:89-113",
+        "backend/src/unknown/reconcile/reconciler.py:65-116",
+        "backend/src/unknown/core/handlers/orders.py:150-162",
         "backend/src/unknown/domain/money.py:76-88"
       ],
       "tests": [
@@ -1084,7 +1090,7 @@
       "where": [
         "backend/src/unknown/policy/model.py:174-220",
         "config/policies/paper-default.v1.json:34-44",
-        "backend/src/unknown/core/handlers/control.py:85-86",
+        "backend/src/unknown/core/handlers/control.py:92-93",
         "backend/src/unknown/core/handlers/admin.py:72-73"
       ],
       "tests": [
@@ -1183,9 +1189,9 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "Write-ahead (ADR-0009): outbox_begin commits SUBMIT_PENDING and the outbox row SENDING before the broker is called, and only PENDING rows are ever claimed, so a SENDING row is never sent again. On restart a SUBMIT_PENDING order or SENDING row becomes UNKNOWN with NEEDS_LOOKUP. The correlation id is the client order id in the order reference, and the IBKR adapter persists its orderId allocation before placeOrder and never reuses or resends it.",
       "where": [
-        "backend/src/unknown/core/handlers/orders.py:248-308",
+        "backend/src/unknown/core/handlers/orders.py:285-345",
         "backend/src/unknown/core/handlers/admin.py:252-268",
-        "backend/src/unknown/gateway/runner.py:92-116",
+        "backend/src/unknown/gateway/runner.py:198-231",
         "backend/src/unknown/broker/ibkr/ids.py"
       ],
       "tests": [
@@ -1240,9 +1246,9 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "A terminal broker status whose filled quantity exceeds the ingested executions keeps the order's hold (broker_terminal_pending); the order turns terminal and releases only when ingested quantity reaches the broker's figure.",
       "where": [
-        "backend/src/unknown/core/handlers/broker.py:156-164",
-        "backend/src/unknown/core/handlers/broker.py:399-409",
-        "backend/src/unknown/core/handlers/recon.py:86-89"
+        "backend/src/unknown/core/handlers/broker.py:165-173",
+        "backend/src/unknown/core/handlers/broker.py:460-470",
+        "backend/src/unknown/core/handlers/recon.py:88-91"
       ],
       "tests": [
         "backend/tests/test_orders_lifecycle.py::CallbackTests::test_terminal_status_before_executions_keeps_reservation",
@@ -1291,23 +1297,30 @@
     ],
     "verifier_note": "Quotes verified. ADR-0009 permits a retry only after the broker 'conclusively reports that the order does not exist', and ADR-0012 gives lookup a found / not-found / unknown tri-state, but neither defines 'conclusive' or an owner resolution path. I softened one original claim: reusing an IBKR orderId the broker never received is technically allowed, but a new correlation id is still the safer rule.",
     "disposition": {
-      "status": "OPEN",
-      "resolution": "Partly resolved. lookup() is tri-state (found / conclusively not found / cannot determine). A conclusive 'not found' for an order with no fills makes it REJECTED and releases it; 'found' applies the broker status; 'cannot determine' keeps the order UNKNOWN, reserved and blocking. Nothing is resubmitted; a retry is a new intent with a new order id. The IBKR adapter is conclusive only when placeOrder was never called, so a transmitted IBKR order with no trace stays UNKNOWN indefinitely. The owner broker_admin_action command now exists but offers only clear_entry_block and acknowledge_history_gap.",
+      "status": "RESOLVED_IN_CODE",
+      "resolution": "lookup() is tri-state (found / conclusively not found / cannot determine). A conclusive 'not found' for an order with no fills makes it REJECTED and releases it; 'found' applies the broker status; 'cannot determine' keeps the order UNKNOWN, reserved and blocking. Nothing is resubmitted: a retry is a new intent with a new order id. The owner closes a stuck UNKNOWN with resolve_exception action close_unknown_order, which needs fresh authentication, a note and broker evidence (BROKER_STATEMENT, BROKER_CONFIRM or SUPPORT_REFERENCE) and never releases a hold the broker may still work: the latest reconciliation must be complete, in this process, fresh and later than the order's last material change (a repeated Inactive report counts), must not list the order as open or have found it by lookup, and may hold no other blocking difference; otherwise CLOSE_NOT_PROVEN names every unmet condition and nothing changes. The order ends REJECTED (no fills) or CANCELED (fills kept), its holds are released, UnknownOrderClosedByOwner records the evidence, run and lookup, and the account must reconcile again (RB-13).",
       "where": [
-        "backend/src/unknown/broker/port.py:136-143",
-        "backend/src/unknown/core/handlers/recon.py:90-123",
+        "backend/src/unknown/broker/port.py:138-145",
+        "backend/src/unknown/core/handlers/recon.py:92-125",
+        "backend/src/unknown/core/handlers/recon.py:347-355",
+        "backend/src/unknown/core/handlers/control.py:253-338",
+        "backend/src/unknown/core/handlers/control.py:343-356",
         "backend/src/unknown/broker/ibkr/adapter.py:1121-1149",
-        "docs/runbooks/README.md#RB-03 Unknown order",
-        "backend/src/unknown/core/handlers/admin.py:294-335"
+        "docs/runbooks/README.md#RB-13 Close a stuck UNKNOWN order on broker evidence"
       ],
       "tests": [
         "backend/tests/test_orders_lifecycle.py::SubmissionOutcomeTests::test_timeout_before_accept_reconciles_to_rejected_and_releases",
         "backend/tests/test_orders_lifecycle.py::SubmissionOutcomeTests::test_unknown_stays_unknown_and_reserved_while_broker_unreachable",
+        "backend/tests/test_core_lifecycle_unknown_orders.py::CloseUnknownOrderTests::test_owner_closes_a_stuck_unknown_order_on_evidence_and_the_account_can_restart",
+        "backend/tests/test_core_lifecycle_unknown_orders.py::CloseUnknownOrderTests::test_evidence_note_and_fresh_authentication_are_required",
+        "backend/tests/test_core_lifecycle_unknown_orders.py::CloseUnknownOrderTests::test_refused_while_the_broker_may_still_work_the_order",
+        "backend/tests/test_core_lifecycle_review.py::CloseEvidenceTests::test_a_held_report_after_the_run_with_the_same_broker_id_blocks_the_close",
+        "backend/tests/test_core_lifecycle_review.py::CloseEvidenceTests::test_a_reconciliation_from_before_a_restart_cannot_close_the_order",
+        "backend/tests/test_core_lifecycle_review.py::CloseEvidenceTests::test_an_unknown_order_with_fills_is_closed_canceled_and_its_fills_stay_booked",
         "backend/tests/test_ibkr_adapter.py::OpenOrderAndLookupTests::test_lookup_tri_state [IBKR venv]"
       ],
-      "owner": "I2",
-      "missing": "An audited owner command that closes a stuck UNKNOWN on attached broker evidence (statement or support reference) and never releases a hold the broker still shows working. RB-03 describes the manual check, but no command exists.",
-      "verified_against": "impl/foundation@73f7b03",
+      "residual": "The IBKR adapter is conclusive only when placeOrder was never called, so a transmitted order with no trace always needs the owner's close. The evidence reference is recorded, not checked against a statement (statement ingestion, CAP-OMS-07, is not built). Neither the terminal nor the CLI offers the close: the owner sends it through POST /api/commands, and the terminal's acknowledge action resolves the case without closing the order (RB-13).",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -1346,10 +1359,10 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "latch_stop cancels every open buy whatever its state: an untransmitted buy is canceled locally and its hold released; SUBMIT_PENDING, acknowledged, partially filled and UNKNOWN buys get an outbox CANCEL (by client order id, broker id optional) and keep their hold until the broker confirms. outbox_begin re-checks the entry gates inside its transaction, so a queued buy is never sent after a latch. Stop progress counts open buys, pending cancels and UNKNOWN orders. reqGlobalCancel is deliberately not used, because it would also cancel orders placed in TWS.",
       "where": [
-        "backend/src/unknown/core/handlers/control.py:22-66",
-        "backend/src/unknown/core/handlers/orders.py:205-228",
-        "backend/src/unknown/core/handlers/orders.py:279-297",
-        "backend/src/unknown/broker/port.py:233",
+        "backend/src/unknown/core/handlers/control.py:28-73",
+        "backend/src/unknown/core/handlers/orders.py:242-265",
+        "backend/src/unknown/core/handlers/orders.py:316-334",
+        "backend/src/unknown/broker/port.py:235",
         "docs/capabilities/register.json#reqGlobalCancel is an owner-confirmed emergency action only"
       ],
       "tests": [
@@ -1401,22 +1414,24 @@
     ],
     "verifier_note": "Quotes verified. Probe: re-sending fill id E1 with a changed price raises Rejected('execution identity changed'), and a fill under a new id on a FILLED order is rejected. 9:29 disclaims the reference's rejection as simulator-only, but the test that asserts it is one 27:29 says to preserve. ADR-0009 already links IBKR suffix corrections to the original. The schema still lacks the fields.",
     "disposition": {
-      "status": "OPEN",
-      "resolution": "Partly resolved. Related-id corrections are booked once and tested (BR-LED-05). Same id with changed economic content is recorded, never rejected: the handler emits ExecutionContentConflict with the received payload and opens a critical blocking EXECUTION_ANOMALY, but books nothing. A redelivery with identical content (even with an unmapped instrument) is now tested to be a duplicate, not a conflict; the changed-content path itself is still untested.",
+      "status": "RESOLVED_IN_CODE",
+      "resolution": "Related-id corrections are booked once: a higher IBKR revision of the same base reverses and rebooks the effective one (BR-LED-05). Decision for one execution id redelivered with changed economic content (ADR-0009 amendment): the booked original stands, nothing of the amendment is booked, the received payload is recorded in an ExecutionContentConflict event, and a blocking critical EXECUTION_ANOMALY naming the execution's order, session and current owner holds new exposure until the owner resolves it; a different amendment of the same id opens its own case, and an identical redelivery is a duplicate. Tested through the gateway runner for price and quantity amendments, repeats, resolution and reconciliation. A correction of a completed session's execution posts to protected:<id> with an owner case (BR-LED-03).",
       "where": [
-        "backend/src/unknown/core/handlers/broker.py:191-205",
-        "backend/src/unknown/core/handlers/broker.py:568-648",
-        "backend/src/unknown/broker/ibkr/mapping.py:166-176"
+        "backend/src/unknown/core/handlers/broker.py:242-265",
+        "backend/src/unknown/broker/ibkr/mapping.py:166-176",
+        "backend/src/unknown/broker/ibkr/adapter.py:1646-1668",
+        "docs/adr/0009-order-lifecycle-and-outbox.md#Same execution id, changed content"
       ],
       "tests": [
+        "backend/tests/test_core_lifecycle_executions.py::ChangedRedeliveryTests::test_same_execution_id_with_changed_price_keeps_the_original_and_blocks_until_the_owner_resolves",
+        "backend/tests/test_core_lifecycle_executions.py::ChangedRedeliveryTests::test_a_different_amendment_of_the_same_id_opens_its_own_case",
         "backend/tests/test_orders_lifecycle.py::CallbackTests::test_execution_correction_reverses_and_rebooks_exactly",
         "backend/tests/test_ibkr_adapter.py::MappingTests::test_exec_id_revision",
         "backend/tests/test_ibkr_adapter.py::ExecutionTests::test_corrections_link_to_the_latest_prior_revision [IBKR venv]",
         "backend/tests/test_review_fixes.py::ExecutionLedgerTests::test_f38_redelivery_of_an_execution_with_an_unmapped_instrument_is_a_duplicate"
       ],
-      "owner": "I1",
-      "missing": "A test for the same-execution-id-with-changed-content path, and a decision on whether the amended economics are booked as a revision or wait for owner resolution; late lower revisions are not distinguished.",
-      "verified_against": "impl/foundation@73f7b03",
+      "residual": "The reviewer's rule for a late lower or equal revision (store, do not apply) is not in the core: such a revision is not distinguished there. The IBKR adapter records an OUT_OF_ORDER_REVISION anomaly for it, which has no test. There is no provider_version column; the revision is parsed from the execution id.",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -1460,10 +1475,10 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "Every port read is typed and carries a completeness flag. A reconciliation with any incomplete read (snapshot, open orders, executions, or a non-converging execution re-read) is INCOMPLETE and only keeps entries blocked. A local order absent from a complete open-order list is looked up; only a conclusive 'never received' for an order with no fills makes it REJECTED, and an acknowledged order missing at the broker is a blocking difference, never inferred canceled.",
       "where": [
-        "backend/src/unknown/broker/port.py:104-111",
-        "backend/src/unknown/reconcile/reconciler.py:49-103",
+        "backend/src/unknown/broker/port.py:106-113",
+        "backend/src/unknown/reconcile/reconciler.py:65-116",
         "backend/src/unknown/core/handlers/recon.py:39-51",
-        "backend/src/unknown/core/handlers/recon.py:90-123"
+        "backend/src/unknown/core/handlers/recon.py:92-125"
       ],
       "tests": [
         "backend/tests/test_reconciliation.py::IncompleteReconciliationTests::test_incomplete_snapshot_after_restart_keeps_entries_blocked",
@@ -1515,23 +1530,30 @@
     ],
     "verifier_note": "Quotes verified. I tightened the explanation: the original said the enum 'cannot represent' cancel-pending-with-fills and UNKNOWN-with-fills, which overstates the gap because 13:7 stores quantities independently. The confirmed defect is the single mixed column, the missing transition table and the missing held/inactive states. ADR-0009 adds a separate cancel_state but keeps the mixed enum.",
     "disposition": {
-      "status": "OPEN",
-      "resolution": "Partly resolved. ADR-0009 keeps one state label but stores quantities (cum, leaves, average price, fees estimated and final) and cancel_state separately, and prev_state lets a too-late cancel rejection restore the prior state. Executions are accepted in every state. IBKR statuses map through a tested table (PreSubmitted and Submitted to ACKNOWLEDGED, Inactive to INACTIVE, which the core treats as terminal REJECTED).",
+      "status": "RESOLVED_IN_CODE",
+      "resolution": "One published order transition table: core/order_machine.py declares every state change with its reason, and Context.emit checks every order row a handler writes against it before anything is recorded, so no handler can take an order anywhere the table does not list. An undeclared change is refused and recorded instead as an OrderTransitionRefused event (keeping the received broker payload), a blocking critical ORDER_TRANSITION_REFUSED case and the stop latch; a terminal state is never left. Quantities, fees, cancel_state and prev_state stay beside the state label (ADR-0009), executions are accepted in every state, and a cancel rejected as too late restores the prior state. Decision on held orders (ADR-0009 amendment): IBKR PreSubmitted is ACKNOWLEDGED (working); Inactive becomes UNKNOWN with every hold kept, a blocking unknown-order case and, for a buy, a cancel; only a broker terminal report or the owner's close on evidence releases it (it used to be released as REJECTED). A locally terminal order that a reconciliation finds Inactive is a blocking anomaly, and a buy is canceled.",
       "where": [
-        "docs/adr/0009-order-lifecycle-and-outbox.md#States",
-        "backend/src/unknown/core/handlers/broker.py:33-34",
-        "backend/src/unknown/core/handlers/broker.py:107-187",
-        "backend/src/unknown/core/handlers/orders.py:381-390",
-        "backend/src/unknown/broker/ibkr/mapping.py:69-93"
+        "backend/src/unknown/core/order_machine.py:38-69",
+        "backend/src/unknown/core/order_machine.py:93-111",
+        "backend/src/unknown/core/desk.py:103-109",
+        "backend/src/unknown/core/desk.py:263-305",
+        "backend/src/unknown/core/handlers/broker.py:199-230",
+        "backend/src/unknown/broker/port.py:42-45",
+        "docs/adr/0009-order-lifecycle-and-outbox.md#Held and Inactive orders"
       ],
       "tests": [
+        "backend/tests/test_core_lifecycle_transitions.py::TableTests::test_table_never_leaves_a_terminal_state_and_names_only_real_states",
+        "backend/tests/test_core_lifecycle_transitions.py::TableTests::test_a_full_lifecycle_records_only_declared_transitions",
+        "backend/tests/test_core_lifecycle_transitions.py::EnforcementTests::test_undeclared_transition_is_refused_recorded_as_an_anomaly_and_latches",
+        "backend/tests/test_core_lifecycle_transitions.py::EnforcementTests::test_submit_rejection_after_a_broker_cancel_keeps_the_terminal_state",
+        "backend/tests/test_core_lifecycle_transitions.py::InactiveOrderTests::test_inactive_buy_keeps_its_reservation_blocks_entries_and_is_canceled",
+        "backend/tests/test_core_lifecycle_transitions.py::InactiveOrderTests::test_reconciliation_lookup_inactive_holds_until_the_broker_reports_a_terminal_state",
+        "backend/tests/test_core_lifecycle_review.py::TerminalOrderHeldAtBrokerTests::test_a_closed_order_the_broker_lists_as_inactive_is_flagged_and_canceled",
         "backend/tests/test_orders_lifecycle.py::CancelTests::test_cancel_rejected_too_late_restores_prior_state_and_keeps_hold",
-        "backend/tests/test_orders_lifecycle.py::CancelTests::test_cancel_rejection_after_a_race_fill_restores_partially_filled",
         "backend/tests/test_ibkr_adapter.py::MappingTests::test_status_table"
       ],
-      "owner": "I1",
-      "missing": "One published order transition table enforced by a single function (transitions are spread over the handlers), and a decision on IBKR held or Inactive orders, which the core now releases as REJECTED.",
-      "verified_against": "impl/foundation@73f7b03",
+      "residual": "ADR-0009 keeps one state label rather than the reviewer's three orthogonal fields; a broker-held order is UNKNOWN plus a broker_held record, not a separate HELD state. The real IBKR sequences that produce Inactive have not been observed (no paper session; docs/integrations/ibkr.md section 5, item 4).",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -1572,7 +1594,7 @@
       "resolution": "ADR-0009 'Initial order eligibility' excludes cancel/replace and in-place amendment: a replacement is a broker-confirmed cancel followed by a new intent with a fresh risk check. No amend command exists and BrokerCapabilities.atomic_replace defaults to false, so the book's 13:41 amendment acceptance item is outside the initial profile.",
       "where": [
         "docs/adr/0009-order-lifecycle-and-outbox.md#Initial order eligibility",
-        "backend/src/unknown/broker/port.py:68",
+        "backend/src/unknown/broker/port.py:70",
         "backend/src/unknown/core/handlers/__init__.py:24-28"
       ],
       "tests": [
@@ -1622,8 +1644,8 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "The core ingests executions in every order state: a fill after CANCELED or FILLED is booked with a blocking EXECUTION_ANOMALY, never discarded; unsolicited broker CANCELED and EXPIRED statuses apply without a local cancel request; delivery order does not change the result. The reference engine's rejections are not ported (reference/ stays the book's offline companion).",
       "where": [
-        "backend/src/unknown/core/handlers/broker.py:358-434",
-        "backend/src/unknown/core/handlers/broker.py:107-175",
+        "backend/src/unknown/core/handlers/broker.py:418-499",
+        "backend/src/unknown/core/handlers/broker.py:109-184",
         "CLAUDE.md#are not the product"
       ],
       "tests": [
@@ -1682,8 +1704,8 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "ADR-0012 port: session() reports connection and authentication; drain_events() streams status, execution, commission and connectivity events; commissions are separate rows; the IBKR lookup searches open orders, completed orders and executions; cancel(client_order_id, broker_order_id or None) works before a broker id is known; a cancel ACCEPTED only marks cancel_state ACKED and releases nothing; capabilities are typed with unknowns disabled; one adapter per account. Amend is excluded by ADR-0009, and reqGlobalCancel is an owner-only emergency action by decision.",
       "where": [
-        "backend/src/unknown/broker/port.py:54-235",
-        "backend/src/unknown/core/handlers/orders.py:376-380",
+        "backend/src/unknown/broker/port.py:56-237",
+        "backend/src/unknown/core/handlers/orders.py:418-422",
         "docs/adr/0012-broker-adapter-contract.md#Decision"
       ],
       "tests": [
@@ -1737,8 +1759,8 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "The order row records account_key, currency, order_type (LIMIT only), time_in_force (DAY only), deadline, policy_hash, strategy_id, decision_ref, and quantity and limit as decimal text with their own scale; outside-regular-hours is always false and is sent explicitly. The command payload hash covers every field.",
       "where": [
-        "backend/src/unknown/core/handlers/orders.py:35-145",
-        "backend/src/unknown/gateway/runner.py:100-106",
+        "backend/src/unknown/core/handlers/orders.py:45-171",
+        "backend/src/unknown/gateway/runner.py:215-221",
         "backend/src/unknown/policy/model.py:144-170"
       ],
       "tests": [
@@ -1787,7 +1809,7 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "deadline_ns is the last transmit time: pretrade rejects an intent past it, and outbox_begin expires an unsent order (EXPIRED, reason 'intent deadline passed before transmission', hold released). A transmitted order lives until the broker's DAY expiry, which arrives as a broker EXPIRED status with its own reason. Nothing is retried automatically.",
       "where": [
-        "backend/src/unknown/core/handlers/orders.py:284-290",
+        "backend/src/unknown/core/handlers/orders.py:321-327",
         "backend/src/unknown/risk/pretrade.py:92",
         "backend/src/unknown/core/handlers/sessions.py:305-311"
       ],
@@ -1836,8 +1858,8 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "Clean means no blocking difference. Quantity tolerance is zero per instrument; cash must agree exactly except a gap fully explained by recorded per-trade rounding (booked to ROUNDING); order and execution set differences are never tolerated. The reconciler re-reads executions after the snapshot for up to three rounds; non-convergence or any incomplete read is INCOMPLETE (entries blocked, not a mismatch).",
       "where": [
-        "backend/src/unknown/core/handlers/recon.py:125-231",
-        "backend/src/unknown/reconcile/reconciler.py:59-70"
+        "backend/src/unknown/core/handlers/recon.py:127-235",
+        "backend/src/unknown/reconcile/reconciler.py:75-86"
       ],
       "tests": [
         "backend/tests/test_reconciliation.py::ComparisonTests::test_position_difference_is_detected_and_blocks",
@@ -1885,8 +1907,8 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "The watermark is the adapter's cursor, stored on the reconciliation run and reused only from the last CLEAN run; overlap is de-duplicated on exec keys. The IBKR adapter reports executions incomplete when its history cannot reach back across a gap, and entries stay blocked until the owner records acknowledge_history_gap, which needs fresh authentication and forces a new reconciliation.",
       "where": [
-        "backend/src/unknown/gateway/runner.py:161-165",
-        "backend/src/unknown/core/handlers/recon.py:342-346",
+        "backend/src/unknown/gateway/runner.py:441-445",
+        "backend/src/unknown/core/handlers/recon.py:346-355",
         "backend/src/unknown/core/handlers/admin.py:298-335"
       ],
       "tests": [
@@ -1935,8 +1957,8 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "Resolved. (a) and (c): any broker open order or execution not matched to this deployment's orders (another tag, no tag, or an unknown id) is FOREIGN_ACTIVITY, blocking, and latches the stop. (b): a manual sale relieves `outside`, then `external` lots, never session lots; if a session holds the instrument and the sale cannot be covered, a critical blocking EXECUTION_ANOMALY ('manual sale may have used session-held shares') is opened, and a blocking EXECUTION_ANOMALY refuses further reducing sells (pretrade BLOCKS_REDUCTION), so the session cannot sell the same shares again until the owner resolves it.",
       "where": [
-        "backend/src/unknown/core/handlers/broker.py:93-102",
-        "backend/src/unknown/core/handlers/broker.py:526-541",
+        "backend/src/unknown/core/handlers/broker.py:95-104",
+        "backend/src/unknown/core/handlers/broker.py:611-626",
         "backend/src/unknown/core/handlers/recon.py:58-69",
         "backend/src/unknown/risk/pretrade.py:20",
         "backend/src/unknown/risk/pretrade.py:97-98"
@@ -1986,7 +2008,7 @@
       "where": [
         "backend/src/unknown/risk/pretrade.py:20",
         "backend/src/unknown/risk/pretrade.py:97-98",
-        "backend/src/unknown/core/handlers/orders.py:105-107",
+        "backend/src/unknown/core/handlers/orders.py:127-129",
         "backend/src/unknown/risk/pretrade.py:151-152"
       ],
       "tests": [
@@ -2046,9 +2068,9 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "ADR-0010 and the runbook conventions. The stop latch (owner red, loss budget, reconciliation failure, foreign activity, restore, invariant failure) clears only through an owner green start with preflight. Conditions clear on evidence: an UNKNOWN_ORDER case resolves on broker evidence; a disconnect or lost authentication sets needs_reconciliation, cleared by the next clean reconciliation; a process restart sets the recovery hold, cleared by an owner start or, only when the policy allows and no latch is set, by a clean reconciliation.",
       "where": [
-        "backend/src/unknown/core/handlers/control.py:140-151",
-        "backend/src/unknown/core/handlers/broker.py:791-803",
-        "backend/src/unknown/core/handlers/recon.py:211-231",
+        "backend/src/unknown/core/handlers/control.py:147-158",
+        "backend/src/unknown/core/handlers/broker.py:969-981",
+        "backend/src/unknown/core/handlers/recon.py:213-235",
         "backend/src/unknown/core/handlers/admin.py:248-250",
         "docs/runbooks/README.md#A **condition** clears automatically"
       ],
@@ -2099,10 +2121,10 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "Each execution's estimated fee stays accrued (FEES_ACCRUED, or against the sale receivable) until the broker's commission replaces it; a session cannot complete while any execution is neither FINAL nor an owner-accepted estimate; an overrun posts in full and opens a blocking OVERCOMMITTED case.",
       "where": [
-        "backend/src/unknown/core/handlers/broker.py:324-340",
-        "backend/src/unknown/core/handlers/broker.py:688-787",
+        "backend/src/unknown/core/handlers/broker.py:384-400",
+        "backend/src/unknown/core/handlers/broker.py:858-965",
         "backend/src/unknown/core/handlers/sessions.py:382-384",
-        "backend/src/unknown/core/handlers/broker.py:437-459"
+        "backend/src/unknown/core/handlers/broker.py:502-524"
       ],
       "tests": [
         "backend/tests/test_orders_lifecycle.py::CallbackTests::test_delayed_commission_keeps_estimate_until_released",
@@ -2143,8 +2165,8 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "A disconnect only records connectivity and sets needs_reconciliation; acknowledged orders keep their state. Only a submission or cancel in flight at the failure becomes UNKNOWN, and on restart only SUBMIT_PENDING or SENDING rows do. Entries resume after a clean reconciliation has refreshed every order.",
       "where": [
-        "backend/src/unknown/core/handlers/broker.py:791-803",
-        "backend/src/unknown/gateway/runner.py:109-113",
+        "backend/src/unknown/core/handlers/broker.py:969-981",
+        "backend/src/unknown/gateway/runner.py:224-228",
         "backend/src/unknown/core/handlers/admin.py:252-275"
       ],
       "tests": [
@@ -2184,21 +2206,29 @@
     ],
     "verifier_note": "Quotes verified. I tightened the original 'all three lose fills': dropped executions can be re-queried, but only inside the broker's history window, which makes the gap real but conditional.",
     "disposition": {
-      "status": "OPEN",
-      "resolution": "Partly resolved. Inbound callbacks are never dropped or coalesced: the IBKR adapter appends them to an unbounded in-memory FIFO (identical status messages are de-duplicated). Events popped from the broker but not yet applied stay in an in-memory backlog and are applied in order on the next drain (review finding 58), and a reconciliation that fails mid-run is recorded INCOMPLETE. Events queued at a crash are still recovered only by reconciliation through executions_since, inside IBKR's history window (a gap needs owner acknowledgement).",
+      "status": "RESOLVED_IN_CODE",
+      "resolution": "Every inbound broker event is appended to a durable, hash-chained, append-only journal (<account>.events: fsync'd, with the core store's durability settings) before it is applied. Each entry is applied under its own deterministic command id and then marked, so a crash between append and apply loses nothing, and a crash between apply and mark re-applies it as a stored-result duplicate. At start the service applies unapplied entries before any request or new event. The in-memory hand-off is bounded: if the journal cannot be written, the runner stops taking events (at most one batch waits in memory), latches the stop (EVENT_JOURNAL_UNWRITABLE), records an INCOMPLETE reconciliation and, in pump(), fails closed before the outbox pass, so no new buy is transmitted; journaled entries are still applied. A corrupt or conflicting entry is never applied; the verified entries before it are. Events are never dropped or coalesced (identical IBKR status messages are de-duplicated). Tested for crashes at every point, SQLITE_FULL, corruption, restored cores and a seeded randomized scenario with ledger invariants and replay checks (ADR-0012 amendment; RB-15).",
       "where": [
-        "backend/src/unknown/broker/ibkr/adapter.py:355",
-        "backend/src/unknown/gateway/runner.py:119-135"
+        "backend/src/unknown/gateway/journal.py:268-319",
+        "backend/src/unknown/gateway/runner.py:280-321",
+        "backend/src/unknown/gateway/runner.py:386-435",
+        "backend/src/unknown/service/core.py:606-626",
+        "docs/adr/0012-broker-adapter-contract.md#Journal before apply",
+        "docs/runbooks/README.md#RB-15 Broker-event journal"
       ],
       "tests": [
-        "backend/tests/test_ibkr_adapter.py::ConnectivityTests::test_events_drain_fifo_under_concurrent_callbacks [IBKR venv]",
-        "backend/tests/test_ibkr_adapter.py::StatusEventTests::test_identical_status_messages_produce_one_event [IBKR venv]",
-        "backend/tests/test_durability_review.py::EventBacklogTest::test_unapplied_events_are_kept_in_order_and_applied_on_the_next_drain",
-        "backend/tests/test_durability_review.py::EventBacklogTest::test_reconciliation_records_incomplete_instead_of_losing_the_run"
+        "backend/tests/test_gateway_journal.py::CrashWindowTest::test_crash_between_journal_append_and_apply_loses_nothing",
+        "backend/tests/test_gateway_journal.py::CrashWindowTest::test_crash_after_apply_before_mark_is_a_duplicate_for_each_event_kind",
+        "backend/tests/test_gateway_journal.py::DiskFullTest::test_disk_full_on_append_fails_closed_and_recovers_in_order",
+        "backend/tests/test_gateway_journal.py::DiskFullTest::test_a_corrupt_entry_is_never_applied",
+        "backend/tests/test_gateway_journal.py::RandomizedJournalTest::test_seeded_scenarios_with_crashes_and_a_full_journal",
+        "backend/tests/test_gateway_journal.py::ServiceWiringTest::test_service_replays_the_journal_before_new_events",
+        "backend/tests/test_gateway_journal.py::ReviewRegressionTest::test_entries_marked_applied_after_a_restored_backup_point_are_applied_to_the_restored_core",
+        "backend/tests/test_gateway_journal.py::SecondReviewTest::test_a_journal_failure_before_the_outbox_pass_transmits_no_new_buy",
+        "backend/tests/test_ibkr_adapter.py::StatusEventTests::test_identical_status_messages_produce_one_event [IBKR venv]"
       ],
-      "owner": "I2",
-      "missing": "A durable raw-event journal written before processing (or a stated bound with disconnect-and-reconcile on overflow), so a crash cannot lose queued executions or commissions beyond the history window.",
-      "verified_against": "impl/foundation@73f7b03",
+      "residual": "An event the adapter has received but the gateway has not yet appended (in the adapter's own in-memory FIFO, or in the gateway's single batch) is lost at a crash and recovered only by reconciliation, inside IBKR's execution-history window (a gap needs owner acknowledgement). While the journal fails, the adapter's FIFO keeps growing in memory and the API session is not disconnected. The journal is not in the online backup and is never pruned.",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -2244,9 +2274,9 @@
       "resolution": "Intents carry policy_hash, which must equal the session mandate's (POLICY_VERSION check). Risk is re-evaluated against current state inside the writer transaction, so no global state version is needed, and the payload hash covers policy_hash, so an identical retry returns the stored decision. Green start runs preflight and clears the latch in the same transaction.",
       "where": [
         "backend/src/unknown/risk/pretrade.py:105",
-        "backend/src/unknown/core/handlers/orders.py:101-124",
-        "backend/src/unknown/core/desk.py:149-230",
-        "backend/src/unknown/core/handlers/control.py:140-151"
+        "backend/src/unknown/core/handlers/orders.py:123-148",
+        "backend/src/unknown/core/desk.py:154-247",
+        "backend/src/unknown/core/handlers/control.py:147-158"
       ],
       "tests": [
         "backend/tests/test_policy_mandate.py::MandateSnapshotTests::test_new_default_does_not_change_a_running_session",
@@ -2283,7 +2313,7 @@
       "resolution": "No parent/child schedule exists, so neither reading of the book can occur.",
       "where": [
         "docs/adr/0009-order-lifecycle-and-outbox.md#Initial order eligibility",
-        "backend/src/unknown/core/handlers/orders.py:59-145"
+        "backend/src/unknown/core/handlers/orders.py:74-171"
       ],
       "tests": [],
       "limitation": "No parent/child schedules: every intent is a single DAY limit order with its own hold; there is no parent reservation and no child transfer. Schedules stay outside the eligibility profile until a parent-reservation design is adopted.",
@@ -2335,9 +2365,9 @@
       "resolution": "ADR-0011: the fence is local. Every write transaction checks the writer-lease epoch, so a superseded process cannot claim or send an outbox row; transmission also needs this deployment's HELD execution ownership; every order carries deployment:epoch:client-id; foreign-tagged or untagged activity latches the stop; ownership moves only by owner command with a release certificate or an attestation. The IBKR adapter uses a fixed client id and latches on 'client id in use' or an unexpected account.",
       "where": [
         "backend/src/unknown/store/db.py:141-158",
-        "backend/src/unknown/core/handlers/orders.py:259-262",
-        "backend/src/unknown/core/handlers/orders.py:133",
-        "backend/src/unknown/core/handlers/broker.py:68-83",
+        "backend/src/unknown/core/handlers/orders.py:296-299",
+        "backend/src/unknown/core/handlers/orders.py:157",
+        "backend/src/unknown/core/handlers/broker.py:70-85",
         "backend/src/unknown/core/handlers/admin.py:128-185"
       ],
       "tests": [
@@ -2467,23 +2497,28 @@
     ],
     "verifier_note": "Reclassified from contradiction (critical) to omission (high). Ch.28:7 is scoped to 'the simplified reference', and Ch.28:9 explicitly mandates exception accounting in production, so the book does not tell implementers to reject the fill. The gap is session and bucket handling, which is real. ADR-0008 covers late fees and corrections against protected:<id> but not late fills that create inventory.",
     "disposition": {
-      "status": "OPEN",
-      "resolution": "Partly resolved. Code rule (ADR-0008): a completed session never re-opens; any later execution, fee or correction for its orders posts to protected:<id>, the completion and successor stand, and a blocking POST_COMPLETION_ADJUSTMENT is opened; a shortfall moves to exception:<case>. Late fees and price corrections after completion (and after close) are tested.",
+      "status": "RESOLVED_IN_CODE",
+      "resolution": "A completed session never re-opens and never leaves COMPLETED_* (ADR-0008 amendment). Any later execution, bust, correction or fee for its orders is booked to whoever holds its balances now (protected:<id>; unallocated after CLOSED); its outcome and successor do not change, and one blocking POST_COMPLETION_ADJUSTMENT per execution names that owner. A fill on a terminal order also opens an EXECUTION_ANOMALY, and a shortfall moves to exception:<case>. Inventory that lands there is reduced only by an owner DISPOSAL sell of that owner's lots through the full pretrade. Tested: a late fill after completion and after close, a bust of the wind-down sell, a bust of a buy whose shares were already sold, a bust while the order works, and a price correction after COMPLETED_SETTLED, each with the ledger invariants and replay checked.",
       "where": [
-        "backend/src/unknown/core/handlers/broker.py:42-58",
-        "backend/src/unknown/core/handlers/broker.py:429-430",
-        "backend/src/unknown/core/handlers/broker.py:584-608",
-        "docs/adr/0008-session-state-machine.md#Late fees and corrections after completion"
+        "backend/src/unknown/core/handlers/broker.py:44-53",
+        "backend/src/unknown/core/handlers/broker.py:490-495",
+        "backend/src/unknown/core/handlers/broker.py:533-554",
+        "backend/src/unknown/core/handlers/broker.py:763-807",
+        "backend/src/unknown/core/handlers/orders.py:45-54",
+        "backend/src/unknown/core/handlers/orders.py:93-100",
+        "docs/adr/0008-session-state-machine.md#Who bears a late effect"
       ],
       "tests": [
-        "backend/tests/test_sessions.py::PostCompletionTest::test_late_commission_after_completion_posts_to_protected_and_opens_exception",
-        "backend/tests/test_sessions.py::PostCompletionTest::test_late_fee_making_protected_cash_negative_opens_blocking_exception",
-        "backend/tests/test_review_fixes.py::CorrectionTests::test_f11_f27_buy_correction_after_completion_books_both_legs_on_protected",
-        "backend/tests/test_review_fixes.py::CorrectionTests::test_f27_correction_of_a_correction_after_completion"
+        "backend/tests/test_core_lifecycle_post_completion.py::LateFillTests::test_late_fill_after_completion_lands_in_protected_and_is_disposed_and_reconciled",
+        "backend/tests/test_core_lifecycle_post_completion.py::LateFillTests::test_late_fill_after_close_lands_in_unallocated_with_a_case_and_is_disposed",
+        "backend/tests/test_core_lifecycle_post_completion.py::LateFillTests::test_disposal_is_only_an_owner_sell_of_an_ended_session_and_only_of_what_it_owns",
+        "backend/tests/test_core_lifecycle_post_completion.py::BustAndCorrectionTests::test_bust_of_the_wind_down_sell_returns_the_shares_to_protected_for_disposal",
+        "backend/tests/test_core_lifecycle_post_completion.py::BustAndCorrectionTests::test_bust_of_a_working_orders_fill_restores_its_reservation_and_opens_a_case",
+        "backend/tests/test_core_lifecycle_post_completion.py::BustAndCorrectionTests::test_price_correction_after_completed_settled_books_on_protected_and_the_session_stays_settled",
+        "backend/tests/test_core_lifecycle_review.py::DisposalAdjustmentTests::test_a_correction_and_a_fee_adjustment_of_a_disposal_fill_open_cases"
       ],
-      "owner": "I1",
-      "missing": "Tests for a new late fill and a bust after completion, and a disposal path for inventory owned by protected:<id> (pretrade refuses orders for a COMPLETED session). Shared with BR-LED-03.",
-      "verified_against": "impl/foundation@73f7b03",
+      "residual": "The reviewer's account latch on every such event was not adopted: the blocking case blocks new exposure (pretrade and preflight), and the stop is not latched. Neither the terminal nor the CLI offers a DISPOSAL form (RB-14).",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -2788,7 +2823,7 @@
       "resolution": "ADR-0007 'Mandates': activating a new default never changes an existing mandate (seed, target, strategy eligibility, session drawdown and max loss), so a running session can be neither widened nor silently tightened through its mandate. Emergency tightening uses the stop latch and account blocks, which act on every session at once.",
       "where": [
         "docs/adr/0007-authority-and-policy-versions.md#Mandates",
-        "backend/src/unknown/core/handlers/orders.py:71-72",
+        "backend/src/unknown/core/handlers/orders.py:86-87",
         "docs/adr/0010-control-plane-stop-start-recovery.md#Red stop"
       ],
       "tests": [
@@ -2834,20 +2869,24 @@
     "verifier_note": "Downgraded from contradiction/high to ambiguity/medium. Ch.10:31 and CLAUDE.md:8 make the envelope approval a plausible owner pre-authorization, so the texts are reconcilable. The residual in-session and late-approval question is still a real authority ambiguity.",
     "disposition": {
       "status": "OPEN",
-      "resolution": "Partly resolved. A mandate's strategy_eligibility is frozen at creation and lists artifact ids, so a running session can only use the artifacts it was created with. Research-side automatic selection now exists, but it only moves the promotion registry's active slot, as SYSTEM under an owner-approved immutable selection policy, among eligible unexpired artifacts; it never changes a core mandate.",
+      "resolution": "Partly resolved. A mandate's strategy_eligibility is frozen at creation and lists artifact ids, so a running session can use only the artifacts it was created with. Research-side automatic selection moves only the promotion registry's active slot, as SYSTEM under an owner-approved immutable policy, among eligible unexpired artifacts; it never changes a core mandate. The strategy runner reads the registry every cycle. It refuses an artifact that is quarantined, retired, expired or below the status its mode needs (shadow needs 'shadow' or later, live needs 'paper' or later) before any decision, and it still cancels the remainder of an intent it has already sent at the window's end.",
       "where": [
         "backend/src/unknown/policy/model.py:386-426",
         "docs/requirements/register.md#AUT-03",
-        "backend/src/unknown/research/promotion.py:589-632",
+        "backend/src/unknown/research/promotion.py:744-805",
+        "backend/src/unknown/strategy/artifacts.py:84-91",
+        "backend/src/unknown/strategy/runner.py:623-638",
         "docs/adr/0017-strategy-artifacts-promotion-and-runtime.md#Rollback and quarantine"
       ],
       "tests": [
         "backend/tests/test_desk_commands.py::StrategyScopeTests::test_strategy_permission_follows_the_session_mandate_not_the_active_default",
-        "backend/tests/test_research_promotion.py::SelectionPolicyTest::test_automatic_selection_only_inside_the_owner_approved_policy"
+        "backend/tests/test_research_promotion.py::SelectionPolicyTest::test_automatic_selection_only_inside_the_owner_approved_policy",
+        "backend/tests/test_strategy_runner.py::ArtifactIdentityAndEligibilityTest::test_status_gates_each_mode",
+        "backend/tests/test_strategy_transmission_gates.py::QuarantinedRunOnceCancelsAtWindowEndTest::test_a_refused_artifacts_working_remainder_is_still_cancelled_at_the_windows_end"
       ],
       "owner": "I5 (strategy runtime, ADR-0017; AUT-03)",
-      "missing": "A core rule for a running session whose mandate lists an artifact that becomes quarantined, expired or superseded (ADR-0017 item 6 is proposed, not implemented): the core does not consult the promotion registry.",
-      "verified_against": "impl/foundation@73f7b03",
+      "missing": "A core rule. The core does not consult the promotion registry, so a strategy token whose artifact is quarantined, expired or superseded can still submit intents directly to the core while the session mandate lists it; only the runner refuses (ADR-0017 item 6 is proposed).",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -2942,7 +2981,7 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "ADR-0010 enumerates the preflight predicates and the code reports each blocker by name: owner re-authentication within reauth_max_age_s, policy mode matches the account and the broker-reported mode, execution ownership, broker connected and authenticated, clock skew, disk, a CLEAN reconciliation in this process newer than max_reconciliation_age_s, no blocking exception, no UNKNOWN order, no loss breach, fresh valuation and fresh quotes for held positions. Funds are not a latch predicate. Preflight and the latch clear run in one transaction, so no fill can slip in between.",
       "where": [
-        "backend/src/unknown/core/handlers/control.py:69-151",
+        "backend/src/unknown/core/handlers/control.py:76-158",
         "docs/adr/0010-control-plane-stop-start-recovery.md#Green start"
       ],
       "tests": [
@@ -3005,8 +3044,8 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "Same split as BR-ORD-17: risk stops (loss budgets, reconciliation failure, foreign activity, restore) latch and need an owner green start; broker authentication expiry and IBKR's scheduled restart are connectivity conditions cleared by the next clean reconciliation; an UNKNOWN order clears on broker evidence; a process restart needs an owner start unless the policy enables auto-resume and no latch is set.",
       "where": [
-        "backend/src/unknown/core/handlers/broker.py:791-803",
-        "backend/src/unknown/core/handlers/recon.py:211-231",
+        "backend/src/unknown/core/handlers/broker.py:969-981",
+        "backend/src/unknown/core/handlers/recon.py:213-235",
         "backend/src/unknown/core/handlers/admin.py:234-291",
         "docs/adr/0010-control-plane-stop-start-recovery.md#Recovery gate"
       ],
@@ -3065,25 +3104,33 @@
     ],
     "verifier_note": "Confirmed. Added the Ch.26:19 'affected account' quote to show the global-versus-account inconsistency. ADR-0011 covers execution-ownership transfer but this verifier did not check whether it covers latch mirroring at the gateway.",
     "disposition": {
-      "status": "OPEN",
-      "resolution": "Partly resolved. The latch is per broker account, stored in the fenced writer's control row, enforced in pretrade and again in outbox_begin, survives restart, and is set on restore and on a new account. The broker adapter runs in the core process (ADR-0002), so no separate gateway copy is needed.",
+      "status": "RESOLVED_IN_CODE",
+      "resolution": "The latch is per broker account, stored in the fenced writer's control row, enforced in pretrade and again in outbox_begin, survives restart, and is set on restore and on a new account; the broker adapter runs in the core process (ADR-0002), so no separate gateway copy is needed. A stop is never blocked by persistence (ADR-0010 amendment): when the database cannot record an OWNER or SYSTEM stop of this account, the core service latches it in memory, refuses exposure-increasing commands at its socket, transmits no buy (a claimed buy is recorded REJECTED NOT_TRANSMITTED), sends a best-effort cancel for every open buy straight to the broker, logs CRITICAL, shows the latch in health and preflight (STOP_LATCHED_IN_MEMORY) and mirrors it in an fsync'd <account>.stop-latch.json, so a restart starts latched. As soon as writes work, the stop is recorded under its own id, then a SYSTEM stop carrying the evidence (error, cancels, the ids it stood in for); only then is the memory latch released. A malformed id, a role that may not stop or another account never engages it, and an unreadable or tampered latch file fails closed with the service's own stop (RB-12).",
       "where": [
-        "backend/src/unknown/core/handlers/control.py:22-39",
+        "backend/src/unknown/core/handlers/control.py:18-25",
         "backend/src/unknown/risk/pretrade.py:94",
-        "backend/src/unknown/core/handlers/orders.py:279-297",
-        "backend/src/unknown/core/desk.py:281-330",
-        "backend/src/unknown/service/core.py:298-306",
-        "docs/runbooks/README.md#Out-of-band"
+        "backend/src/unknown/service/core.py:150-162",
+        "backend/src/unknown/service/core.py:173-205",
+        "backend/src/unknown/service/core.py:259-322",
+        "backend/src/unknown/service/core.py:377-380",
+        "backend/src/unknown/gateway/runner.py:206-214",
+        "docs/adr/0010-control-plane-stop-start-recovery.md#Memory latch",
+        "docs/runbooks/README.md#RB-12 Red stop latched in memory"
       ],
       "tests": [
+        "backend/tests/test_core_lifecycle_stop.py::MemoryLatchTests::test_stop_with_an_unwritable_database_latches_in_memory_cancels_buys_and_is_recorded_later",
+        "backend/tests/test_core_lifecycle_stop.py::MemoryLatchTests::test_the_gateway_never_transmits_an_entry_while_the_memory_latch_is_engaged",
+        "backend/tests/test_core_lifecycle_stop.py::MemoryLatchTests::test_the_next_command_records_the_latch_before_it_runs",
+        "backend/tests/test_core_lifecycle_stop.py::MemoryLatchTests::test_a_system_stop_after_repeated_cycle_failures_also_latches_in_memory",
+        "backend/tests/test_core_lifecycle_stop.py::MemoryLatchTests::test_the_latch_file_carries_an_unrecorded_stop_across_a_restart",
+        "backend/tests/test_core_lifecycle_review.py::MemoryLatchAuthorityTests::test_a_role_that_may_not_stop_never_latches_in_memory",
+        "backend/tests/test_core_lifecycle_review.py::MemoryLatchAuthorityTests::test_a_latch_file_holding_anything_but_a_stop_of_this_account_fails_closed",
         "backend/tests/test_control_recovery.py::RedStopTests::test_owner_stop_latches_durably_with_actor_reason_and_command",
         "backend/tests/test_control_recovery.py::RestartRecoveryTests::test_stop_survives_restart_and_restart_sets_recovery_hold",
-        "backend/tests/test_control_recovery.py::RestoreDetectionTests::test_restore_of_backup_taken_in_current_process_is_detected",
-        "backend/tests/test_control_recovery.py::LossBudgetTests::test_reserved_buy_is_not_transmitted_while_valuation_is_stale"
+        "backend/tests/test_control_recovery.py::RestoreDetectionTests::test_restore_of_backup_taken_in_current_process_is_detected"
       ],
-      "owner": "I1 (core stop path; OPS-03)",
-      "missing": "Behaviour when the database cannot be written: the stop command then fails (the API reports 503) and no cancel is sent; there is no in-memory latch with best-effort cancels. RB-01's broker-side cancel-all is the only fallback.",
-      "verified_against": "impl/foundation@73f7b03",
+      "residual": "The memory latch lives in one core process, and its file sits on the same volume as the database: if the file cannot be written either, a restart before the database recovers starts without the stop, held only by the restart's recovery hold (RB-12). Red from the terminal needs the API and the core socket; with the core down, the broker's own cancel-all is the only path (RB-01). There is no installation-wide latch across accounts (one core per account), and the terminal shows STOP_LATCHED_IN_MEMORY only as a generic preflight blocker.",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -3124,8 +3171,8 @@
       "resolution": "'Fees final' means every ACTIVE execution of the session is FINAL (broker commission) or ACCEPTED_ESTIMATE (an audited owner command); completion waits otherwise. The fee buffer is the per-order envelope plus each execution's accrued estimate. Post-completion fee adjustments post to protected:<id>, never to the successor or unallocated, and never revoke completion.",
       "where": [
         "backend/src/unknown/core/handlers/sessions.py:382-384",
-        "backend/src/unknown/core/handlers/control.py:232-241",
-        "backend/src/unknown/core/handlers/broker.py:688-787",
+        "backend/src/unknown/core/handlers/control.py:364-373",
+        "backend/src/unknown/core/handlers/broker.py:858-965",
         "docs/adr/0008-session-state-machine.md#Late fees and corrections after completion"
       ],
       "tests": [
@@ -3167,7 +3214,7 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "ADR-0008 'Failed settlement': a protected receivable unconfirmed two business days after its expected date opens a non-blocking SETTLEMENT_LATE case per item; the session stays COMPLETED_UNSETTLED; receivables are never available, so nothing is funded from them; a correction posts to protected:<id>. Seed recycling does not exist.",
       "where": [
-        "backend/src/unknown/core/handlers/recon.py:178-187",
+        "backend/src/unknown/core/handlers/recon.py:180-189",
         "backend/src/unknown/core/handlers/sessions.py:488-492",
         "docs/adr/0008-session-state-machine.md#Failed settlement"
       ],
@@ -3272,7 +3319,7 @@
       "where": [
         "backend/src/unknown/policy/model.py:377-378",
         "backend/src/unknown/core/handlers/sessions.py:293-363",
-        "backend/src/unknown/core/handlers/control.py:22-39"
+        "backend/src/unknown/core/handlers/control.py:28-46"
       ],
       "tests": [
         "backend/tests/test_control_recovery.py::RedStopTests::test_stop_leaves_working_sells_and_still_permits_reduction",
@@ -3369,7 +3416,7 @@
       "resolution": "There is no absorbing risk state. A session risk trigger SUSPENDS; the owner may resume or end it, and an ended session winds down and closes. An account risk stop latches; reconciliation still runs and reductions remain possible, and an owner green start clears it.",
       "where": [
         "backend/src/unknown/core/handlers/sessions.py:187-226",
-        "backend/src/unknown/core/handlers/control.py:140-151",
+        "backend/src/unknown/core/handlers/control.py:147-158",
         "backend/src/unknown/risk/pretrade.py:94-99"
       ],
       "tests": [
@@ -3607,7 +3654,7 @@
       "resolution": "Same as BR-LED-19: the policy document replaces the risk fields; config/deployment_record.example.json is unchanged and no code reads it; LIVE is refused in code.",
       "where": [
         "config/deployment_record.example.json",
-        "backend/src/unknown/core/handlers/control.py:85-86",
+        "backend/src/unknown/core/handlers/control.py:92-93",
         "backend/src/unknown/core/handlers/admin.py:72-73"
       ],
       "tests": [
@@ -3757,10 +3804,10 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "Resolved for the research side. Artifacts have the statuses proposed, reproducible, validated, paper, eligible, active, quarantined and retired in a hash-chained transition log. paper, eligible and active need a fresh owner approval per artifact; automatic selection runs as SYSTEM only under an owner-approved, immutable selection policy (the envelope) and considers only eligible, unexpired artifacts inside it. Point (3) holds in the core: a STRATEGY principal is an artifact id `<class>@<16 hex of the artifact hash>` bound to its token, acts only for sessions whose frozen mandate lists that id, and a new default never changes a running session's list.",
       "where": [
-        "backend/src/unknown/research/promotion.py:80-92",
-        "backend/src/unknown/research/promotion.py:589-632",
-        "backend/src/unknown/core/handlers/orders.py:41-46",
-        "backend/src/unknown/core/handlers/orders.py:96-97",
+        "backend/src/unknown/research/promotion.py:108-123",
+        "backend/src/unknown/research/promotion.py:744-792",
+        "backend/src/unknown/core/handlers/orders.py:56-61",
+        "backend/src/unknown/core/handlers/orders.py:118-119",
         "backend/src/unknown/domain/principal.py:62",
         "docs/adr/0017-strategy-artifacts-promotion-and-runtime.md#Artifact identity"
       ],
@@ -3819,20 +3866,29 @@
     ],
     "verifier_note": "Quotes verified. Grep confirms the book never defines pending exposure or ties a command ID to a decision. Severity lowered from critical to high. ADR-0009 already blocks new entries on any UNKNOWN order and keeps holds through CANCEL_PENDING. Under ADR-0009's cash-only, limit-only eligibility, the duplicate buy stays funded and bounded by the session seed, so the residual harm is concentration and duplicated intent, not unfunded exposure. The gaps in the pending-quantity definition and the decision-derived identity are real.",
     "disposition": {
-      "status": "OPEN",
-      "resolution": "Partly resolved. Pretrade adds the leaves of every open buy of the session in that instrument (RESERVED through UNKNOWN) to the concentration test and all open buys to gross exposure; sells reserve quantity; an UNKNOWN order blocks new buys account-wide. Strategy decisions are now recorded (record_strategy_decision) and commands are deduplicated by command id, but no strategy runner derives deterministic decision ids, and neither the CONCENTRATION nor the GROSS_EXPOSURE check has a test that asserts a rejection by it.",
+      "status": "RESOLVED_IN_CODE",
+      "resolution": "Pending is defined once: the leaves of every order in a core open state (RESERVED, SUBMIT_PENDING, ACKNOWLEDGED, PARTIALLY_FILLED, CANCEL_PENDING, UNKNOWN), whoever placed it in the session. A pending buy counts as if it fills and a pending sell as already sold; terminal orders count nothing. The core's CONCENTRATION check adds the session's open buys in the instrument and GROSS_EXPOSURE every open buy of the account, each tested by a rejection against a control. The runner uses the same definition, emits no new intent for an instrument with an UNKNOWN or CANCEL_PENDING order in the session (PENDING_UNRESOLVED), allows at most one live intent per session, artifact and instrument (OPEN_INTENT), and checks both at the decision and again at transmission. Every command id is derived deterministically from (artifact, session date, instrument), so reprocessing a bar returns the original result. An UNKNOWN order also blocks new buys account-wide.",
       "where": [
-        "backend/src/unknown/core/handlers/orders.py:86-90",
-        "backend/src/unknown/core/handlers/orders.py:176-187",
+        "backend/src/unknown/core/order_machine.py:33",
+        "backend/src/unknown/core/handlers/orders.py:108-113",
         "backend/src/unknown/risk/pretrade.py:153-157",
-        "backend/src/unknown/core/state.py:12"
+        "backend/src/unknown/strategy/runner.py:252-269",
+        "backend/src/unknown/strategy/coreview.py:48-49",
+        "docs/strategy/README.md#Pending exposure (BR-DAT-02)"
       ],
       "tests": [
+        "backend/tests/test_strategy_pending_exposure.py::PendingStatesTest::test_the_definition_is_the_cores_open_states",
+        "backend/tests/test_strategy_pending_exposure.py::PretradeWithPendingTest::test_concentration_counts_pending_buys_of_every_open_state",
+        "backend/tests/test_strategy_pending_exposure.py::PretradeWithPendingTest::test_gross_exposure_counts_every_open_buy",
+        "backend/tests/test_strategy_pending_exposure.py::OpenIntentGateTest::test_gates",
+        "backend/tests/test_strategy_pending_exposure.py::RunnerConcentrationWithPendingTest::test_pending_counts_in_the_runners_exposure_and_the_cores_concentration_check",
+        "backend/tests/test_strategy_pending_exposure.py::RunnerUnresolvedPendingTest::test_no_new_intent_beside_a_cancel_pending_order",
+        "backend/tests/test_strategy_transmission_gates.py::UnresolvedAtTransmissionTest::test_no_intent_is_transmitted_beside_an_order_that_became_unresolved_after_the_decision",
+        "backend/tests/test_strategy_runner.py::SizingTest::test_ids_are_deterministic_valid_and_distinct",
         "backend/tests/test_orders_lifecycle.py::SubmissionOutcomeTests::test_timeout_after_accept_is_unknown_blocks_entries_and_reconcile_resolves"
       ],
-      "owner": "I5 (decision identity) and I1 (tests)",
-      "missing": "Deterministic decision ids (artifact, session, instrument, decision bar) in the strategy runner, and tests for the concentration and gross-exposure checks with pending buys.",
-      "verified_against": "impl/foundation@73f7b03",
+      "residual": "Exposure is the session's, not the artifact's: every principal's orders in the session count as the artifact's current exposure, so one artifact per session is the documented rule until the core attributes exposure per strategy (docs/strategy/README.md).",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -3870,8 +3926,8 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "Resolved in the research engine: implementation_shortfall computes the corrected eq. 7.1, IS = s(sum q_j p_j - (sum q_j) p0) + fees + s(Q - sum q_j)(p_mark - p0), with execution, fee and opportunity components in exact decimals plus bps, the mark being the close of the execution session; every finished order records it.",
       "where": [
-        "backend/src/unknown/research/engine.py:364-377",
-        "backend/src/unknown/research/engine.py:533-534",
+        "backend/src/unknown/research/engine.py:397-410",
+        "backend/src/unknown/research/engine.py:595-596",
         "backend/src/unknown/research/common.py:91"
       ],
       "tests": [
@@ -3914,20 +3970,24 @@
     ],
     "verifier_note": "Quotes verified and arithmetic recomputed. I corrected the original: the cash term binds in the worked example, so q = 1 and the loss is $1.75 (3.5x). The 4x / $2.00 figure applies only if cash allowed 2 shares. I also removed the original's claim that the cash term disagrees with Chapter 9 on the exit fee: the Chapter 9 reservation covers only the entry fee envelope.",
     "disposition": {
-      "status": "OPEN",
-      "resolution": "Not implemented: no risk-at-stop position sizer exists. The research engine sizes only by target weight (SIZING_METHODS = TARGET_WEIGHT), and the allocation trade list re-verifies the cash reserve after estimated fees; pretrade's CASH check includes the fee envelope with the minimum commission, but nothing bounds the loss at a stop.",
+      "status": "RESOLVED_IN_CODE",
+      "resolution": "research.sizing.plan_orders is the one A15 sizer, used by the backtest and the strategy runner. Its buy step limits the position to the largest whole Q with Q x (d + c) + Fee_entry + Fee_exit <= B_risk. Both fees come from risk.fees.envelope, the function the core reserves fees with (minimum per order included), under the active policy's fee model at runtime and the engine's schedule in the backtest; zero means no order. The cash term then sizes the buy to what the funding budget can reserve including the fee envelope. Spec schema v2 declares rules.sizing.risk_budget. The book's example sizes to 0 with a 0.75 minimum each way; against a real core, the 100.00 fixture session buys 1 share of a 10.00 instrument instead of 4, and none of a 42.00 one.",
       "where": [
-        "backend/src/unknown/risk/pretrade.py:150",
-        "backend/src/unknown/risk/fees.py:23-28",
-        "backend/src/unknown/research/spec.py:45"
+        "backend/src/unknown/research/sizing.py:131-157",
+        "backend/src/unknown/research/sizing.py:158-195",
+        "backend/src/unknown/research/spec.py:323-329",
+        "docs/strategy/README.md#Risk term (BR-DAT-04)"
       ],
       "tests": [
-        "backend/tests/test_orders_lifecycle.py::ReservationTests::test_buy_cash_hold_is_limit_notional_plus_fee_envelope",
-        "backend/tests/test_analytics_allocation.py::TradeListTest::test_lot_rounding_down_fees_and_post_trade_checks"
+        "backend/tests/test_research_risk_sizing.py::BookExampleTest::test_the_minimum_commission_sizes_the_trade_to_zero",
+        "backend/tests/test_research_risk_sizing.py::SameFeeFunctionTest::test_the_risk_term_prices_fees_with_the_cores_envelope_function",
+        "backend/tests/test_research_risk_sizing.py::SameFeeFunctionTest::test_one_sizing_function_serves_the_backtest_and_the_runner",
+        "backend/tests/test_research_risk_sizing.py::RiskTermInThePlanTest::test_a_small_account_buys_nothing_when_fees_exceed_the_risk_budget",
+        "backend/tests/test_research_risk_sizing.py::BacktestRiskTermTest::test_a_small_account_is_sized_to_zero_by_fees_in_the_backtest",
+        "backend/tests/test_strategy_risk_window.py::RiskBudgetRunnerTest::test_fees_in_the_risk_term_size_buys_down_and_to_zero"
       ],
-      "owner": "I5 (first strategy, TREND_DAILY_V1)",
-      "missing": "A sizer whose risk term includes entry and exit fees from the same fee function as the reservation envelope, outputting zero when the budget cannot cover them.",
-      "verified_against": "impl/foundation@73f7b03",
+      "residual": "The risk term is a sizing rule of the backtest and the runner, not a pretrade check: an owner's manual intent is not sized by it. Schema v1 specs still run in research with the legacy rules (no risk term), the runner refuses them, and the committed FS-20261022-R2 report was produced from v1 specs and has not been regenerated.",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -3972,8 +4032,8 @@
       "resolution": "Resolved with an explicit availability_basis rule. Sources without vintages use the capture rule: a value captured by the end of its observation day is available at receipt, a backfill at 23:59:59 of the observation day in the source's zone, flagged availability_estimated_backfill. Bars are available at end plus the source's publication lag. SEC facts are available at acceptance, else at the end of the filed day. Every strategy feature must declare availability_basis from BAR_CLOSE_PLUS_LAG, PUBLISHED_PLUS_ALLOWANCE, DATE_ONLY_NEXT_SESSION or CAPTURED.",
       "where": [
         "backend/src/unknown/data/sources/common.py:63-67",
-        "backend/src/unknown/research/spec.py:43",
-        "backend/src/unknown/research/spec.py:248-259",
+        "backend/src/unknown/research/spec.py:63",
+        "backend/src/unknown/research/spec.py:278-288",
         "backend/src/unknown/broker/ibkr/history.py:439-440",
         "backend/src/unknown/data/sec.py:75-82"
       ],
@@ -4086,7 +4146,7 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "Resolved. The holdout belongs to a pre-registered experiment and is consumed at most once, by the OWNER or the SYSTEM evaluator, never an AGENT. Every attempt, granted or refused, is logged. A dataset view reaching into the holdout needs a grant issued by the registry (a hand-made grant is refused); a non-holdout trial whose manifest reaches the holdout is refused, and leaked returns fail the trial, which still counts.",
       "where": [
-        "backend/src/unknown/research/registry.py:593-631",
+        "backend/src/unknown/research/registry.py:599-637",
         "backend/src/unknown/research/bars.py:172-244"
       ],
       "tests": [
@@ -4142,10 +4202,10 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "Resolved. StrategySpec is one strict, hashed, versioned schema holding every RES-01 field (hypothesis, equations, variables with units, causal features, data requirements, rules, costs, capacity, risk limits, validation plan, baselines, sensitivity and stress plans, required promotion evidence); unknown, missing or out-of-range fields are refused. Promotion evidence is typed by kind (REPLAY_EXACT, CORE_REPLAY_MATCH, WALK_FORWARD_OOS, PAIRED_BOOTSTRAP, HOLDOUT, COST_SENSITIVITY, STRESS, ...) and a transition without the required evidence is refused.",
       "where": [
-        "backend/src/unknown/research/spec.py:43-47",
-        "backend/src/unknown/research/spec.py:248-259",
-        "backend/src/unknown/research/promotion.py:80-92",
-        "backend/src/unknown/research/promotion.py:457-480"
+        "backend/src/unknown/research/spec.py:63-67",
+        "backend/src/unknown/research/spec.py:278-288",
+        "backend/src/unknown/research/promotion.py:108-123",
+        "backend/src/unknown/research/promotion.py:521-562"
       ],
       "tests": [
         "backend/tests/test_research_spec.py::SpecCoverageTest::test_every_res01_field_is_present_and_required",
@@ -4248,8 +4308,8 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "Resolved. The promotion protocol is an owner-approved object with exactly these fields: confidence, replications, mean block, statistic, utility coefficients, hurdle per period (net of trading costs), min n_eff, min OOS observations, min OOS Sharpe, max PBO, min DSR, required cost multiplier, max stress drawdown, holdout minimum difference, min paper days and seed. A missing or extra field refuses the protocol, so no gate can run unset; gate verdicts are recomputed under it, and evidence fails if the protocol was approved after the evaluation started.",
       "where": [
-        "backend/src/unknown/research/promotion.py:94-101",
-        "backend/src/unknown/research/promotion.py:110-141"
+        "backend/src/unknown/research/promotion.py:152-159",
+        "backend/src/unknown/research/promotion.py:168-199"
       ],
       "tests": [
         "backend/tests/test_research_promotion.py::ProtocolTest::test_protocol_is_strict",
@@ -4355,21 +4415,28 @@
     ],
     "verifier_note": "Quotes verified. Reclassified from contradiction to omission. Chapter 4 line 54 is consistent with the schema (a proposal without these fields simply is not quantified confidence), and Chapter 19 line 15 says 'useful', not 'required'. The model ID and input artifact hashes can be recovered through job_id from the job record (Chapter 19 line 9), so I dropped that part. What holds is the Chapter 19 line 13 validation gap.",
     "disposition": {
-      "status": "OPEN",
-      "resolution": "Partly resolved in the agent layer: the model's answer schema has typed claims (span ids, verbatim quote, typed numbers) that are verified against the supplied evidence before a proposal is submitted, and unverified claims never become evidence. The core contract is still research_proposal v1 (free-text evidence, no instrument ids or timestamps, hypothesis and horizon required on abstention).",
+      "status": "RESOLVED_IN_CODE",
+      "resolution": "The core accepts research_proposal schema version 2 beside v1. Version 2 carries typed evidence references (dataset, observation or document-span id, content hash, observed and available times), instrument and research-entity ids (instrument ids are checked against the instrument master), the job's as-of instant, an observation-time window, an optional forecast block (target, horizon, unit, interval or quantiles, calibration, the Chapter 4 uncertainty record, invalidation conditions) and abstain-dependent rules. The core validates v2 strictly: no evidence or window after as_of, references inside the window, and checks of syntax, counts and forecast ordering. It records the proposal with a core-assigned label (ABSTENTION, QUALITATIVE, FORECAST_UNCALIBRATED, FORECAST_QUANTIFIED) and still changes only the proposals table. The agent layer emits v2 with every typed field taken from the job or from the store provenance of the spans that verified claims cite, never from model output; a claim is evidence only when every span it cites yields a typed reference.",
       "where": [
-        "backend/src/unknown/agents/evidence.py:1-20",
-        "config/models/schemas/research_answer.v1.json",
-        "backend/src/unknown/core/handlers/control.py:244-269"
+        "contracts/research_proposal.schema.json",
+        "backend/src/unknown/core/handlers/control.py:376-399",
+        "backend/src/unknown/core/handlers/control.py:511-602",
+        "backend/src/unknown/core/handlers/control.py:621-665",
+        "backend/src/unknown/agents/runner.py:226-288"
       ],
       "tests": [
-        "backend/tests/test_agents_evidence.py::ClaimVerificationTest::test_fabricated_span_and_misquote_are_unsupported",
-        "backend/tests/test_agents_evidence.py::ClaimVerificationTest::test_numeric_claims_against_typed_facts",
-        "backend/tests/test_agents_runner.py::RunnerTest::test_unverified_claims_never_become_evidence"
+        "backend/tests/test_research_proposal_v2.py::ProposalVersionTwoValidationTest::test_valid_v2_proposals_are_recorded_with_the_core_label",
+        "backend/tests/test_research_proposal_v2.py::ProposalVersionTwoValidationTest::test_invalid_v2_proposals_are_rejected_and_record_nothing",
+        "backend/tests/test_research_proposal_v2.py::ProposalVersionTwoValidationTest::test_one_missing_uncertainty_field_makes_a_forecast_uncalibrated",
+        "backend/tests/test_research_proposal_v2.py::ProposalVersionTwoValidationTest::test_a_v2_proposal_grants_nothing",
+        "backend/tests/test_research_proposal_v2.py::ProposalVersionOneStillAcceptedTest::test_v1_is_still_accepted_and_recorded_unchanged",
+        "backend/tests/test_research_proposal_v2.py::AgentEmitsVersionTwoTest::test_typed_fields_come_from_the_job_and_the_span_provenance",
+        "backend/tests/test_research_proposal_v2.py::AgentEmitsVersionTwoTest::test_a_claim_is_evidence_only_when_every_span_it_cites_is",
+        "backend/tests/test_research_proposal_v2.py::WorkerEmitsVersionTwoEndToEndTest::test_agent_job_end_to_end_records_a_typed_v2_proposal",
+        "backend/tests/test_research_proposal_v2.py::WorkerEmitsVersionTwoEndToEndTest::test_submission_checks_instrument_ids_against_the_master"
       ],
-      "owner": "I6 (agent output contract)",
-      "missing": "research_proposal schema v2: typed evidence references, instrument ids, observation-time window, an optional forecast block, and abstain-dependent requirements.",
-      "verified_against": "impl/foundation@73f7b03",
+      "residual": "Version 1 (free-text evidence) is still accepted. Agent answers never carry a forecast block, because no calibration record exists, so no agent proposal is FORECAST_QUANTIFIED. No proposal feeds a strategy feature or an order.",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -4448,7 +4515,7 @@
       "resolution": "Resolved. The spec refuses purge_sessions below label_horizon_sessions + execution_delay_sessions; the purge and embargo are part of the hashed spec and manifest, and the evaluator (walk-forward, purged k-fold, CPCV) purges training whose label interval meets a test run's label span on either side of the run, and embargoes training that follows a test run.",
       "where": [
         "backend/src/unknown/research/folds.py:48-63",
-        "backend/src/unknown/research/spec.py:381-382"
+        "backend/src/unknown/research/spec.py:435-436"
       ],
       "tests": [
         "backend/tests/test_research_spec.py::SpecStrictnessTest::test_purge_must_cover_label_horizon_plus_execution_delay",
@@ -4498,18 +4565,20 @@
     "verifier_note": "Quotes verified. Chapter 15 line 25's projection onto the feasible set applies to the cross-sectional inverse-volatility weights, not to the time-series mapping, so the aggregate-cap gap holds for TREND_DAILY_V1. The terminology collision is real but minor; ADR-0008 already uses `unallocated` only for the account bucket.",
     "disposition": {
       "status": "RESOLVED_IN_CODE",
-      "resolution": "Resolved in the research engine: target weights are fractions of marked equity, capped per name, then scaled to min(aggregate_cap, 1 - cash_reserve) before the diff against current holdings; the spec refuses sizing above the risk limits. The terminology collision stays avoided (`unallocated` is only the account-level owner).",
+      "resolution": "Resolved in one sizing implementation, research.sizing.plan_orders, which the backtest engine and the strategy runner both call: target weights are fractions of marked equity, capped per name, then scaled to min(aggregate_cap, 1 - cash_reserve) over every target before the diff against current holdings (owned plus pending buys minus pending sells; BR-DAT-02); the spec refuses sizing above the risk limits. The terminology collision stays avoided (`unallocated` is only the account-level owner).",
       "where": [
-        "backend/src/unknown/research/engine.py:684-689",
+        "backend/src/unknown/research/sizing.py:215-226",
         "backend/src/unknown/core/ledger.py:39-42"
       ],
       "tests": [
         "backend/tests/test_research_strategies.py::TrendBehaviourTest::test_aggregate_cap_and_cash_reserve_scale_weights",
         "backend/tests/test_research_strategies.py::TrendBehaviourTest::test_warm_up_then_capped_long_only_weights",
-        "backend/tests/test_research_spec.py::SpecStrictnessTest::test_sizing_cannot_exceed_risk_limits"
+        "backend/tests/test_research_spec.py::SpecStrictnessTest::test_sizing_cannot_exceed_risk_limits",
+        "backend/tests/test_research_risk_sizing.py::SameFeeFunctionTest::test_one_sizing_function_serves_the_backtest_and_the_runner",
+        "backend/tests/test_strategy_runner.py::ExcludedInstrumentKeepsItsShareOfTheCapTest::test_a_stale_held_instrument_still_counts_toward_the_aggregate_cap"
       ],
-      "residual": "The strategy runner that would apply the same mapping to a core session (ADR-0017) is not built; in the daily engine orders expire the same day, so there are no pending orders to add.",
-      "verified_against": "impl/foundation@73f7b03",
+      "residual": "Exposure at runtime is the session's, not the artifact's: every principal's orders in the session count as the artifact's current holdings, so one artifact per session is the documented rule (BR-DAT-02).",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -4547,19 +4616,24 @@
     "verifier_note": "Quotes verified. Severity lowered from medium to low: this is a governance gap with no immediate effect on money, and Chapter 20's registry 'expiration' field already gives the needed hook.",
     "disposition": {
       "status": "OPEN",
-      "resolution": "Partly resolved: raw payloads carry a retention deadline and deletion time (ADR-0015 raw layer), and artifacts now carry an expiry date: an expired artifact cannot become eligible or active, by any path including automatic selection.",
+      "resolution": "Partly resolved: the mechanism exists and is tested, but nothing feeds it real data. Raw payloads carry a retention deadline and deletion time (ADR-0015 raw layer). A research manifest's dataset entry may state retention_until. Registration refuses an expiry after the evaluation data's retention, and every expiry check (activation, automatic selection, automatic shadow promotion, the strategy runner) uses min(expires_on, retention_until of every evidence dataset). record_evidence_deletion (OWNER or SYSTEM, append-only, once per dataset) marks every artifact resting on that dataset EVIDENCE_EXPIRED: it may run until its expiry, every upward transition is refused, and there is no renewal.",
       "where": [
         "backend/src/unknown/data/pit.py:28-32",
-        "docs/adr/0015-data-platform-point-in-time-store.md#Raw",
-        "backend/src/unknown/research/promotion.py:475-476"
+        "backend/src/unknown/research/promotion.py:142-150",
+        "backend/src/unknown/research/promotion.py:601-680",
+        "backend/src/unknown/strategy/artifacts.py:159-163",
+        "docs/research/README.md#Evidence retention (BR-DAT-16)"
       ],
       "tests": [
-        "backend/tests/test_research_promotion.py::SelectionPolicyTest::test_expired_artifacts_cannot_become_eligible",
-        "backend/tests/test_research_promotion.py::ActivationReviewTest::test_automatic_selection_refuses_an_artifact_that_expired_after_becoming_eligible"
+        "backend/tests/test_research_evidence_retention.py::ExpiryBoundedByRetentionTest::test_registration_refuses_an_expiry_after_the_evaluation_datas_retention",
+        "backend/tests/test_research_evidence_retention.py::ExpiryBoundedByRetentionTest::test_passed_evidence_on_shorter_retained_data_shortens_the_effective_expiry",
+        "backend/tests/test_research_evidence_retention.py::EvidenceExpiredTest::test_an_active_artifact_on_deleted_data_keeps_running_but_is_never_promoted_again",
+        "backend/tests/test_research_evidence_retention.py::EvidenceExpiredTest::test_only_the_owner_or_system_records_a_deletion_and_the_record_is_append_only",
+        "backend/tests/test_research_promotion.py::SelectionPolicyTest::test_expired_artifacts_cannot_become_eligible"
       ],
-      "owner": "I5 (promotion gate)",
-      "missing": "Artifact expiry bounded by evidence retention, and an EVIDENCE_EXPIRED status after the evidence is deleted.",
-      "verified_against": "impl/foundation@73f7b03",
+      "owner": "I4 (retention metadata and deletion process) and I5 (manifests)",
+      "missing": "Wiring to data. Research manifests (research/manifest.py) never write retention_until, although the data registry has retention_days and the raw layer has retention_until_ns (no source sets it yet). No data-retention process calls record_evidence_deletion. Until both exist, no real artifact's expiry is bounded by retention, and none becomes EVIDENCE_EXPIRED.",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -4646,18 +4720,29 @@
     ],
     "verifier_note": "Quotes verified. Chapter 5 line 3 lists 'warm-up condition' as part of each feature's definition, but the per-row contract the strategy checks lacks warm-up state and validity window, so the mismatch is real.",
     "disposition": {
-      "status": "OPEN",
-      "resolution": "Partly resolved in the strategy spec: every feature declares a version, formula, availability_basis, freshness budget and warm-up observations and must be causal, and data requirements must be point in time. No feature store or strategy runner exists.",
+      "status": "RESOLVED_IN_CODE",
+      "resolution": "research.features builds one row per instrument and declared feature at each decision. A row holds a value or exactly one enumerated missing reason (NOT_REPORTED, PROVIDER_DELAY, SOURCE_GAP, NOT_APPLICABLE, QUARANTINED), the warm-up state (COLD, WARMING, WARM) and a validity window that starts at the availability of the newest input and lasts min(validity_window_s, freshness_budget_s). Spec schema v2 declares validity_window_s and the freshness budget per feature, and a spec whose feature ids or versions differ from the implementation is refused when the strategy is built. The runner blocks an instrument whose rows are unusable at the decision (FEATURE_INVALID, FEATURE_OUTSIDE_VALIDITY_WINDOW) and never transmits an intent whose features have expired (FEATURE_EXPIRED). No feature state is persisted: every decision rebuilds the strategy from the point-in-time store. At a process's first cycle the runner re-warms as of its journal's latest decision and compares rows and targets; a MISMATCH blocks new buys, including buys planned before the restart.",
       "where": [
-        "docs/requirements/dependency-graph.md#I5 — Research",
-        "backend/src/unknown/research/spec.py:248-259"
+        "backend/src/unknown/research/features.py:45-96",
+        "backend/src/unknown/research/features.py:120-160",
+        "backend/src/unknown/research/spec.py:284-290",
+        "backend/src/unknown/strategy/runner.py:224-230",
+        "backend/src/unknown/strategy/runner.py:847-887",
+        "docs/strategy/README.md#Features, validity and restart re-warm (BR-DAT-18)"
       ],
       "tests": [
+        "backend/tests/test_strategy_features.py::FeatureRowsTest::test_values_versions_warm_up_and_the_validity_window",
+        "backend/tests/test_strategy_features.py::FeatureRowsTest::test_missingness_is_enumerated",
+        "backend/tests/test_strategy_features.py::FeatureRowsTest::test_the_implementation_must_compute_the_approved_contract",
+        "backend/tests/test_strategy_features.py::RunnerFeatureGateTest::test_a_feature_outside_its_validity_window_at_the_decision_blocks_it",
+        "backend/tests/test_strategy_features.py::RunnerFeatureGateTest::test_an_intent_whose_features_expired_is_never_transmitted",
+        "backend/tests/test_strategy_features.py::RewarmMatchTest::test_a_restarted_runner_rewarms_from_the_store_and_computes_the_same_targets",
+        "backend/tests/test_strategy_features.py::RewarmMismatchTest::test_a_silently_corrected_history_is_detected_and_blocks_new_entries",
+        "backend/tests/test_strategy_transmission_gates.py::RewarmMismatchBlocksPlannedBuysTest::test_a_buy_planned_before_the_restart_is_not_transmitted_after_a_mismatch",
         "backend/tests/test_research_spec.py::SpecStrictnessTest::test_point_in_time_data_and_causal_features_only"
       ],
-      "owner": "I5 (features, strategy runner)",
-      "missing": "A validity window and enumerated missingness per feature, and deterministic re-warm from the point-in-time store on restart (needs the strategy runner, ADR-0017).",
-      "verified_against": "impl/foundation@73f7b03",
+      "residual": "The restart check compares the journal's latest decision only, and a mismatch blocks entries for the process's lifetime rather than until an owner acknowledges it. The backtest builds no feature rows, so on gappy real data it decides where the runner blocks. Freshness is checked by the runner (at the decision and at transmission), not by the core.",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -4697,19 +4782,27 @@
     ],
     "verifier_note": "Quotes verified. ADR-0009 already fixes limit-only, TIF DAY and regular-hours-only for initial eligibility. What remains open is the submission window, the price-bound reference and the carry-over rule.",
     "disposition": {
-      "status": "OPEN",
-      "resolution": "Partly resolved. The spec's rules.execution fixes the decision clock, LIMIT/DAY only, the limit offset from the decision close, the execution delay, the participation cap and EXPIRE_END_OF_DAY (no carry-over), and refuses same-bar fills; the backtest applies exactly that rule. The engine has no intraday submission window: execution is a fixed 60 s after the open.",
+      "status": "RESOLVED_IN_CODE",
+      "resolution": "Spec schema v2 declares rules.execution.submission_window: open + N to close - M minutes, no auctions, the limit referenced at transmission, the remainder cancelled at the window's end. research.execution applies it identically for the backtest and the strategy runner. The window comes from the calendar's session hours (early closes included). At transmission the limit is min(model bound, mid x (1 + collar)) for a buy (the max for a sell), from a quote validated by the core's own rules. The order carries the window's end as its deadline, and its remainder is cancelled at the window's end with a deterministic cancel id, also in a cycle that refuses or fails to decide. Nothing is carried over: the next decision recomputes from current plus pending holdings. Same-bar fills stay refused.",
       "where": [
-        "docs/adr/0009-order-lifecycle-and-outbox.md#Initial order eligibility",
-        "docs/research/README.md#Daily bars only"
+        "backend/src/unknown/research/spec.py:355-364",
+        "backend/src/unknown/research/execution.py:111-129",
+        "backend/src/unknown/strategy/runner.py:594-638",
+        "backend/src/unknown/strategy/runner.py:639-692",
+        "docs/strategy/README.md#Submission window and transmission (BR-DAT-19)"
       ],
       "tests": [
-        "backend/tests/test_research_spec.py::SpecStrictnessTest::test_same_bar_fill_is_refused",
-        "backend/tests/test_research_engine.py::CashAccountTest::test_partial_fill_remainder_expires_end_of_day"
+        "backend/tests/test_research_window.py::SpecContractTest::test_trend_daily_v1_declares_its_window_and_no_auctions",
+        "backend/tests/test_research_window.py::WindowTimesTest::test_calendar_hours_early_closes_and_the_fixture_convention",
+        "backend/tests/test_research_window.py::WindowTimesTest::test_transmission_limit_is_the_model_bound_tightened_to_the_collar",
+        "backend/tests/test_research_window.py::BacktestWindowTest::test_the_order_trades_only_the_windows_share_of_the_volume_and_the_remainder_is_cancelled",
+        "backend/tests/test_strategy_risk_window.py::WindowTransmissionTest::test_intents_wait_for_the_window_are_priced_at_transmission_and_never_carried_over",
+        "backend/tests/test_strategy_risk_window.py::WindowEndCancelTest::test_the_remainder_is_cancelled_at_the_windows_end",
+        "backend/tests/test_strategy_transmission_gates.py::FailedCycleCancelsAtWindowEndTest::test_a_cycle_that_cannot_decide_still_cancels_the_remainder",
+        "backend/tests/test_research_spec.py::SpecStrictnessTest::test_same_bar_fill_is_refused"
       ],
-      "owner": "I5 (TREND_DAILY_V1)",
-      "missing": "A submission window inside the session (open + N to close - M minutes) with the limit referenced at transmission, applied identically by the backtest and the strategy runner (ADR-0017).",
-      "verified_against": "impl/foundation@73f7b03",
+      "residual": "The core does not enforce the window after transmission: the runner's cancel ends it, so a runner that is down at the window's end leaves the remainder working until the close. The backtest references the session open (daily bars carry no quote), assumes uniform intraday volume and still fills on the whole day's bar: optimistic, labelled and not modelled (docs/strategy/README.md).",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -4750,8 +4843,8 @@
       "resolution": "Resolved for the research scope. The cost model is a versioned, typed object: fee schedule id (fee.ibkr.us.fixed@2026-10-22, fee.ibkr.us.tiered@2026-10-22), spread and slippage in bps, square-root impact with at least two Y values in stated units, and a sell-side third-party fee flagged UNVERIFIED; fees are exact at ledger scale and side-specific. An instrument without a recorded schedule is refused, and the core replay recomputes every engine commission with the core's own fee model.",
       "where": [
         "backend/src/unknown/research/costs.py:47-120",
-        "backend/src/unknown/research/costs.py:152-208",
-        "backend/src/unknown/research/spec.py:314"
+        "backend/src/unknown/research/costs.py:152-226",
+        "backend/src/unknown/research/spec.py:368"
       ],
       "tests": [
         "backend/tests/test_research_costs.py::IbkrFixedKnownAnswers::test_page_examples",
@@ -4802,18 +4895,20 @@
       "resolution": "Resolved. Orders record currency, time_in_force, policy_hash and strategy_id; for a STRATEGY principal the strategy id is its artifact id `<class>@<16 hex of the artifact hash>`, enforced to equal the authenticated principal. record_strategy_decision stores every evaluated decision (NO_TRADE, INTENT_SUBMITTED, BLOCKED, SKIPPED_STALE_DATA; live or shadow) with the inputs digest, observation time and the ids of the orders it submitted, in the hash-chained event log, with no economic effect. Rejected intents keep their full pretrade decision.",
       "where": [
         "backend/src/unknown/core/handlers/strategy.py:36-87",
-        "backend/src/unknown/core/handlers/orders.py:41-46",
-        "backend/src/unknown/core/handlers/orders.py:126-138",
-        "backend/src/unknown/core/desk.py:216-230"
+        "backend/src/unknown/core/handlers/orders.py:56-61",
+        "backend/src/unknown/core/handlers/orders.py:150-162",
+        "backend/src/unknown/core/desk.py:226-247"
       ],
       "tests": [
         "backend/tests/test_strategy_decisions.py::StrategyDecisionTests::test_no_trade_decision_is_recorded_without_economic_effect",
         "backend/tests/test_strategy_decisions.py::StrategyDecisionTests::test_submitted_intent_is_linked_to_the_strategys_own_order",
         "backend/tests/test_strategy_decisions.py::StrategyDecisionTests::test_identity_and_mandate_are_enforced",
-        "backend/tests/test_desk_commands.py::RejectionRecordTests::test_rejected_command_is_stored_with_a_command_rejected_event"
+        "backend/tests/test_desk_commands.py::RejectionRecordTests::test_rejected_command_is_stored_with_a_command_rejected_event",
+        "backend/tests/test_strategy_runner.py::LiveRunnerTest::test_live_intents_accepted_and_rejected_restart_and_lost_journal_never_resubmit",
+        "backend/tests/test_strategy_runner.py::ShadowRunnerTest::test_shadow_records_decisions_without_intents_through_the_process_entry_point"
       ],
-      "residual": "The link runs from the decision event to the order ids; an order carries only a free-form decision_ref, not a verified decision event id. No strategy runner emits these records yet (ADR-0017 is proposed).",
-      "verified_against": "impl/foundation@73f7b03",
+      "residual": "The link runs from the decision event to the order ids; an order carries only a free-form decision_ref (the strategy runner's names its decision), not a verified decision event id.",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -4877,8 +4972,8 @@
       "resolution": "ADR-0011: one execution_ownership record per account (deployment, monotonic epoch, status, grantor, provenance), acquired only by owner command. A paper or live hand-over needs the previous holder's release certificate (stop latched, no open orders, clean reconciliation) or an explicit owner attestation. Every order carries deployment:epoch:client-id, transmission requires HELD ownership, foreign-tagged or untagged activity latches the stop, and there is no automatic failover.",
       "where": [
         "backend/src/unknown/core/handlers/admin.py:128-185",
-        "backend/src/unknown/core/handlers/orders.py:259-262",
-        "backend/src/unknown/core/handlers/broker.py:68-83",
+        "backend/src/unknown/core/handlers/orders.py:296-299",
+        "backend/src/unknown/core/handlers/broker.py:70-85",
         "docs/adr/0011-execution-ownership-and-split-brain.md#Decision",
         "docs/runbooks/README.md#RB-09"
       ],
@@ -4938,7 +5033,7 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "Restore detection (c41a505): a backup is marked inside the copy, and a database whose writer epoch is not above the <db>.epoch marker, or a non-empty one without it, is a restore. The process start then latches the stop (RESTORED_FROM_BACKUP), opens a blocking exception, turns in-flight and RESERVED orders into UNKNOWN with NEEDS_LOOKUP (never resent) and requires reconciliation before anything else.",
       "where": [
-        "backend/src/unknown/core/desk.py:281-330",
+        "backend/src/unknown/core/desk.py:342-391",
         "backend/src/unknown/core/handlers/admin.py:252-287",
         "backend/src/unknown/store/db.py:194-206",
         "backend/src/unknown/store/db.py:215-231",
@@ -5012,11 +5107,11 @@
       "where": [
         "docs/adr/0013-terminal-api-and-owner-authentication.md#Owner authentication",
         "backend/src/unknown/api/auth.py",
-        "backend/src/unknown/api/server.py:34-37",
-        "backend/src/unknown/api/server.py:294-295",
-        "backend/src/unknown/service/core.py:40",
-        "backend/src/unknown/service/core.py:108-111",
-        "backend/src/unknown/core/handlers/control.py:81-82"
+        "backend/src/unknown/api/server.py:58-66",
+        "backend/src/unknown/api/server.py:582-591",
+        "backend/src/unknown/service/core.py:55",
+        "backend/src/unknown/service/core.py:373-376",
+        "backend/src/unknown/core/handlers/control.py:88-89"
       ],
       "tests": [
         "backend/tests/test_control_recovery.py::GreenStartPreflightTests::test_preflight_requires_recent_owner_reauthentication",
@@ -5079,7 +5174,7 @@
       "where": [
         "docs/adr/0016-bounded-agents-and-model-providers.md#Agents are research-side processes",
         "backend/src/unknown/agents/config.py:11-12",
-        "backend/src/unknown/service/core.py:40"
+        "backend/src/unknown/service/core.py:55"
       ],
       "tests": [
         "backend/tests/test_desk_commands.py::PermissionMatrixTests::test_agent_cannot_mutate_the_core_with_well_formed_payloads",
@@ -5153,9 +5248,9 @@
       "resolution": "Same split as BR-ORD-17: the runbook defines a latch (cleared only by owner green with preflight) and a condition (cleared when the fact changes). A scheduled IBKR restart is a connectivity condition; a crash restart that finds SUBMIT_PENDING turns it UNKNOWN (blocking) and sets the owner recovery hold.",
       "where": [
         "docs/runbooks/README.md#A **latch** (red stop) clears only",
-        "backend/src/unknown/core/handlers/broker.py:791-803",
+        "backend/src/unknown/core/handlers/broker.py:969-981",
         "backend/src/unknown/core/handlers/admin.py:248-268",
-        "backend/src/unknown/core/handlers/recon.py:211-231"
+        "backend/src/unknown/core/handlers/recon.py:213-235"
       ],
       "tests": [
         "backend/tests/test_control_recovery.py::ConnectivityTests::test_disconnect_event_forces_reconciliation_before_entries",
@@ -5218,7 +5313,7 @@
       "resolution": "Red never liquidates: on_stop_liquidation must be NONE (other values are refused), working sells stay working and wind-down creates no new sell under a latch. Only OWNER and SYSTEM may issue stop; AGENT and STRATEGY are refused, and SYSTEM latches only from deterministic triggers in code.",
       "where": [
         "backend/src/unknown/policy/model.py:377-378",
-        "backend/src/unknown/core/handlers/control.py:16-39",
+        "backend/src/unknown/core/handlers/control.py:18-46",
         "backend/src/unknown/core/handlers/sessions.py:319-321",
         "backend/src/unknown/domain/principal.py:31-58"
       ],
@@ -5271,7 +5366,7 @@
       "resolution": "Partly resolved: RB-01 documents the out-of-band path (the broker's own interface: cancel all orders for the account), and after restart the core reconciles first; a cancel made at the broker arrives as a broker-confirmed CANCELED and releases the hold.",
       "where": [
         "docs/runbooks/README.md#Out-of-band",
-        "backend/src/unknown/core/handlers/broker.py:107-187"
+        "backend/src/unknown/core/handlers/broker.py:109-196"
       ],
       "tests": [
         "backend/tests/test_control_recovery.py::RestartRecoveryTests::test_stop_survives_restart_and_restart_sets_recovery_hold"
@@ -5436,8 +5531,8 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "Resolved. The promotion transition table (RULES) fixes who may move an artifact and with which evidence: up to validated only the SYSTEM evaluator or the OWNER, and never the artifact's author; paper, eligible and active need a fresh owner approval; agents may propose and file evidence but never approve or transition, and agent-filed evidence never satisfies a gate. Evidence and transitions are append-only (database triggers) and keyed by artifact and protocol hash; any parameter change is a new spec hash and so a new artifact.",
       "where": [
-        "backend/src/unknown/research/promotion.py:80-92",
-        "backend/src/unknown/research/promotion.py:470-474"
+        "backend/src/unknown/research/promotion.py:108-123",
+        "backend/src/unknown/research/promotion.py:534-538"
       ],
       "tests": [
         "backend/tests/test_research_promotion.py::AuthorityTest::test_the_evaluator_must_not_be_the_author",
@@ -5549,7 +5644,7 @@
       "where": [
         "backend/src/unknown/agents/gate.py:1-18",
         "backend/src/unknown/agents/gate.py:155-191",
-        "backend/src/unknown/agents/runner.py:375",
+        "backend/src/unknown/agents/runner.py:508",
         "backend/src/unknown/data/registry.py:13-14"
       ],
       "tests": [
@@ -5616,7 +5711,7 @@
       "resolution": "Not resolved: config/deployment_record.example.json keeps one global shape. Live is refused in code, so no shape is used.",
       "where": [
         "config/deployment_record.example.json",
-        "backend/src/unknown/core/handlers/control.py:85-86"
+        "backend/src/unknown/core/handlers/control.py:92-93"
       ],
       "tests": [
         "backend/tests/test_policy_mandate.py::PublishActivateTests::test_live_policy_publishes_but_activation_is_refused"
@@ -5663,8 +5758,8 @@
       "status": "OPEN",
       "resolution": "Not implemented: there is no alert channel, acknowledgement, repeat or external heartbeat. The core latches the stop after 3, 10 and 100 consecutive cycle failures and exposes adapter anomalies through a broker_alerts query.",
       "where": [
-        "backend/src/unknown/service/core.py:144-150",
-        "backend/src/unknown/service/core.py:298-306"
+        "backend/src/unknown/service/core.py:440-456",
+        "backend/src/unknown/service/core.py:665-672"
       ],
       "tests": [
         "backend/tests/test_broker_admin.py::ServiceApplyTests::test_alerts_query_exposes_adapter_anomalies_and_blocks"
@@ -5824,7 +5919,7 @@
       "status": "OPEN",
       "resolution": "Not resolved; LIVE is refused in code, so it cannot arise before the live gate.",
       "where": [
-        "backend/src/unknown/core/handlers/control.py:85-86",
+        "backend/src/unknown/core/handlers/control.py:92-93",
         "docs/requirements/register.md#LAW-01"
       ],
       "tests": [],
@@ -5870,8 +5965,8 @@
       "status": "OPEN",
       "resolution": "Partly resolved: currency and an explicit time_in_force (DAY only, never a broker default) are on every order; a STRATEGY order's strategy_id is its artifact id `<class>@<16 hex of the artifact hash>`, and decision evidence is recorded by record_strategy_decision with the order ids (BR-DAT-21). There is no regulatory algo-id or order-tag field; Indian venues are not eligible.",
       "where": [
-        "backend/src/unknown/core/handlers/orders.py:126-138",
-        "backend/src/unknown/gateway/runner.py:100-106",
+        "backend/src/unknown/core/handlers/orders.py:150-162",
+        "backend/src/unknown/gateway/runner.py:215-221",
         "backend/src/unknown/policy/model.py:144-170"
       ],
       "tests": [
@@ -5912,15 +6007,18 @@
     "verifier_note": "Quotes verified; the gap is real even with one active session per account (Ch 10 l.37).",
     "disposition": {
       "status": "OPEN",
-      "resolution": "Partly resolved: pretrade refuses an order whose limit would trade against one of this account's working opposite-side orders in the same instrument. No test exercises a SELF_CROSS rejection.",
+      "resolution": "Partly resolved. Pretrade refuses (SELF_CROSS) an order whose limit would trade against one of this account's working opposite-side orders in the same instrument. Tested through submit_intent on both sides: a buy against our working sell and a sell against our working buy are refused, and nothing is reserved; orders that do not cross, or that follow a confirmed cancel, are accepted.",
       "where": [
-        "backend/src/unknown/core/handlers/orders.py:148-156",
+        "backend/src/unknown/core/handlers/orders.py:185-194",
         "backend/src/unknown/risk/pretrade.py:159"
       ],
-      "tests": [],
-      "owner": "I1 (test); I5 (per-strategy order-to-trade and cancel ratios)",
-      "missing": "A test for the SELF_CROSS rejection; cross-account checks and cancel-ratio monitoring once more than one account or strategy trades.",
-      "verified_against": "impl/foundation@73f7b03",
+      "tests": [
+        "backend/tests/test_core_lifecycle_executions.py::SelfCrossTests::test_buy_that_would_trade_against_our_working_sell_is_refused_self_cross",
+        "backend/tests/test_core_lifecycle_executions.py::SelfCrossTests::test_sell_that_would_trade_against_our_working_buy_is_refused_self_cross"
+      ],
+      "owner": "I5 (order-pattern monitoring); I1 (cross-account check)",
+      "missing": "The detection of suspicious cancel and order patterns that book Ch. 25 asks for: no per-strategy order-to-trade or cancel ratio, threshold or consequence exists (only the per-minute order-rate limit). Also, self-cross is not checked across accounts, which matters once a second account trades.",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -5960,8 +6058,8 @@
       "resolution": "Operating costs never touch the economic journal: model spend lives in the agents' separate spend ledger, the agents' only core write is a non-executable research proposal, and paid data and cloud are not used. A service paid from the brokerage account appears as an unexplained cash change that the owner records as an external flow of `outside`.",
       "where": [
         "backend/src/unknown/agents/budget.py:114-145",
-        "backend/src/unknown/core/handlers/control.py:244-269",
-        "backend/src/unknown/core/handlers/control.py:167-179"
+        "backend/src/unknown/core/handlers/control.py:376-399",
+        "backend/src/unknown/core/handlers/control.py:174-186"
       ],
       "tests": [
         "backend/tests/test_desk_commands.py::ResearchProposalTests::test_valid_proposal_is_recorded_and_moves_no_money",
@@ -6117,9 +6215,9 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "Release follows the broker's cumulative quantity (BR-ORD-02): a terminal status ahead of its executions keeps the hold; a fill after a terminal state is booked with a blocking anomaly, never rejected; a shortfall moves to exception:<case> and blocks new exposure.",
       "where": [
-        "backend/src/unknown/core/handlers/broker.py:156-164",
-        "backend/src/unknown/core/handlers/broker.py:358-434",
-        "backend/src/unknown/core/handlers/broker.py:437-459"
+        "backend/src/unknown/core/handlers/broker.py:165-173",
+        "backend/src/unknown/core/handlers/broker.py:418-499",
+        "backend/src/unknown/core/handlers/broker.py:502-524"
       ],
       "tests": [
         "backend/tests/test_orders_lifecycle.py::CallbackTests::test_terminal_status_before_executions_keeps_reservation",
@@ -6188,8 +6286,8 @@
       "resolution": "Resolved. The reference's rejection tests are not production requirements (CLAUDE.md keeps reference/ and the root tests as the book's companion); the backend replaces them with exception-ingestion tests. Fees are per execution (estimate, then final) and the hold uses only the unconsumed envelope. A sell whose fee exceeds its proceeds leaves a negative receivable and settles as a payment, which available cash counts as committed (review finding 25), so it is never spent first and settlement reconciles clean.",
       "where": [
         "CLAUDE.md#are not the product",
-        "backend/src/unknown/core/handlers/broker.py:332-340",
-        "backend/src/unknown/core/handlers/broker.py:761-771",
+        "backend/src/unknown/core/handlers/broker.py:392-400",
+        "backend/src/unknown/core/handlers/broker.py:936-946",
         "backend/src/unknown/core/ledger.py:158-182",
         "backend/src/unknown/core/handlers/common.py:60-70"
       ],
@@ -6252,7 +6350,7 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "Reconciliation is its own SYSTEM command and never touches the latch. A clean run in the new process clears the recovery gate, after which risk-reducing sells of unreserved session lots are accepted while the stop stays latched; an owner green start clears the latch.",
       "where": [
-        "backend/src/unknown/core/handlers/recon.py:31-236",
+        "backend/src/unknown/core/handlers/recon.py:31-240",
         "backend/src/unknown/risk/pretrade.py:94-99"
       ],
       "tests": [
@@ -6314,7 +6412,7 @@
       "resolution": "Reconciliation state is journaled (control.reconciled_epoch and needs_reconciliation; runs are events) and tied to the writer-lease epoch; every write transaction checks the epoch, so a superseded process cannot accept an order; replaying the event log reproduces every projection byte for byte.",
       "where": [
         "backend/src/unknown/store/db.py:141-158",
-        "backend/src/unknown/core/handlers/recon.py:211-218",
+        "backend/src/unknown/core/handlers/recon.py:213-220",
         "backend/src/unknown/core/handlers/common.py:48-49",
         "backend/src/unknown/core/replay.py:78-88"
       ],
@@ -6369,9 +6467,9 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "Stop enqueues an outbox CANCEL row per open buy, with its own outbox id keyed to the order, and the port cancels by client order id with the broker id optional, so SUBMIT_PENDING and UNKNOWN orders are covered. The sender re-checks the latch before every SUBMIT.",
       "where": [
-        "backend/src/unknown/core/handlers/control.py:22-39",
-        "backend/src/unknown/core/handlers/orders.py:205-245",
-        "backend/src/unknown/broker/port.py:233",
+        "backend/src/unknown/core/handlers/control.py:28-46",
+        "backend/src/unknown/core/handlers/orders.py:242-282",
+        "backend/src/unknown/broker/port.py:235",
         "backend/src/unknown/store/schema.py:118-122"
       ],
       "tests": [
@@ -6430,8 +6528,8 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "The port separates results: LookupResult is tri-state (found / conclusively not found / cannot determine), a cancel ACCEPTED is only an acknowledgement, and every read is typed with completeness. Fencing is local (ADR-0011) because IBKR enforces none; one adapter instance serves one account and the IBKR adapter latches if the host reports an unexpected account.",
       "where": [
-        "backend/src/unknown/broker/port.py:104-143",
-        "backend/src/unknown/core/handlers/orders.py:376-380",
+        "backend/src/unknown/broker/port.py:106-145",
+        "backend/src/unknown/core/handlers/orders.py:418-422",
         "docs/adr/0011-execution-ownership-and-split-brain.md#Context"
       ],
       "tests": [
@@ -6497,7 +6595,7 @@
       "where": [
         "backend/src/unknown/core/handlers/valuation.py:29-42",
         "backend/src/unknown/core/handlers/valuation.py:107-144",
-        "backend/src/unknown/core/handlers/control.py:127-131"
+        "backend/src/unknown/core/handlers/control.py:134-138"
       ],
       "tests": [
         "backend/tests/test_control_recovery.py::GreenStartPreflightTests::test_preflight_reports_loss_budget_breach",
@@ -6550,7 +6648,7 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "Every decided command is stored with its outcome; a rejection is stored with a CommandRejected event, and an identical retry returns that stored rejection even after state has changed. Commands may carry a deadline, and intents carry policy_hash.",
       "where": [
-        "backend/src/unknown/core/desk.py:189-230"
+        "backend/src/unknown/core/desk.py:199-247"
       ],
       "tests": [
         "backend/tests/test_desk_commands.py::RejectionRecordTests::test_rejected_command_is_stored_with_a_command_rejected_event",
@@ -6809,9 +6907,9 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "The lifecycle has REJECTED, EXPIRED and UNKNOWN; broker-originated CANCELED, EXPIRED and REJECTED statuses apply from any non-terminal state and release only the remaining hold; UNKNOWN keeps the full hold until lookup resolves it.",
       "where": [
-        "backend/src/unknown/core/state.py:12-13",
-        "backend/src/unknown/core/handlers/broker.py:107-187",
-        "backend/src/unknown/core/handlers/orders.py:367-374"
+        "backend/src/unknown/core/order_machine.py:33-34",
+        "backend/src/unknown/core/handlers/broker.py:109-196",
+        "backend/src/unknown/core/handlers/orders.py:409-416"
       ],
       "tests": [
         "backend/tests/test_orders_lifecycle.py::SubmissionOutcomeTests::test_unambiguous_reject_releases_holds",
@@ -6860,7 +6958,7 @@
       "resolution": "Same as BR-SES-07: the successor's full mandate is snapshotted from the active default when the request is created and frozen; risk checks read the session's own mandate.",
       "where": [
         "backend/src/unknown/core/handlers/sessions.py:457-475",
-        "backend/src/unknown/core/handlers/orders.py:71-72",
+        "backend/src/unknown/core/handlers/orders.py:86-87",
         "docs/adr/0007-authority-and-policy-versions.md#Mandates"
       ],
       "tests": [
@@ -6955,8 +7053,8 @@
       "resolution": "Each completed session has its own owner protected:<id>; receivables and settlement rows are re-owned to it; a late fee posts there linked to its execution, and a shortfall moves to exception:<case> for the owner to cover.",
       "where": [
         "backend/src/unknown/core/handlers/sessions.py:443-455",
-        "backend/src/unknown/core/handlers/broker.py:688-787",
-        "backend/src/unknown/core/handlers/control.py:215-229"
+        "backend/src/unknown/core/handlers/broker.py:858-965",
+        "backend/src/unknown/core/handlers/control.py:229-243"
       ],
       "tests": [
         "backend/tests/test_sessions.py::PostCompletionTest::test_late_commission_after_completion_posts_to_protected_and_opens_exception",
@@ -7001,7 +7099,7 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "Opening balances and every capital authorization are events; projections are rebuilt by replaying the event log and compared byte for byte; the hash chain covers every event column.",
       "where": [
-        "backend/src/unknown/core/handlers/recon.py:286-339",
+        "backend/src/unknown/core/handlers/recon.py:290-343",
         "backend/src/unknown/core/handlers/admin.py:196-231",
         "backend/src/unknown/core/replay.py:20-88"
       ],
@@ -7053,7 +7151,7 @@
       "where": [
         "docs/adr/0005-event-sourced-core.md#Command idempotency",
         "docs/adr/0013-terminal-api-and-owner-authentication.md#No optimistic updates",
-        "backend/src/unknown/core/desk.py:170-176"
+        "backend/src/unknown/core/desk.py:180-186"
       ],
       "tests": [
         "backend/tests/test_desk_commands.py::IdempotencyTests::test_identical_retry_of_accepted_intent_returns_stored_result_without_new_events",
@@ -7096,20 +7194,23 @@
     ],
     "verifier_note": "Reproduced the blocked stop. My latency numbers differ from the claim's (2.2 to 8.8 ms, 196 to 796 KB), but the growth trend is confirmed. The storage format is admitted in Ch.30's map ('Atomic JSON state'); stop being gated by invariants is not.",
     "disposition": {
-      "status": "OPEN",
-      "resolution": "Partly resolved: stop is in RECORD_DESPITE_INVARIANTS, so an invariant failure after a stop records the stop anyway, opens a LEDGER_INVARIANT case and latches; observation commands do the same. Projections are per entity, not one JSON row. Per-command verification is now incremental, with full checks at process start, every reconciliation result and green start; a test corrupts a balance projection and shows the reconciliation result is still recorded and LEDGER_INVARIANT latches the stop.",
+      "status": "RESOLVED_IN_CODE",
+      "resolution": "Stop is in RECORD_DESPITE_INVARIANTS: an invariant failure after a stop records the stop anyway, opens a blocking LEDGER_INVARIANT case and latches; observation commands do the same. Projections are per entity, not one JSON row, and per-command verification is incremental, with full checks at process start, every reconciliation result and green start. Tested: a red stop over a corrupt balance projection it touches is recorded and LEDGER_INVARIANT latches; damage the stop does not touch is found by the next full check; a corrupt control row on which the desk cannot run the stop at all still latches the stop in memory and cancels open buys (BR-SES-13).",
       "where": [
-        "backend/src/unknown/core/desk.py:33-34",
-        "backend/src/unknown/core/desk.py:199-213",
-        "backend/src/unknown/core/desk.py:232-244"
+        "backend/src/unknown/core/desk.py:34-35",
+        "backend/src/unknown/core/desk.py:209-223",
+        "backend/src/unknown/core/desk.py:249-261",
+        "backend/src/unknown/service/core.py:173-205"
       ],
       "tests": [
+        "backend/tests/test_core_lifecycle_stop.py::CorruptProjectionStopTests::test_red_stop_over_a_corrupt_balance_it_touches_is_recorded_and_ledger_invariant_latches",
+        "backend/tests/test_core_lifecycle_stop.py::CorruptProjectionStopTests::test_damage_the_stop_does_not_touch_is_found_by_the_next_full_check",
+        "backend/tests/test_core_lifecycle_stop.py::MemoryLatchTests::test_a_corrupt_control_row_cannot_block_the_red_stop",
         "backend/tests/test_control_recovery.py::RedStopTests::test_owner_stop_latches_durably_with_actor_reason_and_command",
         "backend/tests/test_durability_review.py::IncrementalVerificationCostTest::test_damage_made_outside_the_core_is_found_by_the_full_checks"
       ],
-      "owner": "I1",
-      "missing": "A test that corrupts a projection and asserts that a red stop is still recorded and LEDGER_INVARIANT latches.",
-      "verified_against": "impl/foundation@73f7b03",
+      "residual": "Any other command that fails an invariant check is rolled back and reported to its caller without latching; the next full check (a reconciliation result, process start or green start) latches LEDGER_INVARIANT. The latch stays in the control row rather than in its own append-only table; the memory latch covers a control row that cannot be written.",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -7194,21 +7295,21 @@
     ],
     "verifier_note": "Confirmed from the schema text. The unbalanced-posting part is acknowledged on schema line 2 and Ch.31 l.41; the other gaps are not.",
     "disposition": {
-      "status": "OPEN",
-      "resolution": "Partly resolved: every posting is rescaled exactly to its currency's ledger scale and carries an owner; connect() sets foreign_keys=ON on every connection. Same id with changed content is recorded and blocks, but is untested (BR-ORD-05); an identical redelivery is tested to be a duplicate.",
+      "status": "RESOLVED_IN_CODE",
+      "resolution": "Every posting is rescaled exactly to its currency's ledger scale and carries an owner; connect() sets foreign_keys=ON on every connection. An execution redelivered under the same provider id with changed content is kept, not lost: the received payload is recorded in the ExecutionContentConflict event and in the blocking case (stored and received economics), and the original stays booked (BR-ORD-05); tested end to end.",
       "where": [
         "backend/src/unknown/core/ledger.py:79-104",
         "backend/src/unknown/store/db.py:46",
-        "backend/src/unknown/core/handlers/broker.py:191-205"
+        "backend/src/unknown/core/handlers/broker.py:242-265"
       ],
       "tests": [
         "backend/tests/test_fixed_money.py::LedgerScaleTests::test_journal_entry_requires_exact_ledger_scale",
         "backend/tests/test_fixed_money.py::LedgerScaleEndToEndTests::test_sub_ledger_scale_fill_is_rounded_explicitly_and_raw_retained",
+        "backend/tests/test_core_lifecycle_executions.py::ChangedRedeliveryTests::test_same_execution_id_with_changed_price_keeps_the_original_and_blocks_until_the_owner_resolves",
         "backend/tests/test_review_fixes.py::ExecutionLedgerTests::test_f38_redelivery_of_an_execution_with_an_unmapped_instrument_is_a_duplicate"
       ],
-      "owner": "I1",
-      "missing": "A test of the same-execution-id-changed-content path (shared with BR-ORD-05).",
-      "verified_against": "impl/foundation@73f7b03",
+      "residual": "The amended content is kept in the event log and the case, not as a second executions row, and there is no provider_version column (BR-ORD-05).",
+      "verified_against": "impl/foundation@8b98d00",
       "verified_on": "2026-10-22"
     }
   },
@@ -7236,7 +7337,7 @@
       "status": "RESOLVED_IN_CODE",
       "resolution": "The core uses FIFO lots per owner (ADR-0006), not an average-cost pool. Partial-disposal cost relief is HALF_EVEN of cost x taken / open, and the last disposal takes the lot's remaining cost, so nothing drifts.",
       "where": [
-        "backend/src/unknown/core/handlers/broker.py:242-260",
+        "backend/src/unknown/core/handlers/broker.py:302-320",
         "docs/adr/0006-ledger-owner-dimension.md#Positions"
       ],
       "tests": [
