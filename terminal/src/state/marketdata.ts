@@ -349,7 +349,9 @@ export class MarketDataClient {
   }
 
   private recordLatency(ms: number): void {
-    this.latency.push(ms);
+    // Date.now() has millisecond resolution against the server's nanoseconds: a sub-millisecond delivery can read
+    // slightly negative. Clamp at zero rather than report a negative latency.
+    this.latency.push(Math.max(0, ms));
     if (this.latency.length > LATENCY_WINDOW) this.latency.splice(0, this.latency.length - LATENCY_WINDOW);
   }
 
