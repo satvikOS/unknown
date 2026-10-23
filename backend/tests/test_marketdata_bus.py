@@ -308,6 +308,7 @@ class ApiTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
+        cls.server.server_close()
         if cls.ctx.marketdata is not None:
             cls.ctx.marketdata.stop()
         cls.tmp.cleanup()
