@@ -24,7 +24,7 @@ call under the cited `describe` titles; `--run-tests` runs the cited backend tes
 Playwright end-to-end tests (`terminal/e2e`) and the tests marked IBKR venv run only locally. Passing offline tests is
 evidence of offline behaviour only.
 
-Checked against `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data@77c16d1` on 2026-10-23; `feat/workstation-shell@c052431` on 2026-10-23; `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d00` on 2026-10-22.
+Checked against `feat/global-data@a0658d0` on 2026-10-23; `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data@77c16d1` on 2026-10-23; `feat/workstation-shell@c052431` on 2026-10-23; `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d00` on 2026-10-22.
 
 ## Summary by area
 
@@ -32,9 +32,9 @@ Checked against `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data
 |---|---|---|---|---|---|---|---|
 | instruments | 14 | 6 | 0 | 2 | 6 | 0 | 0 |
 | market-data | 13 | 4 | 0 | 5 | 4 | 0 | 0 |
-| company-research | 14 | 4 | 0 | 2 | 8 | 0 | 0 |
+| company-research | 14 | 3 | 0 | 2 | 9 | 0 | 0 |
 | news-documents | 14 | 14 | 0 | 0 | 0 | 0 | 0 |
-| macro-rates-fx | 14 | 12 | 0 | 1 | 1 | 0 | 0 |
+| macro-rates-fx | 14 | 10 | 0 | 2 | 2 | 0 | 0 |
 | portfolio-risk | 13 | 4 | 0 | 0 | 9 | 0 | 0 |
 | multiasset | 14 | 14 | 0 | 0 | 0 | 0 | 0 |
 | strategy-research | 14 | 2 | 0 | 3 | 9 | 0 | 0 |
@@ -42,11 +42,11 @@ Checked against `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data
 | workspace-ux | 12 | 3 | 0 | 3 | 6 | 0 | 0 |
 | agent-operations | 14 | 4 | 0 | 3 | 7 | 0 | 0 |
 | ibkr-integration | 14 | 2 | 0 | 2 | 10 | 0 | 0 |
-| data-providers | 14 | 8 | 0 | 2 | 4 | 0 | 0 |
+| data-providers | 14 | 6 | 0 | 2 | 6 | 0 | 0 |
 | model-providers | 12 | 1 | 0 | 1 | 10 | 0 | 0 |
 | regulatory | 13 | 7 | 0 | 2 | 4 | 0 | 0 |
 | ops-aws | 14 | 7 | 0 | 4 | 3 | 0 | 0 |
-| **all** | 217 | 97 | 0 | 31 | 89 | 0 | 0 |
+| **all** | 217 | 92 | 0 | 32 | 93 | 0 | 0 |
 
 ## Capabilities
 
@@ -94,7 +94,7 @@ Checked against `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data
 |---|---|---|---|---|---|---|
 | CAP-CO-01 | P0 | Issuer, filer and listing identity resolution for company research | Bloomberg Terminal, IBKR TWS Fundamentals Explorer, S&P Capital IQ Pro | tested | 7 | no 200-ticker resolution fixture and no latency target run (AC1, AC8) |
 | CAP-CO-02 | P0 | US SEC filings feed, archive and full-text search | Bloomberg Terminal, LSEG Workspace / LSEG fundamentals, S&P Capital IQ Pro | implemented | 3 | no filing feed or archive: filings are listed only for issuers whose submissions |
-| CAP-CO-03 | P1 | India and Europe company filings ingestion (ESEF, UKSEF, NSE/BSE, MCA) under explicit rights gates | IBKR TWS Fundamentals Explorer, LSEG Workspace / LSEG fundamentals | proposed |  | not yet implemented |
+| CAP-CO-03 | P1 | India and Europe company filings ingestion (ESEF, UKSEF, NSE/BSE, MCA) under explicit rights gates | IBKR TWS Fundamentals Explorer, LSEG Workspace / LSEG fundamentals | tested | 8 | German issuers (SAP, Siemens) are not in filings.xbrl.org; Unternehmensregister  |
 | CAP-CO-04 | P1 | As-reported financial statements from XBRL (income, balance sheet, cash flow, segments) | Bloomberg Terminal, IBKR TWS Fundamentals Explorer, LSEG Workspace / LSEG fundam | tested | 7 | statements follow the project's standardized mapping, not each filing's presenta |
 | CAP-CO-05 | P1 | Standardized line items, currency/unit normalization, calendarization and TTM | Bloomberg Terminal, LSEG Workspace / LSEG fundamentals, S&P Capital IQ Pro | tested | 5 | no 100-issuer coverage report (AC2) |
 | CAP-CO-06 | P1 | Point-in-time fundamentals, amendment and restatement history | Bloomberg (Enterprise Data), LSEG Workspace / LSEG fundamentals, S&P Capital IQ  | tested | 6 | no 8-K 4.02 NON_RELIANCE marking (AC6) |
@@ -134,11 +134,11 @@ Checked against `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data
 | CAP-MAC-02 | P1 | Release-time capture of actuals, revisions to prior and first prints | Bloomberg (EcoNext delivery for ECO data), IBKR (Econoday on Interactive Brokers | proposed |  | not yet implemented |
 | CAP-MAC-03 | P1 | Consensus forecasts, point-in-time consensus snapshots and surprise metrics | Bloomberg Terminal, Bloomberg point-in-time economic dataset (trade press), IBKR | proposed |  | not yet implemented |
 | CAP-MAC-04 | P1 | Macro series vintages and point-in-time (as-of) queries | Bloomberg point-in-time economic dataset (trade press), LSEG economic data, LSEG | proposed |  | not yet implemented |
-| CAP-MAC-05 | P1 | Macro time-series catalog, retrieval, transformations and country-indicator matrix | Bloomberg Terminal, Bloomberg Terminal (economics), LSEG economic data, S&P Capi | proposed |  | not yet implemented |
+| CAP-MAC-05 | P1 | Macro time-series catalog, retrieval, transformations and country-indicator matrix | Bloomberg Terminal, Bloomberg Terminal (economics), LSEG economic data, S&P Capi | tested | 6 | no vintages: values are available from first capture (ALFRED/OECD vintages not r |
 | CAP-MAC-06 | P1 | Central bank meeting calendar, decisions and policy-rate history (Fed, ECB, RBI) | Bloomberg (enterprise data catalogue, ECO), IBKR (Econoday) | proposed |  | not yet implemented |
 | CAP-MAC-07 | P1 | US Treasury par/real yield curves, H.15, fitted zero curve and overnight reference rates | IBKR TWS API, LSEG/Refinitiv Datastream (2022 fact sheet hosted by the Universit | implemented | 4 | H.15 reconciliation, GSW fitted zero curve and NY Fed overnight rates not built  |
 | CAP-MAC-08 | P1 | Euro area government yield curves (ECB), EUR short-term rate and UK gilt/OIS curves (BoE) | Bloomberg MAC3 (risk model), LSEG/Refinitiv Datastream (2022 fact sheet hosted b | proposed |  | not yet implemented |
-| CAP-MAC-09 | P1 | India policy rates, money-market benchmarks and government securities curve | LSEG Reuters Polls, LSEG/Refinitiv Datastream (2022 fact sheet hosted by the Uni | proposed |  | not yet implemented |
+| CAP-MAC-09 | P1 | India policy rates, money-market benchmarks and government securities curve | LSEG Reuters Polls, LSEG/Refinitiv Datastream (2022 fact sheet hosted by the Uni | implemented | 1 | money-market benchmarks and the G-sec curve not ingested |
 | CAP-MAC-10 | P1 | Yield-curve analytics: interpolation, bootstrapping, forwards, spreads, curve history and factor decomposition | Bloomberg MAC3, LSEG/Refinitiv Datastream (2022 fact sheet hosted by the Univers | proposed |  | not yet implemented |
 | CAP-MAC-11 | P2 | Market-implied policy-rate path and meeting probabilities, with published-proxy fallback | Bloomberg Terminal, LSEG Reuters Polls | proposed |  | not yet implemented |
 | CAP-MAC-12 | P0 | Official FX reference rates (ECB, Fed H.10, FBIL/RBI) for valuation and reporting | Bloomberg MAC3, LSEG/Refinitiv Datastream (2022 fact sheet hosted by the Univers | tested | 4 | Fed H.10 and FBIL/RBI not ingested (AC2, AC3) |
@@ -281,9 +281,9 @@ Checked against `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data
 |---|---|---|---|---|---|---|
 | CAP-DATA-01 | P0 | Provider and entitlement registry with enforced usage rights | FRED (Federal Reserve Bank of St. Louis), Interactive Brokers, LSEG Workspace, M | tested | 6 | no registry entry for IBKR market data, so historical bars are returned but not  |
 | CAP-DATA-02 | P0 | SEC EDGAR filings, XBRL company facts and bulk files under fair-access rules | SEC DERA, SEC EDGAR | tested | 5 | bulk files (FSDS, daily index) and filing documents not ingested (AC3, AC6) |
-| CAP-DATA-03 | P1 | European issuer filings (ESEF iXBRL) via filings.xbrl.org | filings.xbrl.org (XBRL International) | proposed |  | not yet implemented |
+| CAP-DATA-03 | P1 | European issuer filings (ESEF iXBRL) via filings.xbrl.org | filings.xbrl.org (XBRL International) | tested | 3 | no automatic refresh schedule |
 | CAP-DATA-04 | P0 | Instrument identifier mapping with OpenFIGI (ISIN/CUSIP/SEDOL/ticker to FIGI) | OpenFIGI (Bloomberg) | tested | 4 | no 400-ISIN coverage report per market (AC3) |
-| CAP-DATA-05 | P1 | Macro time series with point-in-time vintages from FRED/ALFRED | FRED API, FRED/ALFRED | proposed |  | not yet implemented |
+| CAP-DATA-05 | P1 | Macro time series with point-in-time vintages from FRED/ALFRED | FRED API, FRED/ALFRED | tested | 2 | ALFRED vintages not used (current vintage, first-capture availability) |
 | CAP-DATA-06 | P1 | US Treasury yield curves and Fiscal Data datasets | US Treasury, US Treasury Fiscal Data | implemented | 4 | real yields, bill rates and Fiscal Data datasets not ingested (AC4) |
 | CAP-DATA-07 | P1 | Euro-area and EU statistics: ECB Data Portal (with vintages) and Eurostat | ECB, ECB Data Portal, Eurostat | implemented | 3 | only the EXR dataflow: no other ECB series, no updatedAfter delta loads or vinta |
 | CAP-DATA-08 | P2 | India macro and monetary statistics from RBI DBIE (manual, rights-limited) | Reserve Bank of India | proposed |  | not yet implemented |
@@ -559,6 +559,19 @@ Checked against `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data
 - Gap: filing documents are not stored
 - Requirements: DAT-03
 
+### CAP-CO-03: India and Europe company filings ingestion (ESEF, UKSEF, NSE/BSE, MCA) under explicit rights gates (tested)
+
+- Files: `backend/src/unknown/data/sources/esef.py`, `backend/src/unknown/data/sources/firds.py`, `backend/src/unknown/data/fundamentals/ifrs.py`, `backend/src/unknown/data/fundamentals/search.py`, `backend/src/unknown/api/routes/company.py`, `terminal/src/workspaces/company/EuIssuer.tsx`, `terminal/src/workspaces/company/eu.ts`, `config/providers/xbrl-filings.json`, `config/providers/esma-firds.json`, `config/providers/nse-india.json`, `config/providers/bse-india.json`, `config/providers/sebi.json`
+- Tests: `test_sources_esef::EsefTests.test_ingest_keeps_eu_filings_and_plain_ifrs_facts_exactly`; `test_sources_esef::EsefTests.test_statements_point_in_time_restatement_and_fallback`; `test_sources_esef::EsefTests.test_mapping_keys_line_up_with_the_sec_mapping`; `test_sources_esef::EsefTests.test_issuer_without_indexed_filings_is_explicit`; `test_sources_esef::EsefTests.test_compare_side_by_side_never_converts_currencies`; `test_sources_esef::FirdsTests.test_ingest_uses_listed_files_and_feeds_search`; `test_sources_esef::EuRouteTests.test_eu_routes`; `src/workspaces/company/eu.test.ts::EU issuer helpers > labels source and currency of SEC and ESEF candidates`
+- Evidence: ESEF annual reports from filings.xbrl.org (EU filings only) stored as point-in-time facts with the filing as publication; esef-ifrs-map@1 maps ifrs-full concepts to the SEC line-item keys; FY statements with restatement history and flagged fallbacks; ESEF/SEC side by side without currency conversion; search lists EU issuers by LEI, ISIN or name with source and currency.
+- Evidence: Live run 2026-10-23 into the owner store: ASML 809 facts, LVMH 661, TotalEnergies 815 (FR filings; UK copies skipped); SAP and Siemens NO_FILINGS_INDEXED (Germany not indexed). TotalEnergies ESEF and 20-F lines agree exactly for FY2025.
+- Gap: German issuers (SAP, Siemens) are not in filings.xbrl.org; Unternehmensregister not integrated
+- Gap: UKSEF, MCA and NSE/BSE filings not ingested (NSE/BSE/SEBI blocked by the rights review)
+- Gap: FIRDS listings untested live: the ESMA register returned HTTP 502 on 2026-10-23
+- Gap: issuer extension concepts (ESEF anchoring) not mapped; operating income often NOT_REPORTED
+- Gap: only FY basis (no half-year reports)
+- Requirements: DAT-01, DAT-02
+
 ### CAP-CO-04: As-reported financial statements from XBRL (income, balance sheet, cash flow, segments) (tested)
 
 - Files: `backend/src/unknown/data/fundamentals/statements.py`, `backend/src/unknown/data/fundamentals/periods.py`, `backend/src/unknown/data/fundamentals/mapping.py`, `terminal/src/workspaces/company/Statements.tsx`
@@ -642,6 +655,17 @@ Checked against `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data
 - Gap: no 100-question benchmark or citation-precision measurement (AC1, AC2)
 - Requirements: AI-04, DAT-05
 
+### CAP-MAC-05: Macro time-series catalog, retrieval, transformations and country-indicator matrix (tested)
+
+- Files: `backend/src/unknown/data/sources/macro_common.py`, `backend/src/unknown/data/sources/macro_global.py`, `backend/src/unknown/data/sources/worldbank.py`, `backend/src/unknown/data/sources/oecd.py`, `backend/src/unknown/api/routes/macro_global.py`, `terminal/src/workspaces/macro/GlobalMacro.tsx`, `terminal/src/workspaces/macro/global.ts`, `config/providers/world-bank.json`, `config/providers/oecd.json`, `config/providers/imf.json`
+- Tests: `test_sources_macro_global::MacroSourceTests.test_world_bank_values_exact_and_null_is_missing_not_zero`; `test_sources_macro_global::MacroSourceTests.test_revision_is_a_new_publication_at_its_receipt_time`; `test_sources_macro_global::MacroSourceTests.test_oecd_csv_and_one_request_for_all_countries`; `test_sources_macro_global::MacroSourceTests.test_comparison_cells_label_source_area_and_reasons`; `test_sources_macro_global::MacroGlobalRouteTests.test_route_registered_and_reads_store`; `src/workspaces/macro/global.test.ts::comparison table > shows exact values with period and the reason for anything missing`
+- Evidence: Cross-country comparison (US, IN and the EU venue countries) of World Bank, OECD, BIS and FRED series: one column per source and definition, exact decimal text, NOT_COVERED / NOT_INGESTED / NOT_AVAILABLE_AT_AS_OF as words, a series chart, and blocked sources listed with their reasons.
+- Evidence: Live run 2026-10-23: World Bank 432 observations, OECD 701.
+- Gap: no vintages: values are available from first capture (ALFRED/OECD vintages not read)
+- Gap: IMF blocked by its terms (automated bulk download needs permission)
+- Gap: no transformations (y/y, rebasing) beyond what sources publish
+- Requirements: DAT-02
+
 ### CAP-MAC-07: US Treasury par/real yield curves, H.15, fitted zero curve and overnight reference rates (implemented)
 
 - Files: `backend/src/unknown/data/sources/treasury.py`, `backend/src/unknown/api/routes/company.py`
@@ -650,6 +674,16 @@ Checked against `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data
 - Gap: H.15 reconciliation, GSW fitted zero curve and NY Fed overnight rates not built (AC2-AC4)
 - Gap: real yields not ingested
 - Requirements: DAT-02, DAT-04
+
+### CAP-MAC-09: India policy rates, money-market benchmarks and government securities curve (implemented)
+
+- Files: `backend/src/unknown/data/sources/bis.py`, `config/providers/bis.json`, `config/providers/rbi.json`, `config/providers/fbil.json`
+- Tests: `test_sources_macro_global::MacroSourceTests.test_bis_backfill_available_at_month_end_and_live_at_receipt`
+- Evidence: RBI policy repo rate via BIS WS_CBPOL (series IN, end of month), live run 2026-10-23; the RBI website and FBIL are recorded as blocked by the rights review; INR reference FX is available from the ECB (INR per EUR).
+- Gap: money-market benchmarks and the G-sec curve not ingested
+- Gap: RBI website blocked (caching prohibited); FBIL licensing unreviewed
+- Gap: policy rate is end-of-month, not decision-dated
+- Requirements: DAT-02
 
 ### CAP-MAC-12: Official FX reference rates (ECB, Fed H.10, FBIL/RBI) for valuation and reporting (tested)
 
@@ -1332,6 +1366,16 @@ Checked against `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data
 - Gap: rate limit is per process, not a global limiter (AC2)
 - Requirements: DAT-01, DAT-03
 
+### CAP-DATA-03: European issuer filings (ESEF iXBRL) via filings.xbrl.org (tested)
+
+- Files: `backend/src/unknown/data/sources/esef.py`, `config/providers/xbrl-filings.json`
+- Tests: `test_sources_esef::EsefTests.test_ingest_keeps_eu_filings_and_plain_ifrs_facts_exactly`; `test_sources_esef::EsefTests.test_lei_check_digits`; `test_sources_macro_global::MacroSourceTests.test_blocked_sources_refuse_storage`
+- Evidence: filings.xbrl.org terms read 2026-10-23 (free API, contact User-Agent, no data licence stated): recorded as single-owner research storage, no redistribution, no cloud-model processing; requests paced at 1 per 2 s.
+- Evidence: Live ingestion 2026-10-23: 3 issuers, 9 filings, 2,285 facts.
+- Gap: no automatic refresh schedule
+- Gap: the API's validation messages are not stored
+- Requirements: DAT-01
+
 ### CAP-DATA-04: Instrument identifier mapping with OpenFIGI (ISIN/CUSIP/SEDOL/ticker to FIGI) (tested)
 
 - Files: `backend/src/unknown/data/sources/openfigi.py`, `backend/src/unknown/data/sources/identifiers.py`, `config/providers/`
@@ -1340,6 +1384,15 @@ Checked against `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data
 - Gap: no 400-ISIN coverage report per market (AC3)
 - Gap: historical joins by identifier validity rely on receipt-time snapshots only (AC4)
 - Requirements: DAT-01, DOM-03
+
+### CAP-DATA-05: Macro time series with point-in-time vintages from FRED/ALFRED (tested)
+
+- Files: `backend/src/unknown/data/sources/fred.py`, `config/providers/fred.json`
+- Tests: `test_sources_macro_global::FredTests.test_inactive_without_key_file_and_no_request`; `test_sources_macro_global::FredTests.test_active_with_key_redacts_it_everywhere`
+- Evidence: FRED adapter inactive without <UNKNOWN_HOME>/secrets/fred_api_key; the key is redacted from raw-request records, URLs and errors. Live run 2026-10-23 with the owner's key: 8,956 observations of 5 series.
+- Gap: ALFRED vintages not used (current vintage, first-capture availability)
+- Gap: series list fixed in code unless given on the CLI
+- Requirements: DAT-02
 
 ### CAP-DATA-06: US Treasury yield curves and Fiscal Data datasets (implemented)
 
