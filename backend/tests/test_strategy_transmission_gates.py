@@ -240,9 +240,13 @@ class QuarantinedRunLoopCancelsAtWindowEndTest(QuarantinedWindowEndCase):
             stop = threading.Event()
             th = threading.Thread(target=r.run_loop, args=(stop,), kwargs={"grace_s": 0, "poll_s": 0.05}, daemon=True)
             try:
-                with self.assertLogs("unknown.strategy", level="WARNING"):
+                with self.assertLogs("unknown.strategy", level="WARNING") as logs:
                     th.start()
                     wait_for(lambda: self.order_state(oid) in ("CANCEL_PENDING", "CANCELED"), what="the loop's cancel")
+                    # The cancel reaches the core before the runner logs it: wait for the warning too, or the block
+                    # can close first (the test used to fail intermittently on a loaded machine).
+                    wait_for(lambda: any("window-end cancellation of intents it sent" in m for m in logs.output),
+                             what="the loop's warning")
             finally:
                 stop.set()
                 th.join(10)
