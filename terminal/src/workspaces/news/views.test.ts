@@ -42,7 +42,7 @@ describe('news tape', () => {
   });
 
   it('an empty tape says so instead of showing zero rows silently', () => {
-    const html = renderToStaticMarkup(createElement(Tape, { rows: [], sources: SOURCES, flash: new Set(), selected: null, onSelect: () => undefined, loading: false }));
+    const html = renderToStaticMarkup(createElement(Tape, { rows: [], sources: SOURCES, flash: new Set<number>(), selected: null, onSelect: () => undefined, loading: false }));
     expect(html).toContain('No items match');
   });
 });
