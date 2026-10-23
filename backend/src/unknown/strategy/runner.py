@@ -9,26 +9,36 @@ rules apply unchanged; the runner never talks to the broker.
 
 One cycle (``run_once``):
 
-1. Load the artifact and refuse unless the registry status permits the mode, the bundle is intact, the artifact
-   has not expired and this checkout's code hash is the registered one (``artifacts.load``).
-2. Find the latest eligible session ``D``: the latest business day of the calendar whose decision instant
+1. Load the artifact and refuse unless the registry status permits the mode, the bundle is intact, the spec is
+   schema v2, the artifact has not expired (its expiry bounded by the retention of its evidence data, BR-DAT-16)
+   and this checkout's code hash is the registered one (``artifacts.load``).
+2. At the first cycle of a process, re-warm the strategy from the point-in-time store as of the journal's latest
+   decision and compare the feature rows and targets with the journal's snapshot; a mismatch blocks new entries
+   for the life of the process (``_rewarm_check``, BR-DAT-18).
+3. Find the latest eligible session ``D``: the latest business day of the calendar whose decision instant
    (``D`` at the spec's ``decision_clock_utc``, as in the backtest) has passed. Only ``D`` is ever decided; missed
    sessions are not back-filled. Decisions an earlier cycle left unrecorded (outage, crash) are finished first,
    and an intent past its deadline is never sent (recorded ``BLOCKED`` RUNNER_LATE unless the core holds it).
-3. For each instrument of the spec that has no final decision for ``D`` yet (journal, then the core's stored
+4. For each instrument of the spec that has no final decision for ``D`` yet (journal, then the core's stored
    commands if the journal was lost): read the bars visible at the decision instant from the point-in-time
    store (``research.bars.load_series`` + ``Cursor``, the engine's as-of reader). An instrument whose latest
-   visible bar is not the completed bar of ``D`` is ``SKIPPED_STALE_DATA``.
-4. Compute the strategy's targets with the research code itself (``research.strategies.build(spec).decide`` on a
-   ``DecisionContext``, the backtest's code path), read the session's current and pending exposure from the core,
-   and map targets to orders with the A15 mapping (``sizing.plan``: no-trade band, minimum size, cash).
-5. Journal every decision (PLANNED) with deterministic ids, then, in live mode, submit each intent
-   (``submit_intent``, DAY LIMIT, ``deadline_ns`` = the end of its execution session, ``purpose`` ENTRY/EXIT,
-   ``policy_hash`` of the session mandate) and record every decision with ``record_strategy_decision``:
-   ``INTENT_SUBMITTED``, ``BLOCKED`` (the core's rejection code, or a runner gate), ``NO_TRADE`` or
-   ``SKIPPED_STALE_DATA``. Shadow mode records the same decisions with ``mode: shadow`` and never submits; a
-   decision that would have traded is ``NO_TRADE`` with the reason ``SHADOW_WOULD_SUBMIT ...`` (the core's
-   outcome vocabulary has no separate shadow outcome).
+   visible bar is not the completed bar of ``D`` is ``SKIPPED_STALE_DATA``; one whose feature rows (validity
+   window, enumerated missingness: ``research.features``) are not usable is ``BLOCKED`` FEATURE_INVALID.
+5. Compute the strategy's targets with the research code itself (``research.strategies.build(spec).decide`` on a
+   ``DecisionContext``, the backtest's code path), read the session's current and pending exposure from the core
+   (BR-DAT-02: the leaves of every open order; no intent beside an UNKNOWN or CANCEL_PENDING order, at most one
+   live intent per session, artifact and instrument), and map targets to orders with the A15 mapping the backtest
+   uses (``research.sizing.plan_orders``: no-trade band, minimum size, the risk term with entry and exit fees
+   (BR-DAT-04), cash).
+6. Journal every decision (PLANNED) with deterministic ids. In live mode each intent waits for its submission
+   window, ``[open + N, close - M]`` of the next regular session (``research.execution``, BR-DAT-19); in the window
+   its limit is set from a fresh validated quote (min(model bound, collar) for a buy), journaled, and sent
+   (``submit_intent``, DAY LIMIT, ``deadline_ns`` = the window's end, ``purpose`` ENTRY/EXIT, ``policy_hash`` of
+   the session mandate); at the window's end its remainder is cancelled. Every decision is recorded with
+   ``record_strategy_decision``: ``INTENT_SUBMITTED``, ``BLOCKED`` (the core's rejection code, or a runner gate),
+   ``NO_TRADE`` or ``SKIPPED_STALE_DATA``. Shadow mode records the same decisions with ``mode: shadow`` and never
+   submits; a decision that would have traded is ``NO_TRADE`` with the reason ``SHADOW_WOULD_SUBMIT ...`` (the
+   core's outcome vocabulary has no separate shadow outcome).
 
 ``run_loop`` repeats ``run_once`` on a schedule: once the decision instant of the latest eligible session plus a
 grace period has passed, every ``poll_s`` seconds, re-checking the artifact's status each time (a quarantined or
@@ -56,6 +66,7 @@ from ..research.common import float_to_fixed, stable_hash
 from ..research.engine import DecisionContext, Sizing, StrategyDecision
 from ..research.execution import (FIXTURE_SESSION_BASIS, SessionHoursUnknown, SubmissionWindow, WindowTimes,
                                   transmission_limit, window_times)
+from ..research.features import FeatureRow, feature_rows
 from ..research.registry import ResearchRegistry
 from ..research.spec import StrategySpec
 from ..research.strategies import build
@@ -184,6 +195,15 @@ def strategy_decision(spec: StrategySpec, series: dict[str, BarSeries], session_
                       positions: dict[str, Fixed] | None = None, equity_fn=None) -> tuple[StrategyDecision, dict[str, list[Bar]]]:
     """The strategy's decision at one decision instant, computed by the research implementation exactly as the
     backtester calls it. Returns (decision, bars visible per instrument)."""
+    decision, visible, _ = _decide_with(spec, series, session_date, decision_ns, positions=positions, equity_fn=equity_fn)
+    return decision, visible
+
+
+def _decide_with(spec: StrategySpec, series: dict[str, BarSeries], session_date: date, decision_ns: int, *,
+                 positions: dict[str, Fixed] | None = None, equity_fn=None):
+    """(decision, visible bars, the strategy after deciding). The strategy is built fresh and fed every bar visible at
+    the decision instant from the point-in-time store: its feature state is re-warmed deterministically from the
+    store on every decision, so a restarted process computes what an uninterrupted one would (BR-DAT-18)."""
     view = DatasetView(dict(series), until=session_date, label=f"runtime:{spec.strategy_id}:{session_date.isoformat()}")
     engine = _RuntimeEngine(view, positions or {}, equity_fn or (lambda marks: Fixed(0)))
     new, revised = {}, {}
@@ -194,7 +214,14 @@ def strategy_decision(spec: StrategySpec, series: dict[str, BarSeries], session_
     decision = strategy.decide(DecisionContext(engine, decision_ns, session_date, new, revised))
     if not isinstance(decision, StrategyDecision):
         raise TypeError("strategy.decide must return a StrategyDecision")
-    return decision, {i: list(c.history) for i, c in engine.cursors.items()}
+    return decision, {i: list(c.history) for i, c in engine.cursors.items()}, strategy
+
+
+def features_valid_until(row: dict) -> int | None:
+    """The earliest end of validity of the feature values a journaled decision used (None: no feature rows)."""
+    ends = [f["valid_until_ns"] for f in ((row.get("detail") or {}).get("features") or [])
+            if f.get("value") is not None and f.get("valid_until_ns") is not None]
+    return min(ends) if ends else None
 
 
 def _adv(bars: list[Bar], window: int) -> Fixed | None:
@@ -316,6 +343,9 @@ class StrategyRunner:
         self.runtime_code = artifacts.runtime_code_hash()
         self.cycles = 0                       # completed run_loop cycles (each one a run_once)
         self.last_summary: dict | None = None
+        # BR-DAT-18: the restart consistency check, made once per process before its first decision
+        # (``_rewarm_check``); a MISMATCH blocks new entries for the life of the process.
+        self.rewarm: dict | None = None
 
     def close(self) -> None:
         self.journal.close()
@@ -415,8 +445,18 @@ class StrategyRunner:
             "artifact_id": art.artifact_id, "artifact_hash": art.artifact_hash, "status": art.status, "mode": self.cfg.mode,
             "account_key": self.cfg.account_key, "session_date": day.isoformat(), "decision_ns": t,
             "execution_date": exec_date.isoformat(), "deadline_ns": deadline, "window": window.to_json(),
-            "runtime_code_hash": self.runtime_code,
+            "runtime_code_hash": self.runtime_code, "evidence_status": art.evidence_status,
             "calendar": f"{self.cfg.calendar.calendar_id}@{self.cfg.calendar.version}", "instruments": {}, "result": "OK"}
+        if art.evidence_status != "CURRENT":
+            log.warning("%s is %s (data its evidence rests on was deleted): it runs until %s and cannot be promoted again",
+                        art.artifact_id, art.evidence_status, art.expires_on)
+        if self.rewarm is None:
+            self.rewarm = self._rewarm_check(art, clock_utc)
+            if self.rewarm["status"] == "MISMATCH":
+                log.error("%s: feature state re-warmed from the point-in-time store differs from the journal's snapshot of "
+                          "%s; new entries are blocked: %s", art.artifact_id, self.rewarm["session_date"],
+                          self.rewarm["mismatches"][:5])
+        summary["rewarm"] = self.rewarm
 
         # Rows an earlier session left unfinished (a core outage or a crash that outlasted it) are finished first:
         # their decisions are recorded, and an intent past its deadline is never sent (``_execute``). Only the
@@ -616,9 +656,13 @@ class StrategyRunner:
         finally:
             store.close()
         positions = {i: h.owned for i, h in snap.holdings.items()}
-        decision, visible = strategy_decision(spec, series, day, t, positions=positions, equity_fn=snap.equity)
+        decision, visible, strategy = _decide_with(spec, series, day, t, positions=positions, equity_fn=snap.equity)
         sizing = Sizing.from_spec(spec)
         close = _session_close_ns(self.cfg.calendar, day)
+        # BR-DAT-18: the feature rows of the approved contract (validity window, warm-up, enumerated missingness)
+        frows: dict[str, list[FeatureRow]] = {
+            i: feature_rows(spec, strategy, i, visible.get(i, []), decision_session=day, session_close_ns=close,
+                            calendar=self.cfg.calendar) for i in spec.instrument_ids}
         decisions: dict[str, _Decision] = {}
         eligible: list[str] = []
         for i in spec.instrument_ids:
@@ -634,10 +678,11 @@ class StrategyRunner:
                 d.outcome, d.reason = "BLOCKED", f"STATUS_NOT_PERMITTED_FOR_LIVE_ACCOUNT: artifact is '{art.status}'"
             elif last is None or last.session_date != day:
                 d.outcome = "SKIPPED_STALE_DATA"
-                d.reason = (f"no completed bar for {day} visible at the decision instant in {art.dataset_id}; latest is "
+                d.reason = (f"{'NOT_REPORTED' if last is None else 'PROVIDER_DELAY'}: no completed bar for {day} visible "
+                            f"at the decision instant in {art.dataset_id}; latest is "
                             f"{last.session_date.isoformat() if last else 'none'}")
             elif close is not None and last.end_ns < close:
-                d.outcome, d.reason = "SKIPPED_STALE_DATA", f"bar for {day} ends before the session close (partial bar)"
+                d.outcome, d.reason = "SKIPPED_STALE_DATA", f"NOT_REPORTED: bar for {day} ends before the session close (partial bar)"
             elif any(b.fixture for b in bars) and not art.fixture_allowed:
                 d.outcome, d.reason = "BLOCKED", "FIXTURE_DATA_NOT_ALLOWED by the spec's data requirements"
             elif any(b.fixture for b in bars) and snap.account_mode != "SIMULATED":
@@ -657,6 +702,13 @@ class StrategyRunner:
                 d.outcome, d.reason = "BLOCKED", (f"SESSION_HOURS_UNKNOWN: {self.cfg.calendar.calendar_id} has no session "
                                                   "hours, and only FIXTURE data may use the fixture session convention "
                                                   "to place the submission window; run with the venue calendar")
+            elif invalid := [r for r in frows[i] if r.missing_reason is not None]:
+                # BR-DAT-18: an input vector with a missing feature (enumerated reason) is rejected, not imputed
+                d.outcome, d.reason = "BLOCKED", "FEATURE_INVALID: " + ", ".join(
+                    f"{r.feature_id} v{r.version} {r.missing_reason}" for r in invalid)
+            elif outside := [r for r in frows[i] if r.value is not None and not r.usable_at(t)]:
+                d.outcome, d.reason = "BLOCKED", "FEATURE_OUTSIDE_VALIDITY_WINDOW: " + ", ".join(
+                    f"{r.feature_id} valid [{r.valid_from_ns}, {r.valid_until_ns})" for r in outside)
             elif decision.orders:
                 d.outcome, d.reason = "BLOCKED", "EXPLICIT_ORDERS_NOT_SUPPORTED by the runtime (target weights only)"
             else:
@@ -714,6 +766,11 @@ class StrategyRunner:
                 d.outcome = "BLOCKED"
                 d.reason = _join(f"NO_SUBMISSION_WINDOW: the {window.session_date} session is shorter than the spec's open "
                                  f"and close offsets; would {what}", text)
+            elif o.side == "BUY" and (self.rewarm or {}).get("status") == "MISMATCH":
+                d.outcome = "BLOCKED"
+                d.reason = _join(f"FEATURE_STATE_MISMATCH: the feature state re-warmed from the point-in-time store at "
+                                 f"restart differs from the snapshot of {self.rewarm['session_date']}; no new entries "
+                                 f"(BR-DAT-18); would {what}", text)
             else:
                 d.outcome, d.order = "INTENT", o
                 d.reason = _join(text, p.note, "FIXTURE data" if fixture else "")
@@ -724,8 +781,53 @@ class StrategyRunner:
         for i in fresh:
             if i in recovered:          # the core holds this decision's intent: its remainder is cancelled at window end
                 decisions[i].detail = {**decisions[i].detail, "window": window.to_json()}
+            # BR-DAT-18: the feature rows and the strategy's own target, the snapshot a restarted runner compares with
+            decisions[i].detail = {**decisions[i].detail, "features": [r.to_json() for r in frows[i]],
+                                   "strategy_target": (repr(decision.targets[i]) if decision.targets is not None
+                                                       and i in decision.targets else None)}
             rows.append(self._row(art, day, t, deadline, snap, decisions[i], recovered.get(i)))
         return rows
+
+    def _rewarm_check(self, art: LoadedArtifact, clock_utc: time) -> dict:
+        """BR-DAT-18 (book ch. 26 "resume only after warm-up and feature-state consistency checks"). At the first cycle
+        of a process, re-warm the strategy from the point-in-time store as of the journal's most recent decision
+        instant, by the same deterministic code path every decision uses, and compare the feature rows (values,
+        versions, validity windows, warm-up states, missingness) and, for a strategy whose targets depend only on the
+        data, the targets with the snapshot the journal holds. A MISMATCH (e.g. history silently corrected in the
+        store, or different code) blocks new entries for the life of this process; exits stay possible."""
+        rows = [r for r in self.journal.rows() if (r["detail"] or {}).get("features")]
+        if not rows:
+            return {"status": "NO_SNAPSHOT"}
+        last = max(r["session_date"] for r in rows)
+        snap_rows = {r["instrument_id"]: r for r in rows if r["session_date"] == last}
+        day = date.fromisoformat(last)
+        t = decision_instant(day, clock_utc)
+        spec = art.spec
+        from ..data.pit import ResearchStore
+        try:
+            store = ResearchStore.open_readonly(self.cfg.research_path)
+        except FileNotFoundError:
+            raise RunnerError("RESEARCH_STORE_MISSING", f"point-in-time store {self.cfg.research_path} does not exist") from None
+        try:
+            series = load_series(store, art.dataset_id, spec.instrument_ids, t)
+        finally:
+            store.close()
+        decision, visible, strategy = _decide_with(spec, series, day, t)
+        close = _session_close_ns(self.cfg.calendar, day)
+        stateless = bool(getattr(strategy, "STATELESS_TARGETS", False))
+        mismatches = []
+        for inst, row in sorted(snap_rows.items()):
+            now = [r.to_json() for r in feature_rows(spec, strategy, inst, visible.get(inst, []), decision_session=day,
+                                                     session_close_ns=close, calendar=self.cfg.calendar)]
+            if now != row["detail"]["features"]:
+                mismatches.append({"instrument_id": inst, "what": "features",
+                                   "journal": row["detail"]["features"], "rewarmed": now})
+            target = repr(decision.targets[inst]) if decision.targets is not None and inst in decision.targets else None
+            if stateless and target != row["detail"].get("strategy_target"):
+                mismatches.append({"instrument_id": inst, "what": "target", "journal": row["detail"].get("strategy_target"),
+                                   "rewarmed": target})
+        return {"status": "MISMATCH" if mismatches else "MATCH", "session_date": last, "compared": sorted(snap_rows),
+                "targets_compared": stateless, "mismatches": mismatches}
 
     def _digest(self, art: LoadedArtifact, day: date, t: int, inst: str, bars: list[Bar], h: Holding, snap: CoreSnapshot) -> str:
         return stable_hash({"artifact_id": art.artifact_id, "artifact_hash": art.artifact_hash, "mode": self.cfg.mode,
@@ -814,6 +916,10 @@ class StrategyRunner:
                 refusal = (row["detail"] or {}).get("pricing_refusal")
                 self._withhold(row, "RUNNER_LATE", "the intent deadline passed before the core took it"
                                + (f" (last transmission attempt: {refusal['why']})" if refusal else ""))
+            elif sub is not None and (valid_until := features_valid_until(row)) is not None \
+                    and self.clock.now_ns() >= valid_until:
+                # BR-DAT-18: the decision's feature values are past their validity window; it is never transmitted
+                self._withhold(row, "FEATURE_EXPIRED", f"the decision's feature values were valid until {valid_until}")
             elif sub is not None and self.clock.now_ns() < ((row["detail"] or {}).get("window") or {}).get("start_ns", 0):
                 return row          # BR-DAT-19: waits for its submission window (open + N of the execution session)
             elif sub is not None:

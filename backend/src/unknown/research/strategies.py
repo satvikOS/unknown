@@ -74,6 +74,9 @@ def _score(st: TrendState, h: int, eps: float) -> dict:
 
 class TrendDailyV1:
     strategy_id = "TREND_DAILY_V1"
+    # The feature versions this implementation computes (checked against a v2 spec's contract; BR-DAT-18).
+    FEATURES = {"ema_spread_log_price": 1, "ewma_vol": 1}
+    STATELESS_TARGETS = True          # targets depend only on the visible bars, never on positions or equity
 
     def __init__(self, spec: StrategySpec):
         if spec.strategy_id != self.strategy_id:
@@ -95,6 +98,18 @@ class TrendDailyV1:
 
     def reset(self) -> None:
         self.state = {}
+
+    def feature_values(self, instrument_id: str) -> dict[str, float | None]:
+        """The contract's features after the last decision: the EMA spread of log prices and the EWMA volatility."""
+        st = self.state.get(instrument_id)
+        if st is None or st.n == 0:
+            return {"ema_spread_log_price": None, "ewma_vol": None}
+        return {"ema_spread_log_price": st.ema_f - st.ema_s, "ewma_vol": math.sqrt(st.var) if st.var is not None else None}
+
+    def feature_warm_up(self, feature_id: str) -> int | None:
+        """Observations before the feature is usable: the slow span for the spread (the score's warm-up), two closes
+        for the volatility (one return)."""
+        return {"ema_spread_log_price": self.slow, "ewma_vol": 2}.get(feature_id)
 
     def decide(self, ctx: DecisionContext) -> StrategyDecision:
         targets: dict[str, float] = {}
@@ -124,18 +139,25 @@ class TrendDailyV1:
 class BuyAndHold:
     """Baseline: buy an equal share of ``weight`` once, then hold (no rebalancing)."""
     strategy_id = "BUY_AND_HOLD"
+    FEATURES = {"close": 1}
+    STATELESS_TARGETS = False         # targets depend on the positions held
 
     def __init__(self, spec: StrategySpec):
         if spec.strategy_id != self.strategy_id:
             raise SpecError(f"spec {spec.strategy_id} is not {self.strategy_id}")
         self.spec = spec
         self.weight = fixed_to_float(spec.param("weight"))
+        self.latest: dict[str, float] = {}
 
     def reset(self) -> None:
-        pass
+        self.latest: dict[str, float] = {}
+
+    def feature_values(self, instrument_id: str) -> dict[str, float | None]:
+        return {"close": self.latest.get(instrument_id)}
 
     def decide(self, ctx: DecisionContext) -> StrategyDecision:
         n = len(ctx.instrument_ids)
+        self.latest = {i: fixed_to_float(ctx.latest(i).close) for i in ctx.instrument_ids if ctx.latest(i) is not None}
         want = {}
         for inst in ctx.instrument_ids:
             if ctx.position(inst).is_positive() or ctx.latest(inst) is None:
@@ -150,6 +172,8 @@ class BuyAndHold:
 class VolCappedPassive:
     """Baseline: passive long with weight min(w_cap, sigma_target / sigma_hat) / N, rebalanced through the band."""
     strategy_id = "VOL_CAPPED_PASSIVE"
+    FEATURES = {"ewma_vol": 1}
+    STATELESS_TARGETS = True
 
     def __init__(self, spec: StrategySpec):
         if spec.strategy_id != self.strategy_id:
@@ -162,6 +186,13 @@ class VolCappedPassive:
 
     def reset(self) -> None:
         self.state = {}
+
+    def feature_values(self, instrument_id: str) -> dict[str, float | None]:
+        st = self.state.get(instrument_id)
+        return {"ewma_vol": math.sqrt(st.var) if st is not None and st.var is not None else None}
+
+    def feature_warm_up(self, feature_id: str) -> int | None:
+        return {"ewma_vol": self.half_life}.get(feature_id)
 
     def decide(self, ctx: DecisionContext) -> StrategyDecision:
         n = len(ctx.instrument_ids)
@@ -191,10 +222,16 @@ STRATEGIES = {c.strategy_id: c for c in (TrendDailyV1, BuyAndHold, VolCappedPass
 
 
 def build(spec: StrategySpec):
+    """The implementation of a spec. For a schema v2 spec, the implementation's feature ids and versions must be the
+    spec's approved feature contract (BR-DAT-18, ``features.check_contract``), in the backtest and at runtime."""
     try:
-        return STRATEGIES[spec.strategy_id](spec)
+        cls = STRATEGIES[spec.strategy_id]
     except KeyError:
         raise SpecError(f"no implementation registered for {spec.strategy_id}") from None
+    implementation = cls(spec)
+    from .features import check_contract
+    check_contract(spec, implementation)
+    return implementation
 
 
 # ------------------------------------------------------------ spec builders
@@ -372,7 +409,8 @@ def vol_capped_spec(instrument_ids: list[str], development: tuple[date, date], h
         "assumptions": ["volatility from the EWMA of squared log returns (zero-mean approximation)"],
         "features": [{"id": "ewma_vol", "version": 1, "formula_id": "eq5.2.ewma_var@1", "inputs": ["close"],
                       "unit": "per session", "availability_basis": "BAR_CLOSE_PLUS_LAG", "freshness_budget_s": 4 * 86400,
-                      "warm_up_observations": 20, "causal": True, "validity_window_s": DAILY_VALIDITY_S}],
+                      # upper bound: the vol_half_life domain maximum (the implementation warms up for half_life closes)
+                      "warm_up_observations": 120, "causal": True, "validity_window_s": DAILY_VALIDITY_S}],
         "rules": {"entry": "after volatility warm-up", "exit": "weight falls through the band",
                   "sizing": {"method": "TARGET_WEIGHT", "max_weight": "0.95", "aggregate_cap": "0.95", "cash_reserve": "0.05",
                              "no_trade_band": "0.05", "min_order_notional": "100", "risk_budget": dict(BASELINE_RISK_BUDGET)},
