@@ -14,6 +14,7 @@ export type IconName =
   | 'research'
   | 'agents'
   | 'generic'
+  | 'workstation'
   | 'search'
   | 'sun'
   | 'moon'
@@ -23,6 +24,7 @@ export type IconName =
   | 'logout';
 
 const PATHS: Record<IconName, string> = {
+  workstation: 'M2 2.5h5.5v5H2zM8.5 2.5H14v5H8.5zM2 8.5h12v5H2z',
   overview: 'M2.5 2.5h4.5v5H2.5zM9 2.5h4.5v3H9zM9 7.5h4.5v6H9zM2.5 9.5h4.5v4H2.5z',
   sessions: 'M2.5 4h11M2.5 8h11M2.5 12h7M12 10.5l1.8 1.5L12 13.5',
   orders: 'M3 3.5h10M3 6.5h10M3 9.5h6M3 12.5h6M11 9v4.5M9.5 11.5l1.5 1.8 1.5-1.8',

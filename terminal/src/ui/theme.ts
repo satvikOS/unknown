@@ -1,4 +1,7 @@
-/** Theme preference: follows the system unless the owner picks light or dark (a harmless local preference). */
+/**
+ * Theme preference (a harmless local preference): the dark workstation theme by default; light, or following the
+ * system, are options.
+ */
 import { useSyncExternalStore } from 'react';
 
 export type ThemeChoice = 'system' | 'light' | 'dark';
@@ -9,13 +12,13 @@ const listeners = new Set<() => void>();
 function read(): ThemeChoice {
   try {
     const v = window.localStorage.getItem(KEY);
-    return v === 'light' || v === 'dark' ? v : 'system';
+    return v === 'light' || v === 'system' ? v : 'dark';
   } catch {
-    return 'system';
+    return 'dark';
   }
 }
 
-let current: ThemeChoice = typeof window === 'undefined' ? 'system' : read();
+let current: ThemeChoice = typeof window === 'undefined' ? 'dark' : read();
 
 export function applyTheme(choice: ThemeChoice = current): void {
   const root = document.documentElement;
@@ -26,7 +29,7 @@ export function applyTheme(choice: ThemeChoice = current): void {
 export function setTheme(choice: ThemeChoice): void {
   current = choice;
   try {
-    if (choice === 'system') window.localStorage.removeItem(KEY);
+    if (choice === 'dark') window.localStorage.removeItem(KEY);
     else window.localStorage.setItem(KEY, choice);
   } catch {
     // storage unavailable (private mode): the choice still applies for this page
@@ -36,7 +39,7 @@ export function setTheme(choice: ThemeChoice): void {
 }
 
 export function nextTheme(choice: ThemeChoice): ThemeChoice {
-  return choice === 'system' ? 'dark' : choice === 'dark' ? 'light' : 'system';
+  return choice === 'dark' ? 'light' : choice === 'light' ? 'system' : 'dark';
 }
 
 export function useTheme(): ThemeChoice {

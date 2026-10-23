@@ -1,7 +1,8 @@
 /*
- * Unknown terminal: original visual system. Calm graphite (dark) and warm paper (light) surfaces,
- * hairline structure, tabular monospace numbers, and colour reserved for meaning: red for stop and
- * failure, green for start and healthy, amber for attention, a distinct hue per account mode.
+ * Unknown terminal: original visual system. A near-black workstation (the default) and a warm paper light
+ * option, hairline structure, tabular monospace numbers, amber for commands and functions, and colour
+ * reserved for meaning: red for stop and failure, green for start and healthy, a distinct hue per account
+ * mode, semantic up/down/unchanged, bid/ask, stale and data-type (REALTIME/DELAYED/FROZEN/SYNTHETIC) tokens.
  * Every status also carries text and a glyph, never colour alone. Contrast pairs are listed in
  * terminal/README.md and checked against WCAG 2.2 AA.
  */
@@ -19,17 +20,49 @@
   --header-h: 47px;
   --nav-w: 212px;
   --row-h: 28px;
+  --row-dense: 20px;
+  --cmdbar-h: 34px;
   color-scheme: dark;
 
-  --bg: #0e1113;
-  --surface: #14181b;
-  --surface-2: #1a1f23;
-  --surface-3: #222930;
-  --border: #283037;
-  --border-strong: #3a444e;
-  --control-border: #66717c;
-  --text: #e4e7ea;
-  --text-muted: #a1abb4;
+  --bg: #08090a;
+  --surface: #0f1113;
+  --surface-2: #15181b;
+  --surface-3: #1d2125;
+  --border: #252a2f;
+  --border-strong: #3a424a;
+  --control-border: #6b757e;
+  --text: #eceff1;
+  --text-muted: #a7b0b8;
+  /* Commands and functions (command line, mnemonics, active panel). */
+  --cmd: #ffb02e;
+  --cmd-ink: #140c00;
+  /* Market semantics; --up/--down follow the owner's convention (data-updown on <html>). */
+  --gain: #3fd68a;
+  --loss: #ff6b6b;
+  --up: var(--gain);
+  --down: var(--loss);
+  --unch: #b9c1c8;
+  --bid: #6db3ff;
+  --ask: #ffa066;
+  --alert: #ff5c7a;
+  --stale: #8f98a0;
+  --src-realtime: #3fd68a;
+  --src-delayed: #ffc24d;
+  --src-frozen: #8ec5ff;
+  --src-synthetic: #e58cff;
+  --flash-gain: rgb(63 214 138 / 0.3);
+  --flash-loss: rgb(255 107 107 / 0.3);
+  --flash-up: var(--flash-gain);
+  --flash-down: var(--flash-loss);
+  /* Link channels 1-8 (FDC3 order); always shown with their number and name too. */
+  --link-1: #ff6b6b;
+  --link-2: #ff9d4d;
+  --link-3: #ffd84d;
+  --link-4: #4ade80;
+  --link-5: #4dd8e6;
+  --link-6: #6ea8ff;
+  --link-7: #ff6bd5;
+  --link-8: #b18cff;
   --accent: #6cc3d5;
   --accent-ink: #0b1316;
   --focus: #8fd8e8;
@@ -79,6 +112,29 @@
   --start-bg-hover: #145a33;
   --shadow: 0 8px 28px rgb(40 36 28 / 0.18);
   --scrim: rgb(40 36 28 / 0.28);
+  --cmd: #8a5300;
+  --cmd-ink: #ffffff;
+  --gain: #17693c;
+  --loss: #b1261d;
+  --unch: #535b62;
+  --bid: #1d5bb8;
+  --ask: #9c4400;
+  --alert: #b1261d;
+  --stale: #5f666d;
+  --src-realtime: #1a6f40;
+  --src-delayed: #855200;
+  --src-frozen: #1d5bb8;
+  --src-synthetic: #8a2bb0;
+  --flash-gain: rgb(23 105 60 / 0.18);
+  --flash-loss: rgb(177 38 29 / 0.16);
+  --link-1: #c0392b;
+  --link-2: #b35400;
+  --link-3: #8a6d00;
+  --link-4: #1a7a3a;
+  --link-5: #0f7380;
+  --link-6: #1d5bb8;
+  --link-7: #b0157f;
+  --link-8: #6a3cc8;
 }
 
 @media (prefers-color-scheme: light) {
@@ -110,7 +166,38 @@
     --start-bg-hover: #145a33;
     --shadow: 0 8px 28px rgb(40 36 28 / 0.18);
     --scrim: rgb(40 36 28 / 0.28);
+    --cmd: #8a5300;
+    --cmd-ink: #ffffff;
+    --gain: #17693c;
+    --loss: #b1261d;
+    --unch: #535b62;
+    --bid: #1d5bb8;
+    --ask: #9c4400;
+    --alert: #b1261d;
+    --stale: #5f666d;
+    --src-realtime: #1a6f40;
+    --src-delayed: #855200;
+    --src-frozen: #1d5bb8;
+    --src-synthetic: #8a2bb0;
+    --flash-gain: rgb(23 105 60 / 0.18);
+    --flash-loss: rgb(177 38 29 / 0.16);
+    --link-1: #c0392b;
+    --link-2: #b35400;
+    --link-3: #8a6d00;
+    --link-4: #1a7a3a;
+    --link-5: #0f7380;
+    --link-6: #1d5bb8;
+    --link-7: #b0157f;
+    --link-8: #6a3cc8;
   }
+}
+
+/* Red-up / green-down convention (owner setting). */
+:root[data-updown='red-up'] {
+  --up: var(--loss);
+  --down: var(--gain);
+  --flash-up: var(--flash-loss);
+  --flash-down: var(--flash-gain);
 }
 
 *,
@@ -132,6 +219,7 @@ body {
   font-family: var(--font-ui);
   font-size: var(--fs-md);
   line-height: 1.4;
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -199,7 +287,7 @@ h3[tabindex='-1']:focus {
 
 .app {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   grid-template-columns: minmax(0, 1fr);
   height: 100%;
   min-height: 0;
