@@ -5,7 +5,8 @@ Every dependency is pinned to an exact version in `package.json` (`save-exact=tr
 Rules (terminal contract):
 - Each package version was published at least 14 days before it was adopted. The lockfile was resolved on 2026-10-22 with `npm install --before=2026-10-07T00:00:00Z`, so every transitive package is also at least 15 days old. The end-to-end packages were added the same day with `--before=2026-10-08`; the newest of them (`@types/node` 26.6.4) was published on 2026-10-01.
 - Licences are limited to MIT, Apache-2.0, BSD and ISC. The resolved tree was checked from each installed `package.json`; it contains no other licence.
-- Only `react`, `react-dom` and `scheduler` ship in the browser bundle. Everything else is build or test tooling.
+- Only `react`, `react-dom`, `scheduler`, and in the chart workspace's own chunk `lightweight-charts` and `fancy-canvas`, ship in the browser bundle. Everything else is build or test tooling.
+- `lightweight-charts` 5.2.1 (published 2026-08-12) and its one dependency `fancy-canvas` 2.1.0 (2022-11-16) were added on 2026-10-23 for the chart workspace (CAP-MKT-07). Its Apache-2.0 licence requires the NOTICE attribution and a link to https://www.tradingview.com/ on the page that shows charts: the chart workspace prints "TradingView Lightweight Charts™ Copyright (c) 2026 TradingView, Inc." with that link and keeps the library's `attributionLogo` on (checked by `src/workspaces/chart/model.test.ts`).
 
 Vite 7.3.7 was chosen over Vite 8.3.x: Vite 8 depends on `lightningcss` (MPL-2.0), which is outside the permitted licences.
 
@@ -28,6 +29,7 @@ To upgrade, choose versions released at least 14 days earlier, check the licence
 | @types/react-dom | 19.3.0 | MIT | 2026-09-09 | dev: type declarations |
 | @playwright/test | 1.63.0 | Apache-2.0 | 2026-09-04 | dev: end-to-end test runner (`npm run test:e2e`) |
 | @types/node | 26.6.4 | MIT | 2026-10-01 | dev: type declarations for the end-to-end support code (Node 26) |
+| lightweight-charts | 5.2.1 | Apache-2.0 | 2026-08-12 | runtime (chart workspace chunk): TradingView Lightweight Charts renderer |
 
 JSX is compiled by Vite's built-in esbuild transform (`"jsx": "react-jsx"` in `tsconfig.json`), so `@vitejs/plugin-react` is not needed. The trade-off is that dev reloads are full page reloads rather than Fast Refresh.
 
@@ -103,6 +105,7 @@ JSX is compiled by Vite's built-in esbuild transform (`"jsx": "react-jsx"` in `t
 | esbuild | 0.28.2 | MIT | dev |
 | estree-walker | 3.0.3 | MIT | dev |
 | expect-type | 1.4.0 | Apache-2.0 | dev |
+| fancy-canvas | 2.1.0 | MIT | runtime (chart workspace chunk; dependency of lightweight-charts) |
 | fdir | 6.5.0 | MIT | dev |
 | fsevents | 2.3.3 | MIT | dev, optional (platform binary; also optional for playwright) |
 | magic-string | 1.4.3 | MIT | dev |

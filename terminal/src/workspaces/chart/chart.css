@@ -1,0 +1,88 @@
+/* Chart workspace: only shared tokens (styles.css); everything scoped under .chart-ws. */
+.chart-ws {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.chart-ws-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.chart-ws-seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.chart-ws-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.chart-ws input {
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 3px 6px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  min-width: 0;
+  width: 12em;
+}
+.chart-ws-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  min-height: 1.4em;
+}
+.chart-ws-canvas {
+  position: relative;
+  height: clamp(320px, 62vh, 760px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.chart-ws-muted {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.chart-ws-live {
+  color: var(--accent);
+}
+.chart-ws-synthetic {
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-weight: 600;
+}
+.chart-ws-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 0 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: var(--fs-sm);
+}
+.chart-ws-notes {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+.chart-ws-attribution {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+.chart-ws-attribution a {
+  color: inherit;
+}
