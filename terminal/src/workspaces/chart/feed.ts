@@ -84,3 +84,16 @@ export function eventSourceFeed(path = '/api/marketdata/stream', Ctor?: EventSou
     },
   };
 }
+
+let sharedFeed: MarketDataFeed | null = null;
+
+/** Swap in the shared market-data client (state/marketdataWiring.ts); kept here so the swap never loads the chart. */
+export function setChartFeed(feed: MarketDataFeed): void {
+  sharedFeed = feed;
+}
+
+/** The feed the chart subscribes through: the shared client when wired, else a private EventSource. */
+export function chartFeed(): MarketDataFeed {
+  sharedFeed ??= eventSourceFeed();
+  return sharedFeed;
+}

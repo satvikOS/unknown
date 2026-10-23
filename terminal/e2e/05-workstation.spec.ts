@@ -31,24 +31,24 @@ test('command line, linked panels, saved layouts, lock and recovery from a corru
   await cmd.press('Enter');
   await expect(page).toHaveURL(/#\/workstation$/);
 
-  // Desk template: four panels on channel 1, each workspace titled as an h2 inside its panel.
+  // Trader template (monitor and chart are installed): three panels on channel 1, each workspace an h2 in its panel.
   const panels = page.locator('section.ws-panel');
-  await expect(panels).toHaveCount(4);
+  await expect(panels).toHaveCount(3);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Workstation');
-  await expect(page.getByRole('heading', { level: 2, name: 'Overview' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: 'Monitor' })).toBeVisible();
 
   // A security typed on its own lands on the active panel's channel; linked panels follow, an unlinked one does not.
-  await page.getByLabel('Panel 4 link channel').selectOption('none');
+  await page.getByLabel('Panel 3 link channel').selectOption('none');
   await panels.first().click({ position: { x: 5, y: 40 } });
   await cmd.fill('SAP.XETR');
   await cmd.press('Enter');
   await expect(msg).toHaveText('SAP.XETR loaded on panel 1.');
-  await expect(page.locator('.ws-panel-sec', { hasText: 'SAP.XETR' })).toHaveCount(3);
-  await expect(panels.nth(3).locator('.ws-panel-sec')).toHaveText('no security');
+  await expect(page.locator('.ws-panel-sec', { hasText: 'SAP.XETR' })).toHaveCount(2);
+  await expect(panels.nth(2).locator('.ws-panel-sec')).toHaveText('no security');
 
   // Split, save as a named layout, lock; the lock refuses changing what a panel shows from the command line.
   await page.getByRole('button', { name: 'Split panel 1 side by side' }).click();
-  await expect(panels).toHaveCount(5);
+  await expect(panels).toHaveCount(4);
   await page.getByLabel('Layout name').fill('E2E desk');
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByText('Saved "E2E desk" as version 1.')).toBeVisible();
@@ -60,15 +60,17 @@ test('command line, linked panels, saved layouts, lock and recovery from a corru
 
   // The draft survives a reload with its lock; a corrupt store opens a template and says why.
   await page.reload();
-  await expect(panels).toHaveCount(5);
+  await expect(panels).toHaveCount(4);
   await expect(page.getByRole('button', { name: 'Locked' })).toHaveAttribute('aria-pressed', 'true');
   await page.evaluate(() => window.localStorage.setItem('unknown.terminal.workstation.v1', '{"schema":1,"draft":'));
   await page.reload();
   await expect(page.getByRole('status').filter({ hasText: 'could not be read' })).toBeVisible();
-  await expect(panels).toHaveCount(4);
+  await expect(panels).toHaveCount(3);
   expect(await page.evaluate(() => window.localStorage.getItem('unknown.terminal.workstation.corrupt'))).toBe('{"schema":1,"draft":');
 
-  // Status bar: no market-data client is registered in this build, and it says so.
-  await expect(page.getByRole('contentinfo', { name: 'Status bar' })).toContainText('Market data: no client registered');
+  // Status bar: the market-data client is registered and names the stream state and the SYNTHETIC source.
+  const bar = page.getByRole('contentinfo', { name: 'Status bar' });
+  await expect(bar).toContainText(/MD (STREAMING|CONNECTING|STALE)/);
+  await expect(bar).toContainText('SYNTHETIC');
   expect(problems).toEqual([]);
 });

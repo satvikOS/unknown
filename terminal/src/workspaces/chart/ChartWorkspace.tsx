@@ -36,7 +36,7 @@ import { QueryError, WorkspaceFrame } from '../../ui/WorkspaceFrame';
 import { usePluginQuery } from '../plugin-api/hooks';
 import type { WorkspaceProps } from '../types';
 import { loadAnnotations, newAnnotation, saveAnnotations, type Annotation } from './annotations';
-import { eventSourceFeed, type FeedState, type MarketDataFeed } from './feed';
+import { chartFeed, type FeedState } from './feed';
 import {
   INTERVALS,
   applyTick,
@@ -61,11 +61,6 @@ const CHART_TYPES = ['candles', 'ohlc', 'line', 'area'] as const;
 type ChartType = (typeof CHART_TYPES)[number];
 const KEY_RE = /^[A-Za-z0-9][A-Za-z0-9._\-/]{0,63}$/;
 
-let sharedFeed: MarketDataFeed = eventSourceFeed();
-/** Lets the coordinator swap in the shared market-data client (src/state/marketdata.ts). */
-export function setChartFeed(feed: MarketDataFeed): void {
-  sharedFeed = feed;
-}
 
 const TYPE_TONE: Record<DataType, Tone> = { REALTIME: 'ok', DELAYED: 'info', FROZEN: 'warn', SYNTHETIC: 'warn' };
 
@@ -158,7 +153,22 @@ export function ChartWorkspace({ route, navigate }: WorkspaceProps) {
       timeScale: { borderColor: p.border, timeVisible: true, secondsVisible: false },
     });
     chartRef.current = chart;
+    // The library lays the chart out in a table and draws an attribution logo: name both for assistive technology.
+    const host = box.current;
+    const label = () => {
+      for (const t of host.querySelectorAll('table')) {
+        t.setAttribute('role', 'presentation');
+        t.setAttribute('aria-label', 'Chart canvas');
+      }
+      for (const a of host.querySelectorAll('a')) {
+        a.setAttribute('aria-label', 'Charting library by TradingView');
+        for (const svg of a.querySelectorAll('svg')) svg.setAttribute('aria-hidden', 'true');
+      }
+    };
+    label();
+    const frame = requestAnimationFrame(label);
     return () => {
+      cancelAnimationFrame(frame);
       chart.remove();
       chartRef.current = null;
       mainRef.current = null;
@@ -308,7 +318,7 @@ export function ChartWorkspace({ route, navigate }: WorkspaceProps) {
     if (!data || !data.available) return;
     setFeedState('connecting');
     setLiveSource(null);
-    return sharedFeed.subscribe([key], {
+    return chartFeed().subscribe([key], {
       onTick: (k, tick, source) => {
         if (k !== key) return;
         setBars((cur) => {

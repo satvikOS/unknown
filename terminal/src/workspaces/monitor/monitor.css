@@ -46,7 +46,7 @@
 .mon-tape-track { display: inline-flex; gap: 16px; animation: mon-scroll 60s linear infinite; }
 .mon-tape-bar:hover .mon-tape-track { animation-play-state: paused; }
 @keyframes mon-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-.mon-tick { display: inline-flex; gap: 6px; align-items: baseline; background: none; border: 0; color: var(--text); cursor: pointer; padding: 0; font: inherit; }
+.mon-tick { display: inline-flex; gap: 6px; align-items: center; min-height: 24px; background: none; border: 0; color: var(--text); cursor: pointer; padding: 0; font: inherit; }
 .mon-tick-badge { font-size: var(--fs-xs); color: var(--info); border: 1px solid currentColor; border-radius: var(--radius); padding: 0 4px; }
 @media (prefers-reduced-motion: reduce) {
   .mon-tape-track, .mon-flash-up, .mon-flash-down { animation: none; }

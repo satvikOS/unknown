@@ -3,8 +3,7 @@
  * the shell's status bar (ui/streamHealth.ts), the header ticker tape (ui/headerWidgets.tsx) and the chart's
  * MarketDataFeed (workspaces/chart/feed.ts). One EventSource serves all of them.
  */
-import { setChartFeed } from '../workspaces/chart/ChartWorkspace';
-import type { FeedHandlers, MarketDataFeed } from '../workspaces/chart/feed';
+import { setChartFeed, type FeedHandlers, type MarketDataFeed } from '../workspaces/chart/feed';
 import { TickerTape } from '../workspaces/monitor/TickerTape';
 import { registerHeaderWidget } from '../ui/headerWidgets';
 import { registerStreamHealthProvider, type StreamHealth as ShellHealth } from '../ui/streamHealth';

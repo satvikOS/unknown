@@ -152,7 +152,7 @@ export function TimeAndSales({ securityKey, limit = 60 }: { securityKey: string;
         <p className="mon-empty">No prints received for {securityKey} yet.</p>
       ) : (
         <div className="mon-scroll mon-tape">
-          <table className="mon-table">
+          <table className="mon-table" aria-label={`Time and sales ${securityKey}`}>
             <thead>
               <tr>
                 <th scope="col">Time (UTC)</th>
@@ -212,7 +212,7 @@ export function DepthPanel({ securityKey }: { securityKey: string }) {
           status in the watchlist).
         </p>
       ) : (
-        <table className="mon-table mon-depth">
+        <table className="mon-table mon-depth" aria-label={`Market depth ${securityKey}`}>
           <thead>
             <tr>
               <th scope="col" className="mon-num">Cum</th>
