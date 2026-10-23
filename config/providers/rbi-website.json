@@ -1,0 +1,36 @@
+{
+  "provider_id": "rbi-website",
+  "name": "Reserve Bank of India — rbi.org.in website (Current Rates, reference rates)",
+  "access": "NONE: blocked by the rights review; no request is made",
+  "cost_model": "not applicable (not used)",
+  "budget": "none",
+  "rate_limit": {
+    "max_requests": 1,
+    "per_seconds": 3600.0,
+    "source": "not used; no requests are made while blocked"
+  },
+  "requires_local_config": [],
+  "failure_behavior": "Ingestion is refused by the registry (no permitted uses); the terminal shows the source as blocked with this record's reason, never a zero or placeholder value.",
+  "sources": [
+    "https://www.rbi.org.in/Scripts/Disclaimer.aspx",
+    "https://www.rbi.org.in/robots.txt"
+  ],
+  "verified_on": "2026-10-23",
+  "datasets": [
+    {
+      "dataset_id": "rbi.website_rates",
+      "description": "Policy repo rate, SDF/MSF rates and reference FX shown on the RBI home page — NOT INGESTED",
+      "endpoint": "not used",
+      "coverage": "not used",
+      "history_depth": "not used",
+      "update_frequency": "not used",
+      "availability_rule": "not applicable: nothing is stored",
+      "allowed_uses": [],
+      "retention_days": 0,
+      "vintage_support": false,
+      "rights_source": "RBI website disclaimer (read 2026-10-23): 'Except as set forth below, caching and links to, and the framing of this Web Site or any of the contents are prohibited'; linking to internal pages needs RBI's prior permission. robots.txt answered 'Unauthorised Access'. Verdict: BLOCKED (storing fetched contents is caching). The RBI policy repo rate is taken from the BIS policy-rate dataset (bis.cbpol, series IN, compiled from RBI) and INR reference FX from the ECB (ecb.exr_reference INR/EUR). RBI DBIE (CAP-DATA-08) is manual and rights-limited.",
+      "rights_status": "blocked: website terms prohibit caching of contents",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}

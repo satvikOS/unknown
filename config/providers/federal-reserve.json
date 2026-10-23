@@ -1,0 +1,34 @@
+{
+  "provider_id": "federal-reserve",
+  "name": "Board of Governors of the Federal Reserve System — RSS feeds",
+  "access": "HTTPS GET to www.federalreserve.gov/feeds/*.xml (RSS 2.0); no key",
+  "cost_model": "Free",
+  "budget": "none required",
+  "rate_limit": {"max_requests": 1, "per_seconds": 5.0,
+                 "source": "No request-rate policy found on https://www.federalreserve.gov/disclaimer.htm or https://www.federalreserve.gov/feeds/feeds.htm (2026-10-23). Self-imposed polite pacing: one request every 5 s, one poll of one feed every 10 min."},
+  "requires_local_config": ["data_user_agent or sec_user_agent (declared contact User-Agent)"],
+  "failure_behavior": "Connection errors, 429 or 5xx: bounded exponential backoff, then the source's run is recorded FAILED with the error; stored items remain and the source shows its last successful poll time.",
+  "sources": [
+    "https://www.federalreserve.gov/feeds/feeds.htm",
+    "https://www.federalreserve.gov/disclaimer.htm"
+  ],
+  "verified_on": "2026-10-23",
+  "verdict": "allowed",
+  "verdict_reason": "The Board states: 'Unless otherwise indicated, information on Board's website is in the public domain and may be copied and distributed without permission. Please cite to the Board as the source of the information.' Seals and logos are not used.",
+  "datasets": [
+    {
+      "dataset_id": "frb.press_all_rss",
+      "description": "Federal Reserve Board press releases, all categories (headline, link, category, publication time, the feed's description)",
+      "endpoint": "https://www.federalreserve.gov/feeds/press_all.xml",
+      "coverage": "Board press releases: monetary policy, banking regulation, enforcement, orders, other (20 items on 2026-10-23)",
+      "history_depth": "the feed's recent window",
+      "update_frequency": "as releases are published (polled every 10 min)",
+      "availability_rule": "first_seen receipt time; the feed's pubDate is kept as the publication time",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_cloud", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "https://www.federalreserve.gov/disclaimer.htm (public domain unless otherwise indicated; cite the Board)",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}

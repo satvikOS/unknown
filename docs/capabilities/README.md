@@ -24,7 +24,7 @@ call under the cited `describe` titles; `--run-tests` runs the cited backend tes
 Playwright end-to-end tests (`terminal/e2e`) and the tests marked IBKR venv run only locally. Passing offline tests is
 evidence of offline behaviour only.
 
-Checked against `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readiness@9914972` on 2026-10-23; `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data@77c16d1` on 2026-10-23; `feat/workstation-shell@c052431` on 2026-10-23; `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d00` on 2026-10-22.
+Checked against `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readiness@9914972` on 2026-10-23; `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data@77c16d1` on 2026-10-23; `feat/live-news@5e8a06c` on 2026-10-23; `feat/workstation-shell@c052431` on 2026-10-23; `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d00` on 2026-10-22.
 
 ## Summary by area
 
@@ -33,7 +33,7 @@ Checked against `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readine
 | instruments | 14 | 6 | 0 | 2 | 6 | 0 | 0 |
 | market-data | 13 | 4 | 0 | 5 | 4 | 0 | 0 |
 | company-research | 14 | 3 | 0 | 2 | 9 | 0 | 0 |
-| news-documents | 14 | 14 | 0 | 0 | 0 | 0 | 0 |
+| news-documents | 14 | 9 | 0 | 0 | 5 | 0 | 0 |
 | macro-rates-fx | 14 | 10 | 0 | 2 | 2 | 0 | 0 |
 | portfolio-risk | 13 | 4 | 0 | 0 | 9 | 0 | 0 |
 | multiasset | 14 | 14 | 0 | 0 | 0 | 0 | 0 |
@@ -46,7 +46,7 @@ Checked against `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readine
 | model-providers | 12 | 1 | 0 | 1 | 10 | 0 | 0 |
 | regulatory | 13 | 7 | 0 | 2 | 4 | 0 | 0 |
 | ops-aws | 14 | 7 | 0 | 4 | 3 | 0 | 0 |
-| **all** | 217 | 92 | 0 | 32 | 93 | 0 | 0 |
+| **all** | 217 | 87 | 0 | 32 | 98 | 0 | 0 |
 
 ## Capabilities
 
@@ -112,18 +112,18 @@ Checked against `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readine
 | ID | Priority | Capability | Reference scope | Status | Tests | Main gap |
 |---|---|---|---|---|---|---|
 | CAP-NEWS-01 | P0 | Rights registry and cloud-model processing gate for news, transcripts and documents | IBKR (TWS API), LSEG Workspace | proposed |  | not yet implemented |
-| CAP-NEWS-02 | P0 | Real-time SEC EDGAR filing stream with 8-K item typing | LSEG (Intelligent Tagging NLP service; the fact sheet names Eikon and Reuters Ne | proposed |  | not yet implemented |
+| CAP-NEWS-02 | P0 | Real-time SEC EDGAR filing stream with 8-K item typing | LSEG (Intelligent Tagging NLP service; the fact sheet names Eikon and Reuters Ne | tested | 6 | no confirmation against the submissions JSON and no primary document or exhibit  |
 | CAP-NEWS-03 | P1 | India, UK and EU regulatory disclosure ingestion | LSEG Workspace, S&P Capital IQ (Key Developments dataset; the page names 'S&P Ca | proposed |  | not yet implemented |
 | CAP-NEWS-04 | P1 | Licensed real-time newswire ingestion with history backfill | Bloomberg Terminal, IBKR (TWS API), LSEG (Machine Readable News feed; Workspace  | proposed |  | not yet implemented |
-| CAP-NEWS-05 | P1 | Syndication deduplication, story clustering and revision tracking | LSEG Workspace, S&P Capital IQ (Key Developments dataset; Capital IQ Pro not nam | proposed |  | not yet implemented |
-| CAP-NEWS-06 | P0 | Issuer and instrument entity tagging with point-in-time identifier resolution | LSEG (Intelligent Tagging NLP service; the fact sheet names Eikon and Reuters Ne | proposed |  | not yet implemented |
+| CAP-NEWS-05 | P1 | Syndication deduplication, story clustering and revision tracking | LSEG Workspace, S&P Capital IQ (Key Developments dataset; Capital IQ Pro not nam | tested | 3 | no revision tracking or diffs between copies |
+| CAP-NEWS-06 | P0 | Issuer and instrument entity tagging with point-in-time identifier resolution | LSEG (Intelligent Tagging NLP service; the fact sheet names Eikon and Reuters Ne | tested | 5 | no owner correction of tags and no evaluation labels |
 | CAP-NEWS-07 | P1 | Earnings and investor call transcripts with speaker turns, versions and live streaming | Bloomberg Terminal, LSEG Workspace, S&P Capital IQ Pro | proposed |  | not yet implemented |
-| CAP-NEWS-08 | P1 | Full-text search across filings, announcements, transcripts and news | Bloomberg Terminal, LSEG (news products page; Workspace not named on page), S&P  | proposed |  | not yet implemented |
+| CAP-NEWS-08 | P1 | Full-text search across filings, announcements, transcripts and news | Bloomberg Terminal, LSEG (news products page; Workspace not named on page), S&P  | tested | 4 | indexes headlines and feed summaries only (no filing documents, transcripts or l |
 | CAP-NEWS-09 | P1 | Typed corporate event detection from filings, announcements and news | LSEG (Intelligent Tagging NLP service; the fact sheet names Eikon and Reuters Ne | proposed |  | not yet implemented |
 | CAP-NEWS-10 | P1 | Scheduled corporate event calendar (earnings dates, calls, board meetings) | IBKR (TWS API), LSEG Workspace | proposed |  | not yet implemented |
 | CAP-NEWS-11 | P2 | Sentiment scoring for news, filings and transcripts | LSEG (MarketPsych Analytics data feeds; Workspace not named on page), LSEG (Star | proposed |  | not yet implemented |
 | CAP-NEWS-12 | P1 | Grounded summaries and multi-document Q&A with span-level citations | Bloomberg Terminal, LSEG Workspace, S&P Capital IQ Pro | proposed |  | not yet implemented |
-| CAP-NEWS-13 | P1 | Alerts on filings, announcements, news and events for watchlists | IBKR (TWS API), LSEG Workspace | proposed |  | not yet implemented |
+| CAP-NEWS-13 | P1 | Alerts on filings, announcements, news and events for watchlists | IBKR (TWS API), LSEG Workspace | tested | 5 | no server-stored alert rules (sources, event types, 8-K item codes, query, senti |
 | CAP-NEWS-14 | P2 | Event studies and news-impact analytics with point-in-time availability | LSEG (StarMine model fact sheet; Workspace not named in document), S&P Capital I | proposed |  | not yet implemented |
 
 ### macro-rates-fx
@@ -563,7 +563,7 @@ Checked against `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readine
 
 ### CAP-CO-03: India and Europe company filings ingestion (ESEF, UKSEF, NSE/BSE, MCA) under explicit rights gates (tested)
 
-- Files: `backend/src/unknown/data/sources/esef.py`, `backend/src/unknown/data/sources/firds.py`, `backend/src/unknown/data/fundamentals/ifrs.py`, `backend/src/unknown/data/fundamentals/search.py`, `backend/src/unknown/api/routes/company.py`, `terminal/src/workspaces/company/EuIssuer.tsx`, `terminal/src/workspaces/company/eu.ts`, `config/providers/xbrl-filings.json`, `config/providers/esma-firds.json`, `config/providers/nse-india.json`, `config/providers/bse-india.json`, `config/providers/sebi.json`
+- Files: `backend/src/unknown/data/sources/esef.py`, `backend/src/unknown/data/sources/firds.py`, `backend/src/unknown/data/fundamentals/ifrs.py`, `backend/src/unknown/data/fundamentals/search.py`, `backend/src/unknown/api/routes/company.py`, `terminal/src/workspaces/company/EuIssuer.tsx`, `terminal/src/workspaces/company/eu.ts`, `config/providers/xbrl-filings.json`, `config/providers/esma-firds.json`, `config/providers/nse-india.json`, `config/providers/bse-india.json`, `config/providers/sebi-website.json`
 - Tests: `test_sources_esef::EsefTests.test_ingest_keeps_eu_filings_and_plain_ifrs_facts_exactly`; `test_sources_esef::EsefTests.test_statements_point_in_time_restatement_and_fallback`; `test_sources_esef::EsefTests.test_mapping_keys_line_up_with_the_sec_mapping`; `test_sources_esef::EsefTests.test_issuer_without_indexed_filings_is_explicit`; `test_sources_esef::EsefTests.test_compare_side_by_side_never_converts_currencies`; `test_sources_esef::FirdsTests.test_ingest_uses_listed_files_and_feeds_search`; `test_sources_esef::EuRouteTests.test_eu_routes`; `src/workspaces/company/eu.test.ts::EU issuer helpers > labels source and currency of SEC and ESEF candidates`
 - Evidence: ESEF annual reports from filings.xbrl.org (EU filings only) stored as point-in-time facts with the filing as publication; esef-ifrs-map@1 maps ifrs-full concepts to the SEC line-item keys; FY statements with restatement history and flagged fallbacks; ESEF/SEC side by side without currency conversion; search lists EU issuers by LEI, ISIN or name with source and currency.
 - Evidence: Live run 2026-10-23 into the owner store: ASML 809 facts, LVMH 661, TotalEnergies 815 (FR filings; UK copies skipped); SAP and Siemens NO_FILINGS_INDEXED (Germany not indexed). TotalEnergies ESEF and 20-F lines agree exactly for FY2025.
@@ -657,6 +657,54 @@ Checked against `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readine
 - Gap: no 100-question benchmark or citation-precision measurement (AC1, AC2)
 - Requirements: AI-04, DAT-05
 
+### CAP-NEWS-02: Real-time SEC EDGAR filing stream with 8-K item typing (tested)
+
+- Files: `backend/src/unknown/news/`, `backend/src/unknown/api/routes/news.py`, `config/providers/sec-edgar.json`, `docs/adr/0019-live-news-and-filings.md`, `terminal/src/workspaces/news/NewsWorkspace.tsx`, `terminal/src/workspaces/news/model.ts`
+- Tests: `test_news::FeedParserTests.test_edgar_entries_merge_roles_and_type_8k_items`; `test_news::PollerTests.test_seen_items_are_never_reinserted_and_the_cursor_survives_restart`; `test_news::PollerTests.test_edgar_pages_back_until_it_reaches_the_high_water_mark`; `test_news::PollerTests.test_failed_fetch_is_recorded_and_shows_as_failed`; `test_news::StreamTests.test_stream_sends_news_and_watchlist_alerts_once_per_story`; `src/workspaces/news/views.test.ts::news tape > shows source, first-seen time, form items and flashes a row that just arrived`
+- Evidence: The poller reads the EDGAR Latest Filings Atom feed every 60 s with the declared User-Agent through the shared SEC token bucket: form, filer name, CIK, role, accession, acceptance time, 8-K items typed against the Form 8-K item list, filing index link; entries of one accession merge; a durable high-water cursor pages back and records a possible gap; seen accessions are never inserted or fetched again.
+- Evidence: New filings reach the terminal tape through GET /api/news/stream and flash on arrival.
+- Evidence: Live run 2026-10-23 into the owner store (python -m unknown.news.poller run --once): sec-filings 138, sec-press 25, sec-litigation 25, frb-press 20, ecb-press 15, rbi-press 10, sebi 30 items; a second EDGAR poll fetched one page and stored 0 new (cursor reached).
+- Gap: no confirmation against the submissions JSON and no primary document or exhibit fetch (sanitized viewer)
+- Gap: no daily-index reconciliation, so coverage_ratio (AC1) is not measured; ingest lag p50/p95 is computed per source but not yet over 20 business days (AC2)
+- Gap: 8-K/A amendments are not linked to their originals
+- Gap: no conditional GET (ETag/If-Modified-Since)
+
+### CAP-NEWS-05: Syndication deduplication, story clustering and revision tracking (tested)
+
+- Files: `backend/src/unknown/news/store.py`, `backend/src/unknown/api/routes/news.py`, `terminal/src/workspaces/news/NewsWorkspace.tsx`, `terminal/src/workspaces/news/model.ts`
+- Tests: `test_news::PollerTests.test_syndication_duplicates_and_cross_source_clusters`; `test_news::StreamTests.test_stream_sends_news_and_watchlist_alerts_once_per_story`; `src/workspaces/news/views.test.ts::news tape > shows source, first-seen time, form items and flashes a row that just arrived`
+- Evidence: A release whose canonical link (scheme, host case, doubled slashes, utm_ parameters normalised) or normalised headline within 3 days matches an earlier item is stored as a copy in that story; a release from another source with >= 3 shared significant headline words at Jaccard >= 0.6 within 72 h joins the story. Each story keeps first item, earliest publication time, copies and sources; GET /api/news/top ranks by sources, copies, recency; the reader lists the other copies; copies never alert.
+- Gap: no revision tracking or diffs between copies
+- Gap: no earliest-licensed-timestamp logic (only official feeds today)
+- Gap: no sentiment or event features exist yet to protect from double counting
+- Gap: filings cluster only by accession
+
+### CAP-NEWS-06: Issuer and instrument entity tagging with point-in-time identifier resolution (tested)
+
+- Files: `backend/src/unknown/news/entities.py`, `backend/src/unknown/news/store.py`, `terminal/src/workspaces/news/NewsWorkspace.tsx`, `terminal/src/workspaces/news/model.ts`
+- Tests: `test_news::EntityTests.test_point_in_time_tickers_and_figi`; `test_news::EntityTests.test_name_mentions_need_two_words_and_keep_evidence`; `test_news::EntityTests.test_poller_tags_filings_with_tickers_as_of_first_seen`; `test_news::ApiTests.test_list_filters_item_top_and_sources`; `src/workspaces/news/model.test.ts::live merge and labels > labels issuers with the snapshot ticker and forms with their 8-K items`
+- Evidence: Filings carry their EDGAR entities (CIK, role, confidence 1.0); tickers come from the SEC ticker snapshot received at or before first sight and a FIGI from a MAPPED OpenFIGI outcome available then, with the snapshot id and time stored on each tag. Releases get name_match mentions (two or more non-generic words, confidence 0.6, evidence words). GET /api/news?issuer= filters by CIK, ticker or TICKER.MIC.
+- Gap: no owner correction of tags and no evaluation labels
+- Gap: no relevance score (primary subject vs passing mention) beyond role
+- Gap: name matching is exact-word only; no aliases, former names or non-US issuers
+
+### CAP-NEWS-08: Full-text search across filings, announcements, transcripts and news (tested)
+
+- Files: `backend/src/unknown/news/store.py`, `backend/src/unknown/api/routes/news.py`, `terminal/src/workspaces/news/NewsWorkspace.tsx`, `terminal/src/workspaces/news/model.ts`
+- Tests: `test_news::PollerTests.test_full_text_search_boolean_phrase_prefix_and_literal_punctuation`; `test_news::ApiTests.test_list_filters_item_top_and_sources`; `src/workspaces/news/model.test.ts::live merge and labels > splits search snippets at the highlight markers`; `src/workspaces/news/views.test.ts::news tape > shows source, first-seen time, form items and flashes a row that just arrived`
+- Evidence: SQLite FTS5 over headline, feed summary and form: phrase, prefix*, AND/OR/NOT and NEAR pass through; other words are quoted so 8-K or 2.02 match literally; results carry highlighted snippets; filters by source, form, issuer and since.
+- Gap: indexes headlines and feed summaries only (no filing documents, transcripts or licensed news bodies)
+- Gap: no natural-language query, no saved searches as alerts, no export
+- Gap: ranking is newest first, not relevance
+
+### CAP-NEWS-13: Alerts on filings, announcements, news and events for watchlists (tested)
+
+- Files: `backend/src/unknown/news/stream.py`, `backend/src/unknown/api/routes/news.py`, `backend/src/unknown/api/server.py`, `terminal/src/workspaces/news/NewsWorkspace.tsx`, `terminal/src/workspaces/news/model.ts`
+- Tests: `test_news::StreamTests.test_stream_sends_news_and_watchlist_alerts_once_per_story`; `test_news::StreamTests.test_stream_requires_the_owner_session`; `test_news::ApiTests.test_stream_route_is_registered_and_validates_before_headers`; `src/workspaces/news/model.test.ts::live merge and labels > reads alert issuers from the monitor watchlists and ignores bad storage`; `src/workspaces/news/model.test.ts::news functions > registers N, TOP and CN on the command line`
+- Evidence: GET /api/news/stream takes the issuers of the browser-side monitor watchlists (CIK, ticker or TICKER.MIC, at most 500), resolves them through the SEC ticker snapshot, reports unresolved ones, and pushes an alert event for each new item tagged with a watched issuer, once per story; duplicates never alert. The news workspace shows the alerts with their first-seen times.
+- Gap: no server-stored alert rules (sources, event types, 8-K item codes, query, sentiment) and no inbox with acknowledge or mute
+- Gap: alerts exist only while a terminal stream is open; no latency stamps beyond first-seen
+
 ### CAP-MAC-05: Macro time-series catalog, retrieval, transformations and country-indicator matrix (tested)
 
 - Files: `backend/src/unknown/data/sources/macro_common.py`, `backend/src/unknown/data/sources/macro_global.py`, `backend/src/unknown/data/sources/worldbank.py`, `backend/src/unknown/data/sources/oecd.py`, `backend/src/unknown/api/routes/macro_global.py`, `terminal/src/workspaces/macro/GlobalMacro.tsx`, `terminal/src/workspaces/macro/global.ts`, `config/providers/world-bank.json`, `config/providers/oecd.json`, `config/providers/imf.json`
@@ -679,7 +727,7 @@ Checked against `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readine
 
 ### CAP-MAC-09: India policy rates, money-market benchmarks and government securities curve (implemented)
 
-- Files: `backend/src/unknown/data/sources/bis.py`, `config/providers/bis.json`, `config/providers/rbi.json`, `config/providers/fbil.json`
+- Files: `backend/src/unknown/data/sources/bis.py`, `config/providers/bis.json`, `config/providers/rbi-website.json`, `config/providers/fbil.json`
 - Tests: `test_sources_macro_global::MacroSourceTests.test_bis_backfill_available_at_month_end_and_live_at_receipt`
 - Evidence: RBI policy repo rate via BIS WS_CBPOL (series IN, end of month), live run 2026-10-23; the RBI website and FBIL are recorded as blocked by the rights review; INR reference FX is available from the ECB (INR per EUR).
 - Gap: money-market benchmarks and the G-sec curve not ingested

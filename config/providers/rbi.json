@@ -1,35 +1,33 @@
 {
   "provider_id": "rbi",
-  "name": "Reserve Bank of India — rbi.org.in website (Current Rates, reference rates)",
-  "access": "NONE: blocked by the rights review; no request is made",
-  "cost_model": "not applicable (not used)",
-  "budget": "none",
-  "rate_limit": {
-    "max_requests": 1,
-    "per_seconds": 3600.0,
-    "source": "not used; no requests are made while blocked"
-  },
-  "requires_local_config": [],
-  "failure_behavior": "Ingestion is refused by the registry (no permitted uses); the terminal shows the source as blocked with this record's reason, never a zero or placeholder value.",
+  "name": "Reserve Bank of India — press releases RSS",
+  "access": "HTTPS GET to www.rbi.org.in/pressreleases_rss.xml (RSS 2.0); no key",
+  "cost_model": "Free",
+  "budget": "none required",
+  "rate_limit": {"max_requests": 1, "per_seconds": 5.0,
+                 "source": "No request-rate policy found on https://www.rbi.org.in/Scripts/Disclaimer.aspx or https://www.rbi.org.in/Scripts/rss.aspx (2026-10-23). Self-imposed polite pacing: one request every 5 s, one poll every 15 min."},
+  "requires_local_config": ["data_user_agent or sec_user_agent (declared contact User-Agent)"],
+  "failure_behavior": "Connection errors, 429 or 5xx: bounded exponential backoff, then the source's run is recorded FAILED; stored items remain with their first-seen times.",
   "sources": [
-    "https://www.rbi.org.in/Scripts/Disclaimer.aspx",
-    "https://www.rbi.org.in/robots.txt"
+    "https://www.rbi.org.in/Scripts/rss.aspx",
+    "https://www.rbi.org.in/Scripts/Disclaimer.aspx"
   ],
   "verified_on": "2026-10-23",
+  "verdict": "allowed_with_conditions",
+  "verdict_reason": "RBI publishes the feed for subscription; no clause found that forbids automated reading of it. The feed's <copyright> names the Reserve Bank, and the disclaimer requires permission before hyper-linking to or framing internal pages from another web site. Use is limited to the owner's private reading in this terminal: headline, link, time and a summary cut to 600 characters (the feed's description carries the whole release, which is not republished); no redistribution, no public web page linking.",
   "datasets": [
     {
-      "dataset_id": "rbi.website_rates",
-      "description": "Policy repo rate, SDF/MSF rates and reference FX shown on the RBI home page — NOT INGESTED",
-      "endpoint": "not used",
-      "coverage": "not used",
-      "history_depth": "not used",
-      "update_frequency": "not used",
-      "availability_rule": "not applicable: nothing is stored",
-      "allowed_uses": [],
-      "retention_days": 0,
+      "dataset_id": "rbi.press_releases_rss",
+      "description": "RBI press releases (headline, link, publication time; the description holds the full release as HTML, stored only as a 600-character plain-text summary)",
+      "endpoint": "https://www.rbi.org.in/pressreleases_rss.xml",
+      "coverage": "RBI press releases (10 items on 2026-10-23)",
+      "history_depth": "the feed's recent window",
+      "update_frequency": "as releases are published (polled every 15 min)",
+      "availability_rule": "first_seen receipt time; the feed's pubDate is kept as the publication time. The feed's pubDate has no zone (e.g. 'Fri, 23 Oct 2026 19:25:00'); it is read as Asia/Kolkata and each item is flagged time_zone_assumed:Asia/Kolkata",
+      "allowed_uses": ["display", "storage", "model_processing_local"],
+      "retention_days": null,
       "vintage_support": false,
-      "rights_source": "RBI website disclaimer (read 2026-10-23): 'Except as set forth below, caching and links to, and the framing of this Web Site or any of the contents are prohibited'; linking to internal pages needs RBI's prior permission. robots.txt answered 'Unauthorised Access'. Verdict: BLOCKED (storing fetched contents is caching). The RBI policy repo rate is taken from the BIS policy-rate dataset (bis.cbpol, series IN, compiled from RBI) and INR reference FX from the ECB (ecb.exr_reference INR/EUR). RBI DBIE (CAP-DATA-08) is manual and rights-limited.",
-      "rights_status": "blocked: website terms prohibit caching of contents",
+      "rights_source": "https://www.rbi.org.in/Scripts/Disclaimer.aspx and the feed's own <copyright> element (Copyright Reserve Bank of India)",
       "rights_verified_on": "2026-10-23"
     }
   ]

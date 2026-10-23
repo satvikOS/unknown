@@ -6844,7 +6844,7 @@
           "config/providers/esma-firds.json",
           "config/providers/nse-india.json",
           "config/providers/bse-india.json",
-          "config/providers/sebi.json"
+          "config/providers/sebi-website.json"
         ],
         "tests": [
           "backend/tests/test_sources_esef.py::EsefTests.test_ingest_keeps_eu_filings_and_plain_ifrs_facts_exactly",
@@ -8872,12 +8872,37 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "tested",
+        "files": [
+          "backend/src/unknown/news/",
+          "backend/src/unknown/api/routes/news.py",
+          "config/providers/sec-edgar.json",
+          "docs/adr/0019-live-news-and-filings.md",
+          "terminal/src/workspaces/news/NewsWorkspace.tsx",
+          "terminal/src/workspaces/news/model.ts"
         ],
-        "requirements": []
+        "tests": [
+          "backend/tests/test_news.py::FeedParserTests.test_edgar_entries_merge_roles_and_type_8k_items",
+          "backend/tests/test_news.py::PollerTests.test_seen_items_are_never_reinserted_and_the_cursor_survives_restart",
+          "backend/tests/test_news.py::PollerTests.test_edgar_pages_back_until_it_reaches_the_high_water_mark",
+          "backend/tests/test_news.py::PollerTests.test_failed_fetch_is_recorded_and_shows_as_failed",
+          "backend/tests/test_news.py::StreamTests.test_stream_sends_news_and_watchlist_alerts_once_per_story",
+          "terminal/src/workspaces/news/views.test.ts::news tape > shows source, first-seen time, form items and flashes a row that just arrived"
+        ],
+        "evidence": [
+          "The poller reads the EDGAR Latest Filings Atom feed every 60 s with the declared User-Agent through the shared SEC token bucket: form, filer name, CIK, role, accession, acceptance time, 8-K items typed against the Form 8-K item list, filing index link; entries of one accession merge; a durable high-water cursor pages back and records a possible gap; seen accessions are never inserted or fetched again.",
+          "New filings reach the terminal tape through GET /api/news/stream and flash on arrival.",
+          "Live run 2026-10-23 into the owner store (python -m unknown.news.poller run --once): sec-filings 138, sec-press 25, sec-litigation 25, frb-press 20, ecb-press 15, rbi-press 10, sebi 30 items; a second EDGAR poll fetched one page and stored 0 new (cursor reached)."
+        ],
+        "gaps": [
+          "no confirmation against the submissions JSON and no primary document or exhibit fetch (sanitized viewer)",
+          "no daily-index reconciliation, so coverage_ratio (AC1) is not measured; ingest lag p50/p95 is computed per source but not yet over 20 business days (AC2)",
+          "8-K/A amendments are not linked to their originals",
+          "no conditional GET (ETag/If-Modified-Since)"
+        ],
+        "requirements": [],
+        "updated": "2026-10-23",
+        "verified_against": "feat/live-news@5e8a06c"
       }
     },
     {
@@ -9261,12 +9286,30 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "tested",
+        "files": [
+          "backend/src/unknown/news/store.py",
+          "backend/src/unknown/api/routes/news.py",
+          "terminal/src/workspaces/news/NewsWorkspace.tsx",
+          "terminal/src/workspaces/news/model.ts"
         ],
-        "requirements": []
+        "tests": [
+          "backend/tests/test_news.py::PollerTests.test_syndication_duplicates_and_cross_source_clusters",
+          "backend/tests/test_news.py::StreamTests.test_stream_sends_news_and_watchlist_alerts_once_per_story",
+          "terminal/src/workspaces/news/views.test.ts::news tape > shows source, first-seen time, form items and flashes a row that just arrived"
+        ],
+        "evidence": [
+          "A release whose canonical link (scheme, host case, doubled slashes, utm_ parameters normalised) or normalised headline within 3 days matches an earlier item is stored as a copy in that story; a release from another source with >= 3 shared significant headline words at Jaccard >= 0.6 within 72 h joins the story. Each story keeps first item, earliest publication time, copies and sources; GET /api/news/top ranks by sources, copies, recency; the reader lists the other copies; copies never alert."
+        ],
+        "gaps": [
+          "no revision tracking or diffs between copies",
+          "no earliest-licensed-timestamp logic (only official feeds today)",
+          "no sentiment or event features exist yet to protect from double counting",
+          "filings cluster only by accession"
+        ],
+        "requirements": [],
+        "updated": "2026-10-23",
+        "verified_against": "feat/live-news@5e8a06c"
       }
     },
     {
@@ -9394,12 +9437,31 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "tested",
+        "files": [
+          "backend/src/unknown/news/entities.py",
+          "backend/src/unknown/news/store.py",
+          "terminal/src/workspaces/news/NewsWorkspace.tsx",
+          "terminal/src/workspaces/news/model.ts"
         ],
-        "requirements": []
+        "tests": [
+          "backend/tests/test_news.py::EntityTests.test_point_in_time_tickers_and_figi",
+          "backend/tests/test_news.py::EntityTests.test_name_mentions_need_two_words_and_keep_evidence",
+          "backend/tests/test_news.py::EntityTests.test_poller_tags_filings_with_tickers_as_of_first_seen",
+          "backend/tests/test_news.py::ApiTests.test_list_filters_item_top_and_sources",
+          "terminal/src/workspaces/news/model.test.ts::live merge and labels > labels issuers with the snapshot ticker and forms with their 8-K items"
+        ],
+        "evidence": [
+          "Filings carry their EDGAR entities (CIK, role, confidence 1.0); tickers come from the SEC ticker snapshot received at or before first sight and a FIGI from a MAPPED OpenFIGI outcome available then, with the snapshot id and time stored on each tag. Releases get name_match mentions (two or more non-generic words, confidence 0.6, evidence words). GET /api/news?issuer= filters by CIK, ticker or TICKER.MIC."
+        ],
+        "gaps": [
+          "no owner correction of tags and no evaluation labels",
+          "no relevance score (primary subject vs passing mention) beyond role",
+          "name matching is exact-word only; no aliases, former names or non-US issuers"
+        ],
+        "requirements": [],
+        "updated": "2026-10-23",
+        "verified_against": "feat/live-news@5e8a06c"
       }
     },
     {
@@ -9648,12 +9710,30 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "tested",
+        "files": [
+          "backend/src/unknown/news/store.py",
+          "backend/src/unknown/api/routes/news.py",
+          "terminal/src/workspaces/news/NewsWorkspace.tsx",
+          "terminal/src/workspaces/news/model.ts"
         ],
-        "requirements": []
+        "tests": [
+          "backend/tests/test_news.py::PollerTests.test_full_text_search_boolean_phrase_prefix_and_literal_punctuation",
+          "backend/tests/test_news.py::ApiTests.test_list_filters_item_top_and_sources",
+          "terminal/src/workspaces/news/model.test.ts::live merge and labels > splits search snippets at the highlight markers",
+          "terminal/src/workspaces/news/views.test.ts::news tape > shows source, first-seen time, form items and flashes a row that just arrived"
+        ],
+        "evidence": [
+          "SQLite FTS5 over headline, feed summary and form: phrase, prefix*, AND/OR/NOT and NEAR pass through; other words are quoted so 8-K or 2.02 match literally; results carry highlighted snippets; filters by source, form, issuer and since."
+        ],
+        "gaps": [
+          "indexes headlines and feed summaries only (no filing documents, transcripts or licensed news bodies)",
+          "no natural-language query, no saved searches as alerts, no export",
+          "ranking is newest first, not relevance"
+        ],
+        "requirements": [],
+        "updated": "2026-10-23",
+        "verified_against": "feat/live-news@5e8a06c"
       }
     },
     {
@@ -10228,12 +10308,31 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "tested",
+        "files": [
+          "backend/src/unknown/news/stream.py",
+          "backend/src/unknown/api/routes/news.py",
+          "backend/src/unknown/api/server.py",
+          "terminal/src/workspaces/news/NewsWorkspace.tsx",
+          "terminal/src/workspaces/news/model.ts"
         ],
-        "requirements": []
+        "tests": [
+          "backend/tests/test_news.py::StreamTests.test_stream_sends_news_and_watchlist_alerts_once_per_story",
+          "backend/tests/test_news.py::StreamTests.test_stream_requires_the_owner_session",
+          "backend/tests/test_news.py::ApiTests.test_stream_route_is_registered_and_validates_before_headers",
+          "terminal/src/workspaces/news/model.test.ts::live merge and labels > reads alert issuers from the monitor watchlists and ignores bad storage",
+          "terminal/src/workspaces/news/model.test.ts::news functions > registers N, TOP and CN on the command line"
+        ],
+        "evidence": [
+          "GET /api/news/stream takes the issuers of the browser-side monitor watchlists (CIK, ticker or TICKER.MIC, at most 500), resolves them through the SEC ticker snapshot, reports unresolved ones, and pushes an alert event for each new item tagged with a watched issuer, once per story; duplicates never alert. The news workspace shows the alerts with their first-seen times."
+        ],
+        "gaps": [
+          "no server-stored alert rules (sources, event types, 8-K item codes, query, sentiment) and no inbox with acknowledge or mute",
+          "alerts exist only while a terminal stream is open; no latency stamps beyond first-seen"
+        ],
+        "requirements": [],
+        "updated": "2026-10-23",
+        "verified_against": "feat/live-news@5e8a06c"
       }
     },
     {
@@ -11755,7 +11854,7 @@
         "files": [
           "backend/src/unknown/data/sources/bis.py",
           "config/providers/bis.json",
-          "config/providers/rbi.json",
+          "config/providers/rbi-website.json",
           "config/providers/fbil.json"
         ],
         "tests": [

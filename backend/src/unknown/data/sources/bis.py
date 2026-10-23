@@ -3,7 +3,7 @@
 Source: BIS Data Portal SDMX API v2, dataflow ``WS_CBPOL`` monthly, end of period:
 ``https://stats.bis.org/api/v2/data/dataflow/BIS/WS_CBPOL/1.0/M.US+IN+XM?startPeriod=YYYY-MM&format=csv``.
 Areas: ``US`` (mid-point of the Federal Reserve target range since 1985), ``IN`` (Reserve Bank of
-India policy repo rate; the RBI website itself is blocked by its terms, see config/providers/rbi.json)
+India policy repo rate; the RBI website itself is blocked by its terms, see config/providers/rbi-website.json)
 and ``XM`` (ECB, used for every euro-area venue country). The series' own compilation note
 (``COMPILATION``) and source (``SOURCE_REF``) are kept in the entity attributes.
 

@@ -1,0 +1,39 @@
+/* News workspace styles (own folder; shared tokens only). */
+.nw-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-bottom: 8px; font-size: var(--fs-sm); }
+.nw-toolbar label { display: grid; gap: 2px; color: var(--text-muted); }
+.nw-toolbar input, .nw-toolbar select { background: var(--surface); color: var(--text); border: 1px solid var(--control-border, var(--border)); border-radius: var(--radius); padding: 4px 8px; font-size: var(--fs-sm); }
+.nw-tabs { display: flex; gap: 4px; }
+.nw-tab { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 10px; font-size: var(--fs-sm); cursor: pointer; }
+.nw-tab-on { border-color: var(--accent); background: var(--surface-3); }
+.nw-stream { margin-left: auto; align-self: center; }
+.nw-hint { color: var(--text-muted); font-size: var(--fs-sm); margin: 0 0 8px; }
+.nw-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 420px); gap: 12px; align-items: start; }
+@media (max-width: 1080px) { .nw-layout { grid-template-columns: minmax(0, 1fr); } }
+.nw-main, .nw-side { min-width: 0; }
+.nw-side { display: grid; gap: 12px; }
+.nw-scroll { overflow: auto; max-width: 100%; max-height: 70vh; }
+.nw-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.nw-table th, .nw-table td { padding: 3px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+.nw-table thead th { position: sticky; top: 0; background: var(--surface-2); color: var(--text-muted); font-weight: 500; z-index: 1; white-space: nowrap; }
+.nw-table tbody tr { cursor: pointer; }
+.nw-table tbody tr:hover { background: var(--surface-2); }
+.nw-table tbody tr:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.nw-selected { background: var(--surface-3); box-shadow: inset 2px 0 0 var(--accent); }
+.nw-dup { color: var(--text-muted); }
+.nw-time, .nw-form, .nw-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.nw-time { color: var(--text-muted); }
+.nw-num { text-align: right !important; }
+.nw-issuer { font-weight: 600; white-space: nowrap; }
+.nw-copies, .nw-src { color: var(--text-muted); font-size: var(--fs-xs); }
+.nw-snippet { color: var(--text-muted); font-size: var(--fs-xs); margin-top: 2px; }
+.nw-snippet mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--text); }
+@keyframes nw-flash { from { background: color-mix(in srgb, var(--info) 35%, transparent); } to { background: transparent; } }
+.nw-flash { animation: nw-flash 1500ms ease-out; }
+@media (prefers-reduced-motion: reduce) { .nw-flash { animation: none; box-shadow: inset 2px 0 0 var(--info); } }
+.nw-read-title { font-size: var(--fs-md); margin: 0 0 6px; }
+.nw-sub { font-size: var(--fs-sm); margin: 8px 0 4px; color: var(--text-muted); font-weight: 500; }
+.nw-summary { white-space: pre-wrap; font-size: var(--fs-sm); line-height: 1.45; }
+.nw-items, .nw-alerts, .nw-sources { list-style: none; padding: 0; margin: 4px 0; display: grid; gap: 4px; font-size: var(--fs-sm); }
+.nw-linkbtn { background: none; border: 0; padding: 0; color: var(--text); text-align: left; cursor: pointer; font: inherit; }
+.nw-linkbtn:hover { text-decoration: underline; }
+.nw-src-name { font-weight: 600; }

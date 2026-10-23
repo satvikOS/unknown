@@ -43,6 +43,51 @@
       "vintage_support": true,
       "rights_source": "https://www.sec.gov/privacy",
       "rights_verified_on": "2026-10-22"
+    },
+    {
+      "dataset_id": "sec.latest_filings_atom",
+      "description": "EDGAR Latest Filings Atom feed: one entry per filing and entity role, with form type, filer name and CIK, role (Filer, Subject, Reporting, ...), accession number, acceptance time (<updated>), size and, for 8-K, the item lines; link to the filing index",
+      "endpoint": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=&company=&dateb=&owner=include&start=N&count=100&output=atom",
+      "coverage": "all EDGAR filers and forms disseminated recently (most recent first, paged by start/count)",
+      "history_depth": "recent window only; the daily index is the reconciliation source (not implemented here)",
+      "update_frequency": "as EDGAR disseminates filings (cadence not documented; polled every 60 s by default)",
+      "availability_rule": "a filing is usable from the time this system first saw it in the feed (first_seen); the feed's acceptance time is kept as the event time and is never used as availability",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_cloud", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "https://www.sec.gov/about/privacy-information ('Information presented on sec.gov is considered public information and may be copied or further distributed ... without the SEC's permission'); fair access at https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data ('Current max request rate: 10 requests/second'; declared User-Agent required; no unclassified bots)",
+      "rights_verified_on": "2026-10-23",
+      "verdict": "allowed"
+    },
+    {
+      "dataset_id": "sec.press_releases_rss",
+      "description": "SEC press releases RSS (headline, link, publication time and the feed's description)",
+      "endpoint": "https://www.sec.gov/news/pressreleases.rss",
+      "coverage": "SEC press releases",
+      "history_depth": "the feed's recent window",
+      "update_frequency": "as releases are published (polled every 15 min)",
+      "availability_rule": "first_seen receipt time; the feed's pubDate is kept as the publication time",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_cloud", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "https://www.sec.gov/about/privacy-information (public information; cite the SEC). The URL is the one linked from https://www.sec.gov/about/rss-feeds and https://www.sec.gov/newsroom/press-releases, it answered HTTP 404 to a declared-User-Agent client and to a second fetcher early on 2026-10-23 and HTTP 200 (25 items) to the poller later that day; a failed poll is recorded as FAILED and shown with its error, never as an empty feed",
+      "rights_verified_on": "2026-10-23",
+      "verdict": "allowed"
+    },
+    {
+      "dataset_id": "sec.litigation_releases_rss",
+      "description": "SEC litigation releases RSS (headline, link, publication time, release number)",
+      "endpoint": "https://www.sec.gov/enforcement-litigation/litigation-releases/rss",
+      "coverage": "SEC civil litigation releases",
+      "history_depth": "the feed's recent window (25 items on 2026-10-23)",
+      "update_frequency": "as releases are published (polled every 15 min)",
+      "availability_rule": "first_seen receipt time; the feed's pubDate is kept as the publication time",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_cloud", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "https://www.sec.gov/about/privacy-information (public information; cite the SEC); feed listed at https://www.sec.gov/about/rss-feeds",
+      "rights_verified_on": "2026-10-23",
+      "verdict": "allowed"
     }
   ]
 }
