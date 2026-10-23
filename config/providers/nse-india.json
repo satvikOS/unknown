@@ -1,0 +1,35 @@
+{
+  "provider_id": "nse-india",
+  "name": "National Stock Exchange of India — nseindia.com website data",
+  "access": "NONE: blocked by the rights review; no request is made",
+  "cost_model": "not applicable (not used)",
+  "budget": "none",
+  "rate_limit": {
+    "max_requests": 1,
+    "per_seconds": 3600.0,
+    "source": "not used; no requests are made while blocked"
+  },
+  "requires_local_config": [],
+  "failure_behavior": "Ingestion is refused by the registry (no permitted uses); the terminal shows the source as blocked with this record's reason, never a zero or placeholder value.",
+  "sources": [
+    "https://www.nseindia.com/static/nse-terms-of-use"
+  ],
+  "verified_on": "2026-10-23",
+  "datasets": [
+    {
+      "dataset_id": "nse.website",
+      "description": "NSE quotes, corporate filings and reference data from the website — NOT INGESTED",
+      "endpoint": "not used",
+      "coverage": "not used",
+      "history_depth": "not used",
+      "update_frequency": "not used",
+      "availability_rule": "not applicable: nothing is stored",
+      "allowed_uses": [],
+      "retention_days": 0,
+      "vintage_support": false,
+      "rights_source": "NSE terms of use (read 2026-10-23 via search extracts; the page timed out to automated retrieval): users may not copy, modify, reproduce, store or redistribute any information or content without NSE's prior written permission, and content not offered for download may not be aggregated, copied or duplicated in any manner. Verdict: BLOCKED; licensed paths only (NSE Data / broker feeds, CAP-DATA-09).",
+      "rights_status": "blocked: terms prohibit storing or aggregating site content without written permission",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "provider_id": "fred",
+  "name": "Federal Reserve Bank of St. Louis — FRED API (series observations)",
+  "access": "HTTPS GET to api.stlouisfed.org/fred/series/observations?series_id=&api_key=&file_type=json; the owner's free key is read from <UNKNOWN_HOME>/secrets/fred_api_key (outside git). Inactive without that file.",
+  "cost_model": "Free of charge with a registered key",
+  "budget": "none required",
+  "rate_limit": {"max_requests": 1, "per_seconds": 1.0,
+                 "source": "The terms reserve the right to impose limits (terms of use, read 2026-10-23). Self-imposed: one request per second."},
+  "requires_local_config": ["<UNKNOWN_HOME>/secrets/fred_api_key (one line: the owner's FRED API key)", "data_user_agent or sec_user_agent (declared contact User-Agent)"],
+  "failure_behavior": "No key file: the adapter reports INACTIVE with the file name and makes no request. 429/5xx: bounded backoff, then the run fails. The key is never written to logs, raw-request records or error messages (redacted). '.' observations are stored as NOT_REPORTED, never zero.",
+  "sources": [
+    "https://fred.stlouisfed.org/docs/api/terms_of_use.html",
+    "https://fred.stlouisfed.org/docs/api/fred/series_observations.html"
+  ],
+  "verified_on": "2026-10-23",
+  "datasets": [
+    {
+      "dataset_id": "fred.series",
+      "description": "Owner-selected FRED series (default DFEDTARU, DFEDTARL, CPIAUCSL, UNRATE, A191RL1Q225SBEA), values as published",
+      "endpoint": "https://api.stlouisfed.org/fred/series/observations?series_id=<ID>&file_type=json&observation_start=YYYY-MM-DD",
+      "coverage": "United States (default series)",
+      "history_depth": "Per series as published",
+      "update_frequency": "Per series",
+      "availability_rule": "Current vintage only (ALFRED vintages not used): available from first-seen receipt time (flag available_from_first_capture); a changed value is a new publication flagged revised_after_first_seen.",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "FRED API terms of use (read 2026-10-23): use only as permitted; series may be owned by third parties and need permission for anything other than personal use; applications must show 'This product uses the FRED(R) API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.'; on termination stored data must be destroyed. Verdict: allowed for the owner's personal research use with the notice; no redistribution; cloud-model processing withheld.",
+      "rights_status": "verified 2026-10-23; inactive until the owner adds a key",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}

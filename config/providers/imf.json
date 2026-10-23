@@ -1,0 +1,35 @@
+{
+  "provider_id": "imf",
+  "name": "International Monetary Fund — IMF Data portal and SDMX API (api.imf.org)",
+  "access": "NONE: blocked by the rights review; no request is made",
+  "cost_model": "not applicable (not used)",
+  "budget": "none",
+  "rate_limit": {
+    "max_requests": 1,
+    "per_seconds": 3600.0,
+    "source": "not used; no requests are made while blocked"
+  },
+  "requires_local_config": [],
+  "failure_behavior": "Ingestion is refused by the registry (no permitted uses); the terminal shows the source as blocked with this record's reason, never a zero or placeholder value.",
+  "sources": [
+    "https://www.imf.org/en/About/copyright-and-terms"
+  ],
+  "verified_on": "2026-10-23",
+  "datasets": [
+    {
+      "dataset_id": "imf.data",
+      "description": "IMF macro statistics (e.g. CPI, policy rates) — NOT INGESTED",
+      "endpoint": "not used",
+      "coverage": "not used",
+      "history_depth": "not used",
+      "update_frequency": "not used",
+      "availability_rule": "not applicable: nothing is stored",
+      "allowed_uses": [],
+      "retention_days": 0,
+      "vintage_support": false,
+      "rights_source": "IMF copyright and terms (read 2026-10-23): users may download, copy and use IMF Data with attribution, but 'For any potential commercial reuse of IMF Data, email copyright@imf.org to request permission' and, under Prohibitions, 'The IMF prohibits bulk download of information by automated technology without explicit permission'. Verdict: BLOCKED for automated ingestion until the owner obtains explicit permission; World Bank, OECD and BIS cover the same indicators.",
+      "rights_status": "blocked: automated bulk download prohibited without explicit IMF permission",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "provider_id": "bis",
+  "name": "Bank for International Settlements — BIS Data Portal SDMX API (stats.bis.org)",
+  "access": "HTTPS GET to stats.bis.org/api/v2/data/dataflow/BIS/WS_CBPOL/1.0/M.<AREA+...>?startPeriod=&format=csv; no key",
+  "cost_model": "Free of charge",
+  "budget": "none required",
+  "rate_limit": {"max_requests": 1, "per_seconds": 2.0,
+                 "source": "No limit published; the API terms reserve the right to monitor usage and to limit or suspend an IP address (data.bis.org/help/legal, read 2026-10-23). Self-imposed: one request every 2 s."},
+  "requires_local_config": ["data_user_agent or sec_user_agent (declared contact User-Agent)"],
+  "failure_behavior": "429/5xx: bounded backoff, then the run fails; stored values keep their availability times. An empty OBS_VALUE is skipped with a reason, never zero.",
+  "sources": [
+    "https://data.bis.org/help/legal",
+    "https://www.bis.org/terms_conditions.htm",
+    "https://stats.bis.org/api-doc/v2/"
+  ],
+  "verified_on": "2026-10-23",
+  "datasets": [
+    {
+      "dataset_id": "bis.cbpol",
+      "description": "Central bank policy rates (WS_CBPOL), monthly end of period, percent: US (mid-point of the Federal Reserve target range), IN (Reserve Bank of India policy repo rate), XM (ECB; applies to every euro-area country)",
+      "endpoint": "https://stats.bis.org/api/v2/data/dataflow/BIS/WS_CBPOL/1.0/M.US+IN+XM?startPeriod=YYYY-MM&format=csv",
+      "coverage": "US, IN and the euro area (all EU countries in config/markets/venues.json use EUR)",
+      "history_depth": "Monthly from the 1950s for the US; per-series depth as published",
+      "update_frequency": "Weekly to monthly updates by the BIS",
+      "availability_rule": "A policy rate in force on the last day of a month is public by then: backfill is available at 23:59:59 UTC on the last day of the month (flag availability_estimated_backfill); a live capture is available at receipt. A changed value on re-fetch is a new publication at receipt time flagged revised_after_first_seen.",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "BIS statistics terms (data.bis.org/help/legal, read 2026-10-23): 'The use of the statistics is unrestricted, provided that' the BIS is cited as the source and inclusion adds no charge to users; use of the APIs means agreeing to the API terms (no modification or redistribution of the APIs). Verdict: allowed for single-owner research with citation 'Source: BIS central bank policy rates'; cloud-model processing withheld until the owner decides.",
+      "rights_status": "verified 2026-10-23",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "provider_id": "sebi",
+  "name": "Securities and Exchange Board of India — sebi.gov.in",
+  "access": "NONE: blocked by the rights review; no request is made",
+  "cost_model": "not applicable (not used)",
+  "budget": "none",
+  "rate_limit": {
+    "max_requests": 1,
+    "per_seconds": 3600.0,
+    "source": "not used; no requests are made while blocked"
+  },
+  "requires_local_config": [],
+  "failure_behavior": "Ingestion is refused by the registry (no permitted uses); the terminal shows the source as blocked with this record's reason, never a zero or placeholder value.",
+  "sources": [
+    "https://www.sebi.gov.in/disclaimer.html"
+  ],
+  "verified_on": "2026-10-23",
+  "datasets": [
+    {
+      "dataset_id": "sebi.website",
+      "description": "SEBI filings and statistics from the website — NOT INGESTED",
+      "endpoint": "not used",
+      "coverage": "not used",
+      "history_depth": "not used",
+      "update_frequency": "not used",
+      "availability_rule": "not applicable: nothing is stored",
+      "allowed_uses": [],
+      "retention_days": 0,
+      "vintage_support": false,
+      "rights_source": "SEBI disclaimer page returned HTTP 404 on 2026-10-23; no reuse terms for website data were located. Verdict: BLOCKED until terms are located and reviewed; nothing is fetched.",
+      "rights_status": "blocked: no reuse terms located",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}

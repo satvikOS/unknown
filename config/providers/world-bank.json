@@ -1,0 +1,34 @@
+{
+  "provider_id": "world-bank",
+  "name": "World Bank — Indicators API v2 (World Development Indicators)",
+  "access": "HTTPS GET to api.worldbank.org/v2/country/<ISO3;...>/indicator/<ID>?format=json; no key",
+  "cost_model": "Free of charge",
+  "budget": "none required",
+  "rate_limit": {"max_requests": 1, "per_seconds": 1.0,
+                 "source": "No fixed limit; the terms forbid use that 'exceeds reasonable request volume or constitutes excessive or abusive usage' (terms of use, read 2026-10-23). Self-imposed: one request per second, one request per indicator for all countries."},
+  "requires_local_config": ["data_user_agent or sec_user_agent (declared contact User-Agent)"],
+  "failure_behavior": "429/5xx: bounded backoff, then the run fails; stored values keep their availability times. A null value is stored as NOT_YET_PUBLISHED, never zero.",
+  "sources": [
+    "https://datahelpdesk.worldbank.org/knowledgebase/articles/889392-about-the-indicators-api-documentation",
+    "https://datacatalog.worldbank.org/public-licenses",
+    "https://www.worldbank.org/en/about/legal/terms-of-use-for-datasets"
+  ],
+  "verified_on": "2026-10-23",
+  "datasets": [
+    {
+      "dataset_id": "worldbank.wdi",
+      "description": "Annual GDP growth (NY.GDP.MKTP.KD.ZG), CPI inflation (FP.CPI.TOTL.ZG) and unemployment, ILO modelled estimate (SL.UEM.TOTL.ZS), percent, decimal text as published",
+      "endpoint": "https://api.worldbank.org/v2/country/USA;IND;DEU;FRA;NLD;BEL;PRT;ITA;ESP/indicator/<ID>?format=json&date=<from>:<to>&per_page=1000",
+      "coverage": "US, IN and the EU countries of config/markets/venues.json",
+      "history_depth": "Annual, from 1960 where published",
+      "update_frequency": "WDI updates several times a year (lastupdated is recorded)",
+      "availability_rule": "No vintages: available from first-seen receipt time (flag available_from_first_capture); a changed value on re-fetch is a new publication at its receipt time flagged revised_after_first_seen. History is therefore not usable for backtests before the capture date.",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "Data catalog public licences: CC BY 4.0 is the default licence for datasets produced by the World Bank (credit the World Bank, note modifications). Terms of use: APIs for non-commercial use, no charging for access or redistribution, reasonable volume. Verdict: allowed for single-owner research with attribution 'Source: World Bank, World Development Indicators'; cloud-model processing withheld until the owner decides.",
+      "rights_status": "verified 2026-10-23",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}

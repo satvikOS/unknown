@@ -1,0 +1,34 @@
+{
+  "provider_id": "oecd",
+  "name": "OECD — Data Explorer SDMX REST API (sdmx.oecd.org)",
+  "access": "HTTPS GET to sdmx.oecd.org/public/rest/data/<agency>,<dataflow>,<version>/<key>?startPeriod=&format=csvfile; no key",
+  "cost_model": "Free of charge",
+  "budget": "none required",
+  "rate_limit": {"max_requests": 1, "per_seconds": 180.0,
+                 "source": "OECD 'API best practices' explainer: rate limiting since November 2024; extracts read 2026-10-23 give 60 data downloads per hour, and a mirror gives 20 queries per minute and 20 downloads per hour. Self-imposed: the strictest, 20 per hour (one request every 180 s); traffic from VPNs or anonymisers is not allowed."},
+  "requires_local_config": ["data_user_agent or sec_user_agent (declared contact User-Agent)"],
+  "failure_behavior": "429 (temporarily blocked) or 5xx: bounded backoff, then the run fails; stored values keep their availability times. An empty OBS_VALUE is skipped with a reason, never zero.",
+  "sources": [
+    "https://www.oecd.org/en/about/terms-conditions.html",
+    "https://www.oecd.org/en/data/insights/data-explainers/2024/11/Api-best-practices-and-recommendations.html",
+    "https://www.oecd.org/en/data/insights/data-explainers/2024/09/api.html"
+  ],
+  "verified_on": "2026-10-23",
+  "datasets": [
+    {
+      "dataset_id": "oecd.sdmx_macro",
+      "description": "Monthly CPI inflation, growth over 1 year, percent (OECD.SDD.TPS DSD_PRICES@DF_PRICES_ALL, key <AREA>.M.N.CPI.PA._T.N.GY) and monthly harmonised unemployment rate, percent of labour force, seasonally adjusted (OECD.SDD.TPS DSD_LFS@DF_IALFS_UNE_M, key <AREA>.UNE_LF_M.PT_LF_SUB._Z.Y._T.Y_GE15._Z.M)",
+      "endpoint": "https://sdmx.oecd.org/public/rest/data/OECD.SDD.TPS,DSD_PRICES@DF_PRICES_ALL,1.0/USA+IND+DEU+....M.N.CPI.PA._T.N.GY?startPeriod=YYYY-MM&format=csvfile",
+      "coverage": "US and the EU countries of config/markets/venues.json; India for CPI only (not in the OECD labour force dataflow)",
+      "history_depth": "Monthly; request depth chosen per run",
+      "update_frequency": "Monthly",
+      "availability_rule": "No vintages read: available from first-seen receipt time (flag available_from_first_capture); a changed value on re-fetch is a new publication at receipt time flagged revised_after_first_seen.",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "OECD Terms and Conditions (read 2026-10-23 via search extracts; the page returns HTTP 403 to automated retrieval): where no specific terms or third-party interests apply, data may be reused for any purpose including commercial use provided the OECD is credited with the dataset citation; the APIs are free and subject to the T&C. Verdict: allowed for single-owner research with citation; cloud-model processing withheld until the owner decides.",
+      "rights_status": "verified 2026-10-23 from search extracts of the official pages",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}

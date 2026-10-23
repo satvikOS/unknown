@@ -1,0 +1,34 @@
+{
+  "provider_id": "esma-firds",
+  "name": "ESMA — Financial Instruments Reference Data System (FIRDS) full files",
+  "access": "HTTPS GET: file list from registers.esma.europa.eu/solr/esma_registers_firds_files (JSON), then the FULINS_E zip files it names (ISO 20022 auth.017 XML); no key",
+  "cost_model": "Free of charge (public register under MiFIR Art. 27)",
+  "budget": "none required",
+  "rate_limit": {"max_requests": 1, "per_seconds": 5.0,
+                 "source": "No limit published on pages reachable 2026-10-23. Self-imposed: one request every 5 s (the equity full files are tens of megabytes)."},
+  "requires_local_config": ["data_user_agent or sec_user_agent (declared contact User-Agent)"],
+  "failure_behavior": "HTTP 502 from the register host (observed on every request 2026-10-23) or other 5xx: bounded backoff, then the run fails and reports the status; no instrument is invented. XML with a DTD or entity declarations is refused.",
+  "sources": [
+    "https://registers.esma.europa.eu/publication/legalNoticePage",
+    "https://registers.esma.europa.eu/solr/esma_registers_firds_files/select?q=*&fq=publication_date:[YYYY-MM-DDT00:00:00Z+TO+YYYY-MM-DDT23:59:59Z]&wt=json",
+    "https://www.esma.europa.eu/sites/default/files/library/esma65-11-1193_firds_reference_data_reporting_instructions.pdf"
+  ],
+  "verified_on": "2026-10-23",
+  "datasets": [
+    {
+      "dataset_id": "esma.firds_equity",
+      "description": "Equity instrument reference data (ISIN, trading venue MIC, CFI, full name, notional currency, issuer LEI, first trade and termination dates) limited to the EU equity MICs in config/markets/venues.json",
+      "endpoint": "https://firds.esma.europa.eu/firds/FULINS_E_<YYYYMMDD>_<NN>of<MM>.zip (names taken from the file list, never guessed)",
+      "coverage": "Instruments admitted to trading or traded on EU venues; this system keeps venues XETR, XPAR, XAMS, XBRU, XLIS, XMIL, XMAD (registry venues in EU countries)",
+      "history_depth": "Current full file only (one snapshot per run)",
+      "update_frequency": "Full files published weekly, delta files daily (ESMA reporting instructions)",
+      "availability_rule": "Reference data, not a time series: each record is available from its receipt time (first seen); a changed value on a later snapshot is a new publication flagged revised_after_first_seen.",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "REGISTERS legal notice: 'Reproduction of all information on this site (REGISTERS information) is authorised except as otherwise stated, provided the source is acknowledged and' further numbered conditions; third-party material needs the holder's permission. Read 2026-10-23 through search-engine extracts only: the register host answered HTTP 502 and www.esma.europa.eu HTTP 403 to automated retrieval, so the full condition list is unverified. Verdict: single-owner research storage with source acknowledgement allowed; no redistribution until the full notice is read; cloud-model processing withheld.",
+      "rights_status": "partially verified 2026-10-23 (condition list unread); no live ingestion succeeded",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}
