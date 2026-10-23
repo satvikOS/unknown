@@ -4730,12 +4730,39 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "implemented",
+        "files": [
+          "backend/src/unknown/marketdata/",
+          "backend/src/unknown/api/routes/marketdata.py",
+          "backend/src/unknown/api/server.py",
+          "backend/src/unknown/broker/ibkr/mdsource.py",
+          "backend/src/unknown/broker/alpaca/stream.py",
+          "terminal/src/state/marketdata.ts",
+          "terminal/src/workspaces/monitor/panels.tsx"
         ],
-        "requirements": []
+        "tests": [
+          "backend/tests/test_marketdata_bus.py::BusTests.test_trades_are_never_coalesced_and_overflow_is_reported",
+          "backend/tests/test_marketdata_bus.py::TickStoreTests.test_paging_and_bounded_retention",
+          "backend/tests/test_marketdata_ibkr_source.py::IbkrSourceTests.test_tick_by_tick_within_five_percent_of_lines",
+          "backend/tests/test_marketdata_alpaca.py::ParsingTests.test_documented_messages_map_to_contract_fields_without_floats",
+          "backend/tests/test_marketdata_perf.py::StreamPerformanceTest.test_500_keys_at_4hz_bus_to_client_p99",
+          "terminal/src/state/marketdata.test.ts::market-data client > keeps trades newest first, re-reads time & sales on a trade gap, and counts overflow notices"
+        ],
+        "evidence": [
+          "Live prints stream per key with price, size, venue, conditions, source and data type; trades are never coalesced and a full client buffer produces a status event and a counter, never a silent drop.",
+          "Time & sales history is kept outside the core database in a tick store with bounded retention (age and rows per key) and paged newest first (GET /api/marketdata/trades).",
+          "IBKR trades come only from tick-by-tick AllLast when the owner asserts the entitlement, within 5% of lines; Alpaca trades from the documented T=t messages (fixtures from docs.alpaca.markets)."
+        ],
+        "gaps": [
+          "no historical backfill (reqHistoricalTicks or vendor history)",
+          "no corrections/cancels linked to the original print",
+          "no halt/resume events inline",
+          "no size/condition filters or date search in the panel",
+          "no live run recorded"
+        ],
+        "requirements": [],
+        "updated": "2026-10-23",
+        "verified_against": "feat/live-market-data@77c16d1"
       }
     },
     {
@@ -5199,12 +5226,35 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "implemented",
+        "files": [
+          "backend/src/unknown/marketdata/",
+          "backend/src/unknown/api/routes/marketdata.py",
+          "backend/src/unknown/api/server.py",
+          "backend/src/unknown/broker/ibkr/mdsource.py",
+          "backend/src/unknown/broker/ibkr/marketdata.py",
+          "terminal/src/workspaces/monitor/panels.tsx"
         ],
-        "requirements": []
+        "tests": [
+          "backend/tests/test_marketdata_ibkr_source.py::IbkrSourceTests.test_depth_book_operations_and_reset",
+          "backend/tests/test_marketdata_ibkr_source.py::SessionRoutingTests.test_wrapper_routes_tick_by_tick_and_depth_to_registered_handlers",
+          "backend/tests/test_marketdata_bus.py::SyntheticTests.test_events_through_the_bus_carry_the_synthetic_label",
+          "terminal/src/workspaces/monitor/render.test.ts::monitor rendering > renders time & sales, depth with cumulative size, and the ticker tape"
+        ],
+        "evidence": [
+          "IBKR depth (reqMktDepth, smart or venue, updateMktDepth and updateMktDepthL2 with market maker) is requested only with the owner's depth allowance; insert/update/delete maintain the book and each update publishes the full side; error 317 resets it.",
+          "The depth panel shows price levels per side with size and cumulative size, labelled with source and data type, and says when the serving source has no depth."
+        ],
+        "gaps": [
+          "no depth by order (only by price, with market maker where IBKR sends it)",
+          "no imbalance figure",
+          "no explicit stale marker beyond the key status",
+          "Alpaca stock stream has no depth",
+          "no live run recorded"
+        ],
+        "requirements": [],
+        "updated": "2026-10-23",
+        "verified_against": "feat/live-market-data@77c16d1"
       }
     },
     {
@@ -5466,12 +5516,39 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "implemented",
+        "files": [
+          "backend/src/unknown/marketdata/",
+          "backend/src/unknown/api/routes/marketdata.py",
+          "backend/src/unknown/api/server.py",
+          "terminal/src/state/marketdata.ts",
+          "terminal/src/workspaces/monitor/"
         ],
-        "requirements": []
+        "tests": [
+          "backend/tests/test_marketdata_bus.py::BusTests.test_line_budget_refuses_with_a_status_per_key_and_falls_back",
+          "backend/tests/test_marketdata_bus.py::BusTests.test_quotes_coalesce_per_key_to_the_latest_state",
+          "backend/tests/test_marketdata_bus.py::BusTests.test_refusal_falls_back_and_every_event_names_its_source",
+          "backend/tests/test_marketdata_bus.py::ApiTests.test_stream_snapshot_latency_sources_and_trades",
+          "terminal/src/workspaces/monitor/model.test.ts::monitor model > edits watchlists and refuses duplicates and invalid keys",
+          "terminal/src/workspaces/monitor/render.test.ts::monitor rendering > shows quotes with change, sizes and the SYNTHETIC label, and line-budget refusals per row",
+          "terminal/src/state/marketdata.test.ts::market-data client > resyncs from the snapshot on a quote seq gap and ignores older quotes"
+        ],
+        "evidence": [
+          "Watchlists hold security keys (SYMBOL.MIC), not broker ids, and are edited and persisted in the browser; each row shows last, change, %change (exact decimals), bid/ask with sizes, volume, time and a source/data-type badge; SYNTHETIC is always labelled.",
+          "The bus enforces each source's line budget before subscribing; a key no source can take shows LINE_BUDGET, NOT_ENTITLED or UNAVAILABLE with the reason in its row."
+        ],
+        "gaps": [
+          "rows beyond the budget are refused, not polled or served delayed (AC1)",
+          "no CSV/XLSX export (AC3)",
+          "no fundamental columns with as-of dates",
+          "no IBKR watchlist sync (AC4)",
+          "no column chooser or grouping",
+          "watchlists are per browser, not stored server-side",
+          "no paper run against the 100-line budget recorded"
+        ],
+        "requirements": [],
+        "updated": "2026-10-23",
+        "verified_against": "feat/live-market-data@77c16d1"
       }
     },
     {
