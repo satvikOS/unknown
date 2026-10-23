@@ -160,6 +160,17 @@ class ApiContext:
         # it has received; one still on its way from another API thread is not yet in the core's queue.
         self._inflight_lock = threading.Lock()
         self._inflight: dict[str, int] = {}
+        # Market-data bus (ADR-0018): created on first use, runs in this process on its own threads, never touches the
+        # core database. Tests may assign a bus before the first request.
+        self.marketdata = None
+        self._marketdata_lock = threading.Lock()
+
+    def marketdata_bus(self):
+        with self._marketdata_lock:
+            if self.marketdata is None:
+                from ..marketdata.bus import MarketDataBus
+                self.marketdata = MarketDataBus.from_home(self.paths.root)
+            return self.marketdata
 
     def begin_forward(self, command_id: str) -> None:
         with self._inflight_lock:
@@ -321,6 +332,8 @@ class Handler(BaseHTTPRequestHandler):
         acct = q.get("account", self.ctx.account_key)
         if parts == ["stream"]:
             return self._stream(q)
+        if parts == ["marketdata", "stream"]:
+            return self._marketdata_stream(q)
         try:
             conn = self.ctx.ro()
         except sqlite3.Error as exc:
@@ -528,6 +541,28 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.flush()
                     last_beat = time.monotonic()
                 stopping.wait(0.25)
+        except _DISCONNECTS:
+            return
+
+    def _marketdata_stream(self, q: dict) -> None:
+        """GET /api/marketdata/stream?keys=... (docs/design/marketdata-stream-contract.md; ADR-0018)."""
+        from ..marketdata import sse
+        try:
+            bus = self.ctx.marketdata_bus()
+        except Exception as exc:
+            log.warning("market-data bus unavailable: %s", exc)
+            return self._error(503, f"market-data bus unavailable: {exc}", "MARKETDATA_UNAVAILABLE")
+        keys, refused = sse.parse_keys(q.get("keys"))
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Accel-Buffering", "no")
+        for k, v in SECURITY_HEADERS.items():
+            self.send_header(k, v)
+        self.end_headers()
+        stopping = getattr(self.server, "stopping", None) or threading.Event()
+        try:
+            sse.serve(bus, keys, refused, self.wfile.write, self.wfile.flush, stopping)
         except _DISCONNECTS:
             return
 
