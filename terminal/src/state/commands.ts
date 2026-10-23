@@ -13,7 +13,8 @@
  * failure, 5xx), the tracker asks GET /api/commands/<id> for the stored result before anything offers a
  * retry. A stored result is adopted as if the response had arrived (pending/applied or rejected); "not
  * recorded" says whether that is definitive (the core finished every earlier request) or provisional (the
- * core did not answer). `retry` queries again before it resends, always with the same id and payload.
+ * core did not answer). `retry` queries again before it resends, always with the same id and payload; a
+ * resend that never reaches the core (step-up dismissed, refused by the API) leaves the id an unknown outcome.
  */
 import {
   ApiError,
@@ -172,12 +173,31 @@ export class CommandTracker {
    * transition happens later when the stream catches up. An unknown outcome resolves after the
    * stored-result lookup has answered.
    */
-  async send<K extends CommandKind>(
+  send<K extends CommandKind>(kind: K, payload: CommandPayload<K>, opts: { label: string; commandId?: string }): Promise<TrackedCommand> {
+    return this.dispatch(kind, payload, opts, null);
+  }
+
+  /**
+   * `send`, and for `retry` the resend of a command whose earlier attempt's outcome is still unknown (`prior`).
+   * A resend that never reaches the core (the step-up prompt was dismissed, or the API refused it before
+   * forwarding) says nothing about that earlier attempt: the id stays an unknown outcome, with its last lookup,
+   * instead of becoming `cancelled` or a plain refusal (CLAUDE.md: unknown outcomes remain unknown).
+   */
+  private async dispatch<K extends CommandKind>(
     kind: K,
     payload: CommandPayload<K>,
     opts: { label: string; commandId?: string },
+    prior: TrackedCommand | null,
   ): Promise<TrackedCommand> {
     const commandId = opts.commandId ?? this.options.newCommandId(kind);
+    const stillUnknown = (why: string): TrackedCommand =>
+      this.patch(commandId, {
+        status: 'failed',
+        settledAtMs: this.now(),
+        outcomeUnknown: true,
+        lookup: prior?.lookup ?? null,
+        error: `${why} The first attempt's outcome is still unknown; a resend uses the same id, so the core acts at most once.`,
+      })!;
     this.upsert({
       commandId,
       kind,
@@ -198,6 +218,7 @@ export class CommandTracker {
       response = await this.client.sendCommand(kind, payload, { commandId });
     } catch (err) {
       if (err instanceof StepUpCancelledError) {
+        if (prior?.outcomeUnknown) return stillUnknown('The resend was not sent (re-authentication was cancelled).');
         return this.patch(commandId, { status: 'cancelled', settledAtMs: this.now(), error: err.message })!;
       }
       if (err instanceof CommandTransportError && err.conflict) {
@@ -217,6 +238,10 @@ export class CommandTracker {
         })!;
       }
       const outcomeUnknown = err instanceof CommandTransportError ? err.outcomeUnknown : !(err instanceof StepUpRequiredError);
+      if (!outcomeUnknown && prior?.outcomeUnknown) {
+        const detail = err instanceof CommandTransportError ? (err.serverMessage ?? err.message) : describeError(err);
+        return stillUnknown(`The resend was refused before reaching the core: ${detail}.`);
+      }
       const failed = this.patch(commandId, {
         status: 'failed',
         settledAtMs: this.now(),
@@ -321,9 +346,12 @@ export class CommandTracker {
   retry(commandId: string): Promise<TrackedCommand> | null {
     const cur = this.get(commandId);
     if (!cur || cur.status !== 'failed' || cur.lookup?.state === 'querying') return null;
-    const resend = () => this.send(cur.kind, cur.payload as CommandPayload<typeof cur.kind>, { label: cur.label, commandId });
-    if (!cur.outcomeUnknown) return resend();
-    return this.lookUp(commandId).then((t) => (t.status === 'failed' ? resend() : t));
+    // `prior`: the record as the latest lookup left it; while its outcome is unknown, a resend that is not sent or
+    // is refused before the core leaves it unknown (see `dispatch`).
+    const resend = (prior: TrackedCommand) =>
+      this.dispatch(cur.kind, cur.payload as CommandPayload<typeof cur.kind>, { label: cur.label, commandId }, prior);
+    if (!cur.outcomeUnknown) return resend(cur);
+    return this.lookUp(commandId).then((t) => (t.status === 'failed' ? resend(t) : t));
   }
 
   clear(): void {

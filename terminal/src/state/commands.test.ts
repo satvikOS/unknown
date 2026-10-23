@@ -349,6 +349,64 @@ describe('CommandTracker (no optimistic updates)', () => {
     expect(tracker.retry('ui.start.c')).toBeNull();
   });
 
+  it('a resend that never reaches the core keeps the FIRST attempt\'s unknown outcome: never "cancelled (not sent)"', async () => {
+    // authorize_capital times out (504); the lookup cannot settle it (the core does not answer). Later the owner
+    // retries, the step-up window has passed, and the owner dismisses the passphrase prompt: the resend was not
+    // sent, but the first attempt may still have executed, so the id stays an unknown outcome (CLAUDE.md:
+    // "Unknown external outcomes remain unknown"). Recording it as "cancelled" would invite a second
+    // authorization under a new id.
+    const calls: string[] = [];
+    const client = sender(
+      async (_k, _p, id) => {
+        calls.push(`POST ${id}`);
+        if (calls.filter((c) => c.startsWith('POST')).length === 1) {
+          throw new CommandTransportError('authorize_capital', id, new ApiError('POST', '/api/commands', 504, 'no answer from the core', { code: 'COMMAND_OUTCOME_UNKNOWN', outcome: 'UNKNOWN' }));
+        }
+        throw new StepUpCancelledError(id);
+      },
+      async (id) => {
+        calls.push(`GET ${id}`);
+        throw notFound(id, false);
+      },
+    );
+    const tracker = new CommandTracker(client, seqSource(), { newCommandId: () => 'ui.authorize_capital.x' });
+    const first = await tracker.send('authorize_capital', { account_key: 'SIM-1', amount: '100.00' }, { label: 'Authorize' });
+    expect(first).toMatchObject({ status: 'failed', outcomeUnknown: true, lookup: { state: 'not_recorded', definitive: false } });
+    const r = await tracker.retry('ui.authorize_capital.x');
+    expect(calls).toEqual(['POST ui.authorize_capital.x', 'GET ui.authorize_capital.x', 'GET ui.authorize_capital.x', 'POST ui.authorize_capital.x']);
+    expect(r).toMatchObject({ status: 'failed', outcomeUnknown: true, lookup: { state: 'not_recorded', definitive: false } });
+    expect(r?.error).toMatch(/^The resend was not sent \(re-authentication was cancelled\)\. The first attempt's outcome is still unknown/);
+    expect(failedText(r!)).toBe('outcome unknown');
+    expect(canRetry(r!)).toBe(true);
+    expect(canRecheck(r!)).toBe(true);
+  });
+
+  it('a resend refused before the core keeps the first attempt\'s unknown outcome; after a definitive "not recorded" it is a plain refusal', async () => {
+    const refuse = (id: string) => new CommandTransportError('stop', id, new ApiError('POST', '/api/commands', 403, 'command not available', { code: 'COMMAND_NOT_AVAILABLE', outcome: 'NOT_EXECUTED' }));
+    let posts = 0;
+    let definitive = false;
+    const client = sender(
+      async (_k, _p, id) => {
+        posts += 1;
+        if (posts === 1) throw lost(id);
+        throw refuse(id);
+      },
+      async (id) => {
+        throw notFound(id, definitive);
+      },
+    );
+    const tracker = new CommandTracker(client, seqSource(), { newCommandId: () => 'ui.stop.ref' });
+    await tracker.send('stop', { account_key: 'SIM-1' }, { label: 'STOP' });
+    const r = await tracker.retry('ui.stop.ref');
+    expect(r).toMatchObject({ status: 'failed', outcomeUnknown: true, lookup: { state: 'not_recorded', definitive: false } });
+    expect(r?.error).toMatch(/^The resend was refused before reaching the core: .*The first attempt's outcome is still unknown/);
+    // Once the core says definitively that the id was never recorded, a refused resend is just a refusal.
+    definitive = true;
+    const r2 = await tracker.retry('ui.stop.ref');
+    expect(r2).toMatchObject({ status: 'failed', outcomeUnknown: false, lookup: null });
+    expect(failedText(r2!)).toBe('refused by the API');
+  });
+
   it('refreshes directly when the stream is not live at accept time', async () => {
     const client = sender(async (_k, _p, id) => ({ command_id: id, accepted: true, duplicate: false, body: {}, events: [3] }));
     const seq = seqSource(false);

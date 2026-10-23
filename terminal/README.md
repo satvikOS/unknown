@@ -140,6 +140,8 @@ useTrackedCommand(commandId) // live record for one command;  <CommandStatus com
 // before anything offers a retry. A stored result is adopted (pending/applied, or rejected), never resent;
 // "not recorded" is definitive (not executed) or provisional (still unknown). commands.retry(id) queries
 // again before it resends with the same id and payload; commands.recheck(id) queries without resending.
+// A resend that never reaches the core (step-up prompt dismissed, refused by the API) leaves the id an
+// unknown outcome (status 'failed', outcomeUnknown), never 'cancelled': the first attempt may have run.
 // HTTP 409 COMMAND_ID_CONFLICT is a definitive refusal: status 'rejected' with the API's code and message.
 
 <DataTable<T>
