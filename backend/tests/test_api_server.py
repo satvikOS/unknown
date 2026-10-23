@@ -281,6 +281,21 @@ class CommandResultTests(LiveCase):
         self.assertEqual(status, 404, got)
         self.assertEqual((got["code"], got["source"], got["definitive"]), ("COMMAND_NOT_FOUND", "core", True))
 
+    def test_an_id_this_api_is_still_forwarding_is_never_a_definitive_not_found(self):
+        """Review 2026-10-22: a POST another API thread has received but not yet handed to the core is not in the
+        core's queue, so the core's "not found" would be wrong. While this API forwards the id, the lookup says so
+        and is never definitive; afterwards the core's answer is final again."""
+        cookie, _ = self.login()
+        cid = f"ui.inflight.{_hex()}"
+        self.stack.ctx.begin_forward(cid)
+        try:
+            status, got, _ = self.call("GET", f"/api/commands/{cid}", cookie=cookie)
+            self.assertEqual((status, got["code"], got["definitive"], got.get("in_flight")), (404, "COMMAND_NOT_FOUND", False, True))
+        finally:
+            self.stack.ctx.end_forward(cid)
+        status, got, _ = self.call("GET", f"/api/commands/{cid}", cookie=cookie)
+        self.assertEqual((status, got["definitive"]), (404, True))
+
     def test_requires_the_owner_session(self):
         status, got, _ = self.call("GET", "/api/commands/anything")
         self.assertEqual((status, got["code"]), (401, "LOGIN_REQUIRED"))

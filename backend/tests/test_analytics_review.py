@@ -582,3 +582,21 @@ class RouteParameterTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DisposalOrderAttributionTest(unittest.TestCase):
+    """Review 2026-10-22 (core-lifecycle): an owner DISPOSAL order of an ended session reserves for its fixed owner
+    (protected:<id> or unallocated), not session:<id>; stress must attribute it to that owner, so an owner-scoped
+    stress of protected:A sees it and one scoped to session:A does not."""
+
+    def test_gap_orders_use_the_orders_fixed_owner(self):
+        from types import SimpleNamespace
+        from unknown.analytics.common import Scope
+        from unknown.analytics.stress import _gap_orders
+        order = {"order_id": "D1", "session_id": "A", "owner": "protected:A", "instrument_id": "FIX-EQ-1", "side": "SELL",
+                 "leaves_qty": "1", "limit_price": "9.00", "currency": "USD"}
+        book = SimpleNamespace(open_orders=[order], multiplier=lambda iid: None)
+        rows, _ = _gap_orders(book, Scope("owner", "protected:A"), {}, {})
+        self.assertEqual([r["order_id"] for r in rows], ["D1"])
+        rows, _ = _gap_orders(book, Scope("owner", "session:A"), {}, {})
+        self.assertEqual(rows, [])

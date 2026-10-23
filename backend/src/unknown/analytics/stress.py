@@ -27,6 +27,7 @@ import sqlite3
 from fractions import Fraction
 
 from ..core import ledger
+from ..core.handlers.common import order_owner
 from ..domain.calendar import local_date
 from ..domain.fixed import Fixed, Rounding, fmax
 from ..domain.money import Money, currency
@@ -99,7 +100,7 @@ def _gap_orders(book, scope: Scope, quotes: dict[str, Quote], shocked: dict[str,
     """Resting orders through the gap (formula stress.gap_fills@1)."""
     out, extra = [], {}
     for o in book.open_orders:
-        owner = ledger.session_owner(o["session_id"]) if o.get("session_id") else None
+        owner = order_owner(o) if (o.get("owner") or o.get("session_id")) else None   # DISPOSAL: its fixed owner
         if owner is None or not scope.includes(owner):
             continue
         iid = o["instrument_id"]
@@ -404,7 +405,7 @@ def fee_revision(conn: sqlite3.Connection, account_key: str, quotes, *, now_ns: 
                       "exit_fee_revised": b.to_str(), "difference": (b - a).to_str()})
     envelopes = []
     for o in book.open_orders:
-        owner = ledger.session_owner(o["session_id"]) if o.get("session_id") else None
+        owner = order_owner(o) if (o.get("owner") or o.get("session_id")) else None   # DISPOSAL: its fixed owner
         if o["side"] != "BUY" or owner is None or not scope.includes(owner):
             continue
         ccy = o["currency"]

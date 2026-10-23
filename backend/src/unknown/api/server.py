@@ -156,6 +156,26 @@ class ApiContext:
         self.secure_cookie = secure_cookie
         self._capabilities_lock = threading.Lock()
         self._capabilities: tuple[tuple, tuple[str, bytes, bytes]] | None = None
+        # Command ids this API process is forwarding right now. The core's "not found" is final only for requests
+        # it has received; one still on its way from another API thread is not yet in the core's queue.
+        self._inflight_lock = threading.Lock()
+        self._inflight: dict[str, int] = {}
+
+    def begin_forward(self, command_id: str) -> None:
+        with self._inflight_lock:
+            self._inflight[command_id] = self._inflight.get(command_id, 0) + 1
+
+    def end_forward(self, command_id: str) -> None:
+        with self._inflight_lock:
+            n = self._inflight.get(command_id, 0) - 1
+            if n > 0:
+                self._inflight[command_id] = n
+            else:
+                self._inflight.pop(command_id, None)
+
+    def forwarding(self, command_id: str) -> bool:
+        with self._inflight_lock:
+            return command_id in self._inflight
 
     def ro(self) -> sqlite3.Connection:
         return connect(self.db_path, readonly=True)
@@ -428,6 +448,12 @@ class Handler(BaseHTTPRequestHandler):
             # The event seqs are read here, on the API's read-only connection, never on the core's writer thread.
             events = queries.command_events(conn, command_id, principal_id=OWNER["id"])
             return self._send(200, {**found, "events": events, "source": source})
+        if unreachable is None and self.ctx.forwarding(command_id):
+            # Another request of this API is handing the same id to the core right now: not final.
+            return self._error(404, f"no result is stored for command {command_id} yet, but this API is forwarding a "
+                                    "request with this id to the core right now: wait for it, then look again; resend "
+                                    "only with the same command_id.", "COMMAND_NOT_FOUND", command_id=command_id,
+                               source=source, definitive=False, in_flight=True)
         if unreachable is None:
             message = (f"no command {command_id} is recorded for the owner, and the core has finished every request it "
                        "received before this query, so a request that already ended without a result was not "
@@ -563,6 +589,7 @@ class Handler(BaseHTTPRequestHandler):
             if time.time_ns() - s.authenticated_at_ns > window:
                 return self._error(428, "re-authentication required for this command", **not_executed,
                                    step_up={**step_up, "expires_at_ns": s.authenticated_at_ns + window})
+        self.ctx.begin_forward(command_id)
         try:
             result = self.ctx.core.command(command_id, kind, payload,
                                            {**OWNER, "authenticated_at_ns": s.authenticated_at_ns})
@@ -576,6 +603,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._core_refusal(exc, not_executed)
         except OSError as exc:   # a connect-level failure from a client without typed errors
             return self._error(503, f"core unavailable; command not executed: {exc}", **not_executed)
+        finally:
+            self.ctx.end_forward(command_id)
         if result.get("post_commit_error"):
             # Recorded, then the core failed (e.g. writing its restore marker): the result stands; the fault is logged.
             log.error("command %s was recorded, then the core failed: %s", command_id, result["post_commit_error"])

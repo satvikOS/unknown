@@ -39,8 +39,10 @@ class BrokerOrderStatus(enum.Enum):
     INACTIVE = "INACTIVE"
 
 
+# INACTIVE is not terminal: the broker holds the order without saying it is final (IBKR Inactive), so the core keeps
+# every reservation and looks it up (core/order_machine.py, decision 2026-10-22).
 TERMINAL_BROKER_STATUSES = frozenset({BrokerOrderStatus.FILLED, BrokerOrderStatus.CANCELED,
-                                      BrokerOrderStatus.EXPIRED, BrokerOrderStatus.REJECTED, BrokerOrderStatus.INACTIVE})
+                                      BrokerOrderStatus.EXPIRED, BrokerOrderStatus.REJECTED})
 
 
 @dataclass(frozen=True)

@@ -228,7 +228,7 @@ export interface ArtifactDetail extends ArtifactRow {
 export const SEGMENTS = ['DEVELOPMENT', 'WALK_FORWARD', 'SENSITIVITY', 'STRESS', 'BASELINE', 'REPLAY', 'HOLDOUT'] as const;
 
 /** research/promotion.py STATUSES, in lifecycle order. */
-export const ARTIFACT_STATUSES = ['proposed', 'reproducible', 'validated', 'paper', 'eligible', 'active', 'quarantined', 'retired'] as const;
+export const ARTIFACT_STATUSES = ['proposed', 'reproducible', 'validated', 'shadow', 'paper', 'eligible', 'active', 'quarantined', 'retired'] as const;
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'neutral';
 
@@ -238,6 +238,7 @@ export function artifactTone(status: string): Tone {
     case 'eligible':
       return 'ok';
     case 'validated':
+    case 'shadow':
     case 'paper':
       return 'info';
     case 'quarantined':

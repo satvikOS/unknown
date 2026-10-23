@@ -137,7 +137,7 @@ export function ProposalTypedFields({ p }: { p: Proposal }) {
       <dl className="kv">
         <dt>As of</dt>
         <dd>
-          <Timestamp ns={p.as_of_ns} never="—" />
+          <Timestamp ns={p.as_of_ns} nsStr={nsStrOf(p, 'as_of_ns')} never="—" />
         </dd>
         <dt>Instruments</dt>
         <dd>{p.instrument_ids.length ? p.instrument_ids.join(', ') : <span className="muted">none named</span>}</dd>
@@ -147,7 +147,7 @@ export function ProposalTypedFields({ p }: { p: Proposal }) {
         <dd>
           {w ? (
             <>
-              <Timestamp ns={w.from_ns} never="—" /> to <Timestamp ns={w.to_ns} never="—" />
+              <Timestamp ns={w.from_ns} nsStr={nsStrOf(w, 'from_ns')} never="—" /> to <Timestamp ns={w.to_ns} nsStr={nsStrOf(w, 'to_ns')} never="—" />
             </>
           ) : (
             <span className="muted">none</span>
@@ -164,7 +164,7 @@ export function ProposalTypedFields({ p }: { p: Proposal }) {
               <span className="muted">[{i}]</span> <strong className="cmd-id">{r.span_id}</strong> <span className="muted">{r.dataset_id}</span> {r.ref_type}{' '}
               <span className="cmd-id">{r.ref_id}</span>
               <div className="rj-hint">
-                observed <Timestamp ns={r.observed_at_ns} never="unknown" />, available <Timestamp ns={r.available_at_ns} never="unknown" />, span hash{' '}
+                observed <Timestamp ns={r.observed_at_ns} nsStr={nsStrOf(r, 'observed_at_ns')} never="unknown" />, available <Timestamp ns={r.available_at_ns} nsStr={nsStrOf(r, 'available_at_ns')} never="unknown" />, span hash{' '}
                 <ShortId value={r.content_hash} head={12} />
               </div>
             </li>
