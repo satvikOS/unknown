@@ -2074,7 +2074,9 @@
           "backend/src/unknown/data/fundamentals/search.py",
           "backend/src/unknown/data/sources/sec_tickers.py",
           "backend/src/unknown/data/sources/identifiers.py",
-          "backend/src/unknown/api/routes/company.py"
+          "backend/src/unknown/api/routes/company.py",
+          "terminal/src/workspaces/company/CompanyWorkspace.tsx",
+          "terminal/src/workspaces/instruments/InstrumentsWorkspace.tsx"
         ],
         "tests": [
           "backend/tests/test_company_peers_search.py::SearchAndFilingsTests.test_exact_ticker_ranks_first_and_never_selects",
@@ -2082,24 +2084,27 @@
           "backend/tests/test_company_peers_search.py::SearchAndFilingsTests.test_point_in_time_snapshot_and_licensed_ids",
           "backend/tests/test_company_peers_search.py::SearchAndFilingsTests.test_openfigi_outcomes_are_searchable_as_of_receipt",
           "backend/tests/test_sources_openfigi.py::IdentifierTests.test_check_digits",
-          "backend/tests/test_company_api.py::CompanyApiTests.test_filings_peers_dcf_and_search"
+          "backend/tests/test_company_api.py::CompanyApiTests.test_filings_peers_dcf_and_search",
+          "terminal/src/workspaces/company/model.test.ts::company route > parses the search view, an issuer, its tab and options",
+          "terminal/src/workspaces/company/model.test.ts::search sources > tells when no SEC issuer source was searched (no research store: only the core instrument master)",
+          "terminal/src/workspaces/instruments/model.test.ts::mappings and search > matches every token against symbol, name, ids, venue and provider ids"
         ],
         "evidence": [
           "GET /api/company/search ranks EXACT_ID < EXACT_TICKER < NAME_PREFIX < NAME_CONTAINS < FORMER_NAME over local, as-of sources (SEC ticker snapshots, ingested issuers, OpenFIGI outcomes, the core instrument master) and never selects.",
-          "Live smoke of the SEC company tickers file ran once (test_sources_live, opt-in)."
+          "Live smoke of the SEC company tickers file ran once (test_sources_live, opt-in).",
+          "Terminal: the Company workspace searches issuers through this API; candidates are ranked, never selected automatically, and each source states its status. The Instruments workspace searches the core instrument master."
         ],
         "gaps": [
           "no labelled 200-query fixture and no latency benchmark (AC1, AC2, AC5)",
           "US only: no India or EU listings",
-          "no network fallback search (OpenFIGI /v3/search, reqMatchingSymbols)",
-          "no terminal search UI (API only)"
+          "no network fallback search (OpenFIGI /v3/search, reqMatchingSymbols)"
         ],
         "requirements": [
           "DOM-03",
           "DAT-02"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -4375,7 +4380,8 @@
         "files": [
           "backend/src/unknown/broker/ibkr/marketdata.py",
           "backend/src/unknown/api/routes/marketdata.py",
-          "backend/src/unknown/market/quotes.py"
+          "backend/src/unknown/market/quotes.py",
+          "terminal/src/workspaces/marketdata/MarketDataWorkspace.tsx"
         ],
         "tests": [
           "backend/tests/test_ibkr_marketdata.py::QuoteTests.test_every_market_data_type_maps_to_one_status_and_only_live_is_live",
@@ -4384,15 +4390,19 @@
           "backend/tests/test_ibkr_marketdata.py::QuoteTests.test_delayed_to_live_updates_without_restart_with_one_audit_entry_and_no_merging",
           "backend/tests/test_ibkr_marketdata.py::QuoteTests.test_non_live_quotes_fail_the_real_pretrade_check",
           "backend/tests/test_ibkr_marketdata.py::RouteTests.test_stale_flag_flips_exactly_at_each_budget",
-          "backend/tests/test_ibkr_marketdata.py::QuoteTests.test_streaming_request_is_never_a_snapshot_or_paid_regulatory_snapshot"
+          "backend/tests/test_ibkr_marketdata.py::QuoteTests.test_streaming_request_is_never_a_snapshot_or_paid_regulatory_snapshot",
+          "terminal/src/workspaces/marketdata/model.test.ts::presentation > never presents a non-consolidated feed as the national best bid/offer",
+          "terminal/src/workspaces/marketdata/model.test.ts::presentation > shows the delivered type and flags a difference from the requested type",
+          "terminal/src/workspaces/marketdata/render.test.ts::subscription detail: quote analytics > shows mid and spread with the quote currency",
+          "terminal/e2e/03-portfolio-agents.spec.ts::market data: no session, then FIXTURE status with delivered types, consolidation and entitlement errors"
         ],
         "evidence": [
-          "A read-only L1 session on its own client id feeds the core's quote book with delivered type, source, receipt time and null reasons; GET /api/marketdata/status adds age and staleness with formula ids."
+          "A read-only L1 session on its own client id feeds the core's quote book with delivered type, source, receipt time and null reasons; GET /api/marketdata/status adds age and staleness with formula ids.",
+          "Terminal: the Market data workspace shows each subscription's requested and delivered type, consolidation, entitlement errors and quote analytics."
         ],
         "gaps": [
           "Web API status codes (R, D, Z, Y, N, O, P, p) not mapped (TWS only)",
           "regulatory snapshots are never requested, so the confirmation and local cap of AC6 are not built",
-          "no terminal market-data screen (API only)",
           "not paper-verified: no IBKR paper session has run (BRK-02)"
         ],
         "requirements": [
@@ -4401,7 +4411,7 @@
           "ORD-08"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -6330,29 +6340,33 @@
           "backend/src/unknown/data/fundamentals/search.py",
           "backend/src/unknown/data/fundamentals/filings.py",
           "backend/src/unknown/data/sources/sec_tickers.py",
-          "backend/src/unknown/api/routes/company.py"
+          "backend/src/unknown/api/routes/company.py",
+          "terminal/src/workspaces/company/CompanyWorkspace.tsx"
         ],
         "tests": [
           "backend/tests/test_company_peers_search.py::SearchAndFilingsTests.test_cik_name_and_former_name_matches",
           "backend/tests/test_company_peers_search.py::SearchAndFilingsTests.test_exact_ticker_ranks_first_and_never_selects",
           "backend/tests/test_company_peers_search.py::SearchAndFilingsTests.test_point_in_time_snapshot_and_licensed_ids",
-          "backend/tests/test_company_api.py::CompanyApiTests.test_filings_peers_dcf_and_search"
+          "backend/tests/test_company_api.py::CompanyApiTests.test_filings_peers_dcf_and_search",
+          "terminal/src/workspaces/company/model.test.ts::company route > parses the search view, an issuer, its tab and options",
+          "terminal/src/workspaces/company/model.test.ts::search sources > tells when no SEC issuer source was searched (no research store: only the core instrument master)",
+          "terminal/e2e/03-research.spec.ts::company: search, tearsheet, point-in-time statements, metrics, DCF and peers"
         ],
         "evidence": [
-          "Issuer identity (CIK, names in force as of a time, SIC, tickers labelled current-as-of-retrieval) from stored SEC submissions; candidates are listed, never auto-resolved."
+          "Issuer identity (CIK, names in force as of a time, SIC, tickers labelled current-as-of-retrieval) from stored SEC submissions; candidates are listed, never auto-resolved.",
+          "Terminal: the Company workspace resolves issuers through this API at a chosen point in time."
         ],
         "gaps": [
           "no 200-ticker resolution fixture and no latency target run (AC1, AC8)",
           "no ESEF/LEI resolution (AC5)",
-          "ticker validity intervals exist only from this system's first SEC snapshot",
-          "no terminal screen: available through the read-only API only"
+          "ticker validity intervals exist only from this system's first SEC snapshot"
         ],
         "requirements": [
           "DOM-03",
           "DAT-02"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -6504,26 +6518,28 @@
         "files": [
           "backend/src/unknown/data/fundamentals/filings.py",
           "backend/src/unknown/data/sec.py",
-          "backend/src/unknown/api/routes/company.py"
+          "backend/src/unknown/api/routes/company.py",
+          "terminal/src/workspaces/company/Peers.tsx"
         ],
         "tests": [
           "backend/tests/test_company_peers_search.py::SearchAndFilingsTests.test_filings_point_in_time_with_deep_links",
-          "backend/tests/test_company_api.py::CompanyApiTests.test_description_link_found_beyond_the_displayed_filings_page"
+          "backend/tests/test_company_api.py::CompanyApiTests.test_description_link_found_beyond_the_displayed_filings_page",
+          "terminal/src/workspaces/company/views.test.ts::filings table > shows acceptanceDateTime as published, never converted as if it were true UTC"
         ],
         "evidence": [
-          "Filings accepted at or before an as-of time are listed from the stored, hash-verified SEC submissions payload with deep links and 8-K item flags."
+          "Filings accepted at or before an as-of time are listed from the stored, hash-verified SEC submissions payload with deep links and 8-K item flags.",
+          "Terminal: the Company workspace's Filings tab lists the ingested filings with acceptanceDateTime as published."
         ],
         "gaps": [
           "no filing feed or archive: filings are listed only for issuers whose submissions were ingested",
           "no full-text search, no amendment linking, no 8-K 2.02/4.02 alerts (AC5-AC7)",
-          "filing documents are not stored",
-          "no terminal screen: available through the read-only API only"
+          "filing documents are not stored"
         ],
         "requirements": [
           "DAT-03"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -6829,29 +6845,32 @@
         "files": [
           "backend/src/unknown/data/fundamentals/statements.py",
           "backend/src/unknown/data/fundamentals/periods.py",
-          "backend/src/unknown/data/fundamentals/mapping.py"
+          "backend/src/unknown/data/fundamentals/mapping.py",
+          "terminal/src/workspaces/company/Statements.tsx"
         ],
         "tests": [
           "backend/tests/test_company_statements.py::StatementTests.test_53_week_year_and_derived_fourth_quarter",
           "backend/tests/test_company_statements.py::StatementTests.test_cash_flow_quarters_derived_from_ytd",
           "backend/tests/test_company_statements.py::StatementTests.test_statement_output_carries_lineage",
           "backend/tests/test_company_statements.py::PeriodTests.test_duration_classes_cover_52_53_week_periods",
-          "backend/tests/test_company_fixtures.py::FixtureAndMappingTests.test_fixture_ingests_through_real_sec_path"
+          "backend/tests/test_company_fixtures.py::FixtureAndMappingTests.test_fixture_ingests_through_real_sec_path",
+          "terminal/src/workspaces/company/model.test.ts::statements > counts cells by method and missing reason",
+          "terminal/e2e/03-research.spec.ts::company: search, tearsheet, point-in-time statements, metrics, DCF and peers"
         ],
         "evidence": [
-          "Income, balance sheet and cash flow from companyfacts as of a decision time; derived quarters are flagged with lineage (observation ids, accessions, availability times)."
+          "Income, balance sheet and cash flow from companyfacts as of a decision time; derived quarters are flagged with lineage (observation ids, accessions, availability times).",
+          "Terminal: the Statements tab shows point-in-time statements, with each missing cell's reason."
         ],
         "gaps": [
           "statements follow the project's standardized mapping, not each filing's presentation linkbase (AC1)",
-          "no tie-out residual report (AC2); extension concepts and segments not rendered (AC4, AC5)",
-          "no terminal screen: available through the read-only API only"
+          "no tie-out residual report (AC2); extension concepts and segments not rendered (AC4, AC5)"
         ],
         "requirements": [
           "DAT-03",
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -7304,7 +7323,8 @@
         "files": [
           "backend/src/unknown/data/fundamentals/metrics.py",
           "backend/src/unknown/data/fundamentals/statements.py",
-          "backend/src/unknown/data/pit.py"
+          "backend/src/unknown/data/pit.py",
+          "terminal/src/workspaces/company/Metrics.tsx"
         ],
         "tests": [
           "backend/tests/test_company_metrics.py::MetricTests.test_library_has_at_least_fifteen_documented_ratios",
@@ -7312,21 +7332,23 @@
           "backend/tests/test_company_metrics.py::MetricTests.test_negative_earnings_pe_is_not_meaningful",
           "backend/tests/test_company_metrics.py::MetricTests.test_ev_bridge_lists_missing_components_and_is_incomplete",
           "backend/tests/test_company_metrics.py::MetricTests.test_financial_sector_suppresses_ev_metrics",
-          "backend/tests/test_company_metrics.py::MetricTests.test_show_calculation"
+          "backend/tests/test_company_metrics.py::MetricTests.test_show_calculation",
+          "terminal/src/workspaces/company/model.test.ts::price input > requires currency, source and a zoned time with a price",
+          "terminal/e2e/03-research.spec.ts::company: search, tearsheet, point-in-time statements, metrics, DCF and peers"
         ],
         "evidence": [
-          "Ratios and multiples with formula id@version, inputs, dates and accessions; EV bridge INCOMPLETE when a component is missing; NM for negative earnings; financial-sector suppression."
+          "Ratios and multiples with formula id@version, inputs, dates and accessions; EV bridge INCOMPLETE when a component is missing; NM for negative earnings; financial-sector suppression.",
+          "Terminal: the Metrics tab shows every formula with its status and the API's reason, and its calculation on request."
         ],
         "gaps": [
           "market multiples need an explicit price input: no licensed price source is wired",
-          "EV is INCOMPLETE for most filers because preferred stock and minority interest are usually omitted (owner decision pending)",
-          "no terminal screen: available through the read-only API only"
+          "EV is INCOMPLETE for most filers because preferred stock and minority interest are usually omitted (owner decision pending)"
         ],
         "requirements": [
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -7822,28 +7844,30 @@
         "files": [
           "backend/src/unknown/data/fundamentals/peers.py",
           "backend/src/unknown/data/fundamentals/metrics.py",
-          "backend/src/unknown/api/routes/company.py"
+          "backend/src/unknown/api/routes/company.py",
+          "terminal/src/workspaces/company/Peers.tsx"
         ],
         "tests": [
           "backend/tests/test_company_peers_search.py::PeersTests.test_default_peers_are_deterministic_by_sic",
           "backend/tests/test_company_peers_search.py::PeersTests.test_owner_list_and_comps_statistics",
           "backend/tests/test_company_peers_search.py::PeersTests.test_comps_values_carry_lineage_and_flag_members_without_fundamentals",
-          "backend/tests/test_company_peers_search.py::PeersTests.test_size_band_with_market_caps"
+          "backend/tests/test_company_peers_search.py::PeersTests.test_size_band_with_market_caps",
+          "terminal/src/workspaces/company/views.test.ts::peer group > opens a member at the same point in time, without this issuer price input"
         ],
         "evidence": [
-          "Deterministic SIC rule peers_sic4@1 shown with the result; an owner list replaces it; comps carry lineage; NM values are excluded from statistics."
+          "Deterministic SIC rule peers_sic4@1 shown with the result; an owner list replaces it; comps carry lineage; NM values are excluded from statistics.",
+          "Terminal: the Peers tab shows the rule, members and statistics; a member opens at the same point in time."
         ],
         "gaps": [
           "no saved named peer sets (AC2)",
           "SIC is the current classification, not point in time",
-          "no XLSX export (AC5)",
-          "no terminal screen: available through the read-only API only"
+          "no XLSX export (AC5)"
         ],
         "requirements": [
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -8000,29 +8024,34 @@
         "files": [
           "backend/src/unknown/data/fundamentals/dcf.py",
           "backend/src/unknown/data/fundamentals/valuation.py",
-          "backend/src/unknown/api/routes/company.py"
+          "backend/src/unknown/api/routes/company.py",
+          "terminal/src/workspaces/company/Dcf.tsx",
+          "terminal/src/workspaces/research-common/charts.tsx"
         ],
         "tests": [
           "backend/tests/test_company_dcf.py::DcfMathTests.test_equation_17_1_hand_computed",
           "backend/tests/test_company_dcf.py::DcfMathTests.test_wacc_must_exceed_g",
           "backend/tests/test_company_dcf.py::DcfMathTests.test_sensitivity_marks_invalid_cells",
           "backend/tests/test_company_dcf.py::DcfModelTests.test_model_with_treasury_rf_and_market_weights",
-          "backend/tests/test_company_dcf.py::DcfModelTests.test_guards"
+          "backend/tests/test_company_dcf.py::DcfModelTests.test_guards",
+          "terminal/src/workspaces/company/model.test.ts::DCF parameters > builds the explicit-forecast CAPM request",
+          "terminal/src/workspaces/company/model.test.ts::DCF equity bridge caveat > names the missing components every equity-derived figure inherits",
+          "terminal/src/workspaces/research-common/views.test.ts::range chart > draws the reference marker (the owner price input) on the shared axis, with its exact text"
         ],
         "evidence": [
-          "Book eq. 17.1 DCF in exact decimal context, WACC build-up with the Treasury curve as risk-free source, sensitivity surface with invalid cells, scenario range and equity bridge; financial-sector block."
+          "Book eq. 17.1 DCF in exact decimal context, WACC build-up with the Treasury curve as risk-free source, sensitivity surface with invalid cells, scenario range and equity bridge; financial-sector block.",
+          "Terminal: the DCF tab runs the recipe and shows the sensitivity grid, the equity bridge and a football field of the per-share ranges, with the owner's price input as a marker."
         ],
         "gaps": [
           "no EUR risk-free curve (AC2)",
           "no XLSX export (AC5)",
-          "no football-field view (AC7)",
-          "no terminal screen: available through the read-only API only"
+          "the football field shows the DCF scenario and sensitivity ranges only: the trading-comps interquartile range is on the Peers tab, and there is no 52-week range without a price history (AC7)"
         ],
         "requirements": [
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -8147,27 +8176,30 @@
         "status": "tested",
         "files": [
           "backend/src/unknown/data/fundamentals/tearsheet.py",
-          "backend/src/unknown/api/routes/company.py"
+          "backend/src/unknown/api/routes/company.py",
+          "terminal/src/workspaces/company/Tearsheet.tsx"
         ],
         "tests": [
           "backend/tests/test_company_api.py::CompanyApiTests.test_tearsheet_blocks",
-          "backend/tests/test_company_api.py::CompanyApiTests.test_unavailable_without_research_store"
+          "backend/tests/test_company_api.py::CompanyApiTests.test_unavailable_without_research_store",
+          "terminal/src/workspaces/company/model.test.ts::company route > builds routes that parse back to the same view",
+          "terminal/e2e/03-research.spec.ts::company: search, tearsheet, point-in-time statements, metrics, DCF and peers"
         ],
         "evidence": [
-          "A tearsheet read model of typed blocks (OK, STALE, NOT_LICENSED, NOT_REPORTED, NOT_AVAILABLE, NOT_CONNECTED, PENDING, ERROR) that fail independently."
+          "A tearsheet read model of typed blocks (OK, STALE, NOT_LICENSED, NOT_REPORTED, NOT_AVAILABLE, NOT_CONNECTED, PENDING, ERROR) that fail independently.",
+          "Terminal: the Company tearsheet shows each block with its source; a block fails on its own and says why."
         ],
         "gaps": [
           "no quote block with live status (AC3)",
           "no snapshot export (AC5)",
-          "no latency run (AC1)",
-          "no terminal screen: available through the read-only API only"
+          "no latency run (AC1)"
         ],
         "requirements": [
           "DAT-05",
           "DAT-06"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -8407,27 +8439,30 @@
         "files": [
           "backend/src/unknown/agents/evidence.py",
           "backend/src/unknown/agents/pit_evidence.py",
-          "backend/src/unknown/agents/runner.py"
+          "backend/src/unknown/agents/runner.py",
+          "terminal/src/workspaces/research-jobs/JobDetailView.tsx"
         ],
         "tests": [
           "backend/tests/test_agents_evidence.py::ClaimVerificationTest.test_fabricated_span_and_misquote_are_unsupported",
           "backend/tests/test_agents_evidence.py::ClaimVerificationTest.test_numeric_claims_against_typed_facts",
-          "backend/tests/test_agents_runner.py::RunnerTest.test_prompt_injection_document_has_zero_effect"
+          "backend/tests/test_agents_runner.py::RunnerTest.test_prompt_injection_document_has_zero_effect",
+          "terminal/src/workspaces/research-jobs/render.test.ts::proposal panel > fences model text off as not advice and labels the recorded proposal advisory only",
+          "terminal/src/workspaces/research-jobs/render.test.ts::proposal panel, schema version 2 > shows the verified claims and the typed evidence references instead of \"None cited.\""
         ],
         "evidence": [
-          "The agent layer answers over point-in-time XBRL fact spans and verifies every cited span, quote and number before a claim becomes evidence."
+          "The agent layer answers over point-in-time XBRL fact spans and verifies every cited span, quote and number before a claim becomes evidence.",
+          "Terminal: the Research jobs workspace submits a question and shows the proposal, fenced off as model output, with the verified claims and their typed evidence references."
         ],
         "gaps": [
           "filing and document text is not ingested, so questions are answered over XBRL facts only",
-          "no 100-question benchmark or citation-precision measurement (AC1, AC2)",
-          "no terminal screen: available through the read-only API only"
+          "no 100-question benchmark or citation-precision measurement (AC1, AC2)"
         ],
         "requirements": [
           "AI-04",
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -12328,7 +12363,8 @@
           "backend/src/unknown/analytics/marks.py",
           "backend/src/unknown/analytics/snapshots.py",
           "backend/src/unknown/api/routes/portfolio.py",
-          "docs/research/portfolio.md"
+          "docs/research/portfolio.md",
+          "terminal/src/workspaces/portfolio/HoldingsTab.tsx"
         ],
         "tests": [
           "backend/tests/test_analytics_holdings.py::BucketPartitionTest.test_allocation_and_reservation_never_change_nav",
@@ -12337,23 +12373,25 @@
           "backend/tests/test_analytics_holdings.py::WeightsAndScopesTest.test_denominator_changes_only_the_weight",
           "backend/tests/test_analytics_holdings.py::SettlementAndLadderTest.test_cash_ladder_partitions_ledger_cash",
           "backend/tests/test_analytics_holdings.py::ReadOnlyTest.test_analytics_connection_cannot_write_the_core",
-          "backend/tests/test_analytics_routes.py::RouteTest.test_with_history"
+          "backend/tests/test_analytics_routes.py::RouteTest.test_with_history",
+          "terminal/src/workspaces/portfolio/holdings.render.test.ts::holdings: NAV by owner > names an owner whose NAV is unavailable instead of leaving it out of the chart silently",
+          "terminal/e2e/03-portfolio-agents.spec.ts::portfolio holdings show owners and cash exactly as the API computes them"
         ],
         "evidence": [
-          "Holdings, cash ladder and NAV by owner bucket and currency from the core journal opened read-only; unpriced positions are listed, never valued at zero; GET /api/portfolio/holdings."
+          "Holdings, cash ladder and NAV by owner bucket and currency from the core journal opened read-only; unpriced positions are listed, never valued at zero; GET /api/portfolio/holdings.",
+          "Terminal: Portfolio > Holdings shows NAV by owner, positions and the cash ladder as the API computes them."
         ],
         "gaps": [
           "single broker account only: no multi-broker consolidation (AC4)",
           "no CSV import (AC7)",
-          "no FX conversion source for multi-currency totals (unavailable rather than partial)",
-          "no terminal screen: available through the read-only API only"
+          "no FX conversion source for multi-currency totals (unavailable rather than partial)"
         ],
         "requirements": [
           "LED-02",
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -12489,29 +12527,31 @@
         "files": [
           "backend/src/unknown/analytics/pnl.py",
           "backend/src/unknown/analytics/snapshots.py",
-          "backend/src/unknown/core/ledger.py"
+          "backend/src/unknown/core/ledger.py",
+          "terminal/src/workspaces/portfolio/PerformanceTab.tsx"
         ],
         "tests": [
           "backend/tests/test_analytics_pnl.py::JournalPnlTest.test_identity_holds_exactly_after_every_event",
           "backend/tests/test_analytics_pnl.py::JournalPnlTest.test_point_in_time",
-          "backend/tests/test_analytics_stress.py::FeeRevisionTest.test_revised_final_fees_reduce_available_cash_through_the_observation_path"
+          "backend/tests/test_analytics_stress.py::FeeRevisionTest.test_revised_final_fees_reduce_available_cash_through_the_observation_path",
+          "terminal/src/workspaces/portfolio/render.test.ts::daily P&L panel: days with an unpriced snapshot > says the component totals leave out the unpriced day, and counts it as a failing day"
         ],
         "evidence": [
-          "Daily P&L between snapshots with an exact identity: realized + income - fees + change in unrealized equals NAV change minus external flows, residual zero in ledger units."
+          "Daily P&L between snapshots with an exact identity: realized + income - fees + change in unrealized equals NAV change minus external flows, residual zero in ledger units.",
+          "Terminal: Portfolio > Performance shows the daily P&L decomposition and flags unpriced days."
         ],
         "gaps": [
           "no FX translation P&L (AC2)",
           "no corporate actions (LED-09 proposed)",
           "FIFO only: no specific-ID comparison (AC3)",
-          "no broker-versus-ledger realized P&L reason codes (AC5)",
-          "no terminal screen: available through the read-only API only"
+          "no broker-versus-ledger realized P&L reason codes (AC5)"
         ],
         "requirements": [
           "LED-06",
           "LED-07"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -12691,27 +12731,30 @@
         "status": "tested",
         "files": [
           "backend/src/unknown/analytics/exposure.py",
-          "backend/src/unknown/api/routes/portfolio.py"
+          "backend/src/unknown/api/routes/portfolio.py",
+          "terminal/src/workspaces/portfolio/RiskTab.tsx"
         ],
         "tests": [
           "backend/tests/test_analytics_exposure.py::ExposureReportTest.test_groupings_sum_to_totals_and_unclassified_bucket_is_explicit",
           "backend/tests/test_analytics_exposure.py::ExposureReportTest.test_concentration_metrics",
           "backend/tests/test_analytics_exposure.py::ExposureReportTest.test_both_percentage_forms_are_labelled",
-          "backend/tests/test_analytics_exposure.py::SicTest.test_alias_recorded_after_the_decision_time_cannot_classify"
+          "backend/tests/test_analytics_exposure.py::SicTest.test_alias_recorded_after_the_decision_time_cannot_classify",
+          "terminal/e2e/03-portfolio-agents.spec.ts::exposure and VaR state their basis; the backtest says it has no day yet"
         ],
         "evidence": [
-          "Exposure by instrument, owner, SEC SIC division and currency with an explicit unknown bucket and coverage; HHI, effective N and top-k."
+          "Exposure by instrument, owner, SEC SIC division and currency with an explicit unknown bucket and coverage; HHI, effective N and top-k.",
+          "Terminal: Portfolio > Risk shows exposure and concentration with their basis."
         ],
         "gaps": [
           "no fund look-through (AC3, AC4)",
           "no country grouping and no beta (AC5) without a benchmark series",
-          "no terminal screen: available through the read-only API only"
+          "the terminal's exposure panel is covered by an end-to-end test only (no unit render test)"
         ],
         "requirements": [
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -12849,27 +12892,30 @@
         "files": [
           "backend/src/unknown/analytics/performance.py",
           "backend/src/unknown/analytics/flows.py",
-          "backend/src/unknown/analytics/snapshots.py"
+          "backend/src/unknown/analytics/snapshots.py",
+          "terminal/src/workspaces/portfolio/PerformanceTab.tsx"
         ],
         "tests": [
           "backend/tests/test_analytics_performance.py::PublishedExamplesTest.test_ibkr_modified_dietz_example",
           "backend/tests/test_analytics_performance.py::PublishedExamplesTest.test_ibkr_twr_linking_example",
           "backend/tests/test_analytics_performance.py::LedgerDrivenPerformanceTest.test_deposit_at_a_day_boundary_leaves_twr_unchanged_but_moves_mwr",
           "backend/tests/test_analytics_performance.py::FormulaTest.test_short_periods_are_never_annualized",
-          "backend/tests/test_analytics_snapshots.py::ExternalFlowTest.test_capital_moves_are_flows_and_pnl_is_not"
+          "backend/tests/test_analytics_snapshots.py::ExternalFlowTest.test_capital_moves_are_flows_and_pnl_is_not",
+          "terminal/src/workspaces/portfolio/render.test.ts::performance panel: money-weighted return and its uniqueness flag > shows an annualized rate only for a unique root",
+          "terminal/src/workspaces/portfolio/model.test.ts::IRR uniqueness and TWR > reads the TWR, its annualization reason and chain problems"
         ],
         "evidence": [
-          "Daily-linked TWR (start- and end-of-day conventions), Modified Dietz and IRR; IBKR's published examples reproduce; only external flows are flows."
+          "Daily-linked TWR (start- and end-of-day conventions), Modified Dietz and IRR; IBKR's published examples reproduce; only external flows are flows.",
+          "Terminal: Portfolio > Performance shows the TWR and the MWR, with the MWR only for a unique root."
         ],
         "gaps": [
-          "no component (sector) returns by daily aggregation (AC5)",
-          "no terminal screen: available through the read-only API only"
+          "no component (sector) returns by daily aggregation (AC5)"
         ],
         "requirements": [
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -13026,7 +13072,8 @@
       "implementation": {
         "status": "tested",
         "files": [
-          "backend/src/unknown/analytics/performance.py"
+          "backend/src/unknown/analytics/performance.py",
+          "terminal/src/workspaces/portfolio/PerformanceTab.tsx"
         ],
         "tests": [
           "backend/tests/test_analytics_performance.py::PublishedExamplesTest.test_ibkr_sharpe_example",
@@ -13041,13 +13088,13 @@
         "gaps": [
           "benchmark-relative statistics have no benchmark series to consume (CAP-PORT-06)",
           "no risk-free series configured: Sharpe is reported as excess over zero, labelled",
-          "no terminal screen: available through the read-only API only"
+          "Portfolio > Performance shows these statistics, but no terminal test asserts their display"
         ],
         "requirements": [
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -13790,7 +13837,8 @@
         "files": [
           "backend/src/unknown/analytics/var.py",
           "backend/src/unknown/analytics/snapshots.py",
-          "backend/src/unknown/api/routes/portfolio.py"
+          "backend/src/unknown/api/routes/portfolio.py",
+          "terminal/src/workspaces/portfolio/RiskTab.tsx"
         ],
         "tests": [
           "backend/tests/test_analytics_var.py::LossVectorTest.test_matches_independent_reference_with_ties",
@@ -13798,21 +13846,23 @@
           "backend/tests/test_analytics_var.py::LossVectorTest.test_atoms_separate_the_two_es_forms",
           "backend/tests/test_analytics_var.py::LossVectorTest.test_kupiec_matches_hand_computation",
           "backend/tests/test_analytics_var.py::HistoricalVarTest.test_overlapping_multi_day_returns",
-          "backend/tests/test_analytics_var.py::HistoricalVarTest.test_backtest_counts_exceptions_against_prior_day_forecasts"
+          "backend/tests/test_analytics_var.py::HistoricalVarTest.test_backtest_counts_exceptions_against_prior_day_forecasts",
+          "terminal/src/workspaces/portfolio/render.test.ts::VaR backtest panel: exceptions > marks each exception by shape in the chart and lists it in words",
+          "terminal/e2e/03-portfolio-agents.spec.ts::exposure and VaR state their basis; the backtest says it has no day yet"
         ],
         "evidence": [
-          "Full-revaluation historical VaR, quantile-integral ES (eq. 6.3) and the IBKR tail-mean form, overlapping multi-day horizons and a Kupiec backtest."
+          "Full-revaluation historical VaR, quantile-integral ES (eq. 6.3) and the IBKR tail-mean form, overlapping multi-day horizons and a Kupiec backtest.",
+          "Terminal: Portfolio > Risk shows VaR and ES with their basis, and the backtest with its exceptions and Kupiec test."
         ],
         "gaps": [
           "historical method only: no parametric or Monte Carlo VaR, no component VaR (AC3-AC5)",
-          "no licensed price history: scenarios come from stored snapshots only",
-          "no terminal screen: available through the read-only API only"
+          "no licensed price history: scenarios come from stored snapshots only"
         ],
         "requirements": [
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -13979,29 +14029,32 @@
         "status": "tested",
         "files": [
           "backend/src/unknown/analytics/stress.py",
-          "backend/src/unknown/analytics/whatif.py"
+          "backend/src/unknown/analytics/whatif.py",
+          "terminal/src/workspaces/portfolio/StressTab.tsx"
         ],
         "tests": [
           "backend/tests/test_analytics_stress.py::ShockScenarioTest.test_uniform_up_move_is_exactly_proportional",
           "backend/tests/test_analytics_stress.py::ShockScenarioTest.test_gap_down_crosses_triggers_without_capping_the_loss_and_the_core_reacts",
           "backend/tests/test_analytics_stress.py::ShockScenarioTest.test_correlated_selloff_with_betas",
           "backend/tests/test_analytics_stress.py::StaleQuoteTest.test_stale_marks_drop_out_of_fresh_nav_and_the_gate_refuses_exits",
-          "backend/tests/test_analytics_stress.py::FeeRevisionTest.test_revised_final_fees_reduce_available_cash_through_the_observation_path"
+          "backend/tests/test_analytics_stress.py::FeeRevisionTest.test_revised_final_fees_reduce_available_cash_through_the_observation_path",
+          "terminal/src/workspaces/portfolio/stress.render.test.ts::shock scenarios: positions left out of the scenario P&L > lists unpriced positions instead of folding them silently into the total",
+          "terminal/e2e/03-portfolio-agents.spec.ts::stress: a hypothetical overnight gap computed on a private copy of the core"
         ],
         "evidence": [
-          "Operational scenarios (overnight gap, correlated selloff, stale quote, fee revision) revalue the real holdings exactly and then run the core's own reaction on a private copy."
+          "Operational scenarios (overnight gap, correlated selloff, stale quote, fee revision) revalue the real holdings exactly and then run the core's own reaction on a private copy.",
+          "Terminal: Portfolio > Stress runs a scenario on demand and labels the result HYPOTHETICAL."
         ],
         "gaps": [
           "no historical replays and no regulator scenarios (Fed, EBA) (AC2, AC3)",
-          "venue halt, failed cancel and currency move not built (AC5)",
-          "no terminal screen: available through the read-only API only"
+          "venue halt, failed cancel and currency move not built (AC5)"
         ],
         "requirements": [
           "DAT-05",
           "RSK-07"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -14115,30 +14168,33 @@
         "status": "tested",
         "files": [
           "backend/src/unknown/analytics/whatif.py",
-          "backend/src/unknown/api/routes/portfolio.py"
+          "backend/src/unknown/api/routes/portfolio.py",
+          "terminal/src/workspaces/portfolio/WhatIfTab.tsx"
         ],
         "tests": [
           "backend/tests/test_analytics_whatif.py::SharedCodeTest.test_dry_run_equals_the_live_gate_over_random_states",
           "backend/tests/test_analytics_whatif.py::DryRunSemanticsTest.test_unfunded_buy_fails_cash_with_exact_shortfall",
           "backend/tests/test_analytics_whatif.py::DryRunSemanticsTest.test_unsettled_sale_proceeds_do_not_fund_a_buy",
           "backend/tests/test_analytics_whatif.py::DryRunSemanticsTest.test_never_writes_and_becomes_stale_when_the_core_moves",
-          "backend/tests/test_analytics_whatif.py::DryRunSemanticsTest.test_stop_latch_blocks_buys_but_not_reductions"
+          "backend/tests/test_analytics_whatif.py::DryRunSemanticsTest.test_stop_latch_blocks_buys_but_not_reductions",
+          "terminal/src/workspaces/portfolio/render.test.ts::what-if impact: headroom amounts carry their currency > formats each headroom amount as money in the session currency",
+          "terminal/e2e/03-portfolio-agents.spec.ts::what-if evaluates an intent through the real gate and creates no order"
         ],
         "evidence": [
-          "A dry run executes the core's own command path on an in-memory copy of the core database, so the decision equals the live gate; it never writes and becomes stale when the core moves."
+          "A dry run executes the core's own command path on an in-memory copy of the core database, so the decision equals the live gate; it never writes and becomes stale when the core moves.",
+          "Terminal: Portfolio > What-if evaluates an intent through the real gate and creates no order."
         ],
         "gaps": [
           "no broker what-if commission and margin preview (CAP-IBKR-10)",
           "VaR impact of a hypothetical not computed",
-          "250 ms p95 target not benchmarked (AC7)",
-          "no terminal screen: available through the read-only API only"
+          "250 ms p95 target not benchmarked (AC7)"
         ],
         "requirements": [
           "RSK-02",
           "ORD-08"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -14257,7 +14313,8 @@
         "files": [
           "backend/src/unknown/analytics/allocation.py",
           "backend/src/unknown/analytics/linalg.py",
-          "backend/src/unknown/api/routes/portfolio.py"
+          "backend/src/unknown/api/routes/portfolio.py",
+          "terminal/src/workspaces/portfolio/AllocationTab.tsx"
         ],
         "tests": [
           "backend/tests/test_analytics_allocation.py::MeanVarianceTest.test_two_asset_minimum_variance_matches_the_analytic_solution",
@@ -14265,22 +14322,24 @@
           "backend/tests/test_analytics_allocation.py::MeanVarianceTest.test_infeasible_constraints_are_named",
           "backend/tests/test_analytics_allocation.py::MeanVarianceTest.test_turnover_limit_is_enforced_by_raising_eta",
           "backend/tests/test_analytics_allocation.py::TradeListTest.test_lot_rounding_down_fees_and_post_trade_checks",
-          "backend/tests/test_analytics_allocation.py::ProposalTest.test_end_to_end_proposal_from_ledger_and_snapshots_never_writes"
+          "backend/tests/test_analytics_allocation.py::ProposalTest.test_end_to_end_proposal_from_ledger_and_snapshots_never_writes",
+          "terminal/src/workspaces/portfolio/render.test.ts::allocation trade list: sizing on stale marks is flagged > says which instruments were sized on a stale mark",
+          "terminal/e2e/03-portfolio-agents.spec.ts::allocation proposals are labelled PROPOSAL ONLY and offer no way to send them"
         ],
         "evidence": [
-          "Equal-weight and inverse-volatility baselines, Ledoit-Wolf shrinkage, eq. 6.2 solver with a turnover limit, lot rounding and post-trade checks; output is a PROPOSAL that must go through the what-if service and the risk gate."
+          "Equal-weight and inverse-volatility baselines, Ledoit-Wolf shrinkage, eq. 6.2 solver with a turnover limit, lot rounding and post-trade checks; output is a PROPOSAL that must go through the what-if service and the risk gate.",
+          "Terminal: Portfolio > Allocation shows proposals labelled PROPOSAL ONLY, with no way to send them."
         ],
         "gaps": [
           "no sector or group caps, no tracking-error minimisation, no allocation-goal drift report (AC6)",
-          "no integration test that a proposal cannot become an order without the gate (AC7): proposals simply have no order path",
-          "no terminal screen: available through the read-only API only"
+          "no integration test that a proposal cannot become an order without the gate (AC7): proposals simply have no order path"
         ],
         "requirements": [
           "AUT-02",
           "RSK-02"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -16757,25 +16816,28 @@
           "backend/src/unknown/api/routes/research.py",
           "backend/src/unknown/api/routes/company.py",
           "backend/src/unknown/api/routes/research_jobs.py",
-          "backend/src/unknown/research/study.py"
+          "backend/src/unknown/research/study.py",
+          "terminal/src/workspaces/research/ResearchWorkspace.tsx"
         ],
         "tests": [
           "backend/tests/test_research_study.py::ResearchRoutesTest.test_every_endpoint_returns_data_with_provenance",
           "backend/tests/test_research_study.py::ResearchRoutesTest.test_routes_cannot_write",
-          "backend/tests/test_company_api.py::CompanyApiTests.test_routes_never_write"
+          "backend/tests/test_company_api.py::CompanyApiTests.test_routes_never_write",
+          "terminal/src/workspaces/research/views.test.ts::research envelope without a registry > shows the API reason verbatim and a study command that runs (with its required --out)",
+          "terminal/e2e/03-research.spec.ts::research: experiments, trials, artifacts with gate verdicts, reports, specifications"
         ],
         "evidence": [
-          "Read-only HTTP query API over the research registry, company data and research jobs; the study runs from a CLI."
+          "Read-only HTTP query API over the research registry, company data and research jobs; the study runs from a CLI.",
+          "Terminal: the Research, Company and Markets & macro workspaces read this API."
         ],
         "gaps": [
-          "no notebooks, no programmatic client library and no job scheduler",
-          "no terminal screen: available through the read-only API only"
+          "no notebooks, no programmatic client library and no job scheduler"
         ],
         "requirements": [
           "RES-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -17754,7 +17816,8 @@
         "files": [
           "backend/src/unknown/research/registry.py",
           "backend/src/unknown/research/bars.py",
-          "backend/src/unknown/api/routes/research.py"
+          "backend/src/unknown/api/routes/research.py",
+          "terminal/src/workspaces/research/Experiments.tsx"
         ],
         "tests": [
           "backend/tests/test_research_registry.py::PreregistrationTest.test_trials_need_a_preregistration",
@@ -17763,14 +17826,16 @@
           "backend/tests/test_research_registry.py::TrialRegistryTest.test_interrupted_and_crashed_runs_are_aborted_trials",
           "backend/tests/test_research_registry.py::TrialRegistryTest.test_budget_is_enforced_and_only_the_owner_can_raise_it",
           "backend/tests/test_research_registry.py::HoldoutTest.test_holdout_is_consumed_once_and_every_attempt_is_logged",
-          "backend/tests/test_research_registry.py::HoldoutLockReviewTest.test_a_hand_made_grant_does_not_open_the_holdout"
+          "backend/tests/test_research_registry.py::HoldoutLockReviewTest.test_a_hand_made_grant_does_not_open_the_holdout",
+          "terminal/src/workspaces/research/model.test.ts::trial counts and metrics > lists every segment in protocol order, zeros included, plus unknown ones",
+          "terminal/e2e/03-research.spec.ts::research: experiments, trials, artifacts with gate verdicts, reports, specifications"
         ],
         "evidence": [
-          "Append-only SQLite registry (triggers refuse UPDATE/DELETE): pre-registration hashed with its time, every run a trial including failures and aborts, owner-only budget increases, a holdout consumed once through an issued grant."
+          "Append-only SQLite registry (triggers refuse UPDATE/DELETE): pre-registration hashed with its time, every run a trial including failures and aborts, owner-only budget increases, a holdout consumed once through an issued grant.",
+          "Terminal: the Research workspace lists experiments and every trial, failures included, by segment."
         ],
         "gaps": [
-          "research registry uses WAL with default synchronous settings",
-          "no terminal screen for experiments (API only)"
+          "research registry uses WAL with default synchronous settings"
         ],
         "requirements": [
           "RES-01",
@@ -17778,7 +17843,7 @@
           "AUT-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -18051,11 +18116,15 @@
           "backend/tests/test_research_promotion.py::SelectionPolicyTest.test_automatic_selection_only_inside_the_owner_approved_policy",
           "backend/tests/test_research_promotion.py::ProtocolTest.test_protocol_is_strict",
           "backend/tests/test_research_spec.py::SpecCoverageTest.test_every_res01_field_is_present_and_required",
-          "backend/tests/test_strategy_decisions.py::StrategyTokenBindingTests.test_issued_token_is_bound_to_its_artifact"
+          "backend/tests/test_strategy_decisions.py::StrategyTokenBindingTests.test_issued_token_is_bound_to_its_artifact",
+          "backend/tests/test_research_shadow.py::ShadowLadderTest.test_shadow_sits_between_validated_and_paper",
+          "backend/tests/test_research_shadow.py::ShadowEnvelopeTest.test_automatic_promotion_inside_the_envelope_is_recorded_with_its_evidence_and_envelope",
+          "backend/tests/test_research_evidence_retention.py::EvidenceExpiredTest.test_an_active_artifact_on_deleted_data_keeps_running_but_is_never_promoted_again"
         ],
         "evidence": [
-          "Artifact statuses proposed -> reproducible -> validated -> paper -> eligible -> active (plus quarantined, retired) in a hash-chained transition log; gates recomputed under an owner-approved protocol; owner approvals need re-authentication within 15 minutes; strategy tokens are bound to one artifact id.",
-          "evaluated on SYNTHETIC fixtures only; no market history has been run"
+          "Artifact statuses proposed -> reproducible -> validated -> shadow -> paper -> eligible -> active (plus quarantined, retired) in a hash-chained transition log; gates recomputed under an owner-approved protocol; owner approvals need re-authentication within 15 minutes; strategy tokens are bound to one artifact id.",
+          "evaluated on SYNTHETIC fixtures only; no market history has been run",
+          "A 'shadow' status sits between validated and paper. The owner sets it, or the SYSTEM inside an owner-approved, immutable shadow envelope. Expiry is bounded by the retention of the evidence data, and an artifact whose evidence data was deleted is EVIDENCE_EXPIRED and is never promoted again (BR-DAT-16). No ingested dataset records a retention deadline yet."
         ],
         "gaps": [
           "ADR-0017 is proposed, not accepted",
@@ -18070,7 +18139,7 @@
           "AUT-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -18206,17 +18275,23 @@
         "status": "implemented",
         "files": [
           "backend/src/unknown/core/handlers/strategy.py",
-          "backend/src/unknown/research/promotion.py"
+          "backend/src/unknown/research/promotion.py",
+          "backend/src/unknown/strategy/runner.py",
+          "backend/src/unknown/strategy/artifacts.py"
         ],
         "tests": [
           "backend/tests/test_strategy_decisions.py::StrategyDecisionTests.test_shadow_mode_never_submits_and_fields_are_validated",
-          "backend/tests/test_strategy_decisions.py::StrategyDecisionTests.test_no_trade_decision_is_recorded_without_economic_effect"
+          "backend/tests/test_strategy_decisions.py::StrategyDecisionTests.test_no_trade_decision_is_recorded_without_economic_effect",
+          "backend/tests/test_strategy_shadow_status.py::ShadowStatusRunnerTest.test_a_shadow_status_artifact_records_shadow_decisions_and_never_runs_live",
+          "backend/tests/test_strategy_runner.py::ShadowRunnerTest.test_shadow_records_decisions_without_intents_through_the_process_entry_point",
+          "backend/tests/test_strategy_runner.py::CrashResumeTest.test_crash_after_submission_resends_the_same_command_and_records_once"
         ],
         "evidence": [
-          "The core records strategy decisions in live or shadow mode (shadow never submits); promotion has a paper status that requires CORE_REPLAY_MATCH and an owner approval."
+          "The core records strategy decisions in live or shadow mode (shadow never submits); promotion has a paper status that requires CORE_REPLAY_MATCH and an owner approval.",
+          "The strategy runner (python -m unknown.strategy; ADR-0017) runs shadow mode end to end against a real core for an artifact in 'shadow' or later: decisions are recorded and no intent is sent. Live mode needs 'paper' or later. Deterministic command ids make a resend after a crash record once. Tested against the simulated broker only."
         ],
         "gaps": [
-          "no strategy runner process (ADR-0017 step 4), so no shadow or paper stage runs",
+          "the paper stage (live mode on an IBKR paper account) has never run",
           "no divergence measurement between shadow, paper and simulation",
           "IBKR paper account not available (BRK-02)"
         ],
@@ -18225,7 +18300,7 @@
           "AUT-03"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -18323,25 +18398,29 @@
       "implementation": {
         "status": "implemented",
         "files": [
-          "backend/src/unknown/research/promotion.py"
+          "backend/src/unknown/research/promotion.py",
+          "backend/src/unknown/strategy/runner.py"
         ],
         "tests": [
           "backend/tests/test_research_promotion.py::LifecycleTest.test_quarantine_empties_the_slot_and_retire_needs_the_owner",
-          "backend/tests/test_research_promotion.py::SelectionPolicyTest.test_expired_artifacts_cannot_become_eligible"
+          "backend/tests/test_research_promotion.py::SelectionPolicyTest.test_expired_artifacts_cannot_become_eligible",
+          "backend/tests/test_strategy_runner.py::ArtifactIdentityAndEligibilityTest.test_status_gates_each_mode",
+          "backend/tests/test_strategy_transmission_gates.py::QuarantinedRunOnceCancelsAtWindowEndTest.test_a_refused_artifacts_working_remainder_is_still_cancelled_at_the_windows_end"
         ],
         "evidence": [
-          "Quarantine empties the active slot (OWNER or SYSTEM, needs a MONITORING_INCIDENT); retirement needs the owner; expired artifacts cannot be activated."
+          "Quarantine empties the active slot (OWNER or SYSTEM, needs a MONITORING_INCIDENT); retirement needs the owner; expired artifacts cannot be activated.",
+          "The strategy runner reads the registry every cycle. A quarantined, retired or expired artifact makes no new decision, and the remainder of an intent it already sent is still cancelled at the window's end."
         ],
         "gaps": [
           "no performance or drift monitoring produces MONITORING_INCIDENT evidence",
           "no rollback activation of a predecessor",
-          "quarantine does not reach a running core session (mandates are frozen; book finding BR-SES-09)"
+          "the core does not consult the registry: while a session mandate lists a quarantined artifact, its strategy token can still submit intents directly to the core, and only the runner refuses (book finding BR-SES-09)"
         ],
         "requirements": [
           "AUT-03"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -18682,7 +18761,9 @@
           "backend/src/unknown/gateway/runner.py",
           "backend/src/unknown/broker/ibkr/mapping.py",
           "docs/adr/0009-order-lifecycle-and-outbox.md",
-          "terminal/src/workspaces/orders/BlotterView.tsx"
+          "terminal/src/workspaces/orders/BlotterView.tsx",
+          "backend/src/unknown/core/order_machine.py",
+          "backend/src/unknown/core/desk.py"
         ],
         "tests": [
           "backend/tests/test_orders_lifecycle.py::ReservationTests.test_submit_pending_is_committed_before_the_broker_is_called",
@@ -18695,15 +18776,18 @@
           "backend/tests/test_ibkr_adapter.py::MappingTests.test_status_table",
           "backend/tests/test_ibkr_adapter.py::StatusEventTests.test_identical_status_messages_produce_one_event [IBKR venv]",
           "terminal/src/workspaces/orders/model.test.ts::order states and cancel > classifies open and terminal states like the core",
-          "terminal/e2e/01-flow.spec.ts::a BUY at the FIXTURE ask + 0.02 is accepted and shows FILLED in the blotter"
+          "terminal/e2e/01-flow.spec.ts::a BUY at the FIXTURE ask + 0.02 is accepted and shows FILLED in the blotter",
+          "backend/tests/test_core_lifecycle_transitions.py::TableTests.test_table_never_leaves_a_terminal_state_and_names_only_real_states",
+          "backend/tests/test_core_lifecycle_transitions.py::TableTests.test_a_full_lifecycle_records_only_declared_transitions",
+          "backend/tests/test_core_lifecycle_transitions.py::EnforcementTests.test_undeclared_transition_is_refused_recorded_as_an_anomaly_and_latches",
+          "backend/tests/test_core_lifecycle_transitions.py::InactiveOrderTests.test_inactive_buy_keeps_its_reservation_blocks_entries_and_is_canceled"
         ],
         "evidence": [
-          "Local states follow ADR-0009 with quantities, cancel_state and prev_state stored separately; the red stop cancels system orders one by one (no global cancel). The blotter shows the broker order id."
+          "Local states follow ADR-0009 with quantities, cancel_state and prev_state stored separately; the red stop cancels system orders one by one (no global cancel). The blotter shows the broker order id.",
+          "One published transition table (core/order_machine.py; ADR-0009 amendment) is enforced at Context.emit for every handler: an undeclared state change is refused and recorded as OrderTransitionRefused with a blocking ORDER_TRANSITION_REFUSED case and the stop latch, and a terminal state is never left. An IBKR Inactive order is held as UNKNOWN with every reservation (a buy is canceled) until a broker terminal report or the owner's close on evidence."
         ],
         "gaps": [
           "parent/child orders not implemented",
-          "transitions are spread over the handlers; no single published transition table (book finding BR-ORD-07)",
-          "IBKR Inactive is released as REJECTED, not routed to exception review",
           "blotter shows no evidence-level column (AC6)",
           "not paper-verified: no IBKR paper session has run (BRK-02)"
         ],
@@ -18715,7 +18799,7 @@
           "ORD-07"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -18881,14 +18965,17 @@
           "backend/tests/test_orders_lifecycle.py::ReservationTests.test_buy_cash_hold_is_limit_notional_plus_fee_envelope",
           "backend/tests/test_desk_commands.py::RejectionRecordTests.test_rejected_command_is_stored_with_a_command_rejected_event",
           "backend/tests/test_desk_commands.py::PermissionMatrixTests.test_agent_cannot_mutate_the_core_with_well_formed_payloads",
-          "backend/tests/test_analytics_whatif.py::SharedCodeTest.test_dry_run_equals_the_live_gate_over_random_states"
+          "backend/tests/test_analytics_whatif.py::SharedCodeTest.test_dry_run_equals_the_live_gate_over_random_states",
+          "backend/tests/test_strategy_pending_exposure.py::PretradeWithPendingTest.test_concentration_counts_pending_buys_of_every_open_state",
+          "backend/tests/test_strategy_pending_exposure.py::PretradeWithPendingTest.test_gross_exposure_counts_every_open_buy",
+          "backend/tests/test_core_lifecycle_executions.py::SelfCrossTests.test_buy_that_would_trade_against_our_working_sell_is_refused_self_cross"
         ],
         "evidence": [
-          "One pure evaluate() runs every check on one materialized snapshot and records all outcomes plus the first decisive code; the decision is stored with accepted and rejected intents (ORD-08)."
+          "One pure evaluate() runs every check on one materialized snapshot and records all outcomes plus the first decisive code; the decision is stored with accepted and rejected intents (ORD-08).",
+          "CONCENTRATION and GROSS_EXPOSURE count pending buys of every open state, and SELF_CROSS refuses an order that would trade against our own working order; each is tested by a rejection against a passing control."
         ],
         "gaps": [
           "order presets (instrument-type and ticker level) not implemented",
-          "CONCENTRATION, GROSS_EXPOSURE and SELF_CROSS checks exist but no test asserts a rejection by them (book findings BR-DAT-02, BR-OPS-19)",
           "no restricted list, no restrict/notify rule classes, no trading-hours window check",
           "liquidity check needs ADV data (not evaluated without it)",
           "no broker precaution snapshot in preflight (AC4); no Web API reply allow-list (AC5)"
@@ -18899,7 +18986,7 @@
           "ORD-08"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -19377,7 +19464,9 @@
           "backend/src/unknown/core/handlers/broker.py",
           "backend/src/unknown/broker/ibkr/adapter.py",
           "backend/src/unknown/broker/ibkr/mapping.py",
-          "backend/src/unknown/reconcile/reconciler.py"
+          "backend/src/unknown/reconcile/reconciler.py",
+          "backend/src/unknown/gateway/journal.py",
+          "backend/src/unknown/gateway/runner.py"
         ],
         "tests": [
           "backend/tests/test_orders_lifecycle.py::CallbackTests.test_duplicate_execution_callbacks_have_one_economic_effect",
@@ -19388,16 +19477,22 @@
           "backend/tests/test_replay_randomized.py::CorrectionCommissionConservationTest.test_correction_after_final_commission_is_charged_once",
           "backend/tests/test_ibkr_adapter.py::MappingTests.test_exec_id_revision",
           "backend/tests/test_ibkr_adapter.py::ExecutionTests.test_corrections_link_to_the_latest_prior_revision [IBKR venv]",
-          "backend/tests/test_ibkr_adapter.py::ExecutionTests.test_history_gap_across_midnight_requires_owner_acknowledgement [IBKR venv]"
+          "backend/tests/test_ibkr_adapter.py::ExecutionTests.test_history_gap_across_midnight_requires_owner_acknowledgement [IBKR venv]",
+          "backend/tests/test_gateway_journal.py::CrashWindowTest.test_crash_between_journal_append_and_apply_loses_nothing",
+          "backend/tests/test_gateway_journal.py::DiskFullTest.test_disk_full_on_append_fails_closed_and_recovers_in_order",
+          "backend/tests/test_core_lifecycle_executions.py::ChangedRedeliveryTests.test_same_execution_id_with_changed_price_keeps_the_original_and_blocks_until_the_owner_resolves",
+          "backend/tests/test_core_lifecycle_post_completion.py::LateFillTests.test_late_fill_after_completion_lands_in_protected_and_is_disposed_and_reconciled",
+          "backend/tests/test_core_lifecycle_post_completion.py::BustAndCorrectionTests.test_bust_of_the_wind_down_sell_returns_the_shares_to_protected_for_disposal"
         ],
         "evidence": [
-          "Executions dedupe on a scoped broker key; corrections reverse and rebook linked to the original; fees are estimated at fill and finalized by the commission report; a history gap across the host's midnight needs an owner attestation (broker_admin_action acknowledge_history_gap)."
+          "Executions dedupe on a scoped broker key; corrections reverse and rebook linked to the original; fees are estimated at fill and finalized by the commission report; a history gap across the host's midnight needs an owner attestation (broker_admin_action acknowledge_history_gap).",
+          "Every broker event is appended to a durable, hash-chained journal (<account>.events) before it is applied, so a crash after an event is journaled loses nothing (an event taken from the adapter but not yet journaled is not covered), and a re-application is a duplicate (BR-ORD-20). The same execution id with changed content is recorded and blocks without booking (BR-ORD-05). Late fills, busts and corrections after a session ended are booked to protected:<id> or unallocated with a blocking case (BR-LED-03)."
         ],
         "gaps": [
           "history backfill beyond the broker's window needs statements (CAP-OMS-07, not built)",
-          "same execution id with changed economic content is recorded and blocks, but no test exercises it (book finding BR-ORD-05)",
           "broker-reported realized P&L is not stored or compared",
-          "not paper-verified: no IBKR paper session has run (BRK-02)"
+          "not paper-verified: no IBKR paper session has run (BRK-02)",
+          "an event the adapter received but the gateway had not yet journaled is lost at a crash and recovered only by reconciliation inside the broker's execution-history window"
         ],
         "requirements": [
           "ORD-05",
@@ -19406,7 +19501,7 @@
           "LED-10"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -19723,7 +19818,8 @@
         "files": [
           "backend/src/unknown/reconcile/reconciler.py",
           "backend/src/unknown/core/handlers/recon.py",
-          "backend/src/unknown/broker/ibkr/adapter.py"
+          "backend/src/unknown/broker/ibkr/adapter.py",
+          "backend/src/unknown/core/handlers/control.py"
         ],
         "tests": [
           "backend/tests/test_reconciliation.py::ComparisonTests.test_position_difference_is_detected_and_blocks",
@@ -19733,10 +19829,14 @@
           "backend/tests/test_reconciliation.py::SettlementEvidenceTests.test_settlement_requires_exact_broker_cash_agreement",
           "backend/tests/test_durability_review.py::ReconciliationOrderTest.test_the_execution_watermark_comes_from_the_last_clean_run",
           "backend/tests/test_replay_randomized.py::RandomizedReplayEquivalenceTest.test_seeded_scenarios_preserve_invariants_replay_and_conservation",
-          "backend/tests/test_ibkr_adapter.py::SnapshotTests.test_complete_snapshot_maps_settled_and_total_cash [IBKR venv]"
+          "backend/tests/test_ibkr_adapter.py::SnapshotTests.test_complete_snapshot_maps_settled_and_total_cash [IBKR venv]",
+          "backend/tests/test_core_lifecycle_unknown_orders.py::CloseUnknownOrderTests.test_owner_closes_a_stuck_unknown_order_on_evidence_and_the_account_can_restart",
+          "backend/tests/test_core_lifecycle_unknown_orders.py::CloseUnknownOrderTests.test_refused_while_the_broker_may_still_work_the_order",
+          "backend/tests/test_core_lifecycle_guards.py::CloseGuardTests.test_a_working_orders_difference_blocks_the_close_and_a_working_order_is_never_closed_on_evidence"
         ],
         "evidence": [
-          "Tier 1 (events matched to intents, external trades attributed) and tier 2 (snapshot, executions with overlap, open orders, lookups, convergence loop) run in one consistent cut; the watermark advances only on a clean run."
+          "Tier 1 (events matched to intents, external trades attributed) and tier 2 (snapshot, executions with overlap, open orders, lookups, convergence loop) run in one consistent cut; the watermark advances only on a clean run.",
+          "Each run records the order ids the broker listed as open, the lookups and the last event it includes. The owner closes a stuck UNKNOWN order only on broker evidence, and only after a complete, fresh reconciliation in this process shows nothing working (resolve_exception close_unknown_order; RB-13)."
         ],
         "gaps": [
           "tier 3, the end-of-day statement leg (IBKR Flex), is not implemented: two of three legs only",
@@ -19750,7 +19850,7 @@
           "REC-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -22155,18 +22255,21 @@
           "backend/src/unknown/data/fundamentals/metrics.py",
           "backend/src/unknown/api/routes/company.py",
           "backend/src/unknown/api/routes/portfolio.py",
-          "backend/src/unknown/analytics/common.py"
+          "backend/src/unknown/analytics/common.py",
+          "terminal/src/workspaces/company/Metrics.tsx"
         ],
         "tests": [
           "backend/tests/test_company_metrics.py::MetricTests.test_show_calculation",
           "backend/tests/test_company_metrics.py::MetricTests.test_persist_with_record_metric_and_explain_record",
-          "backend/tests/test_analytics_review.py::RouteParameterTest.test_performance_lineage_names_the_nav_field_used"
+          "backend/tests/test_analytics_review.py::RouteParameterTest.test_performance_lineage_names_the_nav_field_used",
+          "terminal/e2e/03-research.spec.ts::company: search, tearsheet, point-in-time statements, metrics, DCF and peers"
         ],
         "evidence": [
-          "Company metrics expose a show-calculation tree (formula, inputs, accessions, availability times) and portfolio responses carry lineage blocks with formula ids."
+          "Company metrics expose a show-calculation tree (formula, inputs, accessions, availability times) and portfolio responses carry lineage blocks with formula ids.",
+          "Terminal: Company > Metrics has a 'Show calculation' panel: the formula, inputs down to the source filings, and the EV bridge."
         ],
         "gaps": [
-          "no terminal inspector: lineage is available through the API only (AC1, AC8, AC9)",
+          "the terminal inspector covers company metrics only (end-to-end test); desk and portfolio values have none, and there is no inspector export or latency run (AC1, AC8, AC9)",
           "core workspaces show values without lineage ids"
         ],
         "requirements": [
@@ -22174,7 +22277,7 @@
           "TRM-03"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -23329,7 +23432,8 @@
           "backend/src/unknown/core/handlers/control.py",
           "backend/src/unknown/api/routes/research_jobs.py",
           "backend/src/unknown/agents/jobstore.py",
-          "backend/src/unknown/agents/config.py"
+          "backend/src/unknown/agents/config.py",
+          "backend/src/unknown/service/core.py"
         ],
         "tests": [
           "backend/tests/test_control_recovery.py::RedStopTests.test_owner_stop_latches_durably_with_actor_reason_and_command",
@@ -23337,10 +23441,16 @@
           "backend/tests/test_desk_commands.py::PermissionMatrixTests.test_every_forbidden_pair_is_rejected_unauthorized_by_the_desk",
           "backend/tests/test_api_research_jobs.py::ResearchJobRoutesTest.test_submit_list_detail_and_cancel",
           "backend/tests/test_agents_worker.py::WorkerFailsClosedTest.test_a_role_without_a_concurrency_limit_never_runs",
-          "terminal/e2e/01-flow.spec.ts::red STOP shows its command id and progress, and a new BUY is rejected with STOP_LATCH"
+          "terminal/e2e/01-flow.spec.ts::red STOP shows its command id and progress, and a new BUY is rejected with STOP_LATCH",
+          "backend/tests/test_core_lifecycle_stop.py::MemoryLatchTests.test_stop_with_an_unwritable_database_latches_in_memory_cancels_buys_and_is_recorded_later",
+          "backend/tests/test_core_lifecycle_stop.py::MemoryLatchTests.test_the_latch_file_carries_an_unrecorded_stop_across_a_restart",
+          "backend/tests/test_core_lifecycle_stop.py::MemoryLatchTests.test_a_corrupt_control_row_cannot_block_the_red_stop",
+          "backend/tests/test_core_lifecycle_guards.py::MemoryLatchGuardTests.test_an_unreadable_ledger_still_cancels_every_buy_the_broker_lists_as_ours",
+          "backend/tests/test_core_lifecycle_guards.py::MemoryLatchGuardTests.test_every_exposure_increasing_command_waits_while_the_stop_is_latched_only_in_memory"
         ],
         "evidence": [
-          "The red stop latches durably before any cancel and only the owner can start again; the owner cancels research jobs over the API; removing a role's concurrency limit or the agents policy file stops that role or all paid calls."
+          "The red stop latches durably before any cancel and only the owner can start again; the owner cancels research jobs over the API; removing a role's concurrency limit or the agents policy file stops that role or all paid calls.",
+          "A red stop is never blocked by persistence. When the database cannot record it, the core latches it in memory and in an fsync'd file, refuses entries, transmits no buy and cancels open buys at the broker directly. It records the stop with that evidence as soon as writes work (ADR-0010 amendment, RB-12)."
         ],
         "gaps": [
           "no 'disable model-dependent decisions' switch: no model output feeds orders today",
@@ -23353,7 +23463,7 @@
           "AI-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -23918,17 +24028,21 @@
         "files": [
           "backend/src/unknown/agents/audit.py",
           "backend/src/unknown/core/replay.py",
-          "backend/src/unknown/core/desk.py"
+          "backend/src/unknown/core/desk.py",
+          "backend/src/unknown/core/handlers/control.py"
         ],
         "tests": [
           "backend/tests/test_agents_audit.py::AuditTrailTest.test_records_are_chained_and_queryable_by_job",
           "backend/tests/test_agents_audit.py::AuditTrailTest.test_edits_deletions_and_reattribution_are_detected",
           "backend/tests/test_agents_audit.py::AuditTrailTest.test_update_and_delete_are_refused",
           "backend/tests/test_agents_worker.py::WorkerRecoveryTest.test_audit_trail_is_shared_and_verifiable_after_restart",
-          "backend/tests/test_desk_commands.py::HashChainTests.test_tampered_payload_is_detected"
+          "backend/tests/test_desk_commands.py::HashChainTests.test_tampered_payload_is_detected",
+          "backend/tests/test_research_proposal_v2.py::AgentEmitsVersionTwoTest.test_typed_fields_come_from_the_job_and_the_span_provenance",
+          "backend/tests/test_research_proposal_v2.py::ProposalVersionTwoValidationTest.test_valid_v2_proposals_are_recorded_with_the_core_label"
         ],
         "evidence": [
-          "An append-only, hash-chained trail of every runner record and worker action per job (evidence span hashes, envelope, reservations, gate decisions, proposal, core proposal id), beside the core's hash-chained event log."
+          "An append-only, hash-chained trail of every runner record and worker action per job (evidence span hashes, envelope, reservations, gate decisions, proposal, core proposal id), beside the core's hash-chained event log.",
+          "Proposals are research_proposal v2. They carry typed evidence references (dataset, observation id, span hash, observed and available times), instrument ids checked against the instrument master, and an as-of. All of these come from the job and the store provenance, never from model output, and the core labels each proposal (BR-DAT-12)."
         ],
         "gaps": [
           "proposal-to-order lineage: no order intent consumes research proposals yet",
@@ -23939,7 +24053,7 @@
           "DOM-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -24109,31 +24223,34 @@
           "backend/src/unknown/agents/runner.py",
           "backend/src/unknown/agents/evidence.py",
           "backend/src/unknown/agents/pit_evidence.py",
-          "backend/src/unknown/api/routes/research_jobs.py"
+          "backend/src/unknown/api/routes/research_jobs.py",
+          "terminal/src/workspaces/research-jobs/JobDetailView.tsx"
         ],
         "tests": [
           "backend/tests/test_agents_pit_evidence.py::EvidenceTest.test_pinned_evidence_ignores_later_knowledge_and_later_publications",
           "backend/tests/test_agents_evidence.py::ClaimVerificationTest.test_verified_claim",
           "backend/tests/test_agents_runner.py::RunnerTest.test_happy_path_submits_a_verified_proposal_and_settles_exactly",
-          "backend/tests/test_api_research_jobs.py::TerminalToCoreEndToEndTest.test_question_to_recorded_proposal"
+          "backend/tests/test_api_research_jobs.py::TerminalToCoreEndToEndTest.test_question_to_recorded_proposal",
+          "backend/tests/test_research_proposal_v2.py::WorkerEmitsVersionTwoEndToEndTest.test_agent_job_end_to_end_records_a_typed_v2_proposal",
+          "terminal/src/workspaces/research-jobs/render.test.ts::proposal panel, schema version 2 > shows the verified claims and the typed evidence references instead of \"None cited.\""
         ],
         "evidence": [
           "A research question becomes a pinned job over point-in-time XBRL fact spans; cited spans, quotes and numbers are verified before a proposal is recorded in the core.",
-          "One live call of claude-opus-5-5 ran in CI (GitHub Actions run 39798075556, workflow live-anthropic, 2026-10-22, commit 7eae251): tests.test_agents_live_anthropic passed; token count by the provider endpoint (1,306 prompt tokens); reserved and settled USD 0.00822400."
+          "One live call of claude-opus-5-5 ran in CI (GitHub Actions run 39798075556, workflow live-anthropic, 2026-10-22, commit 7eae251): tests.test_agents_live_anthropic passed; token count by the provider endpoint (1,306 prompt tokens); reserved and settled USD 0.00822400.",
+          "Proposals are research_proposal v2: a claim is evidence only when every span it cites yields a typed reference from store provenance (BR-DAT-12). The terminal's Research jobs workspace shows the claims and references."
         ],
         "gaps": [
           "filing and document text is not ingested: spans are XBRL facts only",
           "no generated query code (AC3)",
           "no evaluation set or citation metrics (AC1)",
-          "no live research job has run on this Mac: the model is not approved in config/models/approved.json and no key is installed",
-          "no terminal screen for research jobs (API only)"
+          "no live research job has run on this Mac: the model is not approved in config/models/approved.json and no key is installed"
         ],
         "requirements": [
           "AI-04",
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -25455,7 +25572,8 @@
         "files": [
           "backend/src/unknown/broker/ibkr/mapping.py",
           "backend/src/unknown/broker/ibkr/adapter.py",
-          "backend/src/unknown/core/handlers/broker.py"
+          "backend/src/unknown/core/handlers/broker.py",
+          "backend/src/unknown/core/order_machine.py"
         ],
         "tests": [
           "backend/tests/test_ibkr_adapter.py::MappingTests.test_status_table",
@@ -25463,14 +25581,18 @@
           "backend/tests/test_ibkr_adapter.py::StatusEventTests.test_warn_inactive_and_unknown_statuses [IBKR venv]",
           "backend/tests/test_ibkr_adapter.py::SubmitTests.test_error_201_then_cancelled_is_rejected [IBKR venv]",
           "backend/tests/test_ibkr_adapter.py::SubmitTests.test_error_202_price_check_is_rejected [IBKR venv]",
-          "backend/tests/test_orders_lifecycle.py::CancelTests.test_fill_during_cancel_pending_consumes_its_share_of_the_hold"
+          "backend/tests/test_orders_lifecycle.py::CancelTests.test_fill_during_cancel_pending_consumes_its_share_of_the_hold",
+          "backend/tests/test_core_lifecycle_transitions.py::InactiveOrderTests.test_inactive_buy_keeps_its_reservation_blocks_entries_and_is_canceled",
+          "backend/tests/test_core_lifecycle_transitions.py::InactiveOrderTests.test_reconciliation_lookup_inactive_holds_until_the_broker_reports_a_terminal_state",
+          "backend/tests/test_core_lifecycle_review.py::TerminalOrderHeldAtBrokerTests.test_a_closed_order_the_broker_lists_as_inactive_is_flagged_and_canceled"
         ],
         "evidence": [
           "A tested status table maps documented IBKR statuses; identical messages are de-duplicated; 201/202 followed by Cancelled is REJECTED with the reason; executions after PendingCancel are booked.",
-          "All 179 tests of test_ibkr_adapter, test_ibkr_marketdata, test_ibkr_serve and test_service_supervisor pass in the IBKR venv (official ibapi client, version string 1051.1, i.e. TWS API 10.51.01; fake host, no network) on 2026-10-22; 65 of those tests are skipped in interpreters without ibapi."
+          "All 179 tests of test_ibkr_adapter, test_ibkr_marketdata, test_ibkr_serve and test_service_supervisor pass in the IBKR venv (official ibapi client, version string 1051.1, i.e. TWS API 10.51.01; fake host, no network) on 2026-10-22; 65 of those tests are skipped in interpreters without ibapi.",
+          "INACTIVE is no longer a terminal broker status: the core holds an Inactive order as UNKNOWN with every reservation, opens the unknown-order case and cancels a buy; a locally terminal order that a reconciliation finds Inactive is a blocking anomaly (ADR-0009 amendment)."
         ],
         "gaps": [
-          "Inactive is treated as terminal REJECTED by the core rather than held for review (book finding BR-ORD-07)",
+          "the real IBKR sequences that produce Inactive are not observed (docs/integrations/ibkr.md section 5, item 4)",
           "behaviour with precaution dialogs not bypassed is an open question",
           "not paper-verified: no IBKR paper session has run (BRK-02)"
         ],
@@ -25479,7 +25601,7 @@
           "ORD-07"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -31374,30 +31496,33 @@
           "backend/src/unknown/agents/evidence.py",
           "backend/src/unknown/agents/pit_evidence.py",
           "backend/src/unknown/agents/runner.py",
-          "backend/src/unknown/agents/gate.py"
+          "backend/src/unknown/agents/gate.py",
+          "terminal/src/workspaces/research-jobs/JobDetailView.tsx"
         ],
         "tests": [
           "backend/tests/test_agents_evidence.py::ClaimVerificationTest.test_fabricated_span_and_misquote_are_unsupported",
           "backend/tests/test_agents_evidence.py::ClaimVerificationTest.test_numeric_claims_against_typed_facts",
           "backend/tests/test_agents_evidence.py::ClaimVerificationTest.test_claim_without_quote_is_uncertain",
           "backend/tests/test_agents_runner.py::RunnerTest.test_prompt_injection_document_has_zero_effect",
-          "backend/tests/test_agents_runner.py::RunnerTest.test_restricted_dataset_is_never_sent"
+          "backend/tests/test_agents_runner.py::RunnerTest.test_restricted_dataset_is_never_sent",
+          "terminal/src/workspaces/research-jobs/render.test.ts::proposal panel > fences model text off as not advice and labels the recorded proposal advisory only",
+          "terminal/src/workspaces/research-jobs/render.test.ts::proposal panel, schema version 2 > shows the verified claims and the typed evidence references instead of \"None cited.\""
         ],
         "evidence": [
           "Verified claims need existing spans with verbatim quotes; numeric claims are checked exactly against typed XBRL facts; unverified claims are labelled and never become evidence.",
-          "One live call of claude-opus-5-5 ran in CI (GitHub Actions run 39798075556, workflow live-anthropic, 2026-10-22, commit 7eae251): tests.test_agents_live_anthropic passed; token count by the provider endpoint (1,306 prompt tokens); reserved and settled USD 0.00822400."
+          "One live call of claude-opus-5-5 ran in CI (GitHub Actions run 39798075556, workflow live-anthropic, 2026-10-22, commit 7eae251): tests.test_agents_live_anthropic passed; token count by the provider endpoint (1,306 prompt tokens); reserved and settled USD 0.00822400.",
+          "Terminal: the Research jobs workspace shows the cited claims and their typed evidence references."
         ],
         "gaps": [
           "no frozen evaluation set or per-provider citation metrics (AC6)",
-          "filing text is not ingested: spans are XBRL facts",
-          "no terminal screen for research jobs (API only)"
+          "filing text is not ingested: spans are XBRL facts"
         ],
         "requirements": [
           "AI-04",
           "DAT-05"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -32812,21 +32937,23 @@
         ],
         "tests": [
           "backend/tests/test_strategy_decisions.py::StrategyDecisionTests.test_no_trade_decision_is_recorded_without_economic_effect",
-          "backend/tests/test_desk_commands.py::RejectionRecordTests.test_rejected_command_is_stored_with_a_command_rejected_event"
+          "backend/tests/test_desk_commands.py::RejectionRecordTests.test_rejected_command_is_stored_with_a_command_rejected_event",
+          "backend/tests/test_core_lifecycle_executions.py::SelfCrossTests.test_buy_that_would_trade_against_our_working_sell_is_refused_self_cross",
+          "backend/tests/test_core_lifecycle_executions.py::SelfCrossTests.test_sell_that_would_trade_against_our_working_buy_is_refused_self_cross"
         ],
         "evidence": [
           "Pretrade refuses an order whose limit would cross one of the account's own working opposite-side orders (SELF_CROSS); every intent, accepted or rejected, and every strategy decision is logged in the hash-chained event log."
         ],
         "gaps": [
-          "no test asserts a SELF_CROSS rejection (book finding BR-OPS-19)",
-          "no order-to-trade or fast-cancel ratios, no layering/spoofing review, no review gate on green start (AC2, AC3)"
+          "no order-to-trade or fast-cancel ratios, no layering/spoofing review, no review gate on green start (AC2, AC3)",
+          "self-cross is checked within one account only (one account trades today)"
         ],
         "requirements": [
           "RSK-02",
           "ORD-08"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -33545,15 +33672,20 @@
         "status": "implemented",
         "files": [
           "backend/src/unknown/store/db.py",
-          "backend/src/unknown/store/schema.py"
+          "backend/src/unknown/store/schema.py",
+          "backend/src/unknown/gateway/journal.py"
         ],
         "tests": [
           "backend/tests/test_desk_commands.py::WriterLeaseTests.test_second_writer_is_refused_while_the_lease_is_live",
           "backend/tests/test_desk_commands.py::IdempotencyTests.test_command_identity_survives_restart",
-          "backend/tests/test_ops_backup.py::BackupReviewTests.test_corrupt_backup_fails_integrity_even_without_sidecar"
+          "backend/tests/test_ops_backup.py::BackupReviewTests.test_corrupt_backup_fails_integrity_even_without_sidecar",
+          "backend/tests/test_gateway_journal.py::DiskFullTest.test_disk_full_on_append_fails_closed_and_recovers_in_order",
+          "backend/tests/test_gateway_journal.py::DiskFullTest.test_entries_and_marks_are_append_only",
+          "backend/tests/test_gateway_journal.py::CrashWindowTest.test_crash_after_apply_before_mark_is_a_duplicate_for_each_event_kind"
         ],
         "evidence": [
-          "Every core connection sets WAL, synchronous=FULL and fullfsync on macOS, with foreign keys on; amount columns are decimal TEXT."
+          "Every core connection sets WAL, synchronous=FULL and fullfsync on macOS, with foreign keys on; amount columns are decimal TEXT.",
+          "The broker-event journal is opened through the same store.db.connect settings, with append-only triggers and a hash chain; a simulated SQLITE_FULL on append fails closed (stop latched, reconciliation required) and recovers in order. These are simulated failures, not a real full disk or power loss."
         ],
         "gaps": [
           "no test reads back the PRAGMA values at open (AC1)",
@@ -33566,7 +33698,7 @@
           "PRF-01"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {
@@ -34088,10 +34220,13 @@
           "backend/tests/test_control_recovery.py::GreenStartPreflightTests.test_preflight_reports_authentication_required",
           "backend/tests/test_control_recovery.py::GreenStartPreflightTests.test_preflight_reports_stale_market_data_for_held_positions",
           "backend/tests/test_review_fixes.py::AuthorityTests.test_f41_preflight_fails_closed_without_broker_server_time",
-          "terminal/src/workspaces/operations/model.test.ts::healthChecks > flags skew beyond the policy limit, low disk and repeated cycle failures"
+          "terminal/src/workspaces/operations/model.test.ts::healthChecks > flags skew beyond the policy limit, low disk and repeated cycle failures",
+          "backend/tests/test_core_lifecycle_stop.py::MemoryLatchTests.test_stop_with_an_unwritable_database_latches_in_memory_cancels_buys_and_is_recorded_later",
+          "backend/tests/test_gateway_journal.py::ServiceWiringTest.test_service_replays_the_journal_before_new_events"
         ],
         "evidence": [
-          "A health snapshot (connected, authenticated, server time, disk, cycle errors) feeds named preflight blockers; entries need a clean reconciliation; the terminal shows each check."
+          "A health snapshot (connected, authenticated, server time, disk, cycle errors) feeds named preflight blockers; entries need a clean reconciliation; the terminal shows each check.",
+          "Health also reports the memory stop latch and the broker-event journal (unapplied entries, last failure); preflight names STOP_LATCHED_IN_MEMORY while a stop is latched only in memory."
         ],
         "gaps": [
           "no explicit layered states (alive, writable, fresh, authenticated, eligible) with one primary reason (AC1)",
@@ -34102,7 +34237,7 @@
           "RSK-04"
         ],
         "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "verified_against": "impl/foundation@8b98d00"
       }
     },
     {

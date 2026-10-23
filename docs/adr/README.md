@@ -1,6 +1,6 @@
 # Architecture decision records
 
-Each record states a decision, the concrete reasons, the alternatives rejected and the evidence that would reopen it. A record changes only by a new record that supersedes it; the old text stays.
+Each record states a decision, the concrete reasons, the alternatives rejected and the evidence that would reopen it. A record changes only by a new record that supersedes it; the old text stays. A dated **Amendment** section at the end of a record may state how an accepted decision was implemented, or decide a case the record left open, without reversing it; the text above it stays unchanged, and the amendment says which earlier behaviour it replaces.
 
 Status vocabulary: `proposed`, `accepted`, `superseded by ADR-NNNN`.
 

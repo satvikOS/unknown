@@ -184,7 +184,9 @@ def render(items: list[dict]) -> str:
         "",
     ]
     if basis:
-        lines += ["Verified against " + "; ".join(f"`{b}` on {d}" for b, d in basis) + ".", ""]
+        lines += ["Verified against " + "; ".join(f"`{b}` on {d}" for b, d in basis) + ". Each disposition names the "
+                  "commit its substance was checked against; its line references are kept pointing at the current "
+                  "code, so they may be newer than that commit.", ""]
     lines += [
         "Disposition summary: " + ", ".join(f"{k}: {counts[k]}" for k in order),
         "",
