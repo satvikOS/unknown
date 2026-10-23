@@ -23,9 +23,9 @@ A runner loads the artifact from the research registry (read-only) on every cycl
 * the stored bundle still hashes to the artifact hash and names the stored spec (tamper evidence);
 * the registry status permits the requested mode (``MODE_MIN_STATUS`` in the ADR-0017 order
   proposed < reproducible < validated < shadow < paper < eligible < active; quarantined and retired never run);
-* the artifact has not expired: its registered ``expires_on``, bounded by the ``retention_until`` of every dataset
-  its evidence rests on (``PromotionService.effective_expiry``, BR-DAT-16). An artifact whose evidence data was
-  deleted (EVIDENCE_EXPIRED) still runs until then and says so in every cycle's summary;
+* the artifact has not expired: ``expires_on`` bounded by the ``retention_until`` of every dataset its evidence rests
+  on and by the day before any recorded deletion of that data (``PromotionService.effective_expiry``, BR-DAT-16), so
+  an artifact whose evidence data was deleted (EVIDENCE_EXPIRED) is refused as ARTIFACT_EXPIRED in every mode;
 * the code that would run is the code that was registered: the bundle's ``code_hash`` equals
   ``research.manifest.code_hash()`` of this checkout (research/, domain/, data/pit.py);
 * an implementation exists for the spec, the spec is schema v2 (it declares the submission window, the risk budget
@@ -113,8 +113,8 @@ class LoadedArtifact:
     expires_on: date                   # the effective expiry: registered, bounded by evidence retention (BR-DAT-16)
     dataset_id: str
     fixture_allowed: bool
-    # CURRENT, or EVIDENCE_EXPIRED: data the evidence rests on was deleted. The artifact still runs until its
-    # expiry (book ch. 11 / BR-DAT-16) but can never be promoted again; the runner reports it every cycle.
+    # CURRENT, or EVIDENCE_EXPIRED (data the evidence rests on was deleted, BR-DAT-16). The deletion ends the effective
+    # expiry, so ``load`` refuses such an artifact before this is set; the runner reports the field every cycle.
     evidence_status: str = "CURRENT"
 
     @property
