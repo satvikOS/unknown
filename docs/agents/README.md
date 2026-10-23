@@ -310,7 +310,7 @@ Everything here stays on this Mac; nothing below is committed except the approva
    - `question` is required.
    - `role` defaults to `research`.
    - `issuer_ids` takes up to 5 PIT entity ids or tickers.
-   - `instrument_ids` takes up to 20 internal instrument ids. Each must be in the core's instrument master: the API checks this read-only, and refuses the request when there is no core database to check. The ids are named in the task text, so jobs that differ only in their instruments are not deduplicated. The worker refuses a job whose stored ids are not the ones its task names.
+   - `instrument_ids` takes up to 20 internal instrument ids. Each must be in the core's instrument master: the API checks this read-only, and refuses the request when there is no core database to check. The ids are named in the task text, so jobs that differ only in their instruments are not deduplicated. The worker refuses a job whose stored ids are not exactly the ones its task names, in the same order, on the line right after the question (`pit_evidence.task_names_instruments`); an emptied list, or ids that appear only in the question's own text, are refused too. A question with a line of its own that starts `Instruments (internal instrument ids):` is refused at submission and by the worker, so the task cannot be read two ways. The terminal's job form does not offer this field yet.
    - `fields` takes XBRL concepts (taxonomy:Concept); the default is 12 common us-gaap/dei concepts.
    - `max_output_tokens` defaults to 8000 (range 256..32000).
    - `deadline_seconds` defaults to 3600.

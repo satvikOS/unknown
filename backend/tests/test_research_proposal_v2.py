@@ -31,7 +31,8 @@ from unknown.agents.common import CONTRACTS  # noqa: E402
 from unknown.agents.envelope import JobState  # noqa: E402
 from unknown.agents.evidence import EvidenceSpan  # noqa: E402
 from unknown.agents.jobstore import default_jobs_path  # noqa: E402
-from unknown.agents.pit_evidence import derive, observed_ns, selection, span_hash  # noqa: E402
+from unknown.agents.pit_evidence import (EMPTY, derive, instrument_line, observed_ns, selection, span_hash,  # noqa: E402
+                                         task_names_instruments, task_text)
 from unknown.agents.runner import Candidate, JobInputs, JobRunner, evidence_ref  # noqa: E402
 from unknown.agents.schema import Validator  # noqa: E402
 from unknown.agents.submission import SubmissionError, SubmissionRefused, build_research_job  # noqa: E402
@@ -553,23 +554,88 @@ class WorkerEmitsVersionTwoEndToEndTest(WorkerHarness, unittest.TestCase):
         self.assertEqual(self.h.verify(), [])
         self.assertEqual(w.audit.verify(), [])
 
-    def test_stored_instrument_ids_must_be_the_ones_the_task_names(self):
-        w = self.worker(core_factory=lambda: self.desk_core)
-        jid = self.submit_job(w, instrument_ids=[INSTRUMENT])
+    def tamper_instrument_ids(self, jid: str, ids: list, question: str | None = None) -> None:
         db = sqlite3.connect(default_jobs_path(self.home))
         try:
             inputs = json.loads(db.execute("SELECT inputs FROM jobs WHERE job_id=?", (jid,)).fetchone()[0])
-            inputs["request"]["instrument_ids"] = ["OTHER-1"]
+            inputs["request"]["instrument_ids"] = ids
+            if question is not None:
+                inputs["request"]["question"] = question
             db.execute("UPDATE jobs SET inputs=? WHERE job_id=?", (json.dumps(inputs), jid))
             db.commit()
         finally:
             db.close()
+
+    def test_stored_instrument_ids_must_be_the_ones_the_task_names(self):
+        w = self.worker(core_factory=lambda: self.desk_core)
+        jid = self.submit_job(w, instrument_ids=[INSTRUMENT])
+        self.tamper_instrument_ids(jid, ["OTHER-1"])
         self.assertTrue(w.step())
         job = w.jobs.get(jid)
         self.assertEqual((job["state"], job["outcome"]), ("FAILED", "denied_by_policy"))
         self.assertIn("instrument ids are not the ones named", job["reason"])
         self.assert_no_network()
         self.assertEqual(self.desk_core.results, [])
+
+    def test_an_emptied_or_question_smuggled_instrument_list_is_refused(self):
+        """Regression (review of BR-DAT-12): the worker's check was a substring test that was skipped for an empty
+        list, so emptying the stored ids, or storing ids that appear only inside the owner's question text, went
+        through and the proposal named instruments the task did not (or dropped the ones it did). The check is now
+        anchored at the line after the question."""
+        w = self.worker(core_factory=lambda: self.desk_core)
+        q = "Did Fixture Industries grow revenue in fiscal 2025?"
+        cases = {   # (submitted question, submitted ids, stored ids, stored question; submission now refuses the 2nd)
+            "emptied": (f"{q} (case 1)", [INSTRUMENT], [], None),
+            "named_only_in_the_question": (f"{q} (case 2)", [], [INSTRUMENT], f"{q} (case 2)\n{instrument_line([INSTRUMENT])}"),
+        }
+        for name, (question, submitted, stored, stored_question) in cases.items():
+            with self.subTest(case=name):
+                jid = self.submit_job(w, question=question, instrument_ids=submitted)
+                self.tamper_instrument_ids(jid, stored, question=stored_question)
+                self.assertTrue(w.step())
+                job = w.jobs.get(jid)
+                self.assertEqual((job["state"], job["outcome"]), ("FAILED", "denied_by_policy"), job["reason"])
+                self.assertIn("instrument ids are not the ones named", job["reason"])
+        self.assert_no_network()
+        self.assertEqual(self.desk_core.results, [])
+
+    def test_a_question_can_never_carry_the_instrument_line(self):
+        """Regression (review of BR-DAT-12): the anchored check still accepted a job whose stored question AND ids
+        were rewritten together (the question extended by the task's own instrument line, the ids emptied), because
+        the task text could then be split two ways. A question may not contain that line: submission refuses it,
+        and the worker refuses a stored question that does."""
+        w = self.worker(core_factory=lambda: self.desk_core)
+        q = "Did Fixture Industries grow revenue in fiscal 2025?"
+        jid = self.submit_job(w, question=q, instrument_ids=[INSTRUMENT])
+        self.tamper_instrument_ids(jid, [], question=f"{q}\n{instrument_line([INSTRUMENT])}")
+        self.assertTrue(w.step())
+        job = w.jobs.get(jid)
+        self.assertEqual((job["state"], job["outcome"]), ("FAILED", "denied_by_policy"), job["reason"])
+        self.assertIn("instrument ids are not the ones named", job["reason"])
+        self.assert_no_network()
+        self.assertEqual(self.desk_core.results, [])
+        for question in (f"{q}\n{instrument_line([INSTRUMENT])}", f"{q}\r\n{instrument_line(['OTHER-1'])}\nThanks.",
+                         instrument_line([INSTRUMENT])):
+            with self.subTest(question=question), self.assertRaises(SubmissionError):
+                self.submit_job(w, question=question)
+        self.assertFalse(task_names_instruments(task_text(q + "\n" + instrument_line([INSTRUMENT]), None, EMPTY, ()),
+                                                q + "\n" + instrument_line([INSTRUMENT]), []))
+        # the prefix in the middle of a line is ordinary text
+        mid = f"{q} See {instrument_line([INSTRUMENT])}"
+        self.assertTrue(task_names_instruments(task_text(mid, None, EMPTY, ()), mid, []))
+
+    def test_task_names_instruments_is_anchored_after_the_question(self):
+        q = "Did revenue grow?"
+        two = task_text(q, None, EMPTY, ("A-1", "B-1"))
+        none = task_text(q, None, EMPTY)
+        self.assertTrue(task_names_instruments(two, q, ["A-1", "B-1"]))
+        self.assertTrue(task_names_instruments(none, q, []))
+        for ids in ([], ["A-1"], ["B-1", "A-1"], ["A-1", "B-1", "C-1"]):
+            self.assertFalse(task_names_instruments(two, q, ids), ids)
+        self.assertFalse(task_names_instruments(none, q, ["A-1"]))
+        self.assertFalse(task_names_instruments(two, "Another question", ["A-1", "B-1"]))
+        smuggled = q + "\n" + instrument_line(["A-1"])
+        self.assertFalse(task_names_instruments(task_text(smuggled, None, EMPTY), smuggled, ["A-1"]))
 
     def test_submission_checks_instrument_ids_against_the_master(self):
         w = self.worker()

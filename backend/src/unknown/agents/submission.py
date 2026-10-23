@@ -9,12 +9,13 @@ longer matches the input hashes.
 
 Request fields (unknown fields are refused):
   question           required, 1..4000 characters
+                     (no line of it may start like the task's instrument line; see ``instrument_ids``)
   role               default "research"
   issuer_ids         up to 5 PIT entity ids or tickers known to the research store (optional)
   instrument_ids     up to 20 internal instrument ids (optional). Each must be in the core's instrument master:
                      checked here through ``instrument_known`` and again by the core when it records the
                      proposal. They are named in the task text, so they are part of the input hashes.
-  fields            XBRL concepts (taxonomy:Concept); default ``pit_evidence.DEFAULT_FIELDS``
+  fields             XBRL concepts (taxonomy:Concept); default ``pit_evidence.DEFAULT_FIELDS``
   max_output_tokens  default 8000, 256..32000
   deadline_seconds   default 3600, 60..86400 (covers queueing and running)
   horizon_seconds    default 7776000 (90 days), 1..31536000
@@ -33,7 +34,8 @@ from ..domain.money import Money
 from .config import OwnerPolicy
 from .envelope import ROLE_RE, EnvelopeError, JobEnvelope
 from .jobstore import new_job_id
-from .pit_evidence import EMPTY, EvidenceError, derive, selection, task_text
+from .pit_evidence import (EMPTY, INSTRUMENT_LINE_PREFIX, EvidenceError, derive, question_has_instrument_line, selection,
+                           task_text)
 from .prompts import PROMPT_TEMPLATE_HASH
 
 OUTPUT_SCHEMA = "research_answer"
@@ -104,6 +106,9 @@ def build_research_job(body: Mapping[str, Any], *, policy: OwnerPolicy | None, r
     question = body.get("question")
     if not isinstance(question, str) or not question.strip() or len(question) > MAX_QUESTION:
         raise SubmissionError(f"question must be a non-empty string of at most {MAX_QUESTION} characters")
+    if question_has_instrument_line(question):
+        raise SubmissionError("the question may not contain a line starting with "
+                              f"{INSTRUMENT_LINE_PREFIX.strip()!r}; name instruments in instrument_ids")
     role = body.get("role", DEFAULTS["role"])
     if not isinstance(role, str) or not ROLE_RE.match(role):
         raise SubmissionError("role must match ^[a-z][a-z0-9_]{0,63}$")

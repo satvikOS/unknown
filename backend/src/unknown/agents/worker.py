@@ -65,7 +65,7 @@ from .config import BreakerConfig, OwnerPolicy, OwnerPolicyError, default_policy
 from .envelope import EnvelopeError, JobEnvelope
 from .gate import DataUseGate, GateError, load_provider_policies
 from .jobstore import MAX_START_ATTEMPTS, JobStore, StateConflict, default_jobs_path, store_state_for
-from .pit_evidence import EMPTY, Evidence, EvidenceError, EvidenceSelection, derive, instrument_line, manifest_matches
+from .pit_evidence import EMPTY, Evidence, EvidenceError, EvidenceSelection, derive, manifest_matches, task_names_instruments
 from .prompts import agent_principal_id, proposal_command_id
 from .providers.anthropic import AnthropicAdapter
 from .providers.base import CircuitBreaker, ProviderAdapter, RetryPolicy, SendRefused
@@ -398,10 +398,12 @@ class Worker:
         ones the task names (the task is in the input hashes)."""
         raw = (inputs.get("evidence") or {}).get("selection")
         sel = EvidenceSelection.from_dict(raw) if raw is not None else None
-        instruments = (inputs.get("request") or {}).get("instrument_ids") or []
+        request = inputs.get("request") or {}
+        instruments = request.get("instrument_ids") or []
         if not isinstance(instruments, list) or not all(isinstance(i, str) for i in instruments):
             raise EvidenceError("the stored instrument ids are malformed")
-        if instruments and instrument_line(instruments) not in task:
+        question = request.get("question")
+        if not isinstance(question, str) or not task_names_instruments(task, question, instruments):
             raise EvidenceError("the stored instrument ids are not the ones named in the job's task")
         return (sel.as_of_ns if sel is not None else env.created_ns, tuple(instruments),
                 sel.entity_ids if sel is not None else ())
