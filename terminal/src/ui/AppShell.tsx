@@ -1,5 +1,9 @@
-/** Authenticated application shell: header, navigation, workspace, overlays and global shortcuts. */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+/**
+ * Authenticated application shell: header with the command line, navigation, the workspace or the multi-panel
+ * workstation (#/workstation), status bar, overlays and global shortcuts. A hash route to a workspace still opens
+ * that one workspace on its own (deep links).
+ */
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ControlDrawer } from '../controls/Controls';
 import { ControlProvider, useControl } from '../controls/ControlProvider';
 import { useQuery, useRoute, useRuntime } from '../state/react';
@@ -7,7 +11,12 @@ import { preloadWorkspace, WorkspaceHost } from '../workspaces/lazy';
 import { DEFAULT_WORKSPACE, findWorkspace, hasWorkspace, WORKSPACES } from '../workspaces/registry';
 import { StepUpDialog } from './AuthScreens';
 import { charKeysEnabled, setCharKeys, useCharKeys } from './charKeys';
+import { CommandLine, FunctionHelp } from './CommandLine';
 import { CommandPalette } from './CommandPalette';
+import { setDefaultCommandTarget } from './functions';
+import { HeaderWidgetStrip } from './headerWidgets';
+import { setUpDown, useUpDown } from './marketPrefs';
+import { StatusBar } from './StatusBar';
 import { Header } from './Header';
 import { Icon } from './Icon';
 import { isTypingTarget, MOD_LABEL, SequenceMatcher } from './keys';
@@ -17,10 +26,26 @@ import type { PaletteItem } from './palette';
 import { Kbd, modeColor } from './primitives';
 import { nextTheme, setTheme, useTheme } from './theme';
 
+const Workstation = lazy(() => import('./workstation/Workstation'));
+export const WORKSTATION_ID = 'workstation';
+const WORKSTATION_SHORTCUT = 'g w';
+
 function Nav({ current, onHelp }: { current: string; onHelp: () => void }) {
   return (
     <nav className="nav" aria-label="Workspaces">
       <ul>
+        <li>
+          <a
+            className="nav-item"
+            href={`#/${WORKSTATION_ID}`}
+            aria-current={current === WORKSTATION_ID ? 'page' : undefined}
+            title={`Multi-panel workstation with linked panels and saved layouts (keys: ${WORKSTATION_SHORTCUT})`}
+          >
+            <Icon name="workstation" />
+            <span>Workstation</span>
+            <Kbd keys={WORKSTATION_SHORTCUT} />
+          </a>
+        </li>
         {WORKSPACES.map((w) => (
           <li key={w.id}>
             <a
@@ -52,6 +77,9 @@ function ShortcutsHelp({ open, onClose }: { open: boolean; onClose: () => void }
   const rows: [string, string][] = [
     [`${MOD_LABEL} K`, 'Command palette: jump to workspaces and records, run commands'],
     ['?', 'This list'],
+    ['F2', 'Command line: type a security and a function, for example AAPL.XNAS GP, then Enter'],
+    ['F1', 'Function list (or type HELP in the command line)'],
+    [WORKSTATION_SHORTCUT, 'Go to the multi-panel workstation'],
     ...WORKSPACES.map((w): [string, string] => [w.shortcut, `Go to ${w.title}`]),
     ...WORKSPACES.flatMap((w) => (w.keys ?? []).map((k): [string, string] => [k.keys, `${w.title}: ${k.action}`])),
     ['↑ ↓ Home End PgUp PgDn', 'Move between table rows (when a row has focus)'],
@@ -109,10 +137,11 @@ function ShortcutsHelp({ open, onClose }: { open: boolean; onClose: () => void }
   );
 }
 
-function usePaletteItems(open: boolean, openHelp: () => void): { items: PaletteItem[]; status: string | undefined } {
+function usePaletteItems(open: boolean, openHelp: () => void, openFunctions: () => void): { items: PaletteItem[]; status: string | undefined } {
   const { router, stream, auth } = useRuntime();
   const control = useControl();
   const theme = useTheme();
+  const upDown = useUpDown();
   const charKeys = useCharKeys();
   const sessions = useQuery(open && hasWorkspace('sessions') ? '/api/sessions' : null);
   const orders = useQuery(open && hasWorkspace('orders') ? '/api/orders' : null, { limit: 200 });
@@ -145,6 +174,14 @@ function usePaletteItems(open: boolean, openHelp: () => void): { items: PaletteI
         run: () => control.openDrawer('stop'),
       },
     ];
+    out.push({
+      id: `ws:${WORKSTATION_ID}`,
+      group: 'Workspaces',
+      label: 'Workstation',
+      hint: WORKSTATION_SHORTCUT,
+      keywords: 'panels layout tiles split linked channels template WS',
+      run: () => router.navigate(WORKSTATION_ID),
+    });
     for (const w of WORKSPACES) {
       out.push({
         id: `ws:${w.id}`,
@@ -212,7 +249,15 @@ function usePaletteItems(open: boolean, openHelp: () => void): { items: PaletteI
         keywords: 'dark light system appearance',
         run: () => setTheme(nextTheme(theme)),
       },
+      {
+        id: 'term:updown',
+        group: 'Terminal',
+        label: upDown === 'green-up' ? 'Price colours: switch to red up, green down' : 'Price colours: switch to green up, red down',
+        keywords: 'up down colour color convention tick flash',
+        run: () => setUpDown(upDown === 'green-up' ? 'red-up' : 'green-up'),
+      },
       { id: 'term:help', group: 'Terminal', label: 'Keyboard shortcuts', hint: '?', keywords: 'keys help', run: openHelp },
+      { id: 'term:functions', group: 'Terminal', label: 'Function list (command line)', hint: 'F1', keywords: 'functions mnemonics command line GO help', run: openFunctions },
       {
         id: 'term:charkeys',
         group: 'Terminal',
@@ -223,7 +268,7 @@ function usePaletteItems(open: boolean, openHelp: () => void): { items: PaletteI
       { id: 'term:logout', group: 'Terminal', label: 'Sign out', keywords: 'logout session', run: () => void auth.logout() },
     );
     return out;
-  }, [control, router, stream, auth, theme, charKeys, sessions.data, orders.data, instruments.data, openHelp]);
+  }, [control, router, stream, auth, theme, upDown, charKeys, sessions.data, orders.data, instruments.data, openHelp, openFunctions]);
 
   const failing = [sessions, orders, instruments].filter((q) => q.error).length;
   const loading = [sessions, orders, instruments].some((q) => q.status === 'loading');
@@ -238,18 +283,35 @@ function Shell() {
   const overview = useQuery('/api/overview');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [functionsOpen, setFunctionsOpen] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
   const openHelp = useCallback(() => setHelpOpen(true), []);
-  const { items, status } = usePaletteItems(paletteOpen, openHelp);
+  const openFunctions = useCallback(() => setFunctionsOpen(true), []);
+  const { items, status } = usePaletteItems(paletteOpen, openHelp, openFunctions);
 
-  const workspace = findWorkspace(route.workspace);
+  const isWorkstation = route.workspace === WORKSTATION_ID;
+  const workspace = isWorkstation ? undefined : findWorkspace(route.workspace);
   useEffect(() => {
-    if (!workspace) router.navigate(DEFAULT_WORKSPACE);
-  }, [workspace, router]);
+    if (!workspace && !isWorkstation) router.navigate(DEFAULT_WORKSPACE);
+  }, [workspace, isWorkstation, router]);
 
   useEffect(() => {
-    if (workspace) document.title = `${workspace.title} · Unknown`;
-  }, [workspace]);
+    if (isWorkstation) document.title = 'Workstation · Unknown';
+    else if (workspace) document.title = `${workspace.title} · Unknown`;
+  }, [workspace, isWorkstation]);
+
+  // Outside the workstation, the command line opens functions in this window on link channel 1 ('default').
+  useEffect(() => {
+    setDefaultCommandTarget({
+      channel: 'default',
+      label: 'this window',
+      open: (id, rest) => {
+        router.navigate(id, ...rest);
+        return null;
+      },
+    });
+    return () => setDefaultCommandTarget(null);
+  }, [router]);
 
   // Move focus to the workspace title on navigation (screen readers announce the new page). The title exists only
   // once the workspace's chunk has loaded, so this runs when the workspace reports that it is on screen.
@@ -260,7 +322,7 @@ function Shell() {
   }, []);
   const navigate = useCallback((id: string, ...rest: string[]) => router.navigate(id, ...rest), [router]);
 
-  const matcher = useMemo(() => new SequenceMatcher(WORKSPACES.map((w) => w.shortcut)), []);
+  const matcher = useMemo(() => new SequenceMatcher([WORKSTATION_SHORTCUT, ...WORKSPACES.map((w) => w.shortcut)]), []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'k') {
@@ -281,7 +343,10 @@ function Shell() {
         return;
       }
       const seq = matcher.feed(e.key, Date.now());
-      if (seq) {
+      if (seq === WORKSTATION_SHORTCUT) {
+        e.preventDefault();
+        router.navigate(WORKSTATION_ID);
+      } else if (seq) {
         const ws = WORKSPACES.find((w) => w.shortcut === seq);
         if (ws) {
           e.preventDefault();
@@ -302,16 +367,32 @@ function Shell() {
       <div style={{ position: 'sticky', top: 0, zIndex: 30 }}>
         <div className="mode-band" data-mode={mode ?? 'UNKNOWN'} aria-hidden="true" />
         <Header onOpenPalette={() => setPaletteOpen(true)} />
+        <CommandLine onHelp={openFunctions} />
+        <HeaderWidgetStrip />
       </div>
       <div className="shell-body">
-        <Nav current={workspace?.id ?? ''} onHelp={openHelp} />
+        <Nav current={isWorkstation ? WORKSTATION_ID : (workspace?.id ?? '')} onHelp={openHelp} />
         <main id="main" className="main" ref={mainRef} tabIndex={-1} aria-labelledby="ws-title">
-          {workspace ? <WorkspaceHost workspace={workspace} route={route} navigate={navigate} onReady={onWorkspaceReady} /> : null}
+          {isWorkstation ? (
+            <Suspense
+              fallback={
+                <p className="muted ws-loading" role="status">
+                  Loading the workstation…
+                </p>
+              }
+            >
+              <Workstation />
+            </Suspense>
+          ) : workspace ? (
+            <WorkspaceHost workspace={workspace} route={route} navigate={navigate} onReady={onWorkspaceReady} />
+          ) : null}
         </main>
       </div>
+      <StatusBar />
       <ControlDrawer />
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} items={items} status={status} />
       <ShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <FunctionHelp open={functionsOpen} onClose={() => setFunctionsOpen(false)} />
       <StepUpDialog />
       <Notices />
     </div>
