@@ -23,6 +23,8 @@ export interface Runtime {
 export interface RuntimeOptions {
   baseUrl?: string;
   createEventSource?: EventSourceFactory;
+  /** The HTTP transport (tests); defaults to the global fetch. */
+  fetchImpl?: typeof fetch;
 }
 
 /**
@@ -42,6 +44,7 @@ export function createRuntime(options: RuntimeOptions = {}): Runtime {
   let auth: AuthStore | null = null;
   const client = new ApiClient({
     baseUrl,
+    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
     onUnauthorized: () => auth?.markUnauthenticated(),
     stepUp: stepUp.request,
   });

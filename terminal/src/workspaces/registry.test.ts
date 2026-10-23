@@ -70,12 +70,12 @@ describe('workspace registry', () => {
     }
   });
 
+  // Imports (and so transforms) every workspace's whole module graph: run alone on a cold cache this takes longer
+  // than vitest's 5 s default, so it has its own budget.
   it('every registered workspace loads a component', async () => {
-    for (const w of WORKSPACES) {
-      const component = await w.load();
-      expect(typeof component, w.id).toBe('function');
-    }
-  });
+    const loaded = await Promise.all(WORKSPACES.map(async (w) => [w.id, await w.load()] as const));
+    for (const [id, component] of loaded) expect(typeof component, id).toBe('function');
+  }, 60_000);
 
   it('orders by `order`, then title', () => {
     expect(validateRegistry([def('z', 'g z', 5), def('b', 'g b'), def('a', 'g a')]).map((d) => d.id)).toEqual(['z', 'a', 'b']);
