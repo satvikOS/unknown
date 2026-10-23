@@ -12,6 +12,7 @@
  *    events and the core-driven overview refetches, but the tearsheet does not; Refresh fetches it.
  * 5. Nanosecond timestamps are shown from the API's exact *_ns_str: the audit event detail and its payload JSON,
  *    and a typed record's time (an order's accepted time: its millisecond and the nanoseconds in its tooltip).
+ * 6. NAV-by-owner shares add up to exactly 100.00% (largest-remainder rounding).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -273,5 +274,24 @@ test('a typed record\'s time comes from the API string: an order\'s accepted tim
   // The text is UTC to the millisecond, the tooltip local time with all nine fraction digits.
   await expect(at).toHaveText(utcNs(exact).replace(/(\.\d{3})\d{6} UTC$/, '$1 UTC'));
   await expect(at).toHaveAttribute('title', new RegExp(`\\.${exact.slice(-9)}$`));
+  expect(problems).toEqual([]);
+});
+
+test('NAV-by-owner shares add up to exactly 100.00%', async ({ page }) => {
+  const problems = watchProblems(page);
+  await login(page);
+  await page.goto(`${baseUrl()}/#/portfolio`);
+  const list = page.locator('#main').getByRole('list', { name: 'Marked NAV by owner' });
+  await expect(list).toBeVisible({ timeout: 20_000 });
+  const values = await list.locator('.pf-bar-value').allInnerTexts();
+  expect(values.length, 'owners with a positive marked NAV (01-flow leaves unallocated cash and a session)').toBeGreaterThanOrEqual(2);
+  expect(values.every((v) => v.includes('USD'))).toBe(true);
+  const bps = values.map((v) => {
+    const m = /(\d+)\.(\d{2})% of positive NAV$/.exec(v.trim());
+    expect(m, v).not.toBeNull();
+    return Number(m![1]) * 100 + Number(m![2]);
+  });
+  expect(bps.reduce((a, b) => a + b, 0)).toBe(10_000);
+  await expect(page.locator('#main').getByText(/they add up to exactly 100\.00%/)).toBeVisible();
   expect(problems).toEqual([]);
 });

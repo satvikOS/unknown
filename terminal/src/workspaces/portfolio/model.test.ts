@@ -152,11 +152,37 @@ describe('exact chart geometry', () => {
       { key: 'outside', value: '0.000000' },
       { key: 'exception:x', value: '-1.00' },
     ]);
+    // Exact shares: 66.7111…% and 33.2888…%. Floors (6671 + 3328) leave 1 bp, which goes to the larger remainder.
     expect(r.parts).toEqual([
       { key: 'unallocated', value: '200.000000', bps: 6671 },
-      { key: 'session:S1', value: '99.800000', bps: 3328 },
+      { key: 'session:S1', value: '99.800000', bps: 3329 },
     ]);
     expect(r.excluded).toEqual(['exception:x']);
+  });
+
+  it('NAV-by-owner shares always sum to exactly 100.00% (largest remainder), each within 1 bp of exact', () => {
+    const sum = (parts: { bps: number }[]) => parts.reduce((a, p) => a + p.bps, 0);
+    // Thirds: 3333.33… each; the spare bp goes to the first of the tied parts.
+    expect(exactShares([{ key: 'a', value: '1' }, { key: 'b', value: '1' }, { key: 'c', value: '1' }]).parts.map((p) => p.bps)).toEqual([3334, 3333, 3333]);
+    // Mixed scales (2, 3 and 1 decimal places) are aligned exactly before dividing.
+    const mixed = exactShares([{ key: 'x', value: '0.01' }, { key: 'y', value: '1234567.891' }, { key: 'z', value: '765432.1' }]);
+    expect(sum(mixed.parts)).toBe(10_000);
+    // A part below 0.005% can still be shown as 0.00% or 0.01%, never dropped from the total.
+    expect(mixed.parts.find((p) => p.key === 'x')?.bps).toBeLessThanOrEqual(1);
+    expect(exactShares([{ key: 'only', value: '42.10' }]).parts).toEqual([{ key: 'only', value: '42.10', bps: 10_000 }]);
+    expect(exactShares([{ key: 'n', value: '-1' }, { key: 'z', value: '0' }, { key: 'u', value: null }])).toEqual({ parts: [], excluded: ['n', 'u'] });
+    // Many owners with awkward values: the sum is exact every time, and no share is off by a full basis point.
+    let seed = 7;
+    const rand = () => (seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648);
+    for (let round = 0; round < 50; round++) {
+      const n = 2 + (rand() % 9);
+      const items = Array.from({ length: n }, (_, i) => ({ key: `o${i}`, value: `${rand() % 100000}.${String(rand() % 1000000).padStart(6, '0')}` }));
+      const { parts } = exactShares(items);
+      if (!parts.length) continue;
+      expect(sum(parts)).toBe(10_000);
+      const total = parts.reduce((a, p) => a + Number(p.value), 0);
+      for (const p of parts) expect(Math.abs(p.bps - (Number(p.value) / total) * 10_000)).toBeLessThan(1 + 1e-6);
+    }
   });
 
   it('draws a line path in its box and centres a flat series', () => {
