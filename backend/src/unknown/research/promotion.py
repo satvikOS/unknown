@@ -52,9 +52,11 @@ case the spec declares. Activation (by the owner or by automatic selection)
 refuses an expired artifact, and automatic selection ranks by the same
 conservative paired lower bound the gate uses.
 
-Evidence retention (BR-DAT-16). A manifest's dataset entry may state
-``retention_until``, the date by which licence terms require the raw data the
-run read to be deleted. An artifact's evidence datasets are those of its
+Evidence retention (BR-DAT-16). A manifest's dataset entry states
+``retention_until`` (``research.manifest``): the last day a result resting on
+the data may be used, derived when the manifest is built from the provider
+registry and the point-in-time store (``research.bars.pit_manifest_entry``), or
+``"unbounded"``. An artifact's evidence datasets are those of its
 evaluation manifest and of the trials its passed evidence cites. Its expiry is
 bounded by them: registration refuses an ``expires_on`` later than the
 evaluation manifest's earliest retention date, and the effective expiry used by
@@ -84,6 +86,7 @@ from typing import Any
 from ..domain.fixed import Fixed
 from ..domain.principal import Principal, Role
 from .common import AuthorityError, EvidenceError, RegistryError, stable_dumps, stable_hash
+from .manifest import UNBOUNDED
 from .registry import ResearchRegistry
 from .spec import StrategySpec
 
@@ -140,14 +143,16 @@ def _upward(frm: str, to: str) -> bool:
 
 
 def _retention(entry: Any) -> date | None:
-    """A manifest dataset entry's ``retention_until`` (ISO date), or None when it states no deletion deadline."""
+    """A manifest dataset entry's ``retention_until`` (ISO date), or None when it states no deletion deadline
+    (``"unbounded"``, or not recorded)."""
     value = entry.get("retention_until") if isinstance(entry, dict) else None
-    if value is None:
+    if value is None or value == UNBOUNDED:
         return None
     try:
         return date.fromisoformat(value)
     except (TypeError, ValueError):
-        raise EvidenceError(f"manifest dataset retention_until {value!r} is not an ISO date") from None
+        raise EvidenceError(f"manifest dataset retention_until {value!r} is neither an ISO date nor "
+                            f"{UNBOUNDED!r}") from None
 
 PROTOCOL_FIELDS = {
     "confidence": "decimal in (0.5, 1)", "replications": "int >= 200", "mean_block": "int >= 1 or null (round(n^(1/3)))",
@@ -346,9 +351,9 @@ class PromotionService:
         # BR-DAT-16: the artifact may not outlive the evidence it rests on.
         bound = self._retention_bound([evaluation_manifest_hash])
         if bound is not None and expires_on > bound:
-            raise EvidenceError(f"expires_on {expires_on.isoformat()} is after {bound.isoformat()}, when the evaluation "
-                                "manifest's data must be deleted under its licence (BR-DAT-16): set the expiry on or "
-                                "before the retention date")
+            raise EvidenceError(f"expires_on {expires_on.isoformat()} is after {bound.isoformat()}, the last day the "
+                                "evaluation manifest's data may be used under its licence (BR-DAT-16): set the expiry on "
+                                "or before the retention date")
         bundle = {"spec_hash": spec.spec_hash, "strategy_id": spec.strategy_id, "parameters": {k: v.to_str() for k, v in
                   sorted(spec.parameters.items())}, "features": spec.body["features"], "code_hash": code_hash,
                   "dependency_lock": "standard library only (no third-party packages)", "schema": "strategy-spec@1"}
