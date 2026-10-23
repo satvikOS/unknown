@@ -50,6 +50,7 @@ function routes(i: Ids): string[] {
     '#/policy',
     '#/policy/draft',
     '#/capabilities',
+    '#/workstation',
   ];
   if (i.session) r.push(`#/sessions/${i.session}`);
   if (i.order) r.push(`#/orders/${i.order}`);
@@ -75,6 +76,8 @@ for (const scheme of ['dark', 'light'] as const) {
   test(`every workspace passes the accessibility checks (${scheme} theme)`, async ({ browser }) => {
     test.setTimeout(240_000);
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: scheme });
+    // Dark is the terminal's default whatever the system says; the light pass selects the light theme explicitly.
+    if (scheme === 'light') await context.addInitScript(() => window.localStorage.setItem('unknown.terminal.theme', 'light'));
     const page = await context.newPage();
     const problems = watchProblems(page);
     const found: Violation[] = [];
@@ -127,7 +130,7 @@ for (const scheme of ['dark', 'light'] as const) {
     await page.goto(`${baseUrl()}/#/overview`);
     await settle(page);
     await page.keyboard.press('ControlOrMeta+k');
-    await expect(page.getByRole('combobox')).toBeFocused();
+    await expect(page.getByRole('combobox', { name: /^Search workspaces/ })).toBeFocused();
     found.push(...(await audit(page, 'palette')));
     await page.keyboard.press('Escape');
     await page.locator('#main').focus();

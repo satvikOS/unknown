@@ -3,10 +3,13 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { RuntimeProvider } from './state/react';
 import { createRuntime } from './state/runtime';
+import { applyUpDown } from './ui/marketPrefs';
 import { applyTheme } from './ui/theme';
 import './ui/styles.css';
+import './ui/shell.css';
 
 applyTheme();
+applyUpDown();
 
 const runtime = createRuntime();
 const root = document.getElementById('root');

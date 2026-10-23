@@ -5,6 +5,7 @@ import { hasWorkspace } from '../workspaces/registry';
 import { routeHref } from '../state/router';
 import type { QueryResult } from '../state/react';
 import { Icon } from './Icon';
+import { usePanel, wsTitleId } from './panel';
 import { Age, StatusPill } from './primitives';
 
 export interface WorkspaceFrameProps {
@@ -23,13 +24,15 @@ export function WorkspaceFrame({ title, description, queries = [], actions, chil
   const seq = seqs.length ? Math.min(...seqs) : null;
   const fetching = queries.some((q) => q.fetching);
   const errors = queries.filter((q) => q.error);
+  const panel = usePanel();
+  const Heading = panel ? 'h2' : 'h1';
   return (
     <>
       <div className="ws-head">
         <div>
-          <h1 id="ws-title" tabIndex={-1}>
+          <Heading id={wsTitleId(panel)} className={panel ? 'ws-panel-title' : undefined} tabIndex={-1}>
             {title}
-          </h1>
+          </Heading>
           {description ? <p>{description}</p> : null}
         </div>
         <div className="provenance" aria-live="polite">

@@ -63,6 +63,11 @@ src/
   state/auth.ts, stepup.ts, notices.ts, router.ts, runtime.ts, react.tsx (hooks)
   controls/             red STOP, green START, control drawer, pure control model
   ui/                   shell, header, nav, palette, DataTable, primitives, modal, theme, styles.css
+  ui/CommandLine.tsx, functions.ts   command line and function registry (<SECURITY> <FUNCTION> <GO>)
+  ui/workstation/       multi-panel workstation: layout tree, persistence, panels, splitters
+  ui/live.tsx           PriceCell, useTickFlash, DataTypeBadge (live numbers)
+  ui/link.ts            link channels (linked security per panel)
+  ui/headerWidgets.tsx, streamHealth.ts, StatusBar.tsx   plug-in points for ticker tape and market data
   workspaces/registry.ts   the only list of workspaces (nav, palette, shortcuts)
   workspaces/lazy.tsx      on-demand loading of each workspace chunk (loading line, contained failure)
   workspaces/<id>/         one directory per workspace
@@ -169,6 +174,36 @@ useTrackedCommand(commandId) // live record for one command;  <CommandStatus com
 
 Formatting is exact. `formatDecimal('1234567.8912', { minFraction: 2 })` gives `1,234,567.8912`. Trailing zeros are trimmed down to the currency's minor units, and non-zero digits are never rounded away. `compareDecimal` sorts money without floats.
 
+## Workstation shell
+
+**Theme.** Dark (near-black) is the default; light and "follow the system" are options (palette, header button).
+Amber (`--cmd`) marks commands and functions. Market tokens: `--up`/`--down`/`--unch`, `--bid`/`--ask`, `--alert`,
+`--stale`, `--src-realtime|delayed|frozen|synthetic`, `--link-1..8`, `--row-dense` (20 px; opt in with
+`table.data.dense`). The up/down colours follow the owner's convention (`ui/marketPrefs.ts`; green-up default,
+red-up option in the palette). Numbers use tabular figures everywhere.
+
+**Command line.** Always under the header: `AAPL.XNAS GP` then Enter (or GO). A security key is `<SYMBOL>.<MIC>`
+(`ui/link.ts`). Built-in mnemonics: `GP` chart, `DES` company, `MON` monitor, `TS` time and sales, `DEPTH` market
+depth, `WS` workstation, plus every installed workspace by its id (`RISK`, `ORDERS`, ...). `HELP` or F1 lists them;
+F2 focuses the line; Tab accepts a suggestion; Up/Down walk suggestions or history. A function whose workspace is
+not installed says so. Register more with `registerFunction({ mnemonic, workspace, needsSecurity, help, rest? })`.
+The command line only opens views; it never sends an order.
+
+**Workstation** (`#/workstation`, `g w`). Panels in resizable splits (drag, or focus a divider and use the arrow
+keys; Shift for larger steps). Each panel hosts any registered workspace and joins a link channel (1-8, or
+unlinked); panels on a channel follow one security. Workspaces read it with `useLinkedSecurity()` and publish with
+`useSetLinkedSecurity()`; both use the enclosing panel's channel. Inside a panel a `WorkspaceFrame` title is an
+`h2` with id `ws-title-<panel>` (`ui/panel.ts`). Layouts autosave as a draft in `localStorage`; Save creates a new
+version of a named layout (last 10 kept and restorable); templates; lock mode refuses structural changes. A corrupt
+store is set aside under `unknown.terminal.workstation.corrupt` and a template opens with a notice. Hash routes to a
+workspace still open it alone.
+
+**Plug-in points.** `registerHeaderWidget({ id, label, component, order })` adds a strip under the header (ticker
+tape). A market-data client calls `registerStreamHealthProvider({ subscribe, getSnapshot })`; `useStreamHealth()`
+returns null until then and the status bar says no client is registered. `<PriceCell value dataType source stale />`
+and `useTickFlash(value, ref?)` flash on change through an element ref (no re-render of the surrounding tree;
+exact decimal comparison). SYNTHETIC values always show their label. No API here names or assumes a broker.
+
 ## Contract checklist (enforced in code)
 
 - Money is a decimal string from the API and is never converted to a JS number. Every amount shows its currency, and amount kinds are labelled in column headers and tooltips.
@@ -186,16 +221,20 @@ Text tokens on their surfaces, as computed from `styles.css`:
 
 | Pair | Dark | Light |
 |---|---|---|
-| text / surface | 14.4 | 16.2 |
-| muted text / surface-2 | 7.1 | 5.9 |
-| accent / surface | 8.9 | 6.3 |
-| ok, warn, bad, info / surface | 9.2, 9.7, 7.8, 8.8 | 5.9, 6.0, 6.4, 6.2 |
-| mode SIMULATED, PAPER, LIVE / surface | 8.1, 8.6, 6.7 | 6.8, 6.8, 6.8 |
+| text / surface | 16.4 | 16.2 |
+| muted text / surface-2 | 8.1 | 5.9 |
+| accent / surface | 9.4 | 6.3 |
+| ok, warn, bad, info / surface | 9.7, 10.3, 8.3, 9.4 | 5.9, 6.0, 6.4, 6.2 |
+| mode SIMULATED, PAPER, LIVE / surface | 8.6, 9.1, 7.0 | 6.8, 6.8, 6.8 |
+| command amber / surface; GO text / GO fill | 10.4; 10.6 | 6.1; 6.3 |
+| up, down, unchanged / surface | 10.1, 6.8, 10.4 | 6.4, 6.4, 6.6 |
+| bid, ask, stale / surface | 8.6, 9.4, 6.5 | 6.2, 6.2, 6.4 |
+| REALTIME, DELAYED, FROZEN, SYNTHETIC / surface | 10.1, 11.8, 10.4, 8.6 | 5.9, 6.3, 6.2, 6.6 |
 | STOP text / STOP fill | 5.6 | 6.6 |
 | START text / START fill | 5.4 | 6.2 |
-| control border (inputs, buttons) / surface | 3.6 | 3.8 |
+| control border (inputs, buttons) / surface | 4.0 | 3.8 |
 
-The end-to-end suite measures these on the rendered pages; see `e2e/README.md`. On the last run it checked 5,251 text elements across 29 views per theme. The lowest text contrast was 5.35:1 (dark) and 4.78:1 (light), with no violations.
+The end-to-end suite measures these on the rendered pages; see `e2e/README.md`. On the last run it checked 6,233 text elements per theme across every audited view, including `#/workstation`. The lowest text contrast was 5.35:1 (dark) and 5.16:1 (light), with no violations.
 
 ## API notes for the backend
 
