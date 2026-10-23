@@ -12,17 +12,23 @@ Only the owner can do the actions below. Each step names the command and the doc
      - **Read-Only API off**;
      - trusted IP 127.0.0.1.
    - Time zone: America/New_York.
-3. In Client Portal, share market data with the paper account. Also review the subscriber status shown there ("Non-Commercial Professional" was observed; see STATUS.md).
+3. In Client Portal, share the live account's market data with the paper account (the paper account's settings). Also review the subscriber status shown there ("Non-Commercial Professional" was observed; see STATUS.md). Until sharing is in effect the paper account receives delayed data, and the core refuses buys on delayed quotes.
 4. Set up the IBKR environment once: `bash scripts/setup/ibkr_venv.sh`.
-5. Start the core with IBKR, then bootstrap the account. `--dry-run` first resolves the listings without sending anything:
+5. Run the read-only connectivity check. It uses its own client id (90), places nothing and writes nothing to the core. It prints the PAPER identity check, the server version, the clock skew against the policy's 2,000 ms limit, the market-data type IBKR delivers for AAPL, and whether real-time data is entitled. It exits 0 only when all of them pass:
    ```bash
    cd backend
+   PYTHONPATH=src ~/.unknown/venvs/ibkr/bin/python -m unknown.broker.ibkr.check --account IBKR-PAPER-1
+   ```
+   "delayed" means step 3 is not in effect yet. "frozen" usually means the market is closed: re-run during regular hours (09:30-16:00 New York).
+6. Start the core with IBKR, then bootstrap the account. `--dry-run` first resolves the listings without sending anything:
+   ```bash
    PYTHONPATH=src ~/.unknown/venvs/ibkr/bin/python -m unknown.broker.ibkr.serve --account IBKR-PAPER-1 --deployment mac-dev &
    PYTHONPATH=src ~/.unknown/venvs/ibkr/bin/python -m unknown.broker.ibkr.bootstrap_paper --account IBKR-PAPER-1 --deployment mac-dev --universe AAPL:NASDAQ,MSFT:NASDAQ --dry-run
    PYTHONPATH=src ~/.unknown/venvs/ibkr/bin/python -m unknown.broker.ibkr.bootstrap_paper --account IBKR-PAPER-1 --deployment mac-dev --universe AAPL:NASDAQ,MSFT:NASDAQ
    ```
-6. Open the terminal and review preflight. Press **green start** only when every blocker is clear.
-7. Work through the evidence checklist in `docs/integrations/ibkr.md` section 5. A capability moves to `paper-verified` only when its item passes. Item 4 now matters more: the core holds an IBKR **Inactive** order as UNKNOWN with its reservation (a held buy is canceled automatically). Record which real sequences produce Inactive.
+7. **Pricing: IBKR Pro Tiered (switched 2026-10-23, effective within 24 hours).** Every order pays at least the USD 0.35 minimum commission, plus exchange, clearing, regulatory and pass-through fees. A USD 100 buy of 4 shares costs about USD 0.36 in all, so a buy and a sell of a USD 100 position cost about USD 0.73: 0.73% of the USD 100 session seed, against a USD 5 target. Tiered applies only to SmartRouted orders; the adapter routes everything SMART. Values, sources and statuses: `config/fees/ibkr-pro-tiered-us.json`. The paper policy still reserves its conservative USD 1.20 per buy. That covers Tiered for orders up to the policy's USD 100 limit, but not above it for low-priced stocks: revisit the fee envelope before raising `max_order_notional`. The first paper commission reports confirm the plan is in effect.
+8. Open the terminal and review preflight. Press **green start** only when every blocker is clear.
+9. Work through the evidence checklist in `docs/integrations/ibkr.md` section 5. A capability moves to `paper-verified` only when its item passes. Item 4 now matters more: the core holds an IBKR **Inactive** order as UNKNOWN with its reservation (a held buy is canceled automatically). Record which real sequences produce Inactive.
 
 ## 2. Terminal on this Mac
 
