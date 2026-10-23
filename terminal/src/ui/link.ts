@@ -107,5 +107,5 @@ export function parseSecurityKey(key: string): { symbol: string; mic: string | n
   const dot = key.lastIndexOf('.');
   if (dot <= 0 || dot === key.length - 1) return { symbol: key, mic: null };
   const mic = key.slice(dot + 1);
-  return /^X[A-Z0-9]{3}$/.test(mic) ? { symbol: key.slice(0, dot), mic } : { symbol: key, mic: null };
+  return /^[A-Z][A-Z0-9]{3}$/.test(mic) ? { symbol: key.slice(0, dot), mic } : { symbol: key, mic: null };
 }
