@@ -451,6 +451,53 @@ class AgentEmitsVersionTwoTest(TempDirCase, unittest.TestCase):
                 self.tearDown()
                 self.setUp()
 
+    def test_a_claim_is_evidence_only_when_every_span_it_cites_is(self):
+        """Regression (review of BR-DAT-12): a claim verifies when its quote is in ANY span it cites, and the runner
+        kept a verified claim as soon as ONE cited span had a usable reference, silently dropping the others. A
+        quote found only in a span available after the job's as-of (look-ahead), in a span without store
+        provenance, or in a span cut by the 50-reference cap was then recorded as evidence pointing at a span
+        that does not contain it. Now a claim is carried only when every span it cites becomes a reference."""
+        good = typed_span("span-1")
+        quote = "Revenue guidance raised to $2,000,000"
+        bad = {"after_as_of": typed_span("span-2", f"Fixture Industries 8-K. {quote}.", available_ns=T0),
+               "observed_after_as_of": typed_span("span-2", f"Fixture Industries 8-K. {quote}.", observed_ns=T0),
+               "untyped": typed_span("span-2", f"Fixture Industries 8-K. {quote}.", ref_type="", ref_id="")}
+        claim = {"text": "Guidance was raised.", "span_ids": ["span-1", "span-2"], "quote": quote, "numbers": []}
+        for name, late in bad.items():
+            with self.subTest(case=name):
+                env = envelope(input_hashes=(good.content_hash, late.content_hash))
+                r = self.runner([result(answer(claims=[claim]))]).run(env, self.inputs([good, late]),
+                                                                      [Candidate("anthropic", MODEL)])
+                self.assertEqual(r.status, JobState.SUCCEEDED, r.reason)
+                self.assertEqual(r.verdicts[0].status.value, "verified")     # the quote is in span-2 only
+                p = r.proposal
+                self.assertEqual(CONTRACT.errors(p), [])
+                self.assertEqual((p["claims"], p["evidence"], p["abstain"]), ([], [], True))
+                self.assertTrue(any(a.startswith("[verified claim without typed evidence provenance") and "Guidance" in a
+                                    for a in p["assumptions"]), p["assumptions"])
+                self.tearDown()
+                self.setUp()
+        # every cited span typed: the claim keeps every reference it cites, in citation order
+        other = typed_span("span-2", f"Fixture Industries 8-K. {quote}.")
+        env = envelope(input_hashes=(good.content_hash, other.content_hash))
+        p = self.runner([result(answer(claims=[claim]))]).run(env, self.inputs([good, other]),
+                                                              [Candidate("anthropic", MODEL)]).proposal
+        self.assertEqual(([r["span_id"] for r in p["evidence"]], p["claims"][0]["evidence_indexes"], p["abstain"]),
+                         (["span-1", "span-2"], [0, 1], False))
+        self.tearDown()
+        self.setUp()
+        # the 50-reference cap: five claims fill it, so a sixth that needs a new reference is not carried at all
+        many = [typed_span(f"s{i}", f"Fixture filing line {i:02d}.") for i in range(51)]
+        claims = [{"text": f"claim {k}", "span_ids": [f"s{k * 10 + j}" for j in range(10)], "quote": f"line {k * 10:02d}",
+                   "numbers": []} for k in range(5)]
+        claims.append({"text": "claim 5", "span_ids": ["s0", "s50"], "quote": "line 50", "numbers": []})
+        env = envelope(input_hashes=tuple(s.content_hash for s in many))
+        p = self.runner([result(answer(claims=claims))]).run(env, self.inputs(many), [Candidate("anthropic", MODEL)]).proposal
+        self.assertEqual(CONTRACT.errors(p), [])
+        self.assertEqual((len(p["evidence"]), [c["text"] for c in p["claims"]]), (50, [f"claim {k}" for k in range(5)]))
+        self.assertNotIn("s50", [r["span_id"] for r in p["evidence"]])
+        self.assertTrue(any("claim 5" in a for a in p["assumptions"]), p["assumptions"])
+
     def test_malformed_job_subjects_are_denied_and_the_abstention_stays_valid(self):
         cases = {"as_of_in_future": dict(as_of_ns=T0 + SECOND), "bad_instrument": dict(instrument_ids=("FIX EQ",)),
                  "duplicate_entity": dict(entity_ids=(FIX_ENTITY, FIX_ENTITY))}

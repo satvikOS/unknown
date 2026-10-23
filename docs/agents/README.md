@@ -63,7 +63,7 @@ One job goes through the runner in this order (`runner.py`):
 - `abstain: true` needs a non-blank `reason` and no forecast. `hypothesis` may be empty, and `horizon_seconds` and `observation_window` may be null.
 - `abstain: false` needs a non-blank `hypothesis`, at least one claim, at least one evidence reference, an observation window and a horizon.
 
-The runner abstains when no verified claim cites a span with typed provenance. A claim that is verified but cites only spans without provenance is carried as a labelled assumption, never as evidence.
+The runner abstains when no verified claim cites a span with typed provenance. A verified claim is carried as evidence only when every span it cites yields a typed reference: provenance present, no time after `as_of_ns`, and room under the 50-reference cap. Otherwise it is carried as a labelled assumption, never as evidence. Verification needs the quote in only one cited span, so dropping some cited spans could attribute the quote to a span that does not contain it.
 
 **What the core checks beyond the schema.** The core grants nothing for either version: the only change is one `proposals` row, with no order, hold, outbox row, reservation, policy or balance change. Before it records a version 2 proposal, it checks the following:
 - the types, lengths and counts of every field;

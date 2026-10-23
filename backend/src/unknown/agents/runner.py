@@ -55,6 +55,7 @@ PROPOSAL_SCHEMA_PATH = CONTRACTS / "research_proposal.schema.json"
 PROPOSAL_SCHEMA_VERSION = 2
 MAX_EVIDENCE_REFS = 50
 MAX_CLAIMS = 20
+MAX_CLAIM_REFS = 10          # evidence_indexes per claim (the core's limit)
 MAX_SUBJECT_IDS = 20
 MAX_HORIZON_S = 31_536_000
 MAX_TIME_NS = 2 ** 63 - 1
@@ -226,7 +227,10 @@ def build_proposal(job_id: str, parsed: Mapping[str, Any], verdicts, subject: Su
                    spans: Sequence[EvidenceSpan] = (), notes: Sequence[str] = ()) -> dict:
     """A research_proposal v2. The model contributes only text (hypothesis, claim text and quote, assumptions,
     reason); every typed field comes from ``subject`` and from the provenance of the spans its verified claims
-    cite. A claim becomes evidence only when it is verified AND cites a span with typed provenance."""
+    cite. A claim becomes evidence only when it is verified AND every span it cites yields a typed reference
+    (provenance present, no time after the as-of, room under the reference cap). Verification needs the quote in
+    only one cited span, so keeping a claim with some of its spans dropped could attribute the quote to a span
+    that does not contain it, or hide that it rests on a span from after the as-of."""
     by_id = {s.span_id: s for s in spans}
     refs: list[dict] = []
     index_of: dict[tuple, int] = {}
@@ -240,26 +244,25 @@ def build_proposal(job_id: str, parsed: Mapping[str, Any], verdicts, subject: Su
         if len(claims) >= MAX_CLAIMS or not text.strip():
             assumptions.append(_cut(f"[verified claim not carried as evidence] {text}", 500))
             continue
-        cited = []
+        cited_refs = []
         for sid in dict.fromkeys(v.claim.span_ids):
             span = by_id.get(sid)
-            ref = evidence_ref(span, subject.as_of_ns) if span is not None else None
-            if ref is None:
-                continue
-            key = (ref["dataset_id"], ref["ref_type"], ref["ref_id"])
+            cited_refs.append(evidence_ref(span, subject.as_of_ns) if span is not None else None)
+        keys = [None if r is None else (r["dataset_id"], r["ref_type"], r["ref_id"]) for r in cited_refs]
+        new = {k for k in keys if k is not None and k not in index_of}
+        if not 1 <= len(cited_refs) <= MAX_CLAIM_REFS or None in keys or len(refs) + len(new) > MAX_EVIDENCE_REFS:
+            assumptions.append(_cut(f"[verified claim without typed evidence provenance, not evidence] {text}", 500))
+            continue
+        cited = []
+        for ref, key in zip(cited_refs, keys):
             if key not in index_of:
-                if len(refs) >= MAX_EVIDENCE_REFS:
-                    continue
                 index_of[key] = len(refs)
                 refs.append(ref)
             if index_of[key] not in cited:
                 cited.append(index_of[key])
-        if not cited:
-            assumptions.append(_cut(f"[verified claim without typed evidence provenance, not evidence] {text}", 500))
-            continue
         quote = v.claim.quote if v.claim.quote and v.claim.quote.strip() else None
         claims.append({"text": _cut(text, 1000), "quote": _cut(quote, 1000) if quote else None,
-                       "evidence_indexes": cited[:10]})
+                       "evidence_indexes": cited})
     assumptions.extend(_cut(n, 500) for n in notes)
     times = [r["available_at_ns"] if r["observed_at_ns"] is None else r["observed_at_ns"] for r in refs]
     window = {"from_ns": min(times), "to_ns": max(times)} if times else None
