@@ -1,5 +1,7 @@
-"""BR-DAT-16 wired end to end: manifest retention read from the point-in-time store and the provider registry, and
-the artifact's effective expiry.
+"""BR-DAT-16 wired end to end: manifest retention read from the point-in-time store and the provider registry, the
+artifact's effective expiry, the store's deletions (a licence retention that elapses, a rights withdrawal), the pull
+sweep that makes the artifacts resting on them EVIDENCE_EXPIRED with the deletion as evidence, and a real strategy-runner
+cycle refusing them.
 
 Every provider, dataset, bar, instrument and date here is a TEST FIXTURE (synthetic bars; no licensed data)."""
 from __future__ import annotations
@@ -168,6 +170,140 @@ class ManifestRetentionTest(WiringBase):
                                     evaluation_started_at_ns=self.started, protocol_hash=self.protocol)
         self.assertTrue(r["passed"], r["reasons"])
         self.assertEqual(self.promo.effective_expiry(art), date.fromisoformat(rolling["retention_until"]))
+
+
+class RetentionElapsesTest(WiringBase):
+    def test_retention_elapses_the_store_deletes_and_the_sweep_expires_the_active_artifact(self):
+        deadline = self.now_ns + 10 * NS_PER_DAY
+        self.ingest(LICENSED, [A], retention_until_ns=deadline)
+        m, entry = self.pit_manifest(LICENSED, [A], "a")
+        last_day = date.fromisoformat(entry["retention_until"])
+        art = self.register(m["manifest_hash"], last_day, "10")
+        other = self.artifact(self.spec.with_parameters(fast_span="5"))        # rests on the FIXTURE manifest only
+        self.activate(art)
+        self.to_eligible(other)
+        self.assertEqual(self.runner_cycle_refusal(art), "NO_STRATEGY_TOKEN")    # accepted: it runs today
+        # the expiry alone stops it the day after the last retained day, before anything is deleted
+        with self.assertRaises(ArtifactRefused) as cm:
+            artifacts.load(self.reg, artifacts.artifact_id("TREND_DAILY_V1", art), mode="live",
+                           today=last_day + timedelta(days=1), code_hash="c" * 64)
+        self.assertEqual(cm.exception.code, "ARTIFACT_EXPIRED")
+
+        self.assertEqual(self.store.enforce_retention(deadline - 1), [])          # not due yet: nothing deleted
+        (event,) = self.store.enforce_retention(deadline)
+        sha = self.shas[(LICENSED, A)]
+        self.assertEqual((event["dataset"], event["cause"], event["deleted_at_ns"], event["observations"],
+                          event["raw_objects"], sorted(event["entities"])),
+                         (LICENSED, "RETENTION_ELAPSED", deadline, SESSIONS * 6, [sha], [A]))
+        self.assertFalse((self.raw_dir / sha).exists())                          # the vendor file is gone
+        self.assertEqual(self.store.conn.execute("SELECT deleted_at_ns FROM raw_object WHERE sha256=?", (sha,))
+                         .fetchone()[0], deadline)                               # its hash and request are kept
+        self.assertEqual(load_series(self.store, LICENSED, [A], CUTOFF)[A].dates, ())
+        self.assertEqual(self.promo.evidence_status(art)["status"], "CURRENT")   # pull-based: not yet known
+        self.assertEqual(self.runner_cycle_refusal(art, at_ns=deadline), "ARTIFACT_EXPIRED")   # the date bound holds
+
+        with self.assertRaises(AuthorityError):
+            self.promo.sweep_store_deletions(self.store, principal=AGENT)
+        out = self.promo.sweep_store_deletions(self.store, principal=SYSTEM)
+        self.assertIn(LICENSED, out["datasets"])
+        self.assertEqual((out["recorded"], [(x["artifact_hash"], x["deactivated"]) for x in out["expired"]]),
+                         ([event["event_id"]], [(art, True)]))
+        st = self.promo.evidence_status(art)
+        self.assertEqual((st["status"], [d["deletion_id"] for d in st["deleted"]]), ("EVIDENCE_EXPIRED", [event["event_id"]]))
+        last = self.promo.history(art)[-1]                                       # it left its slot, citing the deletion
+        (ev,) = [e for e in self.promo.evidence(art) if e["evidence_id"] in last["evidence_ids"]]
+        self.assertEqual((last["from_status"], last["to_status"], ev["kind"], ev["passed"], ev["payload"]["deletion_id"],
+                          ev["payload"]["cause"], ev["payload"]["manifests"]),
+                         ("active", "eligible", "EVIDENCE_DELETION", True, event["event_id"], "RETENTION_ELAPSED",
+                          [m["manifest_hash"]]))
+        self.assertIsNone(self.promo.active_in_slot(SLOT))
+        for mode in ("live", "shadow"):
+            self.assertEqual(self.runner_cycle_refusal(art, mode, at_ns=deadline), "ARTIFACT_EXPIRED")
+        with self.assertRaises(EvidenceError) as cm:                             # and it never comes back
+            self.promo.transition(art, "active", self.owner(), reason="owner", slot=SLOT)
+        self.assertIn("EVIDENCE_EXPIRED", str(cm.exception))
+        self.assertEqual((self.promo.status(other), self.promo.evidence_status(other)["status"]), ("eligible", "CURRENT"))
+        again = self.promo.sweep_store_deletions(self.store, principal=SYSTEM)  # idempotent
+        self.assertEqual((again["recorded"], again["expired"]), ([], []))
+        self.assertEqual(len([e for e in self.promo.evidence(art) if e["kind"] == "EVIDENCE_DELETION"]), 1)
+        with self.assertRaises(EvidenceError):                                   # nothing new rests on it
+            self.register(m["manifest_hash"], last_day, "20")
+        with self.assertRaises(sqlite3.DatabaseError):                           # recorded once, append-only
+            self.reg.conn.execute("DELETE FROM evidence_deletion_event")
+        self.assertEqual(self.promo.verify_chain(), [])
+
+    def test_a_registry_retention_period_is_enforced_from_receipt(self):
+        self.ingest(ROLLING, [A])
+        m, entry = self.pit_manifest(ROLLING, [A], "rolling")
+        art = self.register(m["manifest_hash"], date.fromisoformat(entry["retention_until"]), "10")
+        days = {ROLLING: 30}
+        self.assertEqual(self.store.enforce_retention(self.now_ns, retention_days=days), [])
+        (event,) = self.store.enforce_retention(self.received + 30 * NS_PER_DAY, retention_days=days)
+        self.assertEqual((event["dataset"], event["observations"], event["raw_objects"]), (ROLLING, SESSIONS * 6, []))
+        out = self.promo.sweep_store_deletions(self.store, principal=SYSTEM)
+        self.assertEqual([(x["artifact_hash"], x["deactivated"]) for x in out["expired"]], [(art, False)])
+        self.assertEqual((self.promo.status(art), self.promo.evidence_status(art)["status"]), ("proposed", "EVIDENCE_EXPIRED"))
+
+
+class RightsWithdrawnTest(WiringBase):
+    def test_a_rights_withdrawal_expires_exactly_the_artifacts_that_read_the_withdrawn_data(self):
+        self.ingest(PARTNER, [A, B])
+        m_a, entry_a = self.pit_manifest(PARTNER, [A], "a")
+        m_b, _ = self.pit_manifest(PARTNER, [B], "b")
+        self.assertEqual(entry_a["retention_until"], UNBOUNDED)
+        on_a = self.register(m_a["manifest_hash"], date(2099, 1, 1), "5")       # no retention: the declared expiry
+        on_b = self.register(m_b["manifest_hash"], date(2099, 1, 1), "20")
+        self.assertEqual(self.promo.effective_expiry(on_a), date(2099, 1, 1))
+        self.activate(on_a)
+        self.to_eligible(on_b)
+
+        # the partner withdraws the rights to B's data only
+        withdrawal = self.store.withdraw_rights(PARTNER, reason="partner withdrew the rights to FIX-PRO-2",
+                                                at_ns=self.now_ns, entity_ids=[B])
+        self.assertEqual((withdrawal["cause"], sorted(withdrawal["entities"]), withdrawal["raw_objects"]),
+                         ("RIGHTS_WITHDRAWN", [B], [self.shas[(PARTNER, B)]]))
+        self.assertEqual(load_series(self.store, PARTNER, [B], CUTOFF)[B].dates, ())
+        self.assertEqual(len(load_series(self.store, PARTNER, [A], CUTOFF)[A].dates), SESSIONS)
+        out = self.promo.sweep_store_deletions(self.store, principal=SYSTEM)
+        self.assertEqual([x["artifact_hash"] for x in out["expired"]], [on_b])
+        self.assertEqual([self.promo.evidence_status(h)["status"] for h in (on_a, on_b)], ["CURRENT", "EVIDENCE_EXPIRED"])
+        self.assertEqual((self.promo.status(on_a), self.promo.active_in_slot(SLOT)), ("active", on_a))
+        self.assertEqual(self.runner_cycle_refusal(on_a), "NO_STRATEGY_TOKEN")  # A's data is intact: it still runs
+        self.assertEqual(self.runner_cycle_refusal(on_b), "ARTIFACT_EXPIRED")   # eligible, but expired by the deletion
+
+        # then the whole dataset
+        whole = self.store.withdraw_rights(PARTNER, reason="partner agreement terminated", at_ns=self.now_ns + 1)
+        self.assertEqual((sorted(whole["entities"]), whole["raw_objects"]), ([A], [self.shas[(PARTNER, A)]]))
+        out = self.promo.sweep_store_deletions(self.store, principal=self.owner())
+        self.assertEqual([(x["artifact_hash"], x["deactivated"]) for x in out["expired"]], [(on_a, True)])
+        self.assertEqual((self.promo.status(on_a), self.promo.active_in_slot(SLOT)), ("eligible", None))
+        for mode in ("live", "shadow"):
+            self.assertEqual(self.runner_cycle_refusal(on_a, mode), "ARTIFACT_EXPIRED")
+        st = self.promo.evidence_status(on_a)
+        self.assertEqual([(d["cause"], d["deleted_at_ns"]) for d in st["deleted"]], [("RIGHTS_WITHDRAWN", self.now_ns + 1)])
+        with self.assertRaises(ValueError):                                      # the payload is not stored again
+            self.ingest(PARTNER, [A])
+        self.assertEqual(self.promo.verify_chain(), [])
+
+    def test_a_deletion_of_data_the_run_did_not_read_expires_nothing(self):
+        self.ingest(PARTNER, [A])
+        m, _ = self.pit_manifest(PARTNER, [A], "a")
+        art = self.register(m["manifest_hash"], date(2099, 1, 1), "5")
+        # A's later sessions arrive in a separate vendor file with a short licence; they became available after the
+        # cutoff the run read up to, so their deletion removes nothing the run read
+        late = synthetic_bars("trend", A, start=date(2023, 6, 1), sessions=3, seed=5)
+        sha = self.store.put_raw(json.dumps([b.to_json() for b in late]).encode(), provider="fixture-vendor",
+                                 dataset=PARTNER, request={"instrument": A, "part": "late"}, receipt_time_ns=self.received,
+                                 media_type="application/json", retention_until_ns=self.now_ns + NS_PER_DAY)
+        record_bars(self.store, [dataclasses.replace(b, source=f"raw:{sha}") for b in late], PARTNER, self.received)
+        (expired_late,) = self.store.enforce_retention(self.now_ns + NS_PER_DAY)
+        self.assertGreater(expired_late["entities"][A]["first_available_ns"], CUTOFF)
+        other = self.store.withdraw_rights(PARTNER, reason="fixture", at_ns=self.now_ns, entity_ids=["FIX-NOT-READ"])
+        self.assertEqual((other["observations"], other["entities"]), (0, {}))
+        out = self.promo.sweep_store_deletions(self.store, principal=SYSTEM)
+        self.assertEqual((sorted(out["recorded"]), out["expired"]), (sorted([expired_late["event_id"], other["event_id"]]), []))
+        self.assertEqual((self.promo.status(art), self.promo.evidence_status(art)["status"]), ("proposed", "CURRENT"))
+        self.assertEqual(len(load_series(self.store, PARTNER, [A], CUTOFF)[A].dates), SESSIONS)
 
 
 if __name__ == "__main__":

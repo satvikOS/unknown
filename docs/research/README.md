@@ -60,7 +60,7 @@ Requirements: RES-01, RES-03, RES-04, RES-05 (in part RES-02: trend family only)
 
 Default path `~/.unknown/research/experiments.sqlite` (`UNKNOWN_HOME` honoured; injectable). It is a separate file from the data platform's `research.sqlite`.
 
-- **Append-only for everyone.** Database triggers refuse UPDATE and DELETE on specs, experiments, amendments, manifests, holdout access, reports, artifacts, evidence, protocols, selection policies and transitions. A trial row may change exactly once, from RUNNING to a terminal status, and its identity columns never change. No delete or edit API exists.
+- **Append-only for everyone.** Database triggers refuse UPDATE and DELETE on specs, experiments, amendments, manifests, holdout access, reports, artifacts, evidence, protocols, selection policies, evidence deletions (both tables) and transitions. A trial row may change exactly once, from RUNNING to a terminal status, and its identity columns never change. No delete or edit API exists.
 - **Pre-registration first.**
   - The pre-registration is hashed together with its registration time. It holds the hypothesis, information clock, execution rule, cost model, benchmark, search space, budget, rejection criteria, holdout plan, walk-forward plan and selection metric.
   - Trials cannot exist without one and must start after it.
@@ -208,14 +208,34 @@ Rules the promotion service enforces:
   - STRESS evidence must cover every stress case the spec declares.
 - Expired artifacts cannot become eligible or active, on every activation path, automatic selection included.
 
-**Evidence retention (BR-DAT-16).** A manifest's dataset entry may carry `retention_until`, the date by which licence terms require the data the run read to be deleted (`null` or absent: no deadline recorded). An artifact's evidence datasets are those of its evaluation manifest and of the trials its *passed* evidence cites (failed or agent-filed evidence supports nothing, so it bounds nothing).
+**Evidence retention (BR-DAT-16).** Every manifest dataset entry states `retention_until`: the last UTC day a result resting on the data may be used, or `"unbounded"` when the dataset has no retention. An entry written before this rule has none and is reported as `unrecorded` (`evidence_status.retention_unrecorded`); `build_manifest` refuses any other value.
 
-- Registration refuses an `expires_on` after the evaluation manifest's earliest `retention_until`.
-- The effective expiry, `min(expires_on, retention_until of every evidence dataset)`, is what every expiry check uses: activation, automatic selection, automatic shadow promotion and the strategy runner.
-- `record_evidence_deletion(dataset, principal, reason)`, by the OWNER or the SYSTEM data-retention process only, records once (append-only) that a dataset named by research manifests was deleted. Every artifact resting on it is then `EVIDENCE_EXPIRED` (`evidence_status`). It keeps its lifecycle status and may run until its effective expiry, but every upward transition is refused: re-promotion up the ladder, activation (by the owner or by automatic selection), automatic shadow promotion and the `quarantined -> reproducible` re-validation path. Stepping down, quarantine and retirement remain possible.
+- **Where it comes from.** `research.bars.pit_manifest_entry(store, dataset, series, until, cutoff_ns)` builds the entry of a point-in-time dataset a run reads. It records the `scope` the run read (instruments, availability cutoff) and the retention of exactly those observations (`ResearchStore.retention_facts`). The deadline is the earlier of:
+  - the earliest `retention_until_ns` of the raw payloads they were extracted from (`source_ref` `raw:<sha256>`);
+  - the earliest receipt time plus the provider registry's `retention_days` for the dataset.
+
+  `retention_until` is the UTC day before that deadline (`manifest.retention_date`), so a day-granular expiry never reaches the deadline instant. An unregistered dataset is refused: it has no recorded rights, so no retention can be stated for it. The fixture study's synthetic datasets are `"unbounded"`.
+- **Expiry.** An artifact's evidence datasets are those of its evaluation manifest and of the trials its *passed* evidence cites (failed or agent-filed evidence supports nothing, so it bounds nothing). Registration refuses an `expires_on` after the evaluation manifest's earliest `retention_until`. The effective expiry is `min(expires_on, retention_until of every evidence dataset, the day before any recorded deletion of that data)`. Every expiry check uses it: activation, automatic selection, automatic shadow promotion and the strategy runner.
+- **Deletion in the point-in-time store** (`data.pit`):
+  - `enforce_retention(now_ns, retention_days=...)` deletes every raw payload whose deadline has passed, with the observations extracted from it, and the observations of a dataset whose registry retention period has elapsed since receipt.
+  - `withdraw_rights(dataset, reason, at_ns, entity_ids=None)` deletes the observations of the dataset (or of some entities), every version, and the raw payloads they came from.
+  - Both remove the raw files, keep the raw rows (hash, request, `deleted_at_ns`), and append one `deletion_event` per dataset (append-only). The event records, per entity, how many observations went and their availability span. A deleted payload is not stored again.
+- **Recording a deletion in the research registry.** There are two ways, both append-only:
+  - `record_evidence_deletion(dataset, principal, reason)`: the OWNER or the SYSTEM records a whole-dataset deletion, once per dataset;
+  - `sweep_store_deletions(store, principal)`: the pull-based link to the store. It reads `deletion_events` for every dataset the registry's artifacts rest on and records each new event once. It is idempotent: run it after every retention run or rights withdrawal, and on a schedule. It also files the evidence for any artifact touched by a deletion recorded before deletions were filed as evidence, and steps it down if it is active.
+
+  A store event touches a manifest entry when it deleted observations of an entity the entry's `scope` names, available by the entry's cutoff. An entry without a scope is touched by any deletion of its dataset.
+- **EVIDENCE_EXPIRED.** An artifact a recorded deletion touches is `EVIDENCE_EXPIRED` (`evidence_status`, which lists each deletion and the evidence that cites it). In the same transaction that records the deletion:
+  - every such artifact that is not retired receives passed `EVIDENCE_DELETION` evidence naming the deletion, filed by the recording principal. That evidence must match a recorded deletion that touches the artifact, so an agent's or a fabricated filing never passes;
+  - an active one steps down to eligible in its slot, citing that evidence (the slot is free for the owner or automatic selection).
+
+  Its effective expiry is at most the day before the deletion, so it never runs again: the strategy runner, which reloads the artifact every cycle, refuses it as `ARTIFACT_EXPIRED` in both modes. No expiry-checked path accepts it either (activation, automatic selection, automatic shadow promotion). Every other upward transition, including `quarantined -> reproducible`, is refused as `EVIDENCE_EXPIRED`; quarantine and retirement still apply. Registration on a manifest that rests on deleted data is refused, and evidence citing such a trial never passes (except a monitoring incident or the deletion itself).
+
+  EVIDENCE_EXPIRED is not a lifecycle status. Adding one would change the status vocabulary that the terminal (`terminal/src/workspaces/research/model.ts`, checked by `test_terminal_vocabulary_sync`) and the runner's status table (`test_strategy_runner`) pin, and both are outside this change. The refusal to run comes from the expiry instead.
 - There is no renewal: the expiry is part of the immutable registration. New evidence on retained data is a new artifact (a new spec version or parameter set: the artifact hash does not cover the evaluation manifest).
+- **Not covered.** Between a store deletion and the next sweep, the registry does not know about the deletion. A retention deletion is already covered by the date bound recorded in the manifest. A rights withdrawal is not: in that window an artifact on withdrawn data still runs. Derived metrics (`derived_metric`) computed from deleted observations are not deleted. Whether a licence allows keeping derived features after the raw data is deleted (`derived_storage`) is not modelled: deletion removes the observations too.
 
-Tests: `test_research_evidence_retention` (5).
+Tests: `test_research_evidence_retention` (10), `test_research_evidence_expiry_wiring` (8, end to end with the point-in-time store, the deletion sweep and a real strategy-runner cycle), and `test_pit_store` `RetentionAndDeletionTests` (5).
 
 The promotion protocol (BR-DAT-10) has exactly these fields: confidence, replications, mean block, statistic, utility coefficients, hurdle per period (net of trading costs), min n_eff, min OOS observations, min OOS Sharpe, max PBO, min DSR, required cost multiplier, max stress drawdown, holdout minimum difference, min paper days and seed.
 
@@ -298,7 +318,8 @@ Run with `cd backend && PYTHONPATH=src python3 -m unittest tests.test_research_<
 | `test_research_registry` | 28 |
 | `test_research_promotion` | 25 |
 | `test_research_shadow` | 9 (shadow status and envelope, ADR-0017 #2) |
-| `test_research_evidence_retention` | 5 (BR-DAT-16) |
+| `test_research_evidence_retention` | 10 (BR-DAT-16) |
+| `test_research_evidence_expiry_wiring` | 8 (BR-DAT-16, end to end) |
 | `test_research_spec_v2` | 3 (schema v2, v1 readability) |
 | `test_research_risk_sizing` | 10 (BR-DAT-04) |
 | `test_research_window` | 8 (BR-DAT-19) |
