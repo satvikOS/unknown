@@ -264,8 +264,9 @@ def macro(ctx, parts, q, account_key, conn):
                             **({} if r["n"] else {"reason": "no observation of this dataset available at the as-of time "
                                                             "(not ingested, or ingested data starts later)"})})
             return {"series": out, "as_of": ns_to_iso(t),
-                    "not_available": ["FRED/ALFRED (needs an owner-registered API key)", "H.15, SOFR, ECB yield curves, Eurostat "
-                                      "(not yet ingested)"]}
+                    "not_available": ["ALFRED vintages (FRED current vintage only; see /api/macro/global)", "H.15, SOFR, ECB yield "
+                                      "curves, Eurostat (not yet ingested)"],
+                    "global": "World Bank, OECD, BIS and FRED series by country: GET /api/macro/global"}
         raise LookupError(f"unknown macro endpoint {sub}")
     finally:
         store.close()
