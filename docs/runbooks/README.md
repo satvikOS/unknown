@@ -138,7 +138,13 @@ Conventions:
 
   Never copy a backup over `<key>.sqlite` by hand while `-wal` or `-shm` files exist beside it.
 
-  **Leave the broker-event journal in place.** `data/<key>.events` is not part of the backup, and `restore` does not touch it. At start, the core applies again, in journal order, the broker events the journal marked applied after the backup was taken. This happens only when the restored database holds at least one entry of that journal; a backup older than the journal's first applied entry shares no history with it, and nothing old is applied. Reconciliation then covers the rest (ADR-0003 amendment). Do not delete or replace the journal as part of a restore. RB-15 covers a journal that is itself damaged.
+  **The broker-event journal travels with the database.**
+  - `backup` copies `data/<key>.events` right after the database, as `<key>-<time>.events` with its own SHA-256 in the sidecar. Every journal entry the database copy applied is in the journal copy.
+  - `restore-drill` checks that copy and applies it to the restored database before verifying the ledger.
+  - `restore` keeps the live journal when it belongs to the restored database (same database identity), and the next start applies what the database lacks, in order. Otherwise the backup's journal copy is put in its place.
+  - A journal of another database is never applied: it is set aside, the stop latches (`EVENT_JOURNAL_SET_ASIDE`) and reconciliation is required.
+  - A backup taken before database identities existed gets a new identity on restore, so the current journal is set aside and reconciliation recovers its events.
+  - Do not delete or edit a journal by hand. RB-15 covers a damaged one (ADR-0003 amendment).
 - **Record:** the drill date, backup age, problems found and recovery time.
 - **Production rule:** a restored ledger trades only after a clean reconciliation and an owner green start.
 - **Note:** databases written before commit `c41a505` use the earlier hash-chain formula, and `verify_chain` reports them as mismatched. That is development data only; recreate it.

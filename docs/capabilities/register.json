@@ -18119,12 +18119,12 @@
           "backend/tests/test_strategy_decisions.py::StrategyTokenBindingTests.test_issued_token_is_bound_to_its_artifact",
           "backend/tests/test_research_shadow.py::ShadowLadderTest.test_shadow_sits_between_validated_and_paper",
           "backend/tests/test_research_shadow.py::ShadowEnvelopeTest.test_automatic_promotion_inside_the_envelope_is_recorded_with_its_evidence_and_envelope",
-          "backend/tests/test_research_evidence_retention.py::EvidenceExpiredTest.test_an_active_artifact_on_deleted_data_keeps_running_but_is_never_promoted_again"
+          "backend/tests/test_research_evidence_retention.py::EvidenceExpiredTest.test_an_active_artifact_on_deleted_data_is_evidence_expired_and_never_runs_again"
         ],
         "evidence": [
           "Artifact statuses proposed -> reproducible -> validated -> shadow -> paper -> eligible -> active (plus quarantined, retired) in a hash-chained transition log; gates recomputed under an owner-approved protocol; owner approvals need re-authentication within 15 minutes; strategy tokens are bound to one artifact id.",
           "evaluated on SYNTHETIC fixtures only; no market history has been run",
-          "A 'shadow' status sits between validated and paper. The owner sets it, or the SYSTEM inside an owner-approved, immutable shadow envelope. Expiry is bounded by the retention of the evidence data, and an artifact whose evidence data was deleted is EVIDENCE_EXPIRED and is never promoted again (BR-DAT-16). No ingested dataset records a retention deadline yet."
+          "A 'shadow' status sits between validated and paper. The owner sets it, or the SYSTEM inside an owner-approved, immutable shadow envelope. Expiry is bounded by the retention of the evidence data, and an artifact whose evidence data was deleted is EVIDENCE_EXPIRED and is never promoted again (BR-DAT-16). Manifests record each dataset's retention and a store deletion expires the artifacts resting on it (sweep_store_deletions); no production schedule runs the sweep and no ingested dataset records a retention deadline yet."
         ],
         "gaps": [
           "ADR-0017 is proposed, not accepted",

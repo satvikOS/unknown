@@ -2208,7 +2208,7 @@
     "verifier_note": "Quotes verified. I tightened the original 'all three lose fills': dropped executions can be re-queried, but only inside the broker's history window, which makes the gap real but conditional.",
     "disposition": {
       "status": "RESOLVED_IN_CODE",
-      "resolution": "Every inbound broker event is appended to a durable, hash-chained, append-only journal (<account>.events: fsync'd, with the core store's durability settings) before it is applied. Each entry is applied under its own deterministic command id and then marked, so a crash between append and apply loses nothing, and a crash between apply and mark re-applies it as a stored-result duplicate. At start the service applies unapplied entries before any request or new event. The in-memory hand-off is bounded: if the journal cannot be written, the runner stops taking events (at most one batch waits in memory), latches the stop (EVENT_JOURNAL_UNWRITABLE), records an INCOMPLETE reconciliation and, in pump(), fails closed before the outbox pass, so no new buy is transmitted; journaled entries are still applied. A corrupt or conflicting entry is never applied; the verified entries before it are. Events are never dropped or coalesced (identical IBKR status messages are de-duplicated). Tested for crashes at every point, SQLITE_FULL, corruption, restored cores and a seeded randomized scenario with ledger invariants and replay checks (ADR-0012 amendment; RB-15).",
+      "resolution": "Every inbound broker event is appended to a durable, hash-chained, append-only journal (<account>.events: fsync'd, with the core store's durability settings) before it is applied. Each entry is applied under its own deterministic command id and then marked, so a crash between append and apply loses nothing, and a crash between apply and mark re-applies it as a stored-result duplicate. At start the service applies unapplied entries before any request or new event. The in-memory hand-off is bounded: if the journal cannot be written, the runner stops taking events (at most one batch waits in memory), latches the stop (EVENT_JOURNAL_UNWRITABLE), records an INCOMPLETE reconciliation and, in pump(), fails closed before the outbox pass, so no new buy is transmitted; journaled entries are still applied. A corrupt or conflicting entry is never applied; the verified entries before it are. Events are never dropped or coalesced (identical IBKR status messages are de-duplicated). Tested for crashes at every point, SQLITE_FULL, corruption, restored cores and a seeded randomized scenario with ledger invariants and replay checks (ADR-0012 amendment; RB-15). Hardening (wave E):\n- The journal is bound to its core database's identity. A journal of another database is set aside, never applied: the stop latches and reconciliation is required.\n- A restored database gets the marked entries it lacks re-applied in order.\n- Start-up replay refreshes the lease.\n- The online backup copies the journal, and restore-drill and restore apply or keep it consistently.\n- Applied entries older than a retention are pruned; unapplied entries never are.\n- A corrupt journal is set aside with a report.",
       "where": [
         "backend/src/unknown/gateway/journal.py:268-319",
         "backend/src/unknown/gateway/runner.py:280-321",
@@ -2229,7 +2229,7 @@
         "backend/tests/test_ibkr_adapter.py::StatusEventTests::test_identical_status_messages_produce_one_event [IBKR venv]"
       ],
       "residual": "An event the adapter has received but the gateway has not yet appended (in the adapter's own in-memory FIFO, or in the gateway's single batch) is lost at a crash and recovered only by reconciliation, inside IBKR's execution-history window (a gap needs owner acknowledgement). While the journal fails, the adapter's FIFO keeps growing in memory and the API session is not disconnected. The journal is not in the online backup and is never pruned.",
-      "verified_against": "impl/foundation@8b98d00",
+      "verified_against": "impl/foundation after the wave E merge",
       "verified_on": "2026-10-22"
     }
   },
@@ -4625,24 +4625,26 @@
     "verifier_note": "Quotes verified. Severity lowered from medium to low: this is a governance gap with no immediate effect on money, and Chapter 20's registry 'expiration' field already gives the needed hook.",
     "disposition": {
       "status": "OPEN",
-      "resolution": "Partly resolved: the mechanism exists and is tested, but nothing feeds it real data. Raw payloads carry a retention deadline and deletion time (ADR-0015 raw layer). A research manifest's dataset entry may state retention_until. Registration refuses an expiry after the evaluation data's retention, and every expiry check (activation, automatic selection, automatic shadow promotion, the strategy runner) uses min(expires_on, retention_until of every evidence dataset). record_evidence_deletion (OWNER or SYSTEM, append-only, once per dataset) marks every artifact resting on that dataset EVIDENCE_EXPIRED: it may run until its expiry, every upward transition is refused, and there is no renewal.",
+      "resolution": "Mostly resolved: the mechanism is wired to the point-in-time store, but no production schedule runs it yet. A research manifest records, per dataset read, retention_until (the earliest deletion deadline of the observations read: the raw file's deadline, or receipt plus the registry's retention_days). Registration refuses an expiry after the evaluation data's retention, and every expiry check (activation, automatic selection, automatic shadow promotion, the strategy runner) uses min(expires_on, retention_until of every evidence dataset). When the store deletes observations (retention enforcement or rights withdrawal), sweep_store_deletions records the deletion as evidence on every artifact resting on that data: the artifact is EVIDENCE_EXPIRED, its effective expiry ends, the strategy runner refuses it (ARTIFACT_EXPIRED) and every upward transition is refused.",
       "where": [
-        "backend/src/unknown/data/pit.py:28-32",
-        "backend/src/unknown/research/promotion.py:142-150",
-        "backend/src/unknown/research/promotion.py:601-680",
+        "backend/src/unknown/data/pit.py:44-48",
+        "backend/src/unknown/research/bars.py:307",
+        "backend/src/unknown/research/promotion.py:755-830",
         "backend/src/unknown/strategy/artifacts.py:159-163",
         "docs/research/README.md#Evidence retention (BR-DAT-16)"
       ],
       "tests": [
         "backend/tests/test_research_evidence_retention.py::ExpiryBoundedByRetentionTest::test_registration_refuses_an_expiry_after_the_evaluation_datas_retention",
         "backend/tests/test_research_evidence_retention.py::ExpiryBoundedByRetentionTest::test_passed_evidence_on_shorter_retained_data_shortens_the_effective_expiry",
-        "backend/tests/test_research_evidence_retention.py::EvidenceExpiredTest::test_an_active_artifact_on_deleted_data_keeps_running_but_is_never_promoted_again",
+        "backend/tests/test_research_evidence_retention.py::EvidenceExpiredTest::test_an_active_artifact_on_deleted_data_is_evidence_expired_and_never_runs_again",
         "backend/tests/test_research_evidence_retention.py::EvidenceExpiredTest::test_only_the_owner_or_system_records_a_deletion_and_the_record_is_append_only",
-        "backend/tests/test_research_promotion.py::SelectionPolicyTest::test_expired_artifacts_cannot_become_eligible"
+        "backend/tests/test_research_promotion.py::SelectionPolicyTest::test_expired_artifacts_cannot_become_eligible",
+        "backend/tests/test_research_evidence_retention.py::EvidenceExpiredTest::test_every_artifact_on_the_data_gets_the_deletion_as_evidence_and_a_retired_one_is_left_alone",
+        "backend/tests/test_research_evidence_retention.py::EvidenceExpiredTest::test_nothing_new_may_rest_on_deleted_data"
       ],
       "owner": "I4 (retention metadata and deletion process) and I5 (manifests)",
-      "missing": "Wiring to data. Research manifests (research/manifest.py) never write retention_until, although the data registry has retention_days and the raw layer has retention_until_ns (no source sets it yet). No data-retention process calls record_evidence_deletion. Until both exist, no real artifact's expiry is bounded by retention, and none becomes EVIDENCE_EXPIRED.",
-      "verified_against": "impl/foundation@8b98d00",
+      "missing": "Production wiring: no scheduled job or CLI calls enforce_retention or sweep_store_deletions, every registered dataset has retention_days null and ingestion sets no raw retention deadline, so no real artifact is bounded yet. Between a rights withdrawal and the next sweep an artifact on withdrawn data can still run.",
+      "verified_against": "impl/foundation after the wave E merge",
       "verified_on": "2026-10-22"
     }
   },
