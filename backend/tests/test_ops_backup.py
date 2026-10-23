@@ -4,17 +4,26 @@ chain and replay equivalence hold and opening it is detected as a restore with t
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from support import ACCOUNT, Harness  # noqa: E402
-from unknown.ops.backup import backups_for, restore_backup, restore_drill, take_backup  # noqa: E402
+from unknown.domain.fixed import Fixed  # noqa: E402
+from unknown.gateway import runner as runner_module  # noqa: E402
+from unknown.gateway.journal import EventJournal, describe_file  # noqa: E402
+from unknown.gateway.runner import attach_journal, detach_journal  # noqa: E402
+from unknown.ops import backup as backup_module  # noqa: E402
+from unknown.ops.backup import backups_for, journal_file, restore_backup, restore_drill, take_backup  # noqa: E402
 import shutil  # noqa: E402
 from unknown.service.paths import Paths  # noqa: E402
+
+F = Fixed.parse
 
 
 class BackupTests(unittest.TestCase):
@@ -138,6 +147,177 @@ class BackupReviewTests(BackupTests):
             import json as _json
             c = _json.loads(tx.one("SELECT row FROM control WHERE account_key=?", (ACCOUNT,))["row"])
         self.assertEqual((c["stop_latched"], c["latch_reason"]), (True, "RESTORED_FROM_BACKUP"))
+
+
+class JournalBackupTests(unittest.TestCase):
+    """Journal hardening (BR-ORD-20 follow-up): the online backup carries a consistent copy of the broker-event
+    journal, the restore drill checks and applies it, and a restore keeps or installs the right journal."""
+
+    def setUp(self):
+        for logger in (runner_module.log,):
+            patcher = mock.patch.object(logger, "disabled", True)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.paths = Paths(Path(tmp.name))
+        self.paths.ensure()
+        self.h = Harness(db_path=self.paths.db(ACCOUNT))
+        self.addCleanup(lambda: self.h.desk.store.close())
+        self.journal = self.open_journal()
+        h = self.h
+        h.bootstrap()
+        self.assertTrue(h.owner_cmd("create_session", account_key=ACCOUNT, session_id="A", seed="150.00",
+                                    target_terminal_equity="157.50").accepted)
+        self.assertTrue(h.intent("B1", "BUY", "5", "10.00", "A").accepted)
+        h.pump()
+        h.broker.fill("B1", F("2"), F("10.00"), commission=F("1.00"))
+        h.runner.drain_events()
+
+    def open_journal(self) -> EventJournal:
+        journal = EventJournal(journal_file(self.paths, ACCOUNT), ACCOUNT, self.h.clock.now_ns,
+                               database_id=self.h.desk.store.database_id)
+        attach_journal(self.h.broker, journal)
+        self.addCleanup(lambda: (detach_journal(self.h.broker), journal.close()))
+        return journal
+
+    def backup_while_a_fill_lands_between_the_copies(self) -> tuple[Path, dict]:
+        """``take_backup`` while the core keeps working: the second fill is journaled and applied after the
+        database copy and before the journal copy."""
+        real = backup_module.backup_database
+
+        def then_a_fill(*a, **kw):
+            meta = real(*a, **kw)
+            self.h.broker.fill("B1", F("3"), F("10.00"), commission=F("1.00"))
+            self.assertEqual(self.h.runner.drain_events(), 3)
+            return meta
+
+        with mock.patch.object(backup_module, "backup_database", then_a_fill):
+            meta = take_backup(self.paths, ACCOUNT, now_ns=self.h.clock.now_ns())
+        (backup,) = backups_for(self.paths, ACCOUNT)
+        return backup, meta
+
+    def stop_and_restore(self, backup: Path) -> dict:
+        h = self.h
+        detach_journal(h.broker)
+        self.journal.close()
+        h.desk.store.release_lease()
+        h.desk.store.close()
+        return restore_backup(self.paths, ACCOUNT, backup, now_ns=h.clock.now_ns())
+
+    def start(self) -> EventJournal:
+        """A new core process on the restored files (restore detected); returns its journal."""
+        self.h.desk = self.h._open()
+        self.assertEqual(self.h.control()["latch_reason"], "RESTORED_FROM_BACKUP")
+        return self.open_journal()
+
+    def test_the_backup_copies_the_journal_after_the_database_and_the_drill_applies_it(self):
+        backup, meta = self.backup_while_a_fill_lands_between_the_copies()
+        copy = backup.with_suffix(".events")
+        info = meta["journal"]
+        self.assertEqual(info["file"], copy.name)
+        self.assertEqual(oct(copy.stat().st_mode & 0o777), "0o600")
+        self.assertEqual(json.loads(backup.with_suffix(".json").read_text())["journal"]["sha256"], info["sha256"])
+        self.assertEqual((info["journal_id"], info["database_id"]), (self.journal.journal_id, meta["database_id"]))
+        self.assertEqual(meta["database_id"], self.h.desk.store.database_id)
+        self.assertEqual(info["entries"], len(list(self.journal.entries())), "taken after the second fill")
+        self.assertEqual(info["unmarked"], 0)
+        report = restore_drill(backup, ACCOUNT)
+        self.assertTrue(report["ok"], report["problems"])
+        self.assertTrue(report["journal"]["sha256_matches_sidecar"])
+        self.assertEqual(report["journal"]["applied"], 3, "the fill the database copy lacked is applied")
+        self.assertEqual(report["journal"]["unapplied_after"], 0)
+        self.assertEqual(report["ledger_problems"], [])
+        self.assertEqual(self.h.verify(), [], "the live database is untouched")
+        t = self.h.clock.now_ns()
+        for i in range(1, 3):
+            take_backup(self.paths, ACCOUNT, keep=1, now_ns=t + i * 1_000_000)
+        (kept,) = backups_for(self.paths, ACCOUNT)
+        self.assertEqual(sorted(p.name for p in self.paths.backups.glob("*.events")), [kept.with_suffix(".events").name])
+
+    def test_the_drill_reports_a_journal_copy_that_is_tampered_missing_or_older_than_the_database(self):
+        take_backup(self.paths, ACCOUNT, now_ns=self.h.clock.now_ns())
+        (backup,) = backups_for(self.paths, ACCOUNT)
+        copy = backup.with_suffix(".events")
+        self.assertTrue(restore_drill(backup, ACCOUNT)["ok"])
+        original = copy.read_bytes()
+        with self.subTest("tampered"):
+            with open(copy, "ab") as f:
+                f.write(b"\0")
+            report = restore_drill(backup, ACCOUNT)
+            self.assertFalse(report["ok"])
+            self.assertIn("journal: the copy does not match its recorded SHA-256", report["problems"])
+            copy.write_bytes(original)
+        with self.subTest("missing"):
+            copy.unlink()
+            report = restore_drill(backup, ACCOUNT)
+            self.assertIn("journal: the sidecar records a journal copy but the file is missing", report["problems"])
+            copy.write_bytes(original)
+        with self.subTest("older than the database copy"):
+            # A journal copy taken BEFORE the database copy misses entries the database already applied.
+            early = self.paths.root / "early.events"
+            conn = sqlite3.connect(early)
+            self.journal._connection().backup(conn)
+            conn.close()
+            self.h.broker.fill("B1", F("3"), F("10.00"), commission=F("1.00"))
+            self.h.runner.drain_events()
+            take_backup(self.paths, ACCOUNT, now_ns=self.h.clock.now_ns() + 1_000_000)
+            newest = backups_for(self.paths, ACCOUNT)[-1]
+            shutil.copyfile(early, newest.with_suffix(".events"))
+            sidecar = json.loads(newest.with_suffix(".json").read_text())
+            sidecar["journal"]["sha256"] = backup_module._sha256(newest.with_suffix(".events"))
+            newest.with_suffix(".json").write_text(json.dumps(sidecar))
+            report = restore_drill(newest, ACCOUNT)
+            self.assertFalse(report["ok"])
+            self.assertTrue([p for p in report["problems"] if "the journal was copied before the database" in p],
+                            report["problems"])
+
+    def test_restore_keeps_the_live_journal_of_the_same_database(self):
+        """The live journal belongs to the restored database and is newer than the backup's copy: it stays,
+        and the next start applies what the restored database lacks."""
+        take_backup(self.paths, ACCOUNT, now_ns=self.h.clock.now_ns())
+        (backup,) = backups_for(self.paths, ACCOUNT)
+        self.h.broker.fill("B1", F("3"), F("10.00"), commission=F("1.00"))
+        self.assertEqual(self.h.runner.drain_events(), 3)
+        entries = len(list(self.journal.entries()))
+        report = self.stop_and_restore(backup)
+        self.assertEqual(report["journal"]["action"], "kept")
+        self.assertEqual(report["journal"]["moved_aside"], [])
+        journal = self.start()
+        self.assertEqual(len(list(journal.entries())), entries)
+        self.assertEqual(self.h.runner.replay_journal(), 3)
+        o = self.h.row("orders", "order_id", "B1")
+        self.assertEqual((o["cum_qty"], o["fees_final"]), ("5", "2.000000"))
+        self.assertEqual(self.h.verify(), [])
+
+    def test_restore_installs_the_backups_journal_when_the_live_one_is_another_databases(self):
+        """The live journal was replaced by another database's journal: the restore moves it aside with the old
+        database and installs the backup's journal copy, whose entries the next start applies."""
+        backup, meta = self.backup_while_a_fill_lands_between_the_copies()
+        live = journal_file(self.paths, ACCOUNT)
+        detach_journal(self.h.broker)
+        self.journal.close()
+        live.unlink()
+        foreign = EventJournal(live, ACCOUNT, self.h.clock.now_ns, database_id="f" * 32)
+        foreign.open().close()
+        self.journal = foreign
+        report = self.stop_and_restore(backup)
+        restored = report["journal"]
+        self.assertEqual(restored["action"], "installed")
+        self.assertEqual(restored["live"]["database_id"], "f" * 32)
+        self.assertIn(live.name, restored["moved_aside"])
+        self.assertEqual(Path(restored["aside_dir"]), Path(report["aside_dir"]))
+        self.assertEqual(describe_file(Path(report["aside_dir"]) / live.name)["database_id"], "f" * 32)
+        held = describe_file(live)
+        self.assertEqual((held["journal_id"], held["database_id"], held["entries"]),
+                         (meta["journal"]["journal_id"], meta["database_id"], meta["journal"]["entries"]))
+        self.start()
+        self.assertEqual(self.h.runner.replay_journal(), 3, "the fill after the database copy")
+        o = self.h.row("orders", "order_id", "B1")
+        self.assertEqual((o["cum_qty"], o["fees_final"]), ("5", "2.000000"))
+        self.assertFalse([e for e in self.h.open_exceptions() if e["kind"] == "RECONCILIATION_INCOMPLETE"],
+                         "the installed journal is this database's: nothing is set aside")
+        self.assertEqual(self.h.verify(), [])
 
 
 if __name__ == "__main__":
