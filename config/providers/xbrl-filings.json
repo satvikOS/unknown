@@ -1,0 +1,34 @@
+{
+  "provider_id": "xbrl-filings",
+  "name": "XBRL International — filings.xbrl.org ESEF filing index (JSON:API and xBRL-JSON)",
+  "access": "HTTPS GET to filings.xbrl.org/api (JSON:API: entities, filings) and the per-filing xBRL-JSON file named by json_url; no key",
+  "cost_model": "Free of charge ('Access to the API is provided free of charge', docs/api)",
+  "budget": "none required",
+  "rate_limit": {"max_requests": 1, "per_seconds": 2.0,
+                 "source": "No limit published; the docs reserve the right to apply rate limits and ask routine users to set a User-Agent with a contact email (docs/api, read 2026-10-23). Self-imposed: one request every 2 s."},
+  "requires_local_config": ["data_user_agent or sec_user_agent (declared contact User-Agent, required by the API docs)"],
+  "failure_behavior": "429/5xx: bounded exponential backoff, then the issuer's run fails and stored facts keep their availability times. An LEI with no filing in the index (e.g. German issuers: Germany is not in the index's country list) is reported NOT_AVAILABLE, never as empty statements.",
+  "sources": [
+    "https://filings.xbrl.org/docs/api",
+    "https://filings.xbrl.org/",
+    "https://www.xbrl.org/Specification/xbrl-json/REC-2021-10-13/xbrl-json-REC-2021-10-13.html"
+  ],
+  "verified_on": "2026-10-23",
+  "datasets": [
+    {
+      "dataset_id": "xbrl_org.esef_facts",
+      "description": "Non-dimensional numeric ifrs-full facts from ESEF annual financial reports (xBRL-JSON), one observation per concept, period and unit, decimal text exactly as published, with the filing id (fxo_id) as publication",
+      "endpoint": "https://filings.xbrl.org/api/entities/<LEI>/filings ; https://filings.xbrl.org<json_url>",
+      "coverage": "Filings indexed for AT BE CY CZ DK EE ES FI FR GB GR HR HU IS IT LT LU LV MT NL NO PL PT RO SE SI SK UA (index page 2026-10-23); this system keeps only EU member-state filings. Germany is not indexed.",
+      "history_depth": "ESEF annual reports from financial year 2020/2021 onward, as indexed",
+      "update_frequency": "As issuers publish annual reports; the index adds filings for the current and previous year",
+      "availability_rule": "available_time = the index's 'published' time read as UTC (EU zones are at or ahead of UTC, so this is never earlier than the true publication), else the index 'date_added' (flag availability_from_index_date_added). Each filing is its own publication: a later report's comparative figure for an earlier year is a later publication and never leaks backwards.",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": true,
+      "rights_source": "filings.xbrl.org/docs/api (read 2026-10-23): API provided free of charge; the operator may alter, rate-limit or withdraw it; routine users must send a contact User-Agent. No data licence is stated; the site footer reads '(c) 2021-23 XBRL All Rights Reserved'. The underlying reports are issuers' mandatory public disclosures. Verdict: single-owner research storage and display allowed; no redistribution; cloud-model processing withheld until the owner decides (CAP-DATA-03).",
+      "rights_status": "verified 2026-10-23 for single-owner research use; redistribution not permitted",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}

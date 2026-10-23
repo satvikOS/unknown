@@ -47,6 +47,7 @@ export interface SearchIssuer {
   ingested: boolean;
   sic?: string | null;
   former_name_matches?: string[];
+  source_label?: string;
 }
 
 export interface SearchInstrument {
@@ -80,7 +81,40 @@ export interface SearchFigi {
   status_note: string;
 }
 
-export type SearchCandidate = SearchIssuer | SearchInstrument | SearchFigi;
+/** An EU issuer from ESEF annual reports (filings.xbrl.org), with its ESMA FIRDS listings (CAP-CO-03). */
+export interface SearchEuIssuer {
+  kind: 'eu_issuer';
+  lei: string;
+  entity_id: string;
+  name: string;
+  match: string;
+  countries: string[];
+  esef_status: string | null;
+  reason: string | null;
+  reporting_currency: string | null;
+  filings: number;
+  source: string;
+  source_label: string;
+  retrieved_at: string | null;
+  ingested: boolean;
+  listings: { isin: string; mic: string; cfi: string | null; currency: string | null; name: string | null; source: string }[];
+}
+
+/** An EU listing from ESMA FIRDS found by ISIN. */
+export interface SearchEuInstrument {
+  kind: 'eu_instrument';
+  isin: string;
+  mic: string;
+  cfi: string | null;
+  name: string | null;
+  currency: string | null;
+  issuer_lei: string | null;
+  match: string;
+  source: string;
+  file_name?: string;
+}
+
+export type SearchCandidate = SearchIssuer | SearchInstrument | SearchFigi | SearchEuIssuer | SearchEuInstrument;
 
 /**
  * Whether the API searched any SEC issuer source. With a research store it always lists the SEC ticker snapshot

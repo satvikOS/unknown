@@ -1,0 +1,35 @@
+{
+  "provider_id": "bse-india",
+  "name": "BSE Ltd — bseindia.com website data",
+  "access": "NONE: blocked by the rights review; no request is made",
+  "cost_model": "not applicable (not used)",
+  "budget": "none",
+  "rate_limit": {
+    "max_requests": 1,
+    "per_seconds": 3600.0,
+    "source": "not used; no requests are made while blocked"
+  },
+  "requires_local_config": [],
+  "failure_behavior": "Ingestion is refused by the registry (no permitted uses); the terminal shows the source as blocked with this record's reason, never a zero or placeholder value.",
+  "sources": [
+    "https://www.bseindia.com/static/about/termsofuse.aspx"
+  ],
+  "verified_on": "2026-10-23",
+  "datasets": [
+    {
+      "dataset_id": "bse.website",
+      "description": "BSE quotes, corporate filings and reference data from the website — NOT INGESTED",
+      "endpoint": "not used",
+      "coverage": "not used",
+      "history_depth": "not used",
+      "update_frequency": "not used",
+      "availability_rule": "not applicable: nothing is stored",
+      "allowed_uses": [],
+      "retention_days": 0,
+      "vintage_support": false,
+      "rights_source": "BSE terms of use: the page returned HTTP 403 to automated retrieval on 2026-10-23, so permission for automated access could not be established. Verdict: BLOCKED until the owner reads the terms; licensed paths only (CAP-DATA-09).",
+      "rights_status": "blocked: terms unreadable to automated retrieval; no permission established",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}

@@ -6816,12 +6816,48 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "tested",
+        "evidence": [
+          "ESEF annual reports from filings.xbrl.org (EU filings only) stored as point-in-time facts with the filing as publication; esef-ifrs-map@1 maps ifrs-full concepts to the SEC line-item keys; FY statements with restatement history and flagged fallbacks; ESEF/SEC side by side without currency conversion; search lists EU issuers by LEI, ISIN or name with source and currency.",
+          "Live run 2026-10-23 into the owner store: ASML 809 facts, LVMH 661, TotalEnergies 815 (FR filings; UK copies skipped); SAP and Siemens NO_FILINGS_INDEXED (Germany not indexed). TotalEnergies ESEF and 20-F lines agree exactly for FY2025."
         ],
-        "requirements": []
+        "gaps": [
+          "German issuers (SAP, Siemens) are not in filings.xbrl.org; Unternehmensregister not integrated",
+          "UKSEF, MCA and NSE/BSE filings not ingested (NSE/BSE/SEBI blocked by the rights review)",
+          "FIRDS listings untested live: the ESMA register returned HTTP 502 on 2026-10-23",
+          "issuer extension concepts (ESEF anchoring) not mapped; operating income often NOT_REPORTED",
+          "only FY basis (no half-year reports)"
+        ],
+        "requirements": [
+          "DAT-01",
+          "DAT-02"
+        ],
+        "files": [
+          "backend/src/unknown/data/sources/esef.py",
+          "backend/src/unknown/data/sources/firds.py",
+          "backend/src/unknown/data/fundamentals/ifrs.py",
+          "backend/src/unknown/data/fundamentals/search.py",
+          "backend/src/unknown/api/routes/company.py",
+          "terminal/src/workspaces/company/EuIssuer.tsx",
+          "terminal/src/workspaces/company/eu.ts",
+          "config/providers/xbrl-filings.json",
+          "config/providers/esma-firds.json",
+          "config/providers/nse-india.json",
+          "config/providers/bse-india.json",
+          "config/providers/sebi.json"
+        ],
+        "tests": [
+          "backend/tests/test_sources_esef.py::EsefTests.test_ingest_keeps_eu_filings_and_plain_ifrs_facts_exactly",
+          "backend/tests/test_sources_esef.py::EsefTests.test_statements_point_in_time_restatement_and_fallback",
+          "backend/tests/test_sources_esef.py::EsefTests.test_mapping_keys_line_up_with_the_sec_mapping",
+          "backend/tests/test_sources_esef.py::EsefTests.test_issuer_without_indexed_filings_is_explicit",
+          "backend/tests/test_sources_esef.py::EsefTests.test_compare_side_by_side_never_converts_currencies",
+          "backend/tests/test_sources_esef.py::FirdsTests.test_ingest_uses_listed_files_and_feeds_search",
+          "backend/tests/test_sources_esef.py::EuRouteTests.test_eu_routes",
+          "terminal/src/workspaces/company/eu.test.ts::EU issuer helpers > labels source and currency of SEC and ESEF candidates"
+        ],
+        "updated": "2026-10-23",
+        "verified_against": "feat/global-data@a0658d0"
       }
     },
     {
@@ -11112,12 +11148,41 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "tested",
+        "evidence": [
+          "Cross-country comparison (US, IN and the EU venue countries) of World Bank, OECD, BIS and FRED series: one column per source and definition, exact decimal text, NOT_COVERED / NOT_INGESTED / NOT_AVAILABLE_AT_AS_OF as words, a series chart, and blocked sources listed with their reasons.",
+          "Live run 2026-10-23: World Bank 432 observations, OECD 701."
         ],
-        "requirements": []
+        "gaps": [
+          "no vintages: values are available from first capture (ALFRED/OECD vintages not read)",
+          "IMF blocked by its terms (automated bulk download needs permission)",
+          "no transformations (y/y, rebasing) beyond what sources publish"
+        ],
+        "requirements": [
+          "DAT-02"
+        ],
+        "files": [
+          "backend/src/unknown/data/sources/macro_common.py",
+          "backend/src/unknown/data/sources/macro_global.py",
+          "backend/src/unknown/data/sources/worldbank.py",
+          "backend/src/unknown/data/sources/oecd.py",
+          "backend/src/unknown/api/routes/macro_global.py",
+          "terminal/src/workspaces/macro/GlobalMacro.tsx",
+          "terminal/src/workspaces/macro/global.ts",
+          "config/providers/world-bank.json",
+          "config/providers/oecd.json",
+          "config/providers/imf.json"
+        ],
+        "tests": [
+          "backend/tests/test_sources_macro_global.py::MacroSourceTests.test_world_bank_values_exact_and_null_is_missing_not_zero",
+          "backend/tests/test_sources_macro_global.py::MacroSourceTests.test_revision_is_a_new_publication_at_its_receipt_time",
+          "backend/tests/test_sources_macro_global.py::MacroSourceTests.test_oecd_csv_and_one_request_for_all_countries",
+          "backend/tests/test_sources_macro_global.py::MacroSourceTests.test_comparison_cells_label_source_area_and_reasons",
+          "backend/tests/test_sources_macro_global.py::MacroGlobalRouteTests.test_route_registered_and_reads_store",
+          "terminal/src/workspaces/macro/global.test.ts::comparison table > shows exact values with period and the reason for anything missing"
+        ],
+        "updated": "2026-10-23",
+        "verified_against": "feat/global-data@a0658d0"
       }
     },
     {
@@ -11675,12 +11740,29 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "implemented",
+        "evidence": [
+          "RBI policy repo rate via BIS WS_CBPOL (series IN, end of month), live run 2026-10-23; the RBI website and FBIL are recorded as blocked by the rights review; INR reference FX is available from the ECB (INR per EUR)."
         ],
-        "requirements": []
+        "gaps": [
+          "money-market benchmarks and the G-sec curve not ingested",
+          "RBI website blocked (caching prohibited); FBIL licensing unreviewed",
+          "policy rate is end-of-month, not decision-dated"
+        ],
+        "requirements": [
+          "DAT-02"
+        ],
+        "files": [
+          "backend/src/unknown/data/sources/bis.py",
+          "config/providers/bis.json",
+          "config/providers/rbi.json",
+          "config/providers/fbil.json"
+        ],
+        "tests": [
+          "backend/tests/test_sources_macro_global.py::MacroSourceTests.test_bis_backfill_available_at_month_end_and_live_at_receipt"
+        ],
+        "updated": "2026-10-23",
+        "verified_against": "feat/global-data@a0658d0"
       }
     },
     {
@@ -27909,12 +27991,29 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "tested",
+        "evidence": [
+          "filings.xbrl.org terms read 2026-10-23 (free API, contact User-Agent, no data licence stated): recorded as single-owner research storage, no redistribution, no cloud-model processing; requests paced at 1 per 2 s.",
+          "Live ingestion 2026-10-23: 3 issuers, 9 filings, 2,285 facts."
         ],
-        "requirements": []
+        "gaps": [
+          "no automatic refresh schedule",
+          "the API's validation messages are not stored"
+        ],
+        "requirements": [
+          "DAT-01"
+        ],
+        "files": [
+          "backend/src/unknown/data/sources/esef.py",
+          "config/providers/xbrl-filings.json"
+        ],
+        "tests": [
+          "backend/tests/test_sources_esef.py::EsefTests.test_ingest_keeps_eu_filings_and_plain_ifrs_facts_exactly",
+          "backend/tests/test_sources_esef.py::EsefTests.test_lei_check_digits",
+          "backend/tests/test_sources_macro_global.py::MacroSourceTests.test_blocked_sources_refuse_storage"
+        ],
+        "updated": "2026-10-23",
+        "verified_against": "feat/global-data@a0658d0"
       }
     },
     {
@@ -28170,12 +28269,27 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "tested",
+        "evidence": [
+          "FRED adapter inactive without <UNKNOWN_HOME>/secrets/fred_api_key; the key is redacted from raw-request records, URLs and errors. Live run 2026-10-23 with the owner's key: 8,956 observations of 5 series."
         ],
-        "requirements": []
+        "gaps": [
+          "ALFRED vintages not used (current vintage, first-capture availability)",
+          "series list fixed in code unless given on the CLI"
+        ],
+        "requirements": [
+          "DAT-02"
+        ],
+        "files": [
+          "backend/src/unknown/data/sources/fred.py",
+          "config/providers/fred.json"
+        ],
+        "tests": [
+          "backend/tests/test_sources_macro_global.py::FredTests.test_inactive_without_key_file_and_no_request",
+          "backend/tests/test_sources_macro_global.py::FredTests.test_active_with_key_redacts_it_everywhere"
+        ],
+        "updated": "2026-10-23",
+        "verified_against": "feat/global-data@a0658d0"
       }
     },
     {

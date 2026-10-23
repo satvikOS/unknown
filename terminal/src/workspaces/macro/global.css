@@ -1,0 +1,45 @@
+/* Cross-country macro panels (GlobalMacro.tsx): table cells, country picker. Design tokens only. */
+.gm-table th[scope='col'] {
+  vertical-align: bottom;
+  min-width: 9rem;
+}
+.gm-table td {
+  text-align: right;
+  white-space: nowrap;
+}
+.gm-unit,
+.gm-period,
+.gm-area {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+.gm-value {
+  font-family: var(--font-mono);
+}
+.gm-missing {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+}
+.gm-countries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+}
+.gm-countries legend {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.gm-subhead {
+  font-size: var(--fs-sm);
+  margin: 12px 0 4px;
+}
+@media (max-width: 640px) {
+  .gm-table th[scope='col'] {
+    min-width: 6rem;
+  }
+}

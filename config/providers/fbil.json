@@ -1,0 +1,35 @@
+{
+  "provider_id": "fbil",
+  "name": "Financial Benchmarks India — FBIL reference rates (USD/INR and other INR rates)",
+  "access": "NONE: blocked by the rights review; no request is made",
+  "cost_model": "not applicable (not used)",
+  "budget": "none",
+  "rate_limit": {
+    "max_requests": 1,
+    "per_seconds": 3600.0,
+    "source": "not used; no requests are made while blocked"
+  },
+  "requires_local_config": [],
+  "failure_behavior": "Ingestion is refused by the registry (no permitted uses); the terminal shows the source as blocked with this record's reason, never a zero or placeholder value.",
+  "sources": [
+    "https://www.fbil.org.in/"
+  ],
+  "verified_on": "2026-10-23",
+  "datasets": [
+    {
+      "dataset_id": "fbil.reference_rates",
+      "description": "FBIL INR reference rates (shown on rbi.org.in as 'Source: FBIL') — NOT INGESTED",
+      "endpoint": "not used",
+      "coverage": "not used",
+      "history_depth": "not used",
+      "update_frequency": "not used",
+      "availability_rule": "not applicable: nothing is stored",
+      "allowed_uses": [],
+      "retention_days": 0,
+      "vintage_support": false,
+      "rights_source": "FBIL website (read 2026-10-23): no terms of use or licence for the benchmark rates could be located on the fetched page; FBIL is a benchmark administrator and benchmark reuse is normally licensed. Verdict: BLOCKED until the owner reviews FBIL's benchmark licensing terms. INR reference FX is available from the ECB (INR per EUR, valuation only).",
+      "rights_status": "blocked: no terms located; benchmark licensing unreviewed",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}

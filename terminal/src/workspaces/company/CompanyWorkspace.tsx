@@ -4,7 +4,8 @@
  * with its recipe, peers and filings. Everything is read from GET /api/company (read-only research store);
  * an unavailable source shows the API's reason and the command that would populate it.
  *
- * Routes: `#/company` (search), `#/company/search/q=…/as_of=…`, `#/company/<cik>/<tab>/as_of=…/price=…`.
+ * Routes: `#/company` (search), `#/company/search/q=…/as_of=…`, `#/company/<cik>/<tab>/as_of=…/price=…`,
+ * `#/company/eu/<LEI>/<tab>/as_of=…/sec=<CIK>` (EU issuer from ESEF filings, see EuIssuer.tsx).
  */
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import type { QueryResult } from '../../state/react';
@@ -17,6 +18,8 @@ import { POPULATE, checkInstant, shownOf } from '../research-common/format';
 import { ErrorNotice, IsoTime, Loading, Section, StatusTag, Unavailable } from '../research-common/parts';
 import type { WorkspaceProps } from '../types';
 import { DcfView } from './Dcf';
+import { euIssuerHref, parseEuRoute } from './eu';
+import { EuIssuerView } from './EuIssuer';
 import { MetricsView } from './Metrics';
 import {
   COMPANY_TABS,
@@ -41,9 +44,12 @@ import { FilingsView, PeersView } from './Peers';
 import { StatementsView } from './Statements';
 import { TearsheetView } from './Tearsheet';
 
-const DESCRIPTION = 'Issuers from SEC filings in the research store: point-in-time statements, metrics, DCF, peers and tearsheet.';
+const DESCRIPTION =
+  'Issuers from SEC filings and EU ESEF annual reports in the research store: point-in-time statements, metrics, DCF, peers and tearsheet.';
 
 export function CompanyWorkspace({ route, navigate }: WorkspaceProps) {
+  const eu = parseEuRoute(route.rest);
+  if (eu) return <EuIssuerView key={eu.lei} r={eu} navigate={navigate} />;
   const r = parseCompanyRoute(route.rest);
   const go = (next: { cik?: number | null; tab?: CompanyTab; opts?: CompanyOptions }) =>
     navigate('company', ...companyRoute({ cik: next.cik === undefined ? r.cik : next.cik, tab: next.tab ?? r.tab, opts: next.opts ?? r.opts }));
@@ -80,6 +86,8 @@ function SearchView({ r, go, navigate }: { r: CompanyRoute; go: Go; navigate: Wo
 
   const open = (c: SearchCandidate) => {
     if (c.kind === 'issuer') go({ cik: c.cik, tab: 'tearsheet', opts: carriedOptions(r.opts) });
+    else if (c.kind === 'eu_issuer') navigate('company', 'eu', c.lei, 'statements', ...(r.opts.as_of ? [`as_of=${r.opts.as_of}`] : []));
+    else if (c.kind === 'eu_instrument' && c.issuer_lei) navigate('company', 'eu', c.issuer_lei, 'filings');
     else if (c.kind === 'instrument') navigate('instruments', c.instrument_id);
   };
 
@@ -114,10 +122,12 @@ function SearchView({ r, go, navigate }: { r: CompanyRoute; go: Go; navigate: Wo
 }
 
 function candidateName(c: SearchCandidate): string {
-  return c.name ?? (c.kind === 'figi_listing' ? (c.ticker ?? c.figi ?? 'unnamed') : 'unnamed');
+  return c.name ?? (c.kind === 'figi_listing' ? (c.ticker ?? c.figi ?? 'unnamed') : c.kind === 'eu_instrument' ? c.isin : 'unnamed');
 }
 
 function candidateId(c: SearchCandidate): string {
+  if (c.kind === 'eu_issuer') return `LEI ${c.lei}`;
+  if (c.kind === 'eu_instrument') return `${c.isin} · ${c.mic}`;
   return c.kind === 'issuer' ? `CIK ${c.cik}` : c.kind === 'instrument' ? c.instrument_id : (c.figi ?? c.composite_figi ?? 'no FIGI');
 }
 
@@ -137,9 +147,20 @@ function SearchResults({ data, open, opts }: { data: SearchResponse; open: (c: S
           <WorkspaceLink to="instruments" rest={[c.instrument_id]}>
             <strong>{candidateName(c)}</strong>
           </WorkspaceLink>
+        ) : c.kind === 'eu_issuer' ? (
+          <a href={euIssuerHref(c.lei, opts.as_of)} tabIndex={-1}>
+            <strong>{c.name}</strong>
+          </a>
         ) : (
           <strong>{candidateName(c)}</strong>
         ),
+    },
+    {
+      id: 'source',
+      header: 'Source · currency',
+      description: 'Where the issuer comes from (SEC EDGAR or ESEF annual reports) and its reporting currency when known',
+      sortValue: (c) => sourceLabel(c),
+      cell: (c) => <span>{sourceLabel(c)}</span>,
     },
     { id: 'kind', header: 'Kind', sortValue: (c) => c.kind, cell: (c) => <Badge>{c.kind.replace('_', ' ')}</Badge> },
     { id: 'id', header: 'Identifier', sortValue: candidateId, cell: (c) => <span className="mono">{candidateId(c)}</span> },
@@ -153,6 +174,15 @@ function SearchResults({ data, open, opts }: { data: SearchResponse; open: (c: S
           <span>
             {c.listings.length ? c.listings.map((l) => `${l.ticker} (${l.exchange}, ${l.source}; ${l.validity})`).join('; ') : <span className="muted">no listings recorded</span>}
             {c.former_name_matches?.length ? <span className="muted"> · former name: {c.former_name_matches.join(', ')}</span> : null}
+          </span>
+        ) : c.kind === 'eu_issuer' ? (
+          <span>
+            {c.listings.length ? c.listings.map((l) => `${l.isin} (${l.mic}, ${l.currency ?? 'no currency'}, ${l.source})`).join('; ') : <span className="muted">no FIRDS listing held</span>}
+            {c.reason ? <span className="muted"> · {c.reason}</span> : null}
+          </span>
+        ) : c.kind === 'eu_instrument' ? (
+          <span>
+            {c.mic} · CFI {c.cfi ?? '—'} · {c.currency ?? 'no currency'} · issuer {c.issuer_lei ?? 'unknown'}
           </span>
         ) : c.kind === 'instrument' ? (
           <span>
@@ -176,6 +206,8 @@ function SearchResults({ data, open, opts }: { data: SearchResponse; open: (c: S
               not ingested
             </span>
           )
+        ) : c.kind === 'eu_issuer' ? (
+          <StatusTag status={c.esef_status ?? 'UNKNOWN'} detail={`${c.filings} ESEF filing(s)`} />
         ) : (
           <span className="muted">{c.source}</span>
         ),
@@ -231,6 +263,15 @@ function SearchResults({ data, open, opts }: { data: SearchResponse; open: (c: S
       </Section>
     </>
   );
+}
+
+/** Source and currency label of a candidate: SEC and ESEF issuers sit side by side in one list. */
+export function sourceLabel(c: SearchCandidate): string {
+  if (c.kind === 'eu_issuer') return `${c.source_label} · ${c.reporting_currency ?? 'currency not yet known'}`;
+  if (c.kind === 'issuer') return c.source_label ?? 'SEC EDGAR (US filer)';
+  if (c.kind === 'eu_instrument') return `ESMA FIRDS · ${c.currency ?? 'no currency'}`;
+  if (c.kind === 'instrument') return `core instrument master · ${c.currency ?? 'no currency'}`;
+  return c.source;
 }
 
 // ------------------------------------------------------------------ issuer frame

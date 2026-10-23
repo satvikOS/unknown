@@ -9,6 +9,9 @@ calls the network or writes anything.
   GET /api/company/search?q=&as_of=&limit=
   GET /api/company/metric-record/<metric_id>                  show calculation of a persisted metric
   GET /api/company/<cik>[/tearsheet]?as_of=&price=...
+  GET /api/company/eu/<LEI>[/identity]?as_of=                EU issuer (ESEF filings index, FIRDS listings)
+  GET /api/company/eu/<LEI>/statements?as_of=&periods=       ESEF FY statements, esef-ifrs-map@1 (CAP-CO-03)
+  GET /api/company/eu/<LEI>/compare?sec=<CIK>&as_of=         ESEF and SEC lines side by side (owner-chosen pairing)
   GET /api/company/<cik>/filings?as_of=&forms=10-K,10-Q&limit=
   GET /api/company/<cik>/statements?as_of=&basis=FY|Q|TTM&periods=&known_at=&history=1
   GET /api/company/<cik>/metrics?as_of=&price=...
@@ -24,12 +27,14 @@ Price inputs (multiples, market-value weights) are never fetched: pass ``price``
 """
 from __future__ import annotations
 
+import json
 import time
 from datetime import date, datetime, timedelta, timezone
 
 from ...data.fundamentals import dcf as dcf_mod
 from ...data.fundamentals.filings import filings as filings_list
 from ...data.fundamentals.filings import identity, load_submissions
+from ...data.fundamentals.ifrs import EsefStatements, compare as esef_compare
 from ...data.fundamentals.metrics import FORMULAS, MetricEngine, PriceInput, explain_record
 from ...data.fundamentals.peers import comps, peer_group
 from ...data.fundamentals.readonly import ReadOnlyResearchStore, research_paths
@@ -38,7 +43,7 @@ from ...data.fundamentals.statements import Fundamentals
 from ...data.fundamentals.tearsheet import tearsheet
 from ...data.fundamentals.valuation import ModelRefused, dcf_model
 from ...data.pit import OPEN_END
-from ...data.sources import ecb, treasury
+from ...data.sources import ecb, esef, firds, treasury
 from ...domain.clock import NS_PER_S, ns_to_iso
 from ...domain.fixed import Fixed
 
@@ -123,6 +128,8 @@ def company(ctx, parts, q, account_key, conn):
             return explain_record(store, int(parts[2]))
         if len(parts) < 2:
             raise ValueError("use /api/company/<cik>/... or /api/company/search?q=")
+        if parts[1] == "eu":
+            return eu_company(store, parts, q)
         cik = parse_cik(parts[1])
         entity_id = f"SEC-CIK-{cik:010d}"
         sub = parts[2] if len(parts) > 2 else "tearsheet"
@@ -187,6 +194,42 @@ def company(ctx, parts, q, account_key, conn):
         store.close()
 
 
+def eu_company(store, parts, q):
+    """EU issuers from ESEF filings (filings.xbrl.org) and FIRDS listings; read-only, point in time."""
+    if len(parts) < 3 or not esef.lei_valid(parts[2]):
+        raise ValueError("use /api/company/eu/<LEI>/... with a valid 20-character LEI (ISO 17442)")
+    lei, sub = parts[2].upper(), parts[3] if len(parts) > 3 else "identity"
+    t = as_of(q)
+    row = store.conn.execute("SELECT name, attributes FROM entity WHERE entity_id=?", (esef.entity_id(lei),)).fetchone()
+    if row is None:
+        raise LookupError(f"EU issuer {lei} is not ingested; run python -m unknown.data.sources.esef ingest --lei {lei}")
+    if sub == "identity":
+        attrs = json.loads(row["attributes"] or "{}")
+        filings = [f for f in attrs.get("filings", []) if f.get("period_end")]
+        return {"entity_id": esef.entity_id(lei), "lei": lei, "name": row["name"], "as_of": ns_to_iso(t),
+                "esef_status": attrs.get("esef_status"), "reason": attrs.get("reason"), "countries": attrs.get("countries", []),
+                "index_checked_at": attrs.get("index_checked_at"),
+                "filings": [{**f, "viewer_url": esef.BASE + f["viewer_url"] if f.get("viewer_url") else None,
+                             "available_time": ns_to_iso(esef.availability(f)[0])} for f in filings
+                            if esef.availability(f)[0] <= t],
+                "listings": [{**i, "source": firds.ATTRIBUTION} for i in firds.instruments_for_issuer(store, lei)],
+                "listings_note": "ESMA FIRDS equity reference data for the EU venues in the market registry; empty when FIRDS has not been "
+                                 "ingested (python -m unknown.data.sources.firds ingest)",
+                "source": {"dataset": esef.DATASET, "provider": esef.PROVIDER, "attribution": esef.ATTRIBUTION}}
+    if sub == "statements":
+        known = parse_instant(q["known_at"], name="known_at") if q.get("known_at") else None
+        return EsefStatements(store, lei, t, knowledge_cutoff_ns=known).statement(int(q.get("periods", 4)))
+    if sub == "compare":
+        e = EsefStatements(store, lei, t).statement(int(q.get("periods", 4)))
+        sec = None
+        if q.get("sec"):
+            entity_id = f"SEC-CIK-{parse_cik(q['sec']):010d}"
+            _sic(store, entity_id)
+            sec = Fundamentals(store, entity_id, t).statement("FY", int(q.get("periods", 4)), history=False)
+        return esef_compare(e, sec)
+    raise LookupError(f"unknown EU company endpoint {sub}")
+
+
 def macro(ctx, parts, q, account_key, conn):
     store = _open(ctx)
     if store is None:
@@ -221,8 +264,9 @@ def macro(ctx, parts, q, account_key, conn):
                             **({} if r["n"] else {"reason": "no observation of this dataset available at the as-of time "
                                                             "(not ingested, or ingested data starts later)"})})
             return {"series": out, "as_of": ns_to_iso(t),
-                    "not_available": ["FRED/ALFRED (needs an owner-registered API key)", "H.15, SOFR, ECB yield curves, Eurostat "
-                                      "(not yet ingested)"]}
+                    "not_available": ["ALFRED vintages (FRED current vintage only; see /api/macro/global)", "H.15, SOFR, ECB yield "
+                                      "curves, Eurostat (not yet ingested)"],
+                    "global": "World Bank, OECD, BIS and FRED series by country: GET /api/macro/global"}
         raise LookupError(f"unknown macro endpoint {sub}")
     finally:
         store.close()
