@@ -19,7 +19,7 @@ from ...domain.fixed import Fixed, Rounding
 from ...domain.money import currency
 from .. import ledger, state
 from ..desk import Context
-from .broker import WORKING_STATUSES, _find_order, apply_status, finalize
+from .broker import HELD_STATUSES, WORKING_STATUSES, _find_order, apply_status, finalize
 from .control import latch_stop
 from .orders import cancel_order
 from .common import (CASH_MISMATCH, FOREIGN_ACTIVITY, POSITION_MISMATCH, RECONCILIATION_INCOMPLETE, SETTLEMENT_LATE,
@@ -69,7 +69,9 @@ def reconciliation_result(ctx: Context, p: dict) -> dict:
             continue
         broker_open[order["order_id"]] = row
         before = state.order(ctx.tx, order["order_id"])
-        if before["state"] in state.TERMINAL_ORDER_STATES and row["status"] in WORKING_STATUSES:
+        # A held (Inactive) order is not final and may work again: listed for a locally terminal order, it counts.
+        if before["state"] in state.TERMINAL_ORDER_STATES and (row["status"] in WORKING_STATUSES
+                                                                or row["status"] in HELD_STATUSES):
             differences.append({"kind": "TERMINAL_ORDER_WORKING", "blocking": True,
                                 "detail": {"order_id": order["order_id"], "local_state": before["state"], "broker_status": row["status"]}})
         apply_status(ctx, before, row["status"], Fixed.parse(row["filled_quantity"]), "",

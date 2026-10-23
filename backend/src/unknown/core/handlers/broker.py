@@ -133,10 +133,11 @@ def apply_status(ctx: Context, order: dict, status: str, broker_filled: Fixed, r
             pending = {"status": status, "filled": broker_filled.to_str(), "reason": reason}
             ctx.emit("TerminalOrderAwaitingExecutions", {"status": status},
                      {"orders": [{**new, "broker_terminal_pending": pending}], "exceptions": resolved}, **refs)
-        if status in WORKING_STATUSES and via == "reconciliation":
+        if (status in WORKING_STATUSES or status in HELD_STATUSES) and via == "reconciliation":
             # The broker's open-order list still shows an order we consider finished (its reservation is
             # released): block, and pull it if it adds exposure. Streamed statuses can arrive stale, so only
-            # the reconciliation snapshot is evidence here (review finding 36).
+            # the reconciliation snapshot is evidence here (review finding 36). A held (Inactive) order counts:
+            # it is not final and may work again (order_machine.py), e.g. one the owner closed on evidence.
             case = new_exception(ctx, key, EXECUTION_ANOMALY, blocking=True, severity="high",
                                  detail={"order_id": order["order_id"], "issue": "broker lists a locally terminal order as working",
                                          "local_state": order["state"], "broker_status": status},
@@ -205,9 +206,13 @@ def _hold_at_broker(ctx: Context, order: dict, status: str, broker_filled: Fixed
     key = order["account_key"]
     refs = dict(account_key=key, session_id=order["session_id"], order_id=order["order_id"])
     held = {"status": status, "reason": reason, "broker_filled": broker_filled.to_str(), "via": via}
-    if order["state"] == "UNKNOWN" and {k: (order.get("broker_held") or {}).get(k) for k in held} == held:
-        return {"state": "UNKNOWN", "held": True, "noop": True}   # the same report again
-    new = {**order, "broker_held": {**held, "at_ns": ctx.now_ns}}
+    prior = order.get("broker_held") or {}
+    if order["state"] == "UNKNOWN" and {k: prior.get(k) for k in held} == held and not _reconciled_since(ctx, key, prior):
+        return {"state": "UNKNOWN", "held": True, "noop": True}   # the same report again, no reconciliation since
+    # ``after_seq``: the record follows every event up to this seq. The same report after a later reconciliation is
+    # recorded again, so close_unknown_order never relies on a run older than the broker's last word on the order.
+    after_seq = ctx.tx.one("SELECT MAX(seq) AS s FROM events")["s"] or 0
+    new = {**order, "broker_held": {**held, "at_ns": ctx.now_ns, "after_seq": after_seq}}
     if order["state"] != "UNKNOWN":
         new.update(state="UNKNOWN", prev_state=order["state"])
     case = new_exception(ctx, key, UNKNOWN_ORDER, blocking=True, severity="high",
@@ -223,6 +228,14 @@ def _hold_at_broker(ctx: Context, order: dict, status: str, broker_filled: Fixed
         from .orders import cancel_order
         cancel_order(ctx, state.order(ctx.tx, order["order_id"]), f"broker reports the buy {status}")
     return {"state": "UNKNOWN", "held": True}
+
+
+def _reconciled_since(ctx: Context, key: str, held: dict) -> bool:
+    """Whether the account's latest reconciliation completed after ``held`` (a broker_held record) was written."""
+    rec = state.latest_reconciliation(ctx.tx, key)
+    if rec is None:
+        return False
+    return rec.get("event_seq_at_completion", rec.get("event_seq_at_start", 0)) >= held.get("after_seq", 0)
 
 
 # -------------------------------------------------------------- executions
@@ -474,9 +487,10 @@ def apply_order_execution(ctx: Context, order: dict, p: dict, *, allowance: Fixe
     pending = ctx.tx.one("SELECT row FROM pending_commissions WHERE exec_key=?", (p["exec_key"],))
     if pending is not None:
         _apply_commission(ctx, json.loads(pending["row"]), deferred=True)
-    if _after_session_end(ctx, order) and order.get("purpose") != "DISPOSAL":
+    if _after_session_end(ctx, order) and (order.get("purpose") != "DISPOSAL" or p.get("correction_of")):
         # A late fill or a correction for an ended session: booked to protected:<id> or unallocated (above), and a
-        # blocking case for the owner (ADR-0008). An owner disposal's own fills are expected activity, not a case.
+        # blocking case for the owner (ADR-0008). An owner disposal's own fills are expected activity, not a case;
+        # a broker correction of one is not.
         _post_completion_notice(ctx, key, order["session_id"], f"execution {p['exec_key']} after the session ended",
                                 blocking=True, ref=p["exec_key"])
     s = state.session(ctx.tx, order["session_id"]) if order["session_id"] else None
@@ -779,7 +793,9 @@ def _record_bust(ctx: Context, orig: dict, p: dict, order: dict | None) -> dict:
              changes, account_key=key, session_id=orig.get("session_id"), order_id=orig.get("order_id"),
              instrument_id=orig["instrument_id"], event_time_ns=p.get("exec_time_ns"))
     sid = orig.get("session_id")
-    if sid and _after_session_end(ctx, current or {"session_id": sid}) and (current or {}).get("purpose") != "DISPOSAL":
+    if sid and _after_session_end(ctx, current or {"session_id": sid}):
+        # Including a bust of an owner DISPOSAL's fill: the shares it sold come back to protected:<id> or
+        # unallocated, and only this case says so (the reconciliation agrees with the broker).
         _post_completion_notice(ctx, key, sid, f"bust {p['exec_key']} of {orig['exec_key']} after the session ended",
                                 blocking=True, ref=p["exec_key"])
     elif sid:
@@ -933,7 +949,9 @@ def _apply_commission(ctx: Context, p: dict, *, deferred: bool) -> dict:
     ctx.emit(kind, {"exec_key": exec_key, **info, "owner": owner}, changes, account_key=key,
              order_id=ex.get("order_id"), session_id=ex.get("session_id"))
     ex_order = state.order(ctx.tx, ex["order_id"]) if ex.get("order_id") else None
-    if ex.get("session_id") and owner != ledger.session_owner(ex["session_id"]) and (ex_order or {}).get("purpose") != "DISPOSAL":
+    disposal_fee = (ex_order or {}).get("purpose") == "DISPOSAL" and kind == "CommissionFinalized"
+    if ex.get("session_id") and owner != ledger.session_owner(ex["session_id"]) and not disposal_fee:
+        # A disposal's first final commission is its expected activity; a later change of it is a late fee.
         _post_completion_notice(ctx, key, ex["session_id"], f"{kind} for {exec_key}",
                                 blocking=ledger.available_cash(ctx.tx, key, owner, ccy).is_negative(), ref=exec_key)
     if owner == ledger.EXTERNAL:

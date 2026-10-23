@@ -41,7 +41,7 @@ from ..domain.canonical import canonical_json, sha256_hex
 from ..domain.clock import Clock, SystemClock, NS_PER_S
 from ..domain.errors import CommandConflict, LeaseLost
 from ..domain.ids import IdGenerator
-from ..domain.principal import Principal, Role
+from ..domain.principal import Principal, Role, permitted
 from ..gateway.runner import GatewayRunner
 from ..reconcile.reconciler import Reconciler
 from .ipc import CoreSocketServer, Grant, OutcomeUnknown, describe_request
@@ -144,6 +144,14 @@ class CoreService:
     def latch_path(self) -> Path:
         """The fsync'd mirror of an unrecorded stop, next to the account's database."""
         return self.paths.data / f"{self.account_key}.stop-latch.json"
+
+    def _latchable(self, command: Command) -> bool:
+        """Whether a failed ``command`` may stand in memory for a recorded stop: only a stop the desk would accept,
+        from a role that may stop (OWNER or SYSTEM, ADR-0007) and for this core's own account. Any other request
+        that fails is reported like every failed command; it must never engage the latch, cancel at the broker or
+        leave a latch the desk will refuse to record (which would never release)."""
+        return (command.kind == "stop" and permitted(command.principal.role, "stop")
+                and isinstance(command.payload, dict) and command.payload.get("account_key") == self.account_key)
 
     def _entry_gate(self) -> str | None:
         """Why the gateway may not transmit a buy now, or None (GatewayRunner entry_gate)."""
@@ -248,6 +256,9 @@ class CoreService:
         try:
             data = json.loads(path.read_text())
             pending = [_command_from_json(c) for c in data["pending"]]
+            if data.get("account_key") != self.account_key or not pending or not all(self._latchable(c) for c in pending):
+                # The file is replayed as commands: anything but stops of this account is never executed from it.
+                raise ValueError("the latch file holds something other than stops of this account")
             self.memory_latch = MemoryLatch(reason=data["reason"], engaged_at_ns=data["engaged_at_ns"], error=data["error"],
                                             pending=pending, cancels=list(data.get("cancels", [])),
                                             stands_in_for=list(data.get("stands_in_for", [])))
@@ -286,9 +297,11 @@ class CoreService:
                                      "blocked", latch.last_persist_error, latch.engaged_at_ns)
                     return False
             if not result.accepted:
-                latch.last_persist_error = f"recorded as rejected: {result.body}"
-                log.critical("stop %s was recorded REJECTED (%s); the memory latch stays", command.command_id, result.body)
-                return False
+                # The desk decided this stop and recorded the refusal (e.g. UNKNOWN_ACCOUNT): it is recorded, so it
+                # no longer needs the memory latch. Waiting for it to be accepted would hold the latch forever (and
+                # refuse every green start); the SYSTEM stop that follows records the latch itself.
+                log.critical("stop %s was recorded REJECTED (%s); it is recorded, so the memory latch no longer "
+                             "stands in for it", command.command_id, result.body)
             latch.pending.pop(0)
         self.memory_latch = None
         try:
@@ -373,14 +386,15 @@ class CoreService:
             except CommandConflict:
                 raise   # decided before this command wrote anything
             except Exception as exc:
+                latchable = self._latchable(command)
                 try:
                     stored = self._stored_after_failure(command, started_ns, exc)
                 except OutcomeUnknown:
-                    if command.kind != "stop":
+                    if not latchable:
                         raise
                     stored = None   # a stop is latched in memory either way; recording it again later is idempotent
                 if stored is None:
-                    if command.kind == "stop":
+                    if latchable:
                         return self._latch_in_memory(command, exc)   # a red stop is never blocked by persistence
                     raise   # rolled back (or refused before executing): the command was not executed
                 result, post_commit_error = stored, f"{type(exc).__name__}: {exc}"

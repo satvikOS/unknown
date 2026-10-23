@@ -254,9 +254,9 @@ def _close_unknown_order(ctx: Context, case: dict, p: dict, note: str) -> dict:
     The owner's exit for an order whose outcome the broker cannot report (e.g. an IBKR order transmitted with no trace
     in open orders, completed orders or executions, so every lookup answers "cannot determine"). It never releases a
     hold the broker may still be working: the account's latest reconciliation must be complete, recorded in this
-    process, younger than ``max_reconciliation_age_s`` and include the order's last material change (state, filled
-    quantity, broker id); the broker's open orders in it must not include the order and its lookup must not have
-    found it; and its only blocking differences may be those of unresolved UNKNOWN orders (an UNKNOWN order the
+    process, younger than ``max_reconciliation_age_s`` and include the order's last material change (any change but
+    cancel bookkeeping, including a held report the broker repeats after a run); the broker's open orders in it must
+    not include the order and its lookup must not have found it; and its only blocking differences may be those of unresolved UNKNOWN orders (an UNKNOWN order the
     broker cannot find always leaves the run
     DIFFERENCES, so a literally clean run never contains one, and matching positions and cash in that run are what
     show no fill is missing). Fresh owner authentication and evidence (a statement, confirm or support reference)
@@ -334,15 +334,20 @@ def _close_unknown_order(ctx: Context, case: dict, p: dict, note: str) -> dict:
     return {"evidence": evidence, "reconciliation": rec["run_id"], "order_id": order_id, "order_state": target}
 
 
+_CANCEL_BOOKKEEPING = ("cancel_state", "reason")
+
+
 def _last_material_change(ctx: Context, order_id: str) -> int:
-    """Sequence of the last event that changed what the broker could report about the order: its state, filled
-    quantity or broker id. Cancel bookkeeping (a cancel queued, sent or refused) does not count: a reconciliation
-    that fails re-queues a cancel for every open buy, which would otherwise make every run look stale."""
+    """Sequence of the last event that changed the order other than by cancel bookkeeping: its state, quantities,
+    broker id, or a broker report recorded on it (a held/Inactive report, which can arrive with nothing else
+    changing). Cancel bookkeeping (a cancel queued, sent or refused: ``cancel_state`` and its ``reason``) does not
+    count: a reconciliation that fails re-queues a cancel for every open buy, which would otherwise make every run
+    look stale."""
     last, seen = 0, None
     for r in ctx.tx.all("SELECT seq, payload FROM events WHERE order_id=? ORDER BY seq", (order_id,)):
         for row in json.loads(r["payload"])["changes"].get("orders", []):
             if row.get("order_id") == order_id:
-                material = (row.get("state"), row.get("cum_qty"), row.get("broker_order_id"))
+                material = json.dumps({k: v for k, v in row.items() if k not in _CANCEL_BOOKKEEPING}, sort_keys=True)
                 if material != seen:
                     last, seen = r["seq"], material
     return last
