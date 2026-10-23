@@ -1,0 +1,49 @@
+{
+  "provider_id": "nasdaq",
+  "name": "Nasdaq, Inc. public reference pages (Nasdaq Trader holiday schedule and system hours; nasdaq.com blocked)",
+  "access": "Owner-initiated HTTPS GET of nasdaqtrader.com reference pages, read once per year and transcribed into config/calendars/XNAS.json; no key or login. nasdaq.com is never fetched (see the blocked dataset).",
+  "cost_model": "Free (public web pages)",
+  "budget": "none required",
+  "rate_limit": {"max_requests": 1, "per_seconds": 30.0,
+                 "source": "nasdaqtrader.com publishes no robots.txt (404 on 2026-10-23) and no rate limit; self-imposed one request per 30 s, matching the Crawl-delay: 30 that nasdaq.com's robots.txt sets for all agents."},
+  "requires_local_config": [],
+  "failure_behavior": "If the schedule cannot be read, XNAS.json keeps its last version and dates beyond valid_through are refused (CalendarHorizonError); nothing is extrapolated from other years or venues.",
+  "sources": [
+    "https://www.nasdaqtrader.com/Trader.aspx?id=CopyDisclaimMain",
+    "https://www.nasdaq.com/legal",
+    "https://www.nasdaq.com/robots.txt"
+  ],
+  "verified_on": "2026-10-23",
+  "datasets": [
+    {
+      "dataset_id": "nasdaqtrader.us_holiday_schedule",
+      "description": "U.S. Equity and Options Markets Holiday Schedule (closures and early closes) and the Nasdaq system-hours sheet (regular market hours)",
+      "endpoint": "https://www.nasdaqtrader.com/Trader.aspx?id=Calendar; https://www.nasdaqtrader.com/content/TechnicalSupport/nasdaq_sys_hours.pdf",
+      "coverage": "The Nasdaq Stock Market; current calendar year only (2026 on 2026-10-23)",
+      "history_depth": "Current year",
+      "update_frequency": "Yearly, plus Nasdaq trader alerts for early closes",
+      "availability_rule": "Dates are known from the retrieval date; the calendar refuses dates outside the published year.",
+      "allowed_uses": ["display", "non_display", "storage", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "nasdaqtrader.com 'Copyright, Trademarks and Disclaimers' (read 2026-10-23): content may not be copied or stored without consent 'except to the extent that such use constitutes fair use' and except for 'one unaltered permanent copy to be used by the viewer for personal and non-commercial use only'. It forbids no automated reading. The repository records only the dates and hours (facts) with an attributed quote, never a copy of the page.",
+      "rights_status": "allowed for single-owner personal use of the dates and hours (facts); no page copies stored or redistributed",
+      "rights_verified_on": "2026-10-23"
+    },
+    {
+      "dataset_id": "nasdaq.com.holiday_trading_hours",
+      "description": "Holiday and trading-hours pages on www.nasdaq.com (e.g. /market-activity/stock-market-holiday-schedule, /holiday-trading-hours)",
+      "endpoint": "not fetched",
+      "coverage": "n/a",
+      "history_depth": "n/a",
+      "update_frequency": "n/a",
+      "availability_rule": "Never fetched.",
+      "allowed_uses": [],
+      "retention_days": 0,
+      "vintage_support": false,
+      "rights_source": "https://www.nasdaq.com/legal (read 2026-10-23): users agree to 'Not access or use the Service, or any process, whether automated or manual, to capture data or content from the Service', and not to scrape or data-mine content for data-analysis software without written permission.",
+      "rights_status": "blocked: the site terms forbid capturing data by any automated or manual process",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}

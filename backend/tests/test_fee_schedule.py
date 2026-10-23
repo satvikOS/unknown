@@ -138,6 +138,12 @@ class ScheduleFileValidationTests(unittest.TestCase):
         self.assertEqual(self.body["route"], "SMART")
         self.assertIn("directed API orders cannot use the Tiered", self.body["route_note"])
 
+    def test_every_source_is_a_registered_ibkr_page(self):
+        from unknown.data.registry import dataset, load_registry
+        self.assertTrue(dataset(load_registry(), "ibkr.pricing.us_stock_commissions").permits("storage"))
+        for s in self.body["sources"].values():
+            self.assertTrue(s["url"].startswith("https://www.interactivebrokers.com/en/"), s["url"])
+
 
 if __name__ == "__main__":
     unittest.main()

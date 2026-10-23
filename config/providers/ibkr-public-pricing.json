@@ -1,0 +1,34 @@
+{
+  "provider_id": "ibkr-public-pricing",
+  "name": "Interactive Brokers public pricing pages (commissions and exchange fee tables)",
+  "access": "Owner-initiated HTTPS GET of public pages on www.interactivebrokers.com, read once per verification and transcribed into config/fees with a quote; no account, key or login. Not an automated feed.",
+  "cost_model": "Free (public web pages)",
+  "budget": "none required",
+  "rate_limit": {"max_requests": 1, "per_seconds": 3.0,
+                 "source": "No published rate limit found. Self-imposed: at most one page every 3 s, and only when re-verifying the fee schedule (4 pages on 2026-10-23)."},
+  "requires_local_config": [],
+  "failure_behavior": "A page that cannot be read leaves the schedule's values at their last verified retrieval date; nothing is marked verified without a quote from a page read that day. A summarising web-fetch agent received HTTP 403 on 2026-10-23; a plain HTTPS request succeeded.",
+  "sources": [
+    "https://www.interactivebrokers.com/robots.txt",
+    "https://www.interactivebrokers.com/en/general/homepage-disclosures.php",
+    "https://www.interactivebrokers.com/en/pricing/commissions-stocks.php"
+  ],
+  "verified_on": "2026-10-23",
+  "datasets": [
+    {
+      "dataset_id": "ibkr.pricing.us_stock_commissions",
+      "description": "IBKR Pro Tiered and Fixed US stock/ETF commission parameters and the third-party fee lines IBKR publishes (regulatory, exchange, clearing, pass-through), plus the NASDAQ/Island, NYSE and ARCA exchange fee tables",
+      "endpoint": "https://www.interactivebrokers.com/en/pricing/commissions-stocks.php; https://www.interactivebrokers.com/en/accounts/fees/{INETstkfee,NYSEstkfee,ARCAstkfee}.php?nhf=T",
+      "coverage": "United States stocks and ETFs (IBKR LLC price list as published)",
+      "history_depth": "Current page only; earlier values are not published",
+      "update_frequency": "Unannounced; re-verify before relying on a number (the FINRA TAF fee holiday ends 2026-12-31)",
+      "availability_rule": "A value is known from its retrieval date; the broker's commission report is the final fee for any fill.",
+      "allowed_uses": ["display", "non_display", "storage", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "robots.txt (checked 2026-10-23) disallows only /smf/, /fluxbb/, /insights/ibtr_alerts.php, /search/ and /referral/; the pricing and fee pages are not disallowed. No website terms of use restricting automated reading were found (homepage disclosures and privacy pages reviewed 2026-10-23). The repository stores numeric fee parameters with short attributed quotes, not page copies.",
+      "rights_status": "allowed for single-owner reference verification (no bulk crawling, no redistribution of page content)",
+      "rights_verified_on": "2026-10-23"
+    }
+  ]
+}

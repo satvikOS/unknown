@@ -1,6 +1,6 @@
 {
   "registry_id": "venues",
-  "version": "2026-10-23.1",
+  "version": "2026-10-23.2",
   "statement": "Venue registry for cash equities in the US, India and the EU: identity (ISO 10383 MIC), country, trading currency, time zone, trading and settlement calendars, settlement cycle by trade date with primary sources, and lot/tick conventions only where a primary source states them. Reference data for research, risk days and expected settlement; it grants no trading eligibility (see docs/markets/README.md).",
   "sources": {
     "ISO10383": {
@@ -112,7 +112,7 @@
     {
       "mic": "XNAS", "operating_mic": "XNAS", "segment_mic": null,
       "name": "Nasdaq - All Markets", "country": "US", "currency": "USD", "timezone": "America/New_York",
-      "trading_calendar": "XNYS", "settlement_calendar": "XNYS",
+      "trading_calendar": "XNAS", "settlement_calendar": "XNYS",
       "settlement_calendar_note": "The XNYS trading calendar is used as a conservative settlement-expectation calendar (as in config/policies/paper-default.v1.json); the DTC settlement calendar is not verified. Settlement is confirmed only from broker evidence.",
       "settlement_cycles": [
         {"from_trade_date": "2024-05-28", "business_days": 1, "sources": ["SEC-RULE-15C6-1", "SEC-PR-2023-29"],
@@ -121,7 +121,7 @@
       "lot": null, "tick": null,
       "provider_codes": {"ibkr": "NASDAQ"},
       "sources": ["ISO10383", "NASDAQTRADER-HOLIDAYS-2026", "IBKR-EXCHANGES"],
-      "notes": ["Uses the XNYS trading calendar: the 2026 U.S. equity holiday schedule published by Nasdaq Trader lists the same full-day closures and early closes as config/calendars/XNYS.json (compared 2026-10-23). Regular session 09:30-16:00 America/New_York; extended sessions are not modelled.", "IBKR primary-exchange code as used by broker/ibkr/bootstrap_paper.py (US_PRIMARY_EXCHANGES); the IBKR exchange list returned HTTP 403 on 2026-10-23, and contract resolution verifies each listing's primary exchange (CAP-INS-04). The owner can override it in the IBKR market-data source configuration."]
+      "notes": ["Trading calendar config/calendars/XNAS.json, transcribed from the Nasdaq Trader 2026 U.S. equity holiday schedule and the Nasdaq system-hours sheet (regular session 09:30-16:00 America/New_York; extended sessions are not modelled). Nasdaq publishes the current year only, so Nasdaq trading dates after 2026-12-31 are outside the horizon until it posts 2027. Settlement days stay on XNYS.", "IBKR primary-exchange code as used by broker/ibkr/bootstrap_paper.py (US_PRIMARY_EXCHANGES); the IBKR exchange list returned HTTP 403 on 2026-10-23, and contract resolution verifies each listing's primary exchange (CAP-INS-04). The owner can override it in the IBKR market-data source configuration."]
     },
     {
       "mic": "ARCX", "operating_mic": "XNYS", "segment_mic": null,
