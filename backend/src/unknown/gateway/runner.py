@@ -30,17 +30,25 @@ fails, fails closed before the pass: cancels still go out, but no new buy is
 transmitted while events cannot be journaled. The first successful append
 ends the failure; the stop stays latched for the owner.
 
-The core, not the journal's marks, decides what was applied. Before a journal
-object's first entry is applied (normally by the start-up ``replay_journal``;
-by the first drain if that replay failed), marked entries whose commands the
-core does not have are applied again, when the core shares the journal's
-history up to them (a core database restored from an older backup: RB-10
-leaves the journal in place).
-Applying an entry whose command id the core holds for a different command, or
-for a non-system principal, would be a conflict: the journal is then treated
-as broken (``JournalConflict``), like a bad checksum, and the desk fails
-closed. The same command under another deployment's system principal (the
-core restarted with another ``--deployment``) is a duplicate.
+Before anything is appended to or applied from a journal file (normally by
+the start-up ``replay_journal``; by the first drain if that replay failed),
+the runner admits it (``_admit``): the journal must belong to this core
+database (``Store.database_id``, recorded in the journal), or it is set aside
+unapplied; then the core, not the journal's marks, decides what was applied:
+marked entries whose commands the core does not have are applied again, in
+journal order (a core database restored from an older backup, even one older
+than the journal's first applied entry; ``rewind_to_core``).
+
+A broken journal is set aside, never skipped silently: an entry that fails its
+checksum, a file SQLite reports damaged, or an entry whose command id the core
+holds for a different command or for a non-system principal (a conflict: a
+journal file older than the core). The verified entries before the broken one
+are applied; the failure is recorded in the core (stop latched with
+``EVENT_JOURNAL_SET_ASIDE``, INCOMPLETE reconciliation); the file is moved
+aside with a report and a fresh journal of this database takes over
+(``JournalSetAside`` is raised once). The same command under another
+deployment's system principal (the core restarted with another
+``--deployment``) is a duplicate, not a conflict.
 
 An event the gateway cannot map to a command blocks itself and what follows
 (head-of-line), but the events before it are journaled and applied, and so are
@@ -58,7 +66,7 @@ import logging
 import weakref
 from collections import deque
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, NoReturn
 
 from ..broker.port import (BrokerOrder, BrokerPort, CommissionEvent, CommissionRow, ConnectivityEvent, ExecutionEvent,
                            ExecutionRow, OrderStatusEvent, SubmitStatus)
@@ -66,11 +74,16 @@ from ..core.desk import Desk, Result
 from ..domain.canonical import canonical_json, sha256_hex
 from ..domain.fixed import Fixed
 from ..domain.principal import Role
-from .journal import EventJournal, JournalEntry, JournalUnavailable
+from .journal import (COMMAND_ID_PREFIX, EventJournal, JournalConflict, JournalCorrupt, JournalEntry,
+                      JournalSetAside, JournalUnavailable)
 
 log = logging.getLogger("unknown.gateway")
 
 JOURNAL_STOP_REASON = "EVENT_JOURNAL_UNWRITABLE"
+JOURNAL_SET_ASIDE_REASON = "EVENT_JOURNAL_SET_ASIDE"
+JOURNAL_GAP_REASON = "EVENT_JOURNAL_GAP"
+GAP_COMMAND_PREFIX = "sys.bevgap."   # the stop reporting a pruning gap: sys.bevgap.<journal id>.<floor>
+REWIND_BEAT_EVERY = 100   # marks read and looked up in the core between heartbeats (rewind_to_core)
 
 
 def execution_payload(account_key: str, e: ExecutionRow) -> dict:
@@ -151,6 +164,11 @@ def journal_of(broker: BrokerPort) -> EventJournal | None:
 def entry_payload_hash(entry: JournalEntry) -> str:
     """The core's payload hash of an entry's command (``Desk.execute``)."""
     return sha256_hex(canonical_json({"kind": entry.command_kind, "payload": entry.command_payload}))
+
+
+def _unreported(exc: BaseException | None) -> JournalUnavailable | None:
+    """A journal failure still to be recorded in the core (a set-aside journal was recorded before it moved)."""
+    return exc if isinstance(exc, JournalUnavailable) and not isinstance(exc, JournalSetAside) else None
 
 
 def _outcome(result: Result) -> str:
@@ -246,11 +264,13 @@ class GatewayRunner:
         intake_error: Exception | None = None
         try:
             self.journal_broker_events(limit)
-        except Exception as exc:   # an unwritable journal, or an event that cannot be mapped (head-of-line)
+        except Exception as exc:   # an unwritable journal, one set aside, or an event that cannot be mapped
             intake_error = exc
-        journal_error = intake_error if isinstance(intake_error, JournalUnavailable) else None
+        journal_error = _unreported(intake_error)
         try:
             applied = self._apply_journal(journal, limit)   # what is journaled is applied either way
+        except JournalSetAside:
+            raise   # recorded in the core before the file was moved
         except JournalUnavailable as exc:
             self._fail_closed(journal, journal_error or exc)
             raise
@@ -280,12 +300,17 @@ class GatewayRunner:
     def journal_broker_events(self, limit: int = 1000) -> int:
         """Append events taken from the broker to the journal (one fsync'd transaction) and return how many.
 
-        Events that could not be appended stay in the in-memory backlog, in order, and are appended first
-        next time; while the journal is failing, no further events are taken from the broker until those
-        are journaled. Raises ``JournalUnavailable``."""
+        The journal is admitted first (``_admit``: its database identity, then ``rewind_to_core``), and a broken
+        one is set aside (after its verified entries are applied) before anything is appended. Events that could
+        not be appended stay in the in-memory backlog, in order, and are appended first next time; while the
+        journal is failing, no further events are taken from the broker until those are journaled. Raises
+        ``JournalUnavailable`` (``JournalSetAside`` when the journal was set aside)."""
         journal = self.journal
         if journal is None:
             return 0
+        self._admit(journal)
+        if journal.broken is not None:
+            self._apply_journal(journal, None)   # the verified entries before the broken one; then it is set aside
         backlog = event_backlog(self.broker)
         if not (journal.failure and backlog) and len(backlog) < limit:
             backlog.extend(self.broker.drain_events(limit - len(backlog)))
@@ -305,20 +330,62 @@ class GatewayRunner:
         return len(records)
 
     def _apply_journal(self, journal: EventJournal, limit: int | None) -> int:
-        if not journal.rewound:
-            # Once per journal object, before its first entry is applied by anyone: the start-up replay
-            # normally does it, but if that failed (the journal could not be opened) the first drain must,
-            # or entries applied afterwards would hide the marked entries a restored core is missing.
-            self.rewind_to_core(journal)
-        n = 0
-        for entry in journal.unapplied(limit):
-            result = self.apply_entry(entry, journal)
-            journal.mark_applied(entry, _outcome(result))
-            n += 1
-            self._beat()
-        if journal.broken is not None:   # the verified entries before a broken one are applied; then fail closed
-            raise journal.broken.__class__(str(journal.broken))
+        """Apply up to ``limit`` unapplied entries in order. A broken journal (corrupt or conflicting entry) has
+        every verified entry before the broken one applied, whatever ``limit``, and is then set aside."""
+        self._admit(journal)
+        n = self._apply_entries(journal, None if journal.broken is not None else limit)
+        if journal.broken is not None:
+            n += self._apply_entries(journal, None)
+            self._set_aside(journal)
         return n
+
+    def _apply_entries(self, journal: EventJournal, limit: int | None) -> int:
+        n = 0
+        try:
+            for entry in journal.unapplied(limit):
+                result = self.apply_entry(entry, journal)
+                journal.mark_applied(entry, _outcome(result))
+                n += 1
+                self._beat()
+        except (JournalCorrupt, JournalConflict):
+            if journal.broken is None:
+                raise
+        return n
+
+    def _admit(self, journal: EventJournal) -> None:
+        """Once per journal file, before anything is appended to or applied from it.
+
+        1. Identity (BR-ORD-20): a journal records the core database it belongs to (``Store.database_id``). A
+           journal of another database -- the database was recreated, or restored from another database's
+           backup, next to an old journal -- is set aside without applying any of its entries. A journal written
+           before identities existed is bound to this database if this database holds one of its applied entries
+           (or it has none); otherwise it is set aside too.
+        2. ``rewind_to_core``: marked entries this database does not have are applied again.
+
+        A file SQLite reports damaged anywhere admission reads it (its entries, its marks, its prune records) is
+        set aside: what this database lacks cannot be decided from it. (Before, damage that only the rewind read
+        left the journal failing closed on every drain, never set aside.)"""
+        if journal.heartbeat is None and self.heartbeat is not None:
+            journal.heartbeat = self.heartbeat   # long passes inside the journal keep the writer lease fresh
+        try:
+            if not journal.identity_checked:
+                bound = journal.database_id   # opens the file and verifies every unapplied entry
+                core = self.desk.store.database_id
+                if bound is not None and bound != core:
+                    self._set_aside(journal, f"it belongs to core database {bound}, not to this one ({core}); none "
+                                             "of its entries is applied")
+                if bound is None:
+                    if journal.has_entries() and self._anchor(journal)[0] is None:
+                        self._set_aside(journal, "it records no core database and this core database holds none of "
+                                                 "its applied entries; none of its entries is applied")
+                    journal.bind(core)
+                journal.identity_checked = True
+            if not journal.rewound:
+                self.rewind_to_core(journal)
+        except JournalCorrupt:
+            if journal.broken is None:
+                raise
+            self._set_aside(journal)
 
     def apply_entry(self, entry: JournalEntry, journal: EventJournal | None = None) -> Result:
         """Apply one journal entry. Its command id is the entry's own, so a re-application returns the
@@ -347,8 +414,9 @@ class GatewayRunner:
     def replay_journal(self, batch: int = 1000) -> int:
         """Apply every unapplied journal entry in order without taking new events (process start).
 
-        First (once per journal object, in ``_apply_journal``), marked entries the core does not have are made
-        unapplied again (``rewind_to_core``)."""
+        First (once per journal file, in ``_admit``), the journal's database identity is checked and marked
+        entries the core does not have are made unapplied again (``rewind_to_core``). The heartbeat runs
+        between entries and during every long pass, so a very large journal never lets the lease go stale."""
         journal = self.journal
         if journal is None:
             return 0
@@ -359,53 +427,108 @@ class GatewayRunner:
                 total += n
                 if n < batch:
                     return total
+        except JournalSetAside:
+            raise   # recorded in the core before the file was moved
         except JournalUnavailable as exc:
             self._fail_closed(journal, exc)
             raise
 
+    def _core_holds(self, command_id: str) -> bool:
+        return bool(self.desk.store.query("SELECT 1 FROM commands WHERE command_id=?", (command_id,)))
+
+    def _anchor(self, journal: EventJournal) -> tuple[int | None, int]:
+        """The newest marked entry whose command the core holds, and how many marked entries after it the core
+        lacks (all of them when there is no such entry). Walks the marks newest first, beating as it goes."""
+        missing = 0
+        for i, (seq, command_id) in enumerate(journal.marked_newest_first(page=REWIND_BEAT_EVERY), 1):
+            if i % REWIND_BEAT_EVERY == 0:
+                self._beat()
+            if self._core_holds(command_id):
+                return seq, missing
+            missing += 1
+        return None, missing
+
     def rewind_to_core(self, journal: EventJournal) -> int:
         """Make marked entries unapplied again when the core does not have their commands; returns how many.
 
-        Walks the marks newest first to the newest one whose command the core holds (the anchor): every
-        entry is applied strictly in journal order, so the core has every entry up to the anchor and none of
-        the marked ones after it -- it was restored from a backup taken in between. Without an anchor the core
-        shares no history with this journal (a new database next to an old journal): nothing is re-applied."""
-        missing = 0
-        for seq, command_id in journal.marked_newest_first():
-            if self.desk.store.query("SELECT 1 FROM commands WHERE command_id=?", (command_id,)):
-                if missing:
-                    journal.reapply_after(seq)
-                    log.warning("the core lacks %d broker events this journal marked applied after entry %d "
-                                "(restored database): applying them again in journal order", missing, seq)
-                journal.rewound = True
-                return missing
-            missing += 1
+        Every entry is applied strictly in journal order, so the core has every entry up to the newest marked
+        one whose command it holds (the anchor) and none of the marked ones after it: it was restored from a
+        backup taken in between, and those are applied again. Without an anchor, a journal of this database
+        (same identity) is older than nothing in the core: the database was restored from a backup taken
+        before the journal's first applied entry, and every marked entry the journal still holds is applied
+        again. Re-application is in journal order under the entries' own command ids; anything the restored
+        core already holds under other command ids (a reconciliation's ingest, a duplicate callback) is a
+        duplicate by the handlers' broker keys. Entries pruned before the restore point cannot be applied
+        again: that gap is recorded (stop latched, reconciliation required) and reconciliation recovers them.
+        It is recorded once per restored database: the stop that reports it carries the command id
+        ``sys.bevgap.<journal id>.<floor>``, and a start that finds it does not record the gap again (before this
+        review fix, every start re-latched the stop and required a new reconciliation until a new broker event
+        was applied, even after the owner's green start)."""
+        anchor, missing = self._anchor(journal)
+        ours = journal.database_id == self.desk.store.database_id
+        floor = journal.pruned_through
+        if missing and (anchor is not None or ours):
+            journal.reapply_after(anchor if anchor is not None else floor)
+            log.warning("the core lacks %d broker events this journal marked applied after entry %d (restored "
+                        "database): applying them again in journal order", missing, anchor or floor)
+        gap = f"{GAP_COMMAND_PREFIX}{journal.journal_id}.{floor}"
+        lacks_floor = floor and not self._core_holds(f"{COMMAND_ID_PREFIX}{journal.journal_id}.{floor}")
+        if ours and anchor is None and lacks_floor and not self._core_holds(gap):
+            self._fail_closed(journal, JournalUnavailable(
+                f"this core database lacks broker events of journal {journal.journal_id} up to entry {floor}, which "
+                "were pruned (retention) before it was restored: they cannot be applied again; reconciliation "
+                "recovers what the broker still reports"), reason=JOURNAL_GAP_REASON,
+                what="journaled broker events were pruned before the restore point", stop_command_id=gap)
         journal.rewound = True
-        return 0
+        return missing if (anchor is not None or ours) else 0
 
-    def _fail_closed(self, journal: EventJournal, exc: JournalUnavailable) -> None:
-        """BR-ORD-20: broker events cannot be made durable, so the desk must not trade on a partial view.
+    def _set_aside(self, journal: EventJournal, why: str | None = None) -> NoReturn:
+        """Set a foreign, corrupt or conflicting journal aside, never skipping it silently: record the failure in
+        the core first (stop latched with ``EVENT_JOURNAL_SET_ASIDE``, INCOMPLETE reconciliation, so
+        ``needs_reconciliation``), then move the file aside with its report (``EventJournal.set_aside``) and
+        continue on a fresh journal of this database. Raises ``JournalSetAside``.
+
+        If the file cannot be moved, ``JournalSetAside`` is raised with ``report`` None and the next drain tries
+        again: the failure is already recorded, and no caller may record it a second time under another
+        description, which would defeat the once-per-episode record and write a stop and an INCOMPLETE
+        reconciliation on every cycle while the move keeps failing."""
+        broken = journal.broken
+        cause = why or f"{type(broken).__name__}: {broken}"
+        error = JournalSetAside(f"event journal {journal.path.name} (journal {journal.journal_id}) set aside: {cause}")
+        self._fail_closed(journal, error, reason=JOURNAL_SET_ASIDE_REASON, what="the broker event journal was set aside")
+        try:
+            error.report = journal.set_aside(str(error), database_id=self.desk.store.database_id)
+        except JournalUnavailable as exc:
+            log.critical("%s, but it could not be moved aside (%s); retried at the next drain", error, exc)
+            raise error from exc
+        log.critical("%s. Moved to %s with report.json; continuing on a fresh journal. Reconcile before a green start.",
+                     error, error.report.get("aside_dir"))
+        raise error
+
+    def _fail_closed(self, journal: EventJournal, exc: JournalUnavailable, *, reason: str = JOURNAL_STOP_REASON,
+                     what: str = "broker events could not be journaled", stop_command_id: str | None = None) -> None:
+        """BR-ORD-20: broker events cannot be made durable or applied, so the desk must not trade on a partial view.
 
         Latches the stop through the system ``stop`` command (which also cancels open buys) with the reason
-        ``EVENT_JOURNAL_UNWRITABLE: <error>`` -- a StopLatched or, if the stop was already latched for
-        another reason, a StopReasserted event is the durable report -- and records an INCOMPLETE
-        reconciliation, which sets ``needs_reconciliation``: a green start then needs a clean
+        ``<reason>: <error>`` (``EVENT_JOURNAL_UNWRITABLE`` by default) -- a StopLatched or, if the stop was
+        already latched for another reason, a StopReasserted event is the durable report -- and records an
+        INCOMPLETE reconciliation, which sets ``needs_reconciliation``: a green start then needs a clean
         reconciliation after the journal works again. A failure is recorded once per episode (until a
         drain completes without a journal error), again if its cause changes, and the stop or the
         reconciliation requirement is re-asserted if the owner cleared it while the journal still fails."""
         detail = f"{type(exc).__name__}: {exc}"
-        log.critical("broker events cannot be journaled; not taking events from the broker: %s", detail)
+        log.critical("%s; not taking events from the broker until it works: %s", what, detail)
         rows = self.desk.store.query("SELECT row FROM control WHERE account_key=?", (self.account_key,))
         if not rows:
             return   # no registered account: nothing to stop
         ctl = json.loads(rows[0]["row"])
         new_failure = journal.reported_failure != detail
         if new_failure or not ctl["stop_latched"]:
-            self.desk.run_system("stop", {"account_key": self.account_key,
-                                          "reason": f"{JOURNAL_STOP_REASON}: {detail}"[:400]})
+            self.desk.run_system("stop", {"account_key": self.account_key, "reason": f"{reason}: {detail}"[:400]},
+                                 command_id=stop_command_id)
         if new_failure or not ctl["needs_reconciliation"]:
             from ..reconcile.reconciler import record_incomplete   # the reconciler imports this module
-            record_incomplete(self.desk, self.account_key, f"broker events could not be journaled: {detail}")
+            record_incomplete(self.desk, self.account_key, f"{what}: {detail}")
         journal.reported_failure = detail
 
     def apply_event(self, ev) -> None:
@@ -422,6 +545,8 @@ class GatewayRunner:
             # gateway cannot make broker events durable.
             try:
                 self.journal_broker_events()
+            except JournalSetAside:
+                pass   # recorded in the core (stop latched) before the file was moved
             except JournalUnavailable as exc:
                 try:
                     self._fail_closed(journal, exc)

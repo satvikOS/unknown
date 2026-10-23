@@ -66,6 +66,8 @@ class Intervals:
     reconcile_s: float = 60.0
     reconcile_retry_s: float = 5.0
     heartbeat_s: float = 10.0
+    journal_prune_s: float = 3600.0                 # how often applied journal entries past retention are pruned
+    journal_retention_s: float = 30 * 86400.0       # applied journal entries are kept this long (BR-ORD-20)
 
 
 # Commands that add exposure, directly or through funding and automatic starts: refused while a stop is latched
@@ -603,6 +605,30 @@ class CoreService:
         return open_desk(self.paths.db(self.account_key), self.clock, ids, deployment_id=self.deployment_id,
                          health=self.health, calendars=load_calendars(CALENDAR_DIR), quotes=self.quotes)
 
+    def _open_journal(self) -> EventJournal:
+        """The account's broker-event journal (BR-ORD-20), bound to this core database's identity, keeping the
+        writer lease fresh during long passes; every runner on the broker uses it."""
+        self.journal = EventJournal(self.paths.data / f"{self.account_key}.events", self.account_key,
+                                    self.clock.now_ns, database_id=self.desk.store.database_id,
+                                    heartbeat=self._heartbeat_if_due)
+        attach_journal(self.broker, self.journal)
+        return self.journal
+
+    def _prune_journal(self) -> int:
+        """Delete applied journal entries older than the retention (never an unapplied one). A failure is logged
+        and retried at the next interval: pruning is housekeeping, never a reason to fail a cycle."""
+        try:
+            n = self.journal.prune(int(self.intervals.journal_retention_s * NS_PER_S))
+        except LeaseLost:
+            raise
+        except Exception:
+            log.exception("pruning the broker event journal failed; retried at the next interval")
+            return 0
+        if n:
+            log.info("pruned %d applied broker events older than %g days from the event journal", n,
+                     self.intervals.journal_retention_s / 86400)
+        return n
+
     def _replay_journal(self, runner: GatewayRunner) -> None:
         """Before any request or new broker event, apply what an earlier process journaled but did not
         apply, in journal order (BR-ORD-20). A failure is logged; the loop's drains retry it and fail closed."""
@@ -620,8 +646,7 @@ class CoreService:
         if self.fixture_market is not None:
             self.fixture_market.quotes = self.desk.quotes
         # Every broker event is journaled before it is applied; the reconciler's runner uses the same journal.
-        self.journal = EventJournal(self.paths.data / f"{self.account_key}.events", self.account_key, self.clock.now_ns)
-        attach_journal(self.broker, self.journal)
+        self._open_journal()
         tokens = {self.paths.token(name, create=True): roles for name, roles in SOCKET_ROLES.items()}
         tokens.update({token: Grant({"STRATEGY"}, artifact) for artifact, token in self.paths.strategy_tokens().items()})
         self.server = CoreSocketServer(self.paths.socket, tokens, self._enqueue)
@@ -630,6 +655,7 @@ class CoreService:
         reconciler = Reconciler(self.desk, self.broker, self.account_key, heartbeat=self._heartbeat_if_due)
         self._replay_journal(runner)
         last_val = last_rec = 0.0
+        last_prune = float("-inf")
         self.ready.set()
         log.info("core started: account=%s deployment=%s epoch=%s", self.account_key, self.deployment_id, self.desk.store.epoch)
         while not self.stop_event.is_set():
@@ -655,6 +681,9 @@ class CoreService:
                     if policy_active and now - last_val >= self.intervals.valuation_s:
                         runner.tick()
                         last_val = now
+                    if now - last_prune >= self.intervals.journal_prune_s:
+                        self._prune_journal()
+                        last_prune = now
                 self.cycle_errors = 0
             except LeaseLost:
                 # Another process took the lease (--takeover): every write here is fenced. Stop instead of
@@ -693,6 +722,28 @@ def _simulated_broker(clock: Clock, cash: str):
     return SimulatedBroker(clock, initial_settled_cash=Fixed.parse(cash), calendar=WEEKDAYS_ONLY, settlement_days=1)
 
 
+def _retention_days(text: str) -> float:
+    try:
+        days = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number of days: {text!r}") from None
+    if not 0 <= days < float("inf"):   # NaN or infinity would make every prune fail, unseen, every hour
+        raise argparse.ArgumentTypeError(f"must be a finite, non-negative number of days, not {text!r}")
+    return days
+
+
+def add_journal_retention_argument(ap: argparse.ArgumentParser) -> None:
+    """``--journal-retention-days`` for every core entry point (this one and ``unknown.broker.ibkr.serve``)."""
+    ap.add_argument("--journal-retention-days", type=_retention_days, default=Intervals.journal_retention_s / 86400,
+                    help="keep applied broker-event journal entries this many days (default 30); unapplied entries "
+                         "are never pruned")
+
+
+def journal_intervals(args: argparse.Namespace) -> Intervals:
+    """The service intervals with the journal retention from ``add_journal_retention_argument``."""
+    return Intervals(journal_retention_s=args.journal_retention_days * 86400)
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description="Project Unknown core service (single writer)")
     ap.add_argument("--account", required=True, help="internal account key, e.g. SIM-1 or IBKR-PAPER-1")
@@ -703,6 +754,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--fixture-market", action="store_true", help="run the deterministic FIXTURE market (simulated broker only)")
     ap.add_argument("--sim-cash", default="300.00")
     ap.add_argument("--home", default=None, help="runtime root (default ~/.unknown or $UNKNOWN_HOME)")
+    add_journal_retention_argument(ap)
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     paths = Paths(Path(args.home).expanduser()) if args.home else Paths.default()
@@ -718,7 +770,7 @@ def main(argv: list[str] | None = None) -> None:
             FixtureInstrument("FIX-EQ-2", Fixed.parse("42.00"), Fixed.parse("0.04"), Fixed.parse("0.01")),
         ])
     svc = CoreService(paths=paths, account_key=args.account, deployment_id=args.deployment, broker=broker, clock=clock,
-                      fixture_market=market)
+                      fixture_market=market, intervals=journal_intervals(args))
     serve(svc)
 
 

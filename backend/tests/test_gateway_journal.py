@@ -39,9 +39,10 @@ from unknown.domain.calendar import WEEKDAYS_ONLY  # noqa: E402
 from unknown.domain.clock import ManualClock  # noqa: E402
 from unknown.domain.fixed import Fixed  # noqa: E402
 from unknown.gateway import runner as runner_module  # noqa: E402
-from unknown.gateway.journal import EventJournal, JournalCorrupt, JournalUnavailable, event_json  # noqa: E402
-from unknown.gateway.runner import (JOURNAL_STOP_REASON, attach_journal, detach_journal, event_backlog,  # noqa: E402
-                                    journal_of)
+from unknown.gateway.journal import (EventJournal, JournalCorrupt, JournalSetAside, JournalUnavailable,  # noqa: E402
+                                     describe_file, event_json)
+from unknown.gateway.runner import (JOURNAL_SET_ASIDE_REASON, JOURNAL_STOP_REASON, attach_journal,  # noqa: E402
+                                    detach_journal, event_backlog, journal_of)
 from unknown.service import core as core_module  # noqa: E402
 from unknown.service.core import CoreService, Intervals  # noqa: E402
 from unknown.service.paths import Paths  # noqa: E402
@@ -157,6 +158,20 @@ def fill_page_cap(journal: EventJournal) -> int:
 
 def free_page_cap(journal: EventJournal, previous: int) -> None:
     journal._connection().execute(f"PRAGMA max_page_count={previous}")
+
+
+def aside_file(report: dict) -> Path:
+    """The journal file a set-aside moved, in its set-aside directory."""
+    return Path(report["aside_dir"]) / Path(report["path"]).name
+
+
+def aside_marks(report: dict) -> list[int]:
+    """The seqs marked applied in a set-aside journal file (read-only)."""
+    conn = sqlite3.connect(f"file:{aside_file(report)}?mode=ro", uri=True)
+    try:
+        return [r[0] for r in conn.execute("SELECT seq FROM applied ORDER BY seq")]
+    finally:
+        conn.close()
 
 
 def control_run() -> dict:
@@ -1014,7 +1029,9 @@ class ReviewRegressionTest(unittest.TestCase):
 
     def test_a_fresh_core_never_receives_an_old_journals_history(self):
         """A core database that never applied anything from this journal (a new database next to an old
-        journal) shares no history with it: the marks are kept, nothing old is applied."""
+        journal) is another database (journal hardening: its identity differs from the one the journal
+        recorded): nothing old is applied, the journal is set aside with its entries and marks intact, the
+        desk requires reconciliation, and a fresh journal of the new database takes over."""
         j = Journaled()
         self.addCleanup(j.close)
         running_session(j.h)
@@ -1022,17 +1039,31 @@ class ReviewRegressionTest(unittest.TestCase):
         j.h.pump()
         j.h.broker.fill("B1", F("5"), F("10.00"), commission=F("1.00"))
         j.h.runner.drain_events()
-        entries = len(list(j.journal.entries()))
+        entries, marks = len(list(j.journal.entries())), sorted(j.journal.marks())
+        detach_journal(j.h.broker)
+        j.journal.close()
         fresh = Harness()
         self.addCleanup(fresh.close)
+        running_session(fresh)
         journal = EventJournal(j.path, ACCOUNT, fresh.clock.now_ns, journal_id=JID)
         self.addCleanup(journal.close)
         attach_journal(fresh.broker, journal)
         self.addCleanup(lambda: detach_journal(fresh.broker))
-        running_session(fresh)
-        self.assertEqual(fresh.runner.replay_journal(), 0)
+        with self.assertRaises(JournalSetAside) as caught:
+            fresh.runner.replay_journal()
+        report = caught.exception.report
         self.assertEqual(journal_commands(fresh), [])
-        self.assertEqual(len(list(journal.entries())), entries)
+        self.assertEqual(describe_file(aside_file(report))["entries"], entries)
+        self.assertEqual(aside_marks(report), marks)
+        self.assertEqual(report["journal_database_id"], j.h.desk.store.database_id)
+        self.assertEqual(report["core_database_id"], fresh.desk.store.database_id)
+        ctl = fresh.control()
+        self.assertTrue(ctl["stop_latched"] and ctl["needs_reconciliation"])
+        self.assertTrue(ctl["latch_reason"].startswith(JOURNAL_SET_ASIDE_REASON), ctl["latch_reason"])
+        self.assertEqual(fresh.runner.replay_journal(), 0)
+        self.assertNotEqual(journal.journal_id, JID)
+        self.assertEqual(journal.database_id, fresh.desk.store.database_id)
+        self.assertEqual(list(journal.entries()), [])
         self.assertEqual(fresh.verify(), [])
 
     # ------------------------------------------------------------------ id conflicts
@@ -1101,23 +1132,31 @@ class ReviewRegressionTest(unittest.TestCase):
         j.journal = j._open()
         h.broker.fill("B1", F("3"), F("10.00"), commission=F("1.00"))
         conflicts = h.desk.store.query("SELECT COUNT(*) AS n FROM events WHERE type='CommandIdConflict'")[0]["n"]
-        for _ in range(3):
-            with self.assertRaises(JournalUnavailable):
-                h.runner.drain_events()
-        self.assertLessEqual(h.desk.store.query("SELECT COUNT(*) AS n FROM events WHERE type='CommandIdConflict'")[0]["n"],
-                             conflicts + 1)
+        with self.assertRaises(JournalSetAside) as caught:
+            h.runner.drain_events()
+        report = caught.exception.report
+        self.assertIn("conflicts with the core", report["reason"])
+        for _ in range(2):
+            h.runner.drain_events()   # a fresh journal (journal hardening): the conflict is not presented again
+        self.assertEqual(h.desk.store.query("SELECT COUNT(*) AS n FROM events WHERE type='CommandIdConflict'")[0]["n"],
+                         conflicts)
         ctl = h.control()
         self.assertTrue(ctl["stop_latched"] and ctl["needs_reconciliation"])
-        self.assertTrue(ctl["latch_reason"].startswith(JOURNAL_STOP_REASON), ctl["latch_reason"])
+        self.assertTrue(ctl["latch_reason"].startswith(JOURNAL_SET_ASIDE_REASON), ctl["latch_reason"])
         self.assertEqual(h.row("orders", "order_id", "B1")["cum_qty"], "2", "the colliding entry was not applied")
+        self.assertEqual(describe_file(aside_file(report))["unmarked"], 3, "the old copy keeps the unapplied events")
+        self.assertNotEqual(j.journal.journal_id, JID)
+        self.assertEqual(h.verify(), [])
+        self.assertEqual(h.reconcile().body["status"], "CLEAN")   # recovers what the set-aside journal held
+        self.assertEqual(h.row("orders", "order_id", "B1")["cum_qty"], "5")
         self.assertEqual(h.verify(), [])
 
     # ------------------------------------------------------------------ corruption
-    def test_valid_entries_before_a_corrupt_one_are_applied_and_nothing_is_appended_behind_it(self):
+    def test_valid_entries_before_a_corrupt_one_are_applied_then_the_journal_is_set_aside(self):
         """The last of three unapplied entries fails its checksum: the two before it are verified against the
         chain and applied (``nothing from this entry on is applied`` -- not nothing at all); the drain fails
-        closed; and new broker events are not appended behind the broken entry, where they could never be
-        applied, but wait in memory (bounded) for the owner to move the journal aside."""
+        closed; and new broker events are never appended behind the broken entry, where they could never be
+        applied: the journal is set aside (journal hardening) and they go to a fresh journal."""
         j = Journaled()
         self.addCleanup(j.close)
         h, journal = j.h, j.journal
@@ -1134,19 +1173,21 @@ class ReviewRegressionTest(unittest.TestCase):
                      (status.seq,))
         conn.commit()
         conn.close()
-        with self.assertRaises(JournalUnavailable):
+        with self.assertRaises(JournalSetAside) as caught:
             h.runner.drain_events()
+        report = caught.exception.report
         self.assertEqual(h.desk.store.query("SELECT COUNT(*) AS n FROM executions")[0]["n"], 1)
         self.assertEqual(h.row("executions", "exec_key", "sim:SIM:E1")["fee_status"], "FINAL")
-        self.assertEqual(sorted(journal.marks())[-2:], [execution.seq, commission.seq])
+        self.assertEqual(aside_marks(report)[-2:], [execution.seq, commission.seq])
+        self.assertEqual(report["broken_seq"], status.seq)
         ctl = h.control()
         self.assertTrue(ctl["stop_latched"] and ctl["needs_reconciliation"])
-        entries = len(list(journal.entries()))
+        entries = describe_file(aside_file(report))["entries"]
         h.broker.disconnect()
-        with self.assertRaises(JournalUnavailable):
-            h.runner.drain_events()
-        self.assertEqual(len(list(journal.entries())), entries, "nothing appended behind a broken entry")
-        self.assertEqual(len(event_backlog(h.broker)), 1)
+        self.assertEqual(h.runner.drain_events(), 1)
+        self.assertEqual(describe_file(aside_file(report))["entries"], entries, "nothing appended behind a broken entry")
+        self.assertEqual([e.event_type for e in journal.entries()], ["ConnectivityEvent"])
+        self.assertEqual(len(event_backlog(h.broker)), 0)
         self.assertEqual(h.verify(), [])
 
     # ------------------------------------------------------------------ intake
@@ -1398,6 +1439,7 @@ class SecondReviewTest(unittest.TestCase):
         running_session(h)
         j.journal.close()
         conn = sqlite3.connect(j.path)
+        conn.execute("DROP TRIGGER meta_no_update")   # meta is written once: only an outside edit changes it
         conn.execute("UPDATE meta SET value='2' WHERE key='format'")
         conn.commit()
         conn.close()

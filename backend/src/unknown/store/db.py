@@ -93,6 +93,25 @@ def _statements(ddl: str) -> list[str]:
     return out
 
 
+IDENTITY_SCHEMA = (
+    "CREATE TABLE IF NOT EXISTS database_identity (id INTEGER PRIMARY KEY CHECK (id = 1), "
+    "database_id TEXT NOT NULL, created_at_ns INTEGER NOT NULL)",
+    "CREATE TRIGGER IF NOT EXISTS database_identity_no_update BEFORE UPDATE ON database_identity "
+    "BEGIN SELECT RAISE(ABORT, 'the database identity is written once'); END",
+    "CREATE TRIGGER IF NOT EXISTS database_identity_no_delete BEFORE DELETE ON database_identity "
+    "BEGIN SELECT RAISE(ABORT, 'the database identity is written once'); END",
+)
+
+
+def database_identity(conn: sqlite3.Connection) -> str | None:
+    """The identity recorded in a core database (``Store.database_id``), or None if it has none yet."""
+    try:
+        row = conn.execute("SELECT database_id FROM database_identity WHERE id=1").fetchone()
+    except sqlite3.OperationalError:   # no such table: a database (or backup) written before identities existed
+        return None
+    return row[0] if row is not None else None
+
+
 class Store:
     """Owns the single read-write connection and the writer lease."""
 
@@ -106,6 +125,22 @@ class Store:
         self.conn = connect(self.path)
         migrate(self.conn, clock.now_ns())
         self.epoch = self._acquire_lease(takeover)
+        self.database_id = self._ensure_identity()
+
+    def _ensure_identity(self) -> str:
+        """The database's stable identity: a random id written once, the first time a writer opens the database,
+        and never changed. Online backups copy it with every other table, so a restored database keeps it and a
+        recreated one gets a new one. The broker-event journal records it (BR-ORD-20): a journal is applied only
+        to the database it was written for."""
+        existing = database_identity(self.conn)
+        if existing is not None:
+            return existing
+        with self.write() as tx:
+            for statement in IDENTITY_SCHEMA:
+                tx.run(statement)
+            tx.run("INSERT OR IGNORE INTO database_identity(id, database_id, created_at_ns) VALUES (1, ?, ?)",
+                   (os.urandom(16).hex(), self.clock.now_ns()))
+            return tx.one("SELECT database_id FROM database_identity WHERE id=1")["database_id"]
 
     # ------------------------------------------------------------------ lease
     def _acquire_lease(self, takeover: bool) -> int:
@@ -226,9 +261,11 @@ def _backup(source: sqlite3.Connection, target: str | Path, epoch: int, now_ns: 
         dest.execute("INSERT INTO backup_origin VALUES (?,?,?)", (epoch, seq, now_ns))
         dest.commit()
         ok = dest.execute("PRAGMA integrity_check").fetchone()[0]
+        database_id = database_identity(dest)
     finally:
         dest.close()
-    return {"source_epoch": epoch, "source_max_seq": seq, "taken_at_ns": now_ns, "integrity_check": ok}
+    return {"source_epoch": epoch, "source_max_seq": seq, "taken_at_ns": now_ns, "integrity_check": ok,
+            "database_id": database_id}
 
 
 def backup_database(source_path: str | Path, target: str | Path, now_ns: int) -> dict:
