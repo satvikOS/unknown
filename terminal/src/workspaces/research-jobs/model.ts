@@ -100,14 +100,54 @@ export interface Envelope {
   allowed_tools: string[];
 }
 
-/** contracts/research_proposal.schema.json v1 (model output; advisory only). */
+/**
+ * contracts/research_proposal.schema.json v2: a typed evidence reference. The runner builds it from the
+ * provenance of a span that a verified claim cites (the research-store row), never from model text.
+ */
+export interface EvidenceRef {
+  span_id: string;
+  dataset_id: string;
+  ref_type: string;
+  ref_id: string;
+  content_hash: string;
+  observed_at_ns: number | null;
+  available_at_ns: number | null;
+}
+
+/** v2: a verified claim. `text` is model text, `quote` is span text the runner verified verbatim. */
+export interface ProposalClaim {
+  text: string;
+  quote: string | null;
+  /** Indexes into `evidence_refs`. */
+  evidence_indexes: number[];
+}
+
+/**
+ * contracts/research_proposal.schema.json, version 1 or 2 (advisory only).
+ *
+ * Version 1 carries free-text `evidence` lines. Version 2 carries `claims` and typed `evidence_refs`, and the
+ * typed subject fields (`as_of_ns`, instrument and entity ids, observation window), which come from the job
+ * and the research store, never from the model.
+ */
 export interface Proposal {
+  schema_version: number | null;
   abstain: boolean;
   hypothesis: string;
   reason: string;
+  /** Version 1 only: free-text evidence lines. Empty for version 2. */
   evidence: string[];
+  /** Version 2 only. */
+  evidence_refs: EvidenceRef[];
+  /** Version 2 only. */
+  claims: ProposalClaim[];
   assumptions: string[];
   horizon_seconds: number | null;
+  as_of_ns: number | null;
+  instrument_ids: string[];
+  entity_ids: string[];
+  observation_window: { from_ns: number | null; to_ns: number | null } | null;
+  /** Whether a forecast block is present (version 2). The agent layer never emits one. */
+  has_forecast: boolean;
 }
 
 export interface RecordedProposal {
@@ -115,6 +155,8 @@ export interface RecordedProposal {
   author: string | null;
   recorded_at_ns: number | null;
   body: Proposal | null;
+  /** The core's label for a version-2 proposal; null for version 1 (the core assigns none). */
+  label: string | null;
   missing_from_core_db: boolean;
   error: string | null;
   /**
@@ -171,7 +213,7 @@ export interface EvidenceSpan {
 
 export interface JobDetail {
   job: JobSummary & { worker_id: string | null; discarded_output_hash: string | null; dedupe_key: string | null; updated_ns: number | null };
-  request: { question: string; role: string; issuer_ids: string[]; fields: string[] | null } | null;
+  request: { question: string; role: string; issuer_ids: string[]; instrument_ids: string[]; fields: string[] | null } | null;
   task: string | null;
   evidence: { selection: { entity_ids: string[]; fields: string[]; as_of_ns: number | null } | null; spans: EvidenceSpan[] } | null;
   envelope: Envelope | null;
@@ -271,16 +313,68 @@ export function parseEnvelope(v: unknown): Envelope | null {
   };
 }
 
+function parseEvidenceRef(v: unknown): EvidenceRef | null {
+  if (!isRecord(v) || typeof v.span_id !== 'string' || typeof v.ref_id !== 'string') return null;
+  return {
+    span_id: v.span_id,
+    dataset_id: str(v.dataset_id),
+    ref_type: str(v.ref_type),
+    ref_id: v.ref_id,
+    content_hash: str(v.content_hash),
+    observed_at_ns: numOrNull(v.observed_at_ns),
+    available_at_ns: numOrNull(v.available_at_ns),
+  };
+}
+
+function parseClaim(v: unknown): ProposalClaim | null {
+  if (!isRecord(v) || typeof v.text !== 'string') return null;
+  return {
+    text: v.text,
+    quote: strOrNull(v.quote),
+    evidence_indexes: Array.isArray(v.evidence_indexes) ? v.evidence_indexes.filter((i): i is number => Number.isInteger(i) && (i as number) >= 0) : [],
+  };
+}
+
 export function parseProposal(v: unknown): Proposal | null {
   if (!isRecord(v) || typeof v.abstain !== 'boolean') return null;
+  const version = numOrNull(v.schema_version);
+  const typed = version === 2;
+  const window = typed && isRecord(v.observation_window) ? { from_ns: numOrNull(v.observation_window.from_ns), to_ns: numOrNull(v.observation_window.to_ns) } : null;
   return {
+    schema_version: version,
     abstain: v.abstain,
     hypothesis: str(v.hypothesis),
     reason: str(v.reason),
-    evidence: strList(v.evidence),
+    // A version-2 evidence list holds typed references, never text lines: keep the two apart.
+    evidence: typed ? [] : strList(v.evidence),
+    evidence_refs: typed && Array.isArray(v.evidence) ? v.evidence.map(parseEvidenceRef).filter((r): r is EvidenceRef => r !== null) : [],
+    claims: typed && Array.isArray(v.claims) ? v.claims.map(parseClaim).filter((c): c is ProposalClaim => c !== null) : [],
     assumptions: strList(v.assumptions),
     horizon_seconds: numOrNull(v.horizon_seconds),
+    as_of_ns: typed ? numOrNull(v.as_of_ns) : null,
+    instrument_ids: typed ? strList(v.instrument_ids) : [],
+    entity_ids: typed ? strList(v.entity_ids) : [],
+    observation_window: window,
+    has_forecast: typed && isRecord(v.forecast),
   };
+}
+
+/** What the core's label means for the owner; null when the core assigned none (version 1, or not recorded). */
+export function proposalLabelExplanation(label: string | null): string | null {
+  switch (label) {
+    case null:
+      return null;
+    case 'ABSTENTION':
+      return 'The proposal abstains: it states no hypothesis to act on.';
+    case 'QUALITATIVE':
+      return 'No forecast block, so this is not quantified confidence (book Chapter 4). It must not feed a strategy feature.';
+    case 'FORECAST_UNCALIBRATED':
+      return 'A forecast without a complete calibration and uncertainty record (book Chapter 4): not quantified confidence.';
+    case 'FORECAST_QUANTIFIED':
+      return 'A forecast with a calibration method and version and every Chapter 4 uncertainty field. Still advisory only.';
+    default:
+      return `Label ${label} is not one this terminal knows.`;
+  }
 }
 
 /** Canonical JSON (sorted keys) for comparing two wire values exactly. */
@@ -302,6 +396,7 @@ function parseRecorded(v: unknown, jobOutput: unknown): RecordedProposal | null 
     author: strOrNull(v.author),
     recorded_at_ns: numOrNull(v.recorded_at_ns),
     body: parseProposal(v.body),
+    label: strOrNull(v.label),
     missing_from_core_db: v.missing_from_core_db === true,
     error: strOrNull(v.error),
     matches_job_output: isRecord(v.body) && isRecord(jobOutput) ? canonicalJson(v.body) === canonicalJson(jobOutput) : null,
@@ -334,7 +429,7 @@ export function parseDetail(v: unknown): JobDetail | null {
   if (!summary) return null;
   const job = v.job as Rec;
   const req = isRecord(v.request)
-    ? { question: str(v.request.question), role: str(v.request.role), issuer_ids: strList(v.request.issuer_ids), fields: Array.isArray(v.request.fields) ? strList(v.request.fields) : null }
+    ? { question: str(v.request.question), role: str(v.request.role), issuer_ids: strList(v.request.issuer_ids), instrument_ids: strList(v.request.instrument_ids), fields: Array.isArray(v.request.fields) ? strList(v.request.fields) : null }
     : null;
   const ev = isRecord(v.evidence)
     ? {
@@ -504,7 +599,7 @@ export function spendUse(spend: Spend, cap: MoneyAmount | null): SpendUse | null
 }
 
 /** One line on what a proposal is; the text inside it is model output, never advice. */
-export function proposalHeadline(p: Proposal): string {
+export function proposalHeadline(p: Pick<Proposal, 'abstain'>): string {
   return p.abstain ? 'The model abstained: it did not find enough evidence to answer.' : 'The model stated a hypothesis with cited evidence.';
 }
 

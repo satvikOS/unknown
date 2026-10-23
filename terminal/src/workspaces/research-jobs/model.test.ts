@@ -246,7 +246,7 @@ describe('submit form', () => {
 
 describe('display helpers', () => {
   it('labels proposals as model statements, routes, and summarizes audit records compactly', () => {
-    expect(proposalHeadline({ abstain: true, hypothesis: '', reason: '', evidence: [], assumptions: [], horizon_seconds: null })).toMatch(/abstained/);
+    expect(proposalHeadline({ abstain: true })).toMatch(/abstained/);
     expect(parseJobsRoute([])).toEqual({ view: 'list' });
     expect(parseJobsRoute(['~new'])).toEqual({ view: 'new' });
     expect(parseJobsRoute(['rj-1'])).toEqual({ view: 'job', jobId: 'rj-1' });

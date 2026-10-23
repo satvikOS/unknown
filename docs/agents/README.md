@@ -323,7 +323,7 @@ Everything here stays on this Mac; nothing below is committed except the approva
    - the audit trail with its chain status;
    - the ledger rows for the job;
    - the proposal, and the proposal as the core recorded it;
-   - `proposal_contract`: the proposal's schema version, the label the core assigned and, for version 2, the typed fields (as-of instant, instrument and entity ids, observation window, horizon, evidence references, claims and forecast).
+   - `proposal_contract`: the proposal's schema version, the label the core assigned and, for version 2, the typed fields (as-of instant, instrument and entity ids, observation window, horizon, evidence references, claims and forecast). The terminal's job page shows a version-2 proposal's verified claims inside the model-output box, its typed fields and evidence references after it, and the core's label with the recorded proposal (`terminal/src/workspaces/research-jobs/README.md`).
 
 **Cost of one job** at the approved rates of 4.00 USD input and 20.00 USD output per million tokens:
 - **Evidence size.** AAPL and MSFT with the default concepts gave 138 spans, about 35 KB (measured on this Mac's store, 2026-10-22). That is roughly 10k prompt tokens.
