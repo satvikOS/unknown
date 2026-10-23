@@ -13,6 +13,7 @@
  *   capabilities g c (900)   portfolio g f (45)   marketdata g d (55)   research-jobs g j (85)
  *   monitor g w (52)
  *   chart g h (57)
+ *   news g n (115)
  */
 import { auditWorkspace } from './audit';
 import { capabilitiesWorkspace } from './capabilities';
@@ -22,6 +23,7 @@ import { instrumentsWorkspace } from './instruments';
 import { macroWorkspace } from './macro';
 import { marketDataWorkspace } from './marketdata';
 import { monitorWorkspace } from './monitor';
+import { newsWorkspace } from './news';
 import { operationsWorkspace } from './operations';
 import { ordersWorkspace } from './orders';
 import { overviewWorkspace } from './overview';
@@ -49,6 +51,7 @@ export const WORKSPACES: readonly WorkspaceDefinition[] = validateRegistry([
   researchJobsWorkspace,
   marketDataWorkspace,
   monitorWorkspace,
+  newsWorkspace,
   chartWorkspace,
   portfolioWorkspace,
 ]);
