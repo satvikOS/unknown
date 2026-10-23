@@ -344,13 +344,15 @@ class JournalBackupTests(unittest.TestCase):
         EventJournal(other, "SIM-2", h.clock.now_ns).open().close()
         damaged = bytearray(original)
         damaged[4096:8192] = b"\xff" * 4096
-        for name, content, expected in (("damaged", bytes(damaged), "fails integrity_check"),
-                                        ("another account's", other.read_bytes(), "belongs to account 'SIM-2'")):
+        # SQLite builds differ in where they notice the damage (macOS: integrity_check; Linux CI: the first read), so
+        # either refusal is accepted; what matters is that it is refused before anything moves.
+        for name, content, expected in (("damaged", bytes(damaged), ("fails integrity_check", "cannot be read")),
+                                        ("another account's", other.read_bytes(), ("belongs to account 'SIM-2'",))):
             with self.subTest(name):
                 copy.write_bytes(content)
                 with self.assertRaises(RuntimeError) as caught:
                     restore_backup(self.paths, ACCOUNT, backup, now_ns=h.clock.now_ns())
-                self.assertIn(expected, str(caught.exception))
+                self.assertTrue(any(e in str(caught.exception) for e in expected), str(caught.exception))
                 self.assertIn("Nothing was moved", str(caught.exception))
                 self.assertEqual((database.read_bytes(), live.read_bytes()), before, "nothing moved")
                 self.assertEqual([p.name for p in self.paths.data.iterdir() if p.name.startswith("replaced-")], [])
