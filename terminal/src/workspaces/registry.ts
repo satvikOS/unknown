@@ -12,9 +12,11 @@
  *   instruments g i (50)   operations g p (60)   audit g a (70)   policy g y (80)
  *   capabilities g c (900)   portfolio g f (45)   marketdata g d (55)   research-jobs g j (85)
  *   monitor g w (52)
+ *   chart g h (57)
  */
 import { auditWorkspace } from './audit';
 import { capabilitiesWorkspace } from './capabilities';
+import { chartWorkspace } from './chart';
 import { companyWorkspace } from './company';
 import { instrumentsWorkspace } from './instruments';
 import { macroWorkspace } from './macro';
@@ -47,6 +49,7 @@ export const WORKSPACES: readonly WorkspaceDefinition[] = validateRegistry([
   researchJobsWorkspace,
   marketDataWorkspace,
   monitorWorkspace,
+  chartWorkspace,
   portfolioWorkspace,
 ]);
 
