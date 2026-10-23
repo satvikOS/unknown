@@ -3,7 +3,16 @@
 Command path: an intent passes pretrade risk, then reservation (holds), the
 order row and an outbox SUBMIT row commit atomically. The sender commits
 SUBMIT_PENDING *before* calling the broker; a timeout is UNKNOWN and keeps the
-reservation. A cancel request never releases anything."""
+reservation. A cancel request never releases anything.
+
+Disposal (ADR-0008 after completion; BR-LED-03, BR-SES-02). A late fill, a bust or a correction after a session
+ended is booked to whoever holds the session's balances now: ``protected:<id>`` after completion, ``unallocated``
+after close. Inventory that lands there cannot be sold by the session (it never re-opens, and pretrade refuses
+orders for a terminal session), so the owner exits it with ``submit_intent`` purpose ``DISPOSAL``: a SELL that names
+the ended session, reserves and sells only that owner's lots, and books its proceeds to the same owner. It runs the
+ordinary pretrade sequence, in which the owner's disposal stands in for the session-state check (the decision
+record says so); every other check, including owned unreserved quantity, quotes, collar and position-related
+exceptions, still applies. Reconciliation then confirms the position and the settlement like any other trade."""
 from __future__ import annotations
 
 from ...domain.errors import Rejected
@@ -12,14 +21,15 @@ from ...domain.ids import validate_id
 from ...domain.money import Money, currency
 from ...domain.principal import Role
 from ...risk import fees as fee_model
-from ...risk.pretrade import PretradeInput, evaluate
+from ...risk.pretrade import Decision, PretradeInput, evaluate
 from .. import ledger, state
 from ..desk import Context
-from .common import UNKNOWN_ORDER, hold_rows, multiplier_of, new_exception
+from .common import UNKNOWN_ORDER, hold_rows, multiplier_of, new_exception, order_owner
 
 ENTRY = "ENTRY"
 EXIT = "EXIT"
 WIND_DOWN = "WIND_DOWN"
+DISPOSAL = "DISPOSAL"
 MAX_ACTIVE_SESSIONS = 1
 
 
@@ -35,8 +45,13 @@ def _fixed(value: object, what: str) -> Fixed:
 def submit_intent(ctx: Context, p: dict) -> dict:
     side = p.get("side")
     purpose = p.get("purpose") or (ENTRY if side == "BUY" else EXIT)
-    if purpose not in (ENTRY, EXIT):
-        raise Rejected("INVALID_FIELD", "purpose must be ENTRY or EXIT")
+    if purpose not in (ENTRY, EXIT, DISPOSAL):
+        raise Rejected("INVALID_FIELD", "purpose must be ENTRY, EXIT or DISPOSAL")
+    if purpose == DISPOSAL:
+        if ctx.principal.role is not Role.OWNER:
+            raise Rejected("UNAUTHORIZED", "only the owner disposes of inventory an ended session left behind")
+        if side != "SELL":
+            raise Rejected("INVALID_FIELD", "a disposal is a SELL")
     strategy_id = p.get("strategy_id")
     if ctx.principal.role is Role.STRATEGY:
         if not strategy_id:
@@ -75,6 +90,13 @@ def create_order(ctx: Context, *, account_key: str, session_id: str, order_id: s
     scale = currency(ccy).ledger_scale
     mult = inst.multiplier if inst else Fixed(1)
     owner = ledger.session_owner(session_id)
+    if purpose == DISPOSAL:
+        from .broker import economic_owner
+        owner = economic_owner(tx, session_id)
+        if owner == ledger.session_owner(session_id):
+            raise Rejected("SESSION_NOT_ENDED", f"session {session_id} is {sess['state']}: it sells its own inventory "
+                                                "with an EXIT intent; DISPOSAL is for what an ended session left in "
+                                                "protected:<id> or unallocated")
     quote = ctx.desk.quotes.get(instrument_id) if inst else None
 
     notional = (quantity * limit_price * mult).rescale(scale, Rounding.CEILING) if quantity.is_positive() and limit_price.is_positive() else Fixed(0, scale)
@@ -119,6 +141,8 @@ def create_order(ctx: Context, *, account_key: str, session_id: str, order_id: s
         orders_last_minute=recent, max_orders_per_minute=policy.limits.max_orders_per_minute,
         average_daily_volume=None, max_participation_bps_of_adv=policy.limits.max_participation_bps_of_adv,
         require_liquidity_data=policy.limits.require_liquidity_data))
+    if purpose == DISPOSAL:
+        decision = _disposal_decision(decision, sess["state"], owner)
     quote_json = quote.to_json(ctx.now_ns) if quote else None
     if not decision.approved:
         raise Rejected(decision.code, "pretrade check failed", decision=decision.to_json(), quote=quote_json)
@@ -136,6 +160,8 @@ def create_order(ctx: Context, *, account_key: str, session_id: str, order_id: s
         "strategy_id": strategy_id, "purpose": purpose, "decision_ref": decision_ref, "reason": None,
         "broker_terminal_pending": None, "command_id": ctx.command.command_id,
     }
+    if purpose == DISPOSAL:
+        order["owner"] = owner   # reserves, sells and books for this owner, never for the ended session
     outbox = {"outbox_id": f"{order_id}:submit", "order_id": order_id, "account_key": account_key, "action": "SUBMIT",
               "state": "PENDING", "attempts": 0, "last_attempt_ns": None, "result": None}
     ctx.emit("OrderAccepted", {"decision": decision.to_json(), "quote": quote_json, "purpose": purpose,
@@ -143,6 +169,17 @@ def create_order(ctx: Context, *, account_key: str, session_id: str, order_id: s
              {"orders": [order], "holds": hold_rows(order, mult, release=False), "outbox": [outbox]},
              account_key=account_key, session_id=session_id, order_id=order_id, instrument_id=instrument_id)
     return {"order_id": order_id, "state": "RESERVED", "decision": decision.code}
+
+
+def _disposal_decision(decision: Decision, session_state: str, owner: str) -> Decision:
+    """An owner DISPOSAL names a session that has ended; the session-state check (which only admits sessions that
+    may trade) is replaced by the owner's disposal authority, stated in the decision record. Every other check keeps
+    its result, and the first failing one is still the decision (BR-LED-03, BR-SES-02)."""
+    checks = [{**c, "passed": True, "detail": f"owner disposal of inventory owned by {owner}; the session stays "
+                                              f"{session_state} (ADR-0008: an ended session never re-opens)"}
+              if c["check"] == "SESSION_STATE" else c for c in decision.checks]
+    failed = next((c for c in checks if not c["passed"]), None)
+    return Decision(approved=failed is None, code=failed["check"] if failed else "APPROVED", checks=checks)
 
 
 def _self_cross(ctx: Context, account_key: str, instrument_id: str, side: str, limit: Fixed) -> bool:
@@ -351,11 +388,16 @@ def outbox_result(ctx: Context, p: dict) -> dict:
                            prev_state=order["state"])
             ctx.emit("OrderAcknowledged", {"via": "submit_result"}, {"orders": [new], "outbox": [{**row, "state": "DONE", "result": result}]}, **refs)
         elif status == "REJECTED":
-            if Fixed.parse(order["cum_qty"]).is_positive():
+            if order["state"] in state.TERMINAL_ORDER_STATES and not Fixed.parse(order["cum_qty"]).is_positive():
+                # A broker report already ended the order (e.g. CANCELED) before the submit result was recorded: a
+                # terminal state is never left or relabelled (order transition table); the result is kept on the row.
+                ctx.emit("SubmitResultAfterTerminal", {"reason": reason, "local_state": order["state"]},
+                         {"outbox": [{**row, "state": "DONE", "result": result}]}, **refs)
+            elif Fixed.parse(order["cum_qty"]).is_positive():
                 case = new_exception(ctx, key, "EXECUTION_ANOMALY", blocking=True, severity="high",
                                      detail={"order_id": order["order_id"], "issue": "rejection after fills", "reason": reason},
                                      key=f"reject-after-fill:{order['order_id']}", session_id=order["session_id"],
-                                     order_id=order["order_id"], owner_hint=ledger.session_owner(order["session_id"]))
+                                     order_id=order["order_id"], owner_hint=order_owner(order))
                 ctx.emit("OrderRejectContradictsFills", {"reason": reason},
                          {"outbox": [{**row, "state": "DONE", "result": result}], "exceptions": [case] if case else []}, **refs)
             else:
