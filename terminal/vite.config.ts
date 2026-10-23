@@ -20,7 +20,7 @@ const proxy = {
 
 /**
  * Budget for the JavaScript a first visit loads: the entry chunk and every chunk it imports statically. Each
- * workspace is a dynamic import (src/workspaces/lazy.tsx), so this is the shell alone: 305 kB on 2026-10-22,
+ * workspace is a dynamic import (src/workspaces/lazy.tsx), so this is the shell alone: 311 kB on 2026-10-22,
  * against 938 kB as one bundle before the split. The build fails above the budget instead of printing Vite's
  * 500 kB chunk warning; load new code on demand, or raise the budget deliberately.
  */
