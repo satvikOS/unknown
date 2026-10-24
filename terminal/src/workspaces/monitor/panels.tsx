@@ -118,7 +118,9 @@ export function WatchlistGrid({ list, selected, onRemove, onMove }: WatchlistGri
                   {r.tsMs === null ? <NoValue reason={miss.reason} detail={miss.detail} /> : formatTimestampMs(r.tsMs, 'utc', true).slice(11)}
                 </td>
                 <td>
-                  {problem ? (
+                  {problem?.state === 'ERROR' ? (
+                    <ErrorValue reason="ERROR" detail={problem.reason} />
+                  ) : problem ? (
                     <Badge tone={statusTone(problem.state)} title={problem.reason}>
                       {problem.state.replace('_', ' ')}
                     </Badge>

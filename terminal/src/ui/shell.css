@@ -259,6 +259,8 @@
 
 /* ---- unavailable values (ui/unavailable.tsx): em dash + reason, ERR, stale age ---- */
 .nv {
+  /* Positioned so the visually hidden reason is clipped with its cell (a scrolling grid or the ticker tape). */
+  position: relative;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;

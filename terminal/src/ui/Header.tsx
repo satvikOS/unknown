@@ -12,7 +12,7 @@ import { Icon } from './Icon';
 import { MOD_LABEL } from './keys';
 import { Badge, ModeBadge, StatusPill, type Tone } from './primitives';
 import { nextTheme, setTheme, useTheme } from './theme';
-import { NoValue } from './unavailable';
+import { describeReason, NoValue } from './unavailable';
 
 function isCoreHealth(core: HealthResponse['core'] | undefined): core is CoreHealth {
   return !!core && !('error' in core);
@@ -29,6 +29,8 @@ function HealthPills() {
     return <StatusPill label="CORE DOWN" tone="bad" detail={core.error} />;
   }
   const brokerOk = core.broker_connected && core.broker_authenticated;
+  // The simulated broker prices only from a real configured quote source; the badge appears only when it cannot.
+  const sim = core.provider === 'simulated' ? (core.sim_execution ?? null) : null;
   const brokerLabel = !core.broker_connected ? 'BROKER DOWN' : !core.broker_authenticated ? 'BROKER AUTH' : 'BROKER OK';
   const coreTone: Tone = core.cycle_errors > 0 ? 'warn' : 'ok';
   return (
@@ -38,13 +40,14 @@ function HealthPills() {
         tone={coreTone}
         detail={`Core answered; ${core.cycle_errors} loop errors; disk free ${core.disk_free_mb} MB`}
       />
-      <StatusPill label={brokerLabel} tone={brokerOk ? 'ok' : 'bad'} detail={`${core.provider}: ${core.detail}`} />
-      {core.provider === 'simulated' ? (
-        <Badge
-          tone={core.sim_execution?.reason ? 'warn' : 'info'}
-          title={`Simulated broker (${core.detail}): ${core.sim_execution?.detail ?? 'fills are simulated only at prices from a real configured quote source; with none it fills nothing'}. No order reaches a market.`}
-        >
-          {core.sim_execution?.reason ? `SIM BROKER · ${core.sim_execution.reason}` : core.sim_execution?.source ? `SIM BROKER · ${core.sim_execution.source}` : 'SIM BROKER'}
+      <StatusPill
+        label={brokerLabel}
+        tone={brokerOk ? 'ok' : 'bad'}
+        detail={`${core.provider}: ${core.detail}${sim ? `; simulated fills priced from ${sim.source ?? 'no quote source'}` : ''}`}
+      />
+      {sim?.reason ? (
+        <Badge tone="warn" title={`Simulated broker: ${sim.detail}. ${describeReason(sim.reason)}`}>
+          {`SIM ${sim.reason.replace(/_/g, ' ')}`}
         </Badge>
       ) : null}
     </>

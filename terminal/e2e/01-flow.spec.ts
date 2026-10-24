@@ -82,8 +82,8 @@ test('overview shows SIMULATED in text and colour, and names the simulated broke
   expect(colours.badge).toBe(colours.mode);
   expect(colours.band).toBe(colours.mode);
   await expect(page.locator('.mode-band')).toHaveAttribute('data-mode', 'SIMULATED');
-  // The simulated broker is named, with the real-data rule: it prices only from a configured quote source (TEST here).
-  await expect(header(page).locator('.badge', { hasText: 'SIM BROKER' })).toBeVisible();
+  // The broker pill names the simulated broker and the quote source it prices from (TEST here); nothing says FIXTURE.
+  await expect(header(page).locator('.pill', { hasText: 'BROKER' })).toHaveAttribute('title', /^simulated: /);
   await expect(header(page).locator('.badge', { hasText: 'FIXTURE' })).toHaveCount(0);
   // The bootstrap leaves the account stopped until the owner presses START.
   await expectEntryState(page, 'STOPPED');

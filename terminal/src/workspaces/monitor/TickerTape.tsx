@@ -30,7 +30,11 @@ export function TickerTape({ keys = DEFAULT_KEYS }: { keys?: readonly string[] }
         <span className="mon-sym">{splitKey(key)?.symbol ?? key}</span>
         <span className="mon-num">{valueOrReason(fmt(r.last), miss)}</span>
         <span className={`mon-num ${signTone(r.pct)}`}>{valueOrReason(pct === null ? null : `${pct}%`, miss)}</span>
-        {r.badge.tone !== 'ok' ? <span className="mon-tick-badge">{r.badge.text}</span> : null}
+        {miss.reason === 'ERROR' ? null : !q && miss.reason !== 'NOT_REPORTED' ? (
+          <span className="mon-tick-badge">{miss.reason.replace(/_/g, ' ')}</span>
+        ) : r.badge.tone !== 'ok' ? (
+          <span className="mon-tick-badge">{r.badge.text}</span>
+        ) : null}
       </button>
     );
   });
