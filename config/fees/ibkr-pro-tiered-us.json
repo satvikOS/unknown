@@ -5,6 +5,8 @@
   "plan": "IBKR_PRO_TIERED",
   "market": "US",
   "products": ["STK", "ETF"],
+  "venues": ["XNAS", "XNYS", "ARCX", "BATS", "XASE"],
+  "venues_note": "The listings whose orders this schedule prices, by ISO 10383 MIC: the US exchanges in the paper policy's eligibility (Nasdaq, NYSE, NYSE Arca, Cboe BZX, NYSE American). The page's table is 'United States'; the order is SmartRouted wherever the instrument is listed. The core selects a schedule by broker, venue, product and currency, and refuses a buy no schedule covers.",
   "currency": "USD",
   "route": "SMART",
   "route_note": "Tiered applies to SmartRouted orders only: 'Please note that directed API orders cannot use the Tiered fee structure. SmartRouted API orders can use either the Tiered or Fixed structure.' The IBKR adapter sends every order with exchange SMART (broker/ibkr/adapter.py).",

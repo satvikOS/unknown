@@ -20,6 +20,38 @@ export interface TicketInput {
   limitPrice: string;
   /** Seconds after sending at which the intent expires if not yet transmitted (default 60). */
   deadlineSeconds: string;
+  /** Time in force sent to the core (default DAY); the core's TIME_IN_FORCE check holds the policy's list. */
+  timeInForce?: string;
+  /** Trading session: regular hours only. The core has no outside-regular-hours flag in this release. */
+  tradingSession?: TradingSession;
+}
+
+export type TradingSession = 'REGULAR' | 'EXTENDED';
+export const DEFAULT_TIF = 'DAY';
+
+/** The policy eligibility fields the ticket reads (policy/model.py Eligibility). */
+export interface TicketEligibility {
+  time_in_force?: readonly string[];
+  order_types?: readonly string[];
+  outside_regular_hours?: boolean;
+}
+
+/** Eligibility from an active policy body, keeping only well-formed fields. */
+export function eligibilityOf(body: { eligibility?: Record<string, unknown> } | null | undefined): TicketEligibility {
+  const e = body?.eligibility ?? {};
+  const strings = (x: unknown) => (Array.isArray(x) && x.every((v) => typeof v === 'string') ? (x as string[]) : undefined);
+  const out: TicketEligibility = {};
+  const tif = strings(e['time_in_force']);
+  const types = strings(e['order_types']);
+  if (tif) out.time_in_force = tif;
+  if (types) out.order_types = types;
+  if (typeof e['outside_regular_hours'] === 'boolean') out.outside_regular_hours = e['outside_regular_hours'];
+  return out;
+}
+
+/** Time-in-force choices: the policy's list, else DAY alone (the core decides either way). */
+export function tifChoices(e: TicketEligibility): string[] {
+  return e.time_in_force?.length ? [...e.time_in_force] : [DEFAULT_TIF];
 }
 
 export type TicketField = keyof TicketInput;
@@ -35,6 +67,8 @@ export const EMPTY_TICKET: TicketInput = {
   quantity: '',
   limitPrice: '',
   deadlineSeconds: String(DEFAULT_DEADLINE_SECONDS),
+  timeInForce: DEFAULT_TIF,
+  tradingSession: 'REGULAR',
 };
 
 /** domain/ids.py validate_id: the core faults (it does not reject) on any other shape. */
@@ -97,6 +131,7 @@ export function tickFor(price: string, rules: readonly { from_price: string; tic
 export interface TicketContext {
   session?: Session | undefined;
   instrument?: Instrument | undefined;
+  eligibility?: TicketEligibility | undefined;
 }
 
 export interface TicketIssues {
@@ -142,6 +177,17 @@ export function validateTicket(input: TicketInput, ctx: TicketContext = {}): Tic
 
   if (parseDeadlineSeconds(input.deadlineSeconds) === null) {
     errors.deadlineSeconds = `Deadline must be whole seconds from ${MIN_DEADLINE_SECONDS} to ${MAX_DEADLINE_SECONDS}.`;
+  }
+
+  const tif = (input.timeInForce ?? DEFAULT_TIF).trim();
+  if (!/^[A-Z_]{2,12}$/.test(tif)) errors.timeInForce = 'Choose a time in force.';
+  else if (ctx.eligibility?.time_in_force && !ctx.eligibility.time_in_force.includes(tif)) {
+    hints.timeInForce = `The policy permits ${ctx.eligibility.time_in_force.join(', ')}; the core's TIME_IN_FORCE check will reject ${tif}.`;
+  }
+  if ((input.tradingSession ?? 'REGULAR') !== 'REGULAR') {
+    errors.tradingSession = ctx.eligibility?.outside_regular_hours
+      ? 'Outside regular hours cannot be sent: the core has no outside-hours order flag in this release.'
+      : 'Outside regular hours is not eligible: the policy has outside_regular_hours false.';
   }
 
   // Advisory hints mirroring the core's checks; the core repeats every one of them.
@@ -210,7 +256,7 @@ export interface SubmitIntentPayload {
   quantity: string;
   limit_price: string;
   order_type: 'LIMIT';
-  time_in_force: 'DAY';
+  time_in_force: string;
   deadline_ns: number;
   policy_hash: string;
 }
@@ -228,6 +274,7 @@ export function buildIntentPayload(
   if (!policyHash) throw new Error('session has no mandate policy hash');
   if (!isPositiveDecimal(input.quantity) || !isPositiveDecimal(input.limitPrice)) throw new Error('quantity and limit price must be positive decimals');
   if (!Number.isInteger(deadlineNs) || deadlineNs <= 0) throw new Error('deadline must be a positive integer of nanoseconds');
+  if ((input.tradingSession ?? 'REGULAR') !== 'REGULAR') throw new Error('only regular-hours orders can be sent');
   return {
     account_key: session.account_key,
     session_id: session.session_id,
@@ -237,7 +284,7 @@ export function buildIntentPayload(
     quantity: input.quantity.trim(),
     limit_price: input.limitPrice.trim(),
     order_type: 'LIMIT',
-    time_in_force: 'DAY',
+    time_in_force: (input.timeInForce ?? DEFAULT_TIF).trim(),
     deadline_ns: deadlineNs,
     policy_hash: policyHash,
   };

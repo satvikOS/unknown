@@ -47,7 +47,12 @@ class Harness:
     """A desk on a temp SQLite file wired to a SimulatedBroker and a manual clock."""
 
     def __init__(self, *, initial_cash: str = "300.00", policy: dict | None = None, db_path: Path | None = None,
-                 broker: SimulatedBroker | None = None, clock: ManualClock | None = None, seed: int = 1):
+                 broker: SimulatedBroker | None = None, clock: ManualClock | None = None, seed: int = 1,
+                 provider: str = "simulated", fee_schedules=None):
+        # ``provider`` is the account's broker id: "simulated" reserves with the policy's fee model; any other
+        # (e.g. "ibkr") with that broker's schedule from ``fee_schedules`` (default config/fees).
+        self.provider = provider
+        self.fee_schedules = fee_schedules
         self.tmp = tempfile.TemporaryDirectory() if db_path is None else None
         self.db_path = db_path or Path(self.tmp.name) / "core.sqlite"
         self.clock = clock or ManualClock(T0)
@@ -63,7 +68,7 @@ class Harness:
 
     def _open(self) -> Desk:
         return open_desk(self.db_path, self.clock, self.ids, deployment_id=DEPLOYMENT, quotes=None,
-                         health=self.health, calendars={"WEEKDAYS": WEEKDAYS_ONLY})
+                         health=self.health, calendars={"WEEKDAYS": WEEKDAYS_ONLY}, fee_schedules=self.fee_schedules)
 
     def health(self) -> HealthSnapshot:
         s = self.broker.session()
@@ -107,7 +112,7 @@ class Harness:
 
     # ------------------------------------------------------------ setup
     def bootstrap(self, *, authorize: str = "300.00", start: bool = True) -> None:
-        assert self.owner_cmd("register_account", account_key=ACCOUNT, provider="simulated", mode="SIMULATED",
+        assert self.owner_cmd("register_account", account_key=ACCOUNT, provider=self.provider, mode="SIMULATED",
                               base_currency="USD").accepted
         r = self.owner_cmd("publish_policy", body=self.policy_body)
         assert r.accepted, r.body

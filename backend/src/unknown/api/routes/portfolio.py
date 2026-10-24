@@ -13,7 +13,7 @@ missing reasons) or an explicit unavailable reason; fixture data is labelled as 
   GET /api/portfolio/var?scope=&alpha=&horizon=&lookback=
   GET /api/portfolio/var/backtest?scope=&currency=&alpha=&window=&lookback=
   GET /api/portfolio/stress/<overnight_gap|correlated_selloff|stale_quote|fee_revision>?scope=&...
-  GET /api/portfolio/whatif?session=&instrument=&side=&quantity=&limit=[&deployment=]
+  GET /api/portfolio/whatif?session=&instrument=&side=&quantity=&limit=[&tif=][&deployment=]  (the ticket's pretrade preview)
   GET /api/portfolio/allocation?scope=owner:session:<id>&cash_reserve=&floor=&cap=&eta=&tau=&lookback=
   GET /api/portfolio/formulas
 """
@@ -111,6 +111,8 @@ def handle(ctx, parts: list[str], q: dict, account_key: str, conn) -> dict:
         missing = [k for k, v in intent.items() if not v]
         if missing:
             raise ValueError(f"missing parameters: {', '.join(missing)}")
+        if q.get("tif"):
+            intent["time_in_force"] = q.get("tif")      # the core's TIME_IN_FORCE check decides, as for a real intent
         try:
             return _with_quotes(whatif.dry_run(conn, account_key, intent, quotes, now_ns=now,
                                                deployment_id=q.get("deployment") or None), why)

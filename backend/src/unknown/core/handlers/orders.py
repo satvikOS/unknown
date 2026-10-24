@@ -18,9 +18,9 @@ from __future__ import annotations
 from ...domain.errors import Rejected
 from ...domain.fixed import Fixed, Rounding
 from ...domain.ids import validate_id
-from ...domain.money import Money, currency
+from ...domain.money import currency
 from ...domain.principal import Role
-from ...risk import fees as fee_model
+from ...risk.fee_schedule import FeeEnvelopeUnavailable
 from ...risk.pretrade import Decision, PretradeInput, evaluate
 from .. import ledger, state
 from ..desk import Context
@@ -100,7 +100,17 @@ def create_order(ctx: Context, *, account_key: str, session_id: str, order_id: s
     quote = ctx.desk.quotes.get(instrument_id) if inst else None
 
     notional = (quantity * limit_price * mult).rescale(scale, Rounding.CEILING) if quantity.is_positive() and limit_price.is_positive() else Fixed(0, scale)
-    envelope = fee_model.envelope(policy.fees, quantity, Money(ccy, notional)) if side == "BUY" else Money.zero(ccy)
+    # A BUY reserves the fee envelope of the account broker's schedule for this venue and size (ADR-0006 amendment
+    # 2026-10-24); without one the FEE_SCHEDULE check refuses the entry with the reason. A SELL reserves no envelope.
+    fee_env, fee_error = None, None
+    if side == "BUY":
+        try:
+            fee_env = ctx.desk.fee_schedules.buy_envelope(
+                broker=acct["provider"], policy_fees=policy.fees, instrument=inst, quantity=quantity,
+                limit_price=limit_price, notional=notional, ccy=ccy, now_ns=ctx.now_ns)
+        except FeeEnvelopeUnavailable as exc:
+            fee_error = str(exc)
+    envelope_amount = fee_env.amount if fee_env is not None else Fixed(0, scale)
     available = ledger.available_cash(tx, account_key, owner, ccy)
     owned = ledger.owned_quantity(tx, account_key, owner, instrument_id) if inst else Fixed(0)
     held = ledger.active_quantity_holds(tx, account_key, owner, instrument_id) if inst else Fixed(0)
@@ -133,7 +143,8 @@ def create_order(ctx: Context, *, account_key: str, session_id: str, order_id: s
         session_state=sess["state"], mandate_policy_hash=mandate.policy_hash, strategy_permitted=strategy_ok,
         instrument=inst, eligibility=policy.eligibility, quote=quote,
         quote_max_age_ms=policy.limits.quote_max_age_ms, price_collar_bps=policy.limits.price_collar_bps,
-        required_cash=(notional + envelope.amount), available_cash=available,
+        required_cash=(notional + envelope_amount), available_cash=available,
+        fee_envelope_error=fee_error, fee_envelope_detail=fee_env.detail() if fee_env is not None else "",
         unreserved_quantity=owned - held, order_notional=notional,
         max_order_notional=policy.limits.max_order_notional.amount, position_notional_after=position_after,
         session_equity=session_equity, max_position_bps=policy.limits.max_position_bps_of_session_equity,
@@ -153,7 +164,7 @@ def create_order(ctx: Context, *, account_key: str, session_id: str, order_id: s
         "limit_price": limit_price.to_str(), "currency": ccy, "state": "RESERVED", "prev_state": None,
         "cancel_state": "NONE", "cum_qty": "0", "leaves_qty": quantity.to_str(), "notional_filled": Fixed(0, scale).to_str(),
         "avg_price": None, "fees_estimated": Fixed(0, scale).to_str(), "fees_final": Fixed(0, scale).to_str(),
-        "fee_envelope": envelope.amount.to_str(), "broker_order_id": None,
+        "fee_envelope": envelope_amount.to_str(), "broker_order_id": None,
         "order_ref": f"{ctx.desk.deployment_id}:{own['epoch']}:{order_id}",
         "accepted_at_ns": ctx.now_ns, "submitted_at_ns": None, "terminal_at_ns": None, "deadline_ns": deadline_ns,
         "policy_hash": policy_hash, "principal_id": ctx.principal.id, "principal_role": ctx.principal.role.value,
@@ -165,7 +176,8 @@ def create_order(ctx: Context, *, account_key: str, session_id: str, order_id: s
     outbox = {"outbox_id": f"{order_id}:submit", "order_id": order_id, "account_key": account_key, "action": "SUBMIT",
               "state": "PENDING", "attempts": 0, "last_attempt_ns": None, "result": None}
     ctx.emit("OrderAccepted", {"decision": decision.to_json(), "quote": quote_json, "purpose": purpose,
-                               "required_cash": (notional + envelope.amount).to_str() if side == "BUY" else None},
+                               "required_cash": (notional + envelope_amount).to_str() if side == "BUY" else None,
+                               "fee_envelope": fee_env.to_json() if fee_env is not None else None},
              {"orders": [order], "holds": hold_rows(order, mult, release=False), "outbox": [outbox]},
              account_key=account_key, session_id=session_id, order_id=order_id, instrument_id=instrument_id)
     return {"order_id": order_id, "state": "RESERVED", "decision": decision.code}

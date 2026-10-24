@@ -66,6 +66,9 @@ class PretradeInput:
     max_participation_bps_of_adv: int
     require_liquidity_data: bool
     would_self_cross: bool = False
+    # The BUY fee envelope's provenance (fee_schedule.FeeScheduleBook): its error refuses the entry with the reason.
+    fee_envelope_error: str | None = None
+    fee_envelope_detail: str = ""
 
 
 @dataclass
@@ -147,6 +150,7 @@ def evaluate(i: PretradeInput) -> Decision:
 
     check("MAX_ORDER_NOTIONAL", i.order_notional <= i.max_order_notional, f"{i.order_notional} > {i.max_order_notional}",
           applies=buy)
+    check("FEE_SCHEDULE", i.fee_envelope_error is None, i.fee_envelope_error or i.fee_envelope_detail, applies=buy)
     check("CASH", i.required_cash <= i.available_cash, f"required {i.required_cash} available {i.available_cash}", applies=buy)
     check("OWNED_QUANTITY", i.quantity <= i.unreserved_quantity, f"sell {i.quantity} unreserved {i.unreserved_quantity}",
           applies=not buy)

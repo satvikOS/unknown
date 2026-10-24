@@ -24,7 +24,6 @@ from datetime import date
 from ...domain.calendar import local_date
 from ...domain.fixed import Fixed, Rounding
 from ...domain.money import Money, currency
-from ...risk import fees as fee_model
 from .. import ledger, state
 from ..desk import Context
 from .common import (EXECUTION_ANOMALY, FOREIGN_ACTIVITY, OVERCOMMITTED, POST_COMPLETION_ADJUSTMENT, UNKNOWN_ORDER,
@@ -428,7 +427,12 @@ def apply_order_execution(ctx: Context, order: dict, p: dict, *, allowance: Fixe
     ccy = order["currency"]
     scale = currency(ccy).ledger_scale
     policy = state.active_policy(ctx.tx, key)
-    est = fee_model.estimate(policy.fees, qty, Money(ccy, (qty * price * mult).rescale(scale, Rounding.HALF_EVEN)))
+    # The provisional fee comes from the schedule that priced the BUY envelope, so a whole fill's estimate never
+    # exceeds it (ADR-0006 amendment 2026-10-24); the simulator, or a fill no schedule covers, uses the policy model.
+    est = ctx.desk.fee_schedules.fill_estimate(
+        broker=state.account(ctx.tx, key)["provider"], policy_fees=policy.fees, instrument=inst, side=order["side"],
+        quantity=qty, price=price, notional=Money(ccy, (qty * price * mult).rescale(scale, Rounding.HALF_EVEN)),
+        now_ns=ctx.now_ns)
     p = {**p, "instrument_id": order["instrument_id"], "currency": p.get("currency") or ccy}
     anomalies = []
     if p["side"] != order["side"]:

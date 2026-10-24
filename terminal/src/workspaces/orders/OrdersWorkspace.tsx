@@ -4,8 +4,12 @@
  *   #/orders                          blotter (open / all, per session)
  *   #/orders/<order_id>               order detail: holds, outbox, executions, pretrade decision, timeline
  *   #/orders/~executions              executions (fills) with fee status
- *   #/orders/~new[/<instrument_id>]   order ticket for owner manual intents
- * Keys (when no field has focus and no dialog is open): n new order, l blotter, e executions.
+ *   #/orders/~new[/<instrument_id>]   order ticket for owner manual intents, with a live pretrade preview
+ *   #/orders/~buy|~sell[/<id>]        the ticket with the side chosen (functions BUY, SELL)
+ *   #/orders/~ladder[/<id>]           price ladder: depth or level 1, place and cancel limit orders by click (LADDER)
+ *   #/orders/~basket                  basket: several intents, each its own command and outcome
+ * Without an instrument id the ticket and ladder use the linked security.
+ * Keys (when no field has focus and no dialog is open): n new order, l blotter, e executions, p ladder, k basket.
  */
 import { useEffect, useRef } from 'react';
 import { routeHref } from '../../state/router';
@@ -19,14 +23,18 @@ import { ordersRest, parseOrdersRoute, type OrdersRoute } from './model';
 import { OrderDetailView } from './OrderDetailView';
 import { useInstrumentMap } from './parts';
 import { TicketView } from './TicketView';
+import { LadderView } from './LadderView';
+import { BasketView } from './BasketView';
 import './orders.css';
 
-type TabView = 'blotter' | 'executions' | 'ticket';
+type TabView = 'blotter' | 'executions' | 'ticket' | 'ladder' | 'basket';
 
 const TABS: { view: TabView; label: string; key: string; route: OrdersRoute }[] = [
   { view: 'blotter', label: 'Blotter', key: 'l', route: { view: 'blotter' } },
   { view: 'executions', label: 'Executions', key: 'e', route: { view: 'executions' } },
   { view: 'ticket', label: 'New order', key: 'n', route: { view: 'ticket', instrumentId: null } },
+  { view: 'ladder', label: 'Ladder', key: 'p', route: { view: 'ladder', instrumentId: null } },
+  { view: 'basket', label: 'Basket', key: 'k', route: { view: 'basket' } },
 ];
 
 /** Single-key view shortcuts, ignored while typing, with a modifier, in a dialog, or after "g". */
@@ -96,7 +104,11 @@ export function OrdersWorkspace({ route, navigate }: WorkspaceProps) {
     case 'executions':
       return <ExecutionsView tabs={<OrdersTabs active="executions" />} instruments={instruments} />;
     case 'ticket':
-      return <TicketView tabs={<OrdersTabs active="ticket" />} instruments={instruments} presetInstrumentId={r.instrumentId} />;
+      return <TicketView tabs={<OrdersTabs active="ticket" />} instruments={instruments} presetInstrumentId={r.instrumentId} presetSide={r.side} />;
+    case 'ladder':
+      return <LadderView tabs={<OrdersTabs active="ladder" />} instruments={instruments} routeInstrumentId={r.instrumentId} />;
+    case 'basket':
+      return <BasketView tabs={<OrdersTabs active="basket" />} instruments={instruments} />;
     case 'detail':
       return (
         <OrderDetailView
