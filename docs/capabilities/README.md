@@ -850,7 +850,7 @@ Checked against `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readine
 ### CAP-RES-03: Research workspace with programmatic data query API, notebooks and scheduled jobs (implemented)
 
 - Files: `backend/src/unknown/api/routes/research.py`, `backend/src/unknown/api/routes/company.py`, `backend/src/unknown/api/routes/research_jobs.py`, `backend/tests/support/research_study.py`, `terminal/src/workspaces/research/ResearchWorkspace.tsx`
-- Tests: `test_research_study::ResearchRoutesTest.test_every_endpoint_returns_data_with_provenance`; `test_research_study::ResearchRoutesTest.test_routes_cannot_write`; `test_company_api::CompanyApiTests.test_routes_never_write`; `src/workspaces/research/views.test.ts::research envelope without a registry > shows the API reason verbatim and a study command that runs (with its required --out)`; `e2e/03-research.spec.ts::research: experiments, trials, artifacts with gate verdicts, reports, specifications`
+- Tests: `test_research_study::ResearchRoutesTest.test_every_endpoint_returns_data_with_provenance`; `test_research_study::ResearchRoutesTest.test_routes_cannot_write`; `test_company_api::CompanyApiTests.test_routes_never_write`; `src/workspaces/research/views.test.ts::research envelope without a registry > shows the API reason verbatim and offers no command (no synthetic study exists, ADR-0020)`; `e2e/03-research.spec.ts::research: experiments, trials, artifacts with gate verdicts, reports, specifications`
 - Evidence: Read-only HTTP query API over the research registry, company data and research jobs; the study runs from a CLI.
 - Evidence: Terminal: the Research, Company and Markets & macro workspaces read this API.
 - Gap: no notebooks, no programmatic client library and no job scheduler
