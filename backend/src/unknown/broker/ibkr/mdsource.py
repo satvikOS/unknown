@@ -29,6 +29,7 @@ from pathlib import Path
 from ...marketdata.events import InvalidKey, parse_key
 from ...marketdata.source import Capabilities, MarketDataSource, Outcome
 from .marketdata import ENTITLEMENT_CODES, ContractSpec
+from .reconnect import RECONNECT_MAX_S, ReconnectBackoff
 
 log = logging.getLogger("unknown.broker.ibkr")
 
@@ -116,7 +117,7 @@ class IbkrSource(MarketDataSource):
 
     def __init__(self, session, *, lines: int, venue_lookup, tick_by_tick: bool = False, depth: bool = False,
                  depth_lines: int = 0, depth_rows: int = 10, smart_depth: bool = True, maintain_s: float = 5.0,
-                 run_thread: bool = True):
+                 run_thread: bool = True, backoff: ReconnectBackoff | None = None):
         if lines < 1:
             raise ValueError("IBKR source needs lines >= 1 (its share of the username's market-data lines)")
         if depth and depth_lines < 1:
@@ -136,6 +137,8 @@ class IbkrSource(MarketDataSource):
         self._extra: dict[str, dict] = {}            # key -> {"tbt": req_id, "depth": req_id}
         self._stop = threading.Event()
         self.sink = None
+        self.backoff = backoff or ReconnectBackoff()
+        self._epoch: int | None = None              # session.connections when last maintained
 
     def line_budget(self) -> int | None:
         cap = getattr(getattr(self.session, "lines", None), "capacity", None)
@@ -153,17 +156,68 @@ class IbkrSource(MarketDataSource):
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            try:
-                if self.session.ready_reason():
-                    self.session.connect()
-                self.session.maintain()
-            except Exception as exc:
-                log.warning("IBKR market-data source: %s: %s", type(exc).__name__, exc)
-                with self._lock:
-                    keys = list(self._keys)
-                for k in keys:
-                    self.sink.status(self.source_id, k, "STALE", f"session not connected: {type(exc).__name__}")
-            self._stop.wait(self.maintain_s)
+            self.step()
+            wait = self.maintain_s if self.backoff.up else max(self.maintain_s, self.backoff.wait_s())
+            self._stop.wait(min(wait, RECONNECT_MAX_S))
+
+    def step(self) -> dict:
+        """One maintenance pass: reconnect with capped exponential backoff when IB Gateway is gone (never logs in),
+        re-request time & sales and depth after a reconnect (IBKR drops every request with the socket), resubscribe
+        quotes, and report the outage on every key meanwhile."""
+        try:
+            reason = self.session.ready_reason()
+            if reason:
+                self.backoff.lost(reason)
+                if self.backoff.latched or not self.backoff.due():
+                    return {"connected": False, "reason": reason}
+                self.session.connect()
+                reason = self.session.ready_reason()
+                if reason:
+                    self.backoff.failed(reason)
+                    self._all_stale(f"IB Gateway not connected ({reason}); reconnecting with backoff")
+                    return {"connected": False, "reason": reason}
+            self.backoff.connected()
+            reopened = self._reopen_after_reconnect()
+            return {"connected": True, "maintenance": self.session.maintain(), "reopened": reopened}
+        except Exception as exc:
+            log.warning("IBKR market-data source: %s: %s", type(exc).__name__, exc)
+            self.backoff.failed(f"{type(exc).__name__}: {exc}")
+            self._all_stale(f"session not connected: {type(exc).__name__}")
+            return {"connected": False, "reason": f"{type(exc).__name__}: {exc}"}
+
+    def _all_stale(self, why: str) -> None:
+        with self._lock:
+            keys = list(self._keys)
+        for k in keys:
+            self.sink.status(self.source_id, k, "STALE", why)
+
+    def _reopen_after_reconnect(self) -> list[str]:
+        """After a new verified connection, the tick-by-tick and depth request ids of the old socket are dead:
+        unregister them and request each again (quotes are resubscribed by the session's own maintenance)."""
+        epoch = getattr(self.session, "connections", 0)
+        with self._lock:
+            previous, self._epoch = self._epoch, epoch
+            if previous is None or previous == epoch:
+                return []
+            todo = [(k, dict(e)) for k, e in self._extra.items() if e]
+            for k, _ in todo:
+                self._extra[k] = {}
+        reopened = []
+        for key, old in todo:
+            for req_id in old.values():
+                self.session.unregister(req_id)
+            with self._lock:
+                if key not in self._keys:
+                    continue
+                extra = self._extra.setdefault(key, {})
+            if "tbt" in old:
+                self._open(key, extra, "tbt", _TickByTick(self, key), "reqTickByTickData",
+                           lambda c: (c, "AllLast", 0, False))
+            if "depth" in old:
+                self._open(key, extra, "depth", _Depth(self, key), "reqMktDepth",
+                           lambda c: (c, self.depth_rows, self.smart_depth, []))
+            reopened.append(key)
+        return reopened
 
     # ------------------------------------------------------------------ subscriptions
     def subscribe(self, key: str) -> Outcome:
@@ -256,8 +310,16 @@ class IbkrSource(MarketDataSource):
     def describe(self) -> dict:
         with self._lock:
             n = len(self._keys)
-        return {**super().describe(), "state": "running", "keys": n, "tick_by_tick_budget": self.tbt_budget,
-                "depth_budget": self.depth_budget}
+        conn = self.session.connection_state()
+        reconnect = self.backoff.to_json()
+        if conn.get("connected") and conn.get("verified_paper"):
+            state = "upstream_down" if conn.get("upstream_down") is not None else "running"
+        else:
+            state = reconnect["state"] if reconnect["state"] != "connected" else "reconnecting"
+        return {**super().describe(), "state": state, "keys": n, "tick_by_tick_budget": self.tbt_budget,
+                "depth_budget": self.depth_budget, "reason": conn.get("reason") if state != "running" else None,
+                "upstream_down": conn.get("upstream_down"), "data_farms_down": conn.get("data_farms_down"),
+                "reconnect": reconnect}
 
 
 def build(opts: dict, home: Path) -> IbkrSource:

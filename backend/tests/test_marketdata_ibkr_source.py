@@ -54,6 +54,10 @@ class FakeSession:
         self.requests.append((method, *args))
         return None
 
+    def connection_state(self):
+        return {"connected": True, "verified_paper": True, "reason": None, "upstream_down": None,
+                "data_farms_down": []}
+
 
 class Rec:
     def __init__(self):

@@ -14,7 +14,11 @@ connection with its own client id when ``<UNKNOWN_HOME>/config/ibkr_marketdata.j
 exists. The two connections split IBKR's per-username request budget. A
 maintenance thread connects that session, subscribes every instrument with an
 ``ibkr`` provider mapping, and publishes into the core's quote book. Without the
-file there are no quotes, and pretrade and preflight fail closed."""
+file there are no quotes, and pretrade and preflight fail closed.
+
+When IB Gateway drops (1100, a closed socket, the nightly restart, weekend maintenance) the core reconnects the order
+adapter and the maintainer reconnects the market-data session, each with backoff and without a restart; the core's
+health query shows ``broker_connection`` and ``market_data`` meanwhile (tests/test_ibkr_reconnect.py)."""
 from __future__ import annotations
 
 import argparse
@@ -30,31 +34,49 @@ from .adapter import PROVIDER, IbkrAdapter
 from .config import load_config
 from .marketdata import (ContractSpec, IbkrMarketDataSession, MarketDataConfigError, default_status_path,
                          load_market_data_config, split_host_budget)
+from .reconnect import ReconnectBackoff
 
 log = logging.getLogger("unknown.ibkr.serve")
 MAINTAIN_INTERVAL_S = 30.0
-RECONNECT_MAX_S = 300.0
 
 
 class MarketDataMaintainer:
     """Keeps the read-only market-data session connected and subscribed. It runs on its own thread, never on the
-    core loop or the SDK message thread."""
+    core loop or the SDK message thread.
 
-    def __init__(self, session: IbkrMarketDataSession, svc: CoreService):
+    After IB Gateway drops (IBKR 1100, a closed socket, the nightly restart or weekend maintenance) it reconnects with
+    capped exponential backoff (``reconnect.ReconnectBackoff``) once the Gateway is back, and the session resubscribes
+    every instrument; ``health()`` (included in the core's health query) reports the outage meanwhile. It never logs
+    in and never retries an identity latch."""
+
+    def __init__(self, session: IbkrMarketDataSession, svc: CoreService, *, backoff: ReconnectBackoff | None = None):
         self.session = session
         self.svc = svc
         self.stop = threading.Event()
-        self._backoff = 5.0
+        self.backoff = backoff or ReconnectBackoff()
+        self.last: dict = {"connected": False, "reason": "NOT_STARTED"}
 
     def step(self) -> dict:
+        self.last = out = self._step()
+        return out
+
+    def _step(self) -> dict:
         state = self.session.connection_state()
         if not (state.get("connected") and state.get("verified_paper")):
-            if str(state.get("reason") or "").startswith("DISCONNECTED_UNSAFE"):
-                return {"connected": False, "reason": state.get("reason")}   # latched; only the owner clears it
+            reason = str(state.get("reason") or "NOT_CONNECTED")
+            if reason.startswith("DISCONNECTED_UNSAFE"):
+                self.backoff.lost(reason)
+                return {"connected": False, "reason": reason}   # latched; only the owner clears it
+            self.backoff.lost(reason)
+            if not self.backoff.due():
+                return {"connected": False, "reason": reason, "waiting_s": self.backoff.wait_s()}
             self.session.connect()
             state = self.session.connection_state()
             if not (state.get("connected") and state.get("verified_paper")):
-                return {"connected": False, "reason": state.get("reason")}
+                reason = str(state.get("reason") or "NOT_CONNECTED")
+                self.backoff.failed(reason)
+                return {"connected": False, "reason": reason}
+        self.backoff.connected()
         subscribed, refused = [], {}
         for con_id, (instrument_id, currency) in sorted(self.svc.instrument_details.items()):
             if not con_id.isdigit():
@@ -66,18 +88,37 @@ class MarketDataMaintainer:
                 refused[instrument_id] = result.reason
         return {"connected": True, "subscribed": subscribed, "refused": refused, "maintenance": self.session.maintain()}
 
+    def health(self) -> dict:
+        """What the core's health query shows for market data: connection, IBKR upstream state and reconnects."""
+        state = self.session.connection_state()
+        last = self.last
+        upstream = state.get("upstream_down")
+        if not state.get("connected") or not state.get("verified_paper"):
+            status = "LATCHED" if self.backoff.latched else "RECONNECTING"
+        elif upstream is not None:
+            status = "UPSTREAM_DOWN"
+        elif state.get("data_farms_down"):
+            status = "DATA_FARM_DOWN"
+        else:
+            status = "CONNECTED"
+        return {"status": status, "reason": state.get("reason") or (f"IBKR {upstream}: IB Gateway lost its connection "
+                                                                     "to IBKR" if upstream is not None else None),
+                "upstream_down": upstream, "data_farms_down": state.get("data_farms_down"),
+                "client_id": state.get("client_id"), "connections": state.get("connections"),
+                "subscribed": len(last.get("subscribed") or ()), "refused": dict(last.get("refused") or {}),
+                "reconnect": self.backoff.to_json()}
+
     def run(self) -> None:
         self.svc.ready.wait()   # instrument mappings come from the core database, which svc.run opens
         while not self.stop.is_set():
             try:
                 out = self.step()
-                wait = MAINTAIN_INTERVAL_S if out.get("connected") else self._backoff
-                self._backoff = 5.0 if out.get("connected") else min(self._backoff * 2, RECONNECT_MAX_S)
-            except Exception:
+                wait = MAINTAIN_INTERVAL_S if out.get("connected") else max(1.0, self.backoff.wait_s())
+            except Exception as exc:
                 log.exception("market-data maintenance failed")
-                wait = self._backoff
-                self._backoff = min(self._backoff * 2, RECONNECT_MAX_S)
-            self.stop.wait(wait)
+                self.last = {"connected": False, "reason": f"{type(exc).__name__}: {exc}"}
+                wait = self.backoff.failed(self.last["reason"])
+            self.stop.wait(min(wait, MAINTAIN_INTERVAL_S))
 
 
 def build_service(*, account: str, deployment: str, config_path: str | None = None, home: str | None = None,
@@ -108,6 +149,7 @@ def build_service(*, account: str, deployment: str, config_path: str | None = No
         session = IbkrMarketDataSession(cfg, md_cfg, quote_book=quotes, clock=clock, pacer=md_pacer,
                                         status_path=default_status_path(paths.root))
         maintainer = MarketDataMaintainer(session, svc)
+        svc.market_data_health = maintainer.health
     return svc, maintainer
 
 
