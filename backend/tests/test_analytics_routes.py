@@ -93,6 +93,12 @@ class RouteTest(unittest.TestCase):
         self.assertIn("HYPOTHETICAL", w["label"])
         self.assertEqual(w["code"], "APPROVED")
         self.assertEqual(w["reservation_preview"][0]["amount"], "10.220000")  # 9.02 + fee envelope 1.20
+        fee = next(c for c in w["decision"]["checks"] if c["check"] == "FEE_SCHEDULE")
+        self.assertTrue(fee["passed"])                      # the simulated broker: the policy fee model, labelled
+        self.assertIn("policy fee model", fee["detail"])
+        gtc = call(self.ctx, self.conn, "portfolio/whatif", session="S1", instrument="FIX-EQ-1", side="BUY",
+                   quantity="1", limit="9.02", tif="GTC")
+        self.assertEqual(gtc["code"], "TIME_IN_FORCE")      # the preview runs the core's own TIF check
         for name in ("overnight_gap", "correlated_selloff", "stale_quote", "fee_revision"):
             body = call(self.ctx, self.conn, f"portfolio/stress/{name}", scope="session:S1")
             self.assertEqual(body["scenario"], name)
