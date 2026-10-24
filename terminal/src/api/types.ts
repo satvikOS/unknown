@@ -787,7 +787,7 @@ export interface CommandPayloads {
     quantity: Decimal;
     limit_price: Decimal;
     order_type: 'LIMIT';
-    time_in_force: 'DAY';
+    time_in_force: string;
     deadline_ns: number;
     policy_hash: string;
   };

@@ -23,15 +23,21 @@ import {
   defaultSessionId,
   derivedPurpose,
   EMPTY_TICKET,
+  eligibilityOf,
   hasErrors,
   newOrderId,
   parseDeadlineSeconds,
+  tifChoices,
   validateTicket,
   type SubmitIntentPayload,
   type TicketField,
   type TicketInput,
 } from './ticket';
 import { NoValue } from '../../ui/unavailable';
+import { useLinkedSecurity } from '../../ui/link';
+import { instrumentForSecurity } from './ladder';
+import { previewParams } from './preview';
+import { PreviewPanel, usePretradePreview } from './PreviewPanel';
 
 interface SentIntent {
   commandId: string;
@@ -47,8 +53,10 @@ const FIELD_IDS: Record<TicketField, string> = {
   quantity: 'tkt-qty',
   limitPrice: 'tkt-limit',
   deadlineSeconds: 'tkt-deadline',
+  timeInForce: 'tkt-tif',
+  tradingSession: 'tkt-trading-session',
 };
-const FIELD_ORDER: TicketField[] = ['sessionId', 'instrumentId', 'side', 'quantity', 'limitPrice', 'deadlineSeconds'];
+const FIELD_ORDER: TicketField[] = ['sessionId', 'instrumentId', 'side', 'quantity', 'limitPrice', 'timeInForce', 'tradingSession', 'deadlineSeconds'];
 
 function FieldMessages({ field, error, hint }: { field: TicketField; error: string | undefined; hint: string | undefined }) {
   return (
@@ -85,14 +93,20 @@ function sessionLabel(s: Session): string {
 export function TicketView({
   tabs,
   instruments: inst,
-  presetInstrumentId,
+  presetInstrumentId: routeInstrumentId,
+  presetSide,
 }: {
   tabs: ReactNode;
   instruments: InstrumentData;
   presetInstrumentId: string | null;
+  /** From the BUY / SELL functions (#/orders/~buy, ~sell). */
+  presetSide?: 'BUY' | 'SELL' | undefined;
 }) {
   const instruments = inst.map;
   const instrumentList = inst.list;
+  // Without an instrument in the route, the linked security (command line, other panels) names it.
+  const linked = useLinkedSecurity();
+  const presetInstrumentId = routeInstrumentId ?? instrumentForSecurity(linked, instrumentList)?.instrument_id ?? null;
   const sessionsQ = useQuery('/api/sessions');
   const quotesQ = useQuery('/api/quotes', undefined, { pollMs: 1000 });
   const overview = useQuery('/api/overview');
@@ -103,7 +117,7 @@ export function TicketView({
   const send = useSendCommand();
   const now = useNow(1000);
 
-  const [input, setInput] = useState<TicketInput>(() => ({ ...EMPTY_TICKET, instrumentId: presetInstrumentId ?? '' }));
+  const [input, setInput] = useState<TicketInput>(() => ({ ...EMPTY_TICKET, instrumentId: presetInstrumentId ?? '', side: presetSide ?? '' }));
   const [stage, setStage] = useState<'edit' | 'review'>('edit');
   const [showErrors, setShowErrors] = useState(false);
   const [sending, setSending] = useState(false);
@@ -119,12 +133,18 @@ export function TicketView({
     if (presetInstrumentId) setInput((i) => ({ ...i, instrumentId: presetInstrumentId }));
   }, [presetInstrumentId]);
   useEffect(() => {
+    if (presetSide) setInput((i) => ({ ...i, side: presetSide }));
+  }, [presetSide]);
+  useEffect(() => {
     if (stage === 'review') sendRef.current?.focus();
   }, [stage]);
 
   const session = sessions.find((s) => s.session_id === input.sessionId);
   const instrument = instruments.get(input.instrumentId);
-  const issues = useMemo(() => validateTicket(input, { session, instrument }), [input, session, instrument]);
+  const eligibility = useMemo(() => eligibilityOf(policy.data?.body), [policy.data]);
+  const issues = useMemo(() => validateTicket(input, { session, instrument, eligibility }), [input, session, instrument, eligibility]);
+  const pParams = hasErrors(issues) ? null : previewParams(input);
+  const previewState = usePretradePreview(pParams, instrument);
   const quote = input.instrumentId ? quotesQ.data?.[input.instrumentId] : undefined;
   const limits = policy.data?.body.account_limits;
   const quoteMaxAge = typeof limits?.quote_max_age_ms === 'number' ? limits.quote_max_age_ms : undefined;
@@ -177,7 +197,7 @@ export function TicketView({
   return (
     <WorkspaceFrame
       title="New order"
-      description="Owner manual intent. The core’s pretrade check decides, and its decision is shown after sending."
+      description="Owner manual intent. The core’s pretrade check decides, and a live preview shows every check before sending."
       queries={[sessionsQ, quotesQ, inst.query]}
     >
       {tabs}
@@ -198,7 +218,7 @@ export function TicketView({
         <section className="panel" aria-labelledby="tkt-h">
           <header>
             <h2 id="tkt-h">Order ticket</h2>
-            <span className="muted ord-small">Owner manual intent · limit order · day</span>
+            <span className="muted ord-small">Owner manual intent · limit order</span>
           </header>
           <form className="panel-body ord-ticket" onSubmit={review} noValidate>
             <div className="field">
@@ -308,6 +328,42 @@ export function TicketView({
               </div>
             ) : null}
 
+            <div className="ord-two">
+              <div className="field">
+                <label htmlFor={FIELD_IDS.timeInForce}>Time in force</label>
+                <select
+                  id={FIELD_IDS.timeInForce}
+                  className="input"
+                  value={input.timeInForce ?? 'DAY'}
+                  onChange={(e) => set('timeInForce', e.target.value)}
+                  aria-invalid={err('timeInForce') ? true : undefined}
+                  aria-describedby={describedBy('timeInForce', err('timeInForce'), hint('timeInForce'))}
+                >
+                  {tifChoices(eligibility).map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+                <FieldMessages field="timeInForce" error={err('timeInForce')} hint={hint('timeInForce')} />
+              </div>
+              <div className="field">
+                <label htmlFor={FIELD_IDS.tradingSession}>Trading session</label>
+                <select
+                  id={FIELD_IDS.tradingSession}
+                  className="input"
+                  value={input.tradingSession ?? 'REGULAR'}
+                  onChange={(e) => set('tradingSession', e.target.value === 'EXTENDED' ? 'EXTENDED' : 'REGULAR')}
+                  aria-invalid={issues.errors.tradingSession ? true : undefined}
+                  aria-describedby={describedBy('tradingSession', issues.errors.tradingSession, undefined)}
+                >
+                  <option value="REGULAR">Regular hours</option>
+                  <option value="EXTENDED">Outside regular hours (not eligible)</option>
+                </select>
+                <FieldMessages field="tradingSession" error={issues.errors.tradingSession} hint={undefined} />
+              </div>
+            </div>
+
             <div className="field">
               <label htmlFor={FIELD_IDS.deadlineSeconds}>Deadline: seconds after sending</label>
               <input
@@ -355,6 +411,7 @@ export function TicketView({
         </section>
 
         <aside className="ord-ticket-side" aria-label="Market and limits for this ticket">
+          <PreviewPanel state={previewState} params={pParams} currency={ccy} headingId="tkt-preview-h" />
           <section className="panel" aria-labelledby="tkt-quote-h">
             <header>
               <h2 id="tkt-quote-h">Quote{instrument ? ` · ${instrument.symbol}` : ''}</h2>

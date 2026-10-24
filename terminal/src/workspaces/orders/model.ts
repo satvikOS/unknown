@@ -10,11 +10,16 @@ export type OrderDetailRecord = OrderDetail;
 
 // ------------------------------------------------------------------ routes
 
-/** `#/orders`, `#/orders/~executions`, `#/orders/~new[/<instrument_id>]`, `#/orders/<order_id>`. */
+/**
+ * `#/orders`, `#/orders/~executions`, `#/orders/~new|~buy|~sell[/<instrument_id>]`, `#/orders/~ladder[/<instrument_id>]`,
+ * `#/orders/~basket`, `#/orders/<order_id>`. Without an instrument id the ticket and ladder use the linked security.
+ */
 export type OrdersRoute =
   | { view: 'blotter' }
   | { view: 'executions' }
-  | { view: 'ticket'; instrumentId: string | null }
+  | { view: 'ticket'; instrumentId: string | null; side?: 'BUY' | 'SELL' }
+  | { view: 'ladder'; instrumentId: string | null }
+  | { view: 'basket' }
   | { view: 'detail'; orderId: string };
 
 /**
@@ -23,12 +28,20 @@ export type OrdersRoute =
  */
 export const EXECUTIONS_SEGMENT = '~executions';
 export const TICKET_SEGMENT = '~new';
+export const BUY_SEGMENT = '~buy';
+export const SELL_SEGMENT = '~sell';
+export const LADDER_SEGMENT = '~ladder';
+export const BASKET_SEGMENT = '~basket';
 
 export function parseOrdersRoute(rest: readonly string[]): OrdersRoute {
   const first = rest[0];
   if (!first) return { view: 'blotter' };
   if (first === EXECUTIONS_SEGMENT) return { view: 'executions' };
   if (first === TICKET_SEGMENT) return { view: 'ticket', instrumentId: rest[1] || null };
+  if (first === BUY_SEGMENT) return { view: 'ticket', instrumentId: rest[1] || null, side: 'BUY' };
+  if (first === SELL_SEGMENT) return { view: 'ticket', instrumentId: rest[1] || null, side: 'SELL' };
+  if (first === LADDER_SEGMENT) return { view: 'ladder', instrumentId: rest[1] || null };
+  if (first === BASKET_SEGMENT) return { view: 'basket' };
   return { view: 'detail', orderId: first };
 }
 
@@ -38,8 +51,14 @@ export function ordersRest(route: OrdersRoute): string[] {
       return [];
     case 'executions':
       return [EXECUTIONS_SEGMENT];
-    case 'ticket':
-      return route.instrumentId ? [TICKET_SEGMENT, route.instrumentId] : [TICKET_SEGMENT];
+    case 'ticket': {
+      const seg = route.side === 'BUY' ? BUY_SEGMENT : route.side === 'SELL' ? SELL_SEGMENT : TICKET_SEGMENT;
+      return route.instrumentId ? [seg, route.instrumentId] : [seg];
+    }
+    case 'ladder':
+      return route.instrumentId ? [LADDER_SEGMENT, route.instrumentId] : [LADDER_SEGMENT];
+    case 'basket':
+      return [BASKET_SEGMENT];
     case 'detail':
       return [route.orderId];
   }

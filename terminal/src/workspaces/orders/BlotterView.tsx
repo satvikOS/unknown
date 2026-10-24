@@ -14,10 +14,11 @@ import { QueryError, WorkspaceFrame, WorkspaceLink } from '../../ui/WorkspaceFra
 import { CancelDialog } from './CancelDialog';
 import { cancelAvailability, cancelStateLabel, matchesOrderText } from './model';
 import { HoldsCell, InstrumentCell, SideText, type InstrumentData } from './parts';
+import { ReplaceDialog, replaceable } from './ReplaceDialog';
 
 export const BLOTTER_LIMIT = 500;
 
-function columns(instruments: ReadonlyMap<string, Instrument>, onCancel: (o: Order) => void): Column<Order>[] {
+function columns(instruments: ReadonlyMap<string, Instrument>, onCancel: (o: Order) => void, onReplace: (o: Order) => void): Column<Order>[] {
   return [
     {
       id: 'order',
@@ -120,9 +121,16 @@ function columns(instruments: ReadonlyMap<string, Instrument>, onCancel: (o: Ord
       cell: (o) => {
         const a = cancelAvailability(o);
         return a.allowed ? (
-          <button type="button" className="btn small" onClick={() => onCancel(o)} title={a.reason}>
-            Cancel…
-          </button>
+          <span className="ord-inline">
+            <button type="button" className="btn small" onClick={() => onCancel(o)} title={a.reason}>
+              Cancel…
+            </button>
+            {replaceable(o) && o.state !== 'UNKNOWN' ? (
+              <button type="button" className="btn small" onClick={() => onReplace(o)} title="Cancel this order and, once the broker confirms, send a new one">
+                Replace…
+              </button>
+            ) : null}
+          </span>
         ) : (
           <span className="muted" title={a.reason}>
             —<span className="sr-only">{a.reason}</span>
@@ -150,7 +158,8 @@ export function BlotterView({ tabs, instruments: inst, onOpen }: { tabs: ReactNo
     () => all.filter((o) => matchesOrderText(o, instruments.get(o.instrument_id)?.symbol ?? null, text)),
     [all, instruments, text],
   );
-  const cols = useMemo(() => columns(instruments, setCancelling), [instruments]);
+  const [replacing, setReplacing] = useState<Order | null>(null);
+  const cols = useMemo(() => columns(instruments, setCancelling, setReplacing), [instruments]);
   const truncated = all.length >= BLOTTER_LIMIT;
   const unknown = all.filter((o) => o.state === 'UNKNOWN').length;
 
@@ -241,6 +250,7 @@ export function BlotterView({ tabs, instruments: inst, onOpen }: { tabs: ReactNo
         </div>
       </section>
       <CancelDialog order={cancelling} onClose={() => setCancelling(null)} />
+      <ReplaceDialog order={replacing} onClose={() => setReplacing(null)} />
     </WorkspaceFrame>
   );
 }
