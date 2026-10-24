@@ -175,6 +175,7 @@ class CitationCheckTest(unittest.TestCase):
     def test_cited_unsourced_invalid_and_numbers(self):
         text = "\n".join([
             "## Latest quarter",
+            "**Income, FY2026 Q3 (prior quarter from the 10-Q)**",
             "- Revenue was 109.42 billion USD in the 10-Q (accession 0000320193-26-000020) [R1].",
             "- The 8-K filed 2026-07-30 reported Items 2.02 and 9.01 [R2].",
             "- Revenue grew 7.3% year over year [R1].",
@@ -182,8 +183,9 @@ class CitationCheckTest(unittest.TestCase):
             "- Gross margin was strong [R9].",
         ])
         out = citations.check_answer(text, self.RESULTS)
-        by_line = {x["line"]: x for x in out["lines"]}
-        self.assertNotIn(0, by_line)                                 # a heading is structural
+        by_line = {x["line"] - 1: x for x in out["lines"]}
+        self.assertNotIn(-1, by_line)                                # a heading and a bold sub-heading are structural
+        self.assertNotIn(0, by_line)
         self.assertEqual((by_line[1]["status"], by_line[1]["numbers_unmatched"]), ("cited", []))
         self.assertEqual((by_line[2]["status"], by_line[2]["numbers_unmatched"]), ("cited", []))
         self.assertEqual(by_line[3]["numbers_unmatched"], ["7.3%"])  # a computed number is not in the source

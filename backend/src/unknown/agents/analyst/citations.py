@@ -3,7 +3,8 @@
 The answer is checked line by line (a bullet or a paragraph is one line):
   * ``cited``      the line names at least one ref ([R1], [R2, R5]) of a tool result this job produced;
   * ``unsourced``  a statement with no valid ref: flagged in the terminal, never shown as sourced;
-  * ``structural`` headings, list introductions ending with ":" and very short lines (not statements).
+  * ``structural`` headings (``#`` or a line that is only bold text), list introductions ending with ":" and very
+                   short lines (not statements).
 Refs that name no tool result of the job are listed as ``invalid_refs``. Every number in a cited line is looked up in
 the cited results' content: an exact match, or the source value rounded at the precision the line states (with
 thousand/million/billion scaling and percentages also read as fractions). Numbers that match nothing are listed per
@@ -24,6 +25,7 @@ _SOURCE_NUMBER = re.compile(r"\d+(?:\.\d+)?")      # magnitudes: a sign or a dat
 _SCALE = {"billion": Decimal(10) ** 9, "bn": Decimal(10) ** 9, "b": Decimal(10) ** 9, "million": Decimal(10) ** 6,
           "mn": Decimal(10) ** 6, "m": Decimal(10) ** 6, "thousand": Decimal(1000), "k": Decimal(1000)}
 MIN_STATEMENT_CHARS = 25
+_BOLD_HEADING = re.compile(r"\*\*[^*]+\*\*:?")          # a line that is only bold text is a sub-heading
 
 
 def refs_in(text: str) -> list[str]:
@@ -79,7 +81,7 @@ def check_numbers(line: str, sources: set[Decimal]) -> tuple[int, list[str]]:
 def _structural(line: str) -> bool:
     s = line.strip()
     return (not s or s.startswith("#") or s.endswith(":") or len(REF_GROUP.sub("", s).strip(" -*•")) < MIN_STATEMENT_CHARS
-            or set(s) <= set("-*_=| "))
+            or set(s) <= set("-*_=| ") or _BOLD_HEADING.fullmatch(s) is not None)
 
 
 def check_answer(text: str, results: Mapping[str, str]) -> dict:
