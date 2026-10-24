@@ -92,6 +92,9 @@ class CashBalance:
     settled: Fixed      # broker-confirmed settled cash (not buying power)
     total: Fixed        # settled plus unsettled cash as the broker reports it
     semantics: str      # adapter documentation of the source fields
+    # None: settled is the broker's own settled-cash field. Otherwise the adapter DERIVED settled from
+    # another field and names the source and the evidence (ADR-0012 amendment 2026-10-24).
+    settled_source: str | None = None
 
 
 @dataclass(frozen=True)

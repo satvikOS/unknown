@@ -1104,6 +1104,78 @@ class SnapshotTests(AdapterCase):
         self.host.summary[3] = (ACCOUNT, "SettledCash", "1.7976931348623157E308", "USD")
         self.assertFalse(self.adapter.account_snapshot().complete)
 
+    # ---- ADR-0012 amendment 2026-10-24: IBKR sent no SettledCash row (observed on a paper INDIVIDUAL account)
+    def drop_settled_cash(self):
+        self.host.summary = [r for r in self.host.summary if r[1] != "SettledCash"]
+
+    def test_settled_cash_present_is_unchanged_and_queries_no_evidence(self):
+        snap = self.adapter.account_snapshot()
+        self.assertTrue(snap.complete, snap.raw["incomplete_reasons"])
+        (cash,) = snap.cash
+        self.assertEqual((cash.settled, cash.total, cash.settled_source), (F("998500.00"), F("999000.00"), None))
+        self.assertNotIn("reqExecutions", self.host.names())
+        self.assertNotIn("reqAllOpenOrders", self.host.names())
+        self.assertNotIn("settled_source", snap.raw)
+
+    def test_no_settled_cash_row_derives_total_when_window_has_no_executions_and_no_open_orders(self):
+        from unknown.broker.ibkr.adapter import SETTLED_DERIVED_SOURCE
+        self.drop_settled_cash()
+        snap = self.adapter.account_snapshot()
+        self.assertTrue(snap.complete, snap.raw["incomplete_reasons"])
+        (cash,) = snap.cash
+        self.assertEqual((cash.currency, cash.settled, cash.total), ("USD", F("999000.00"), F("999000.00")))
+        self.assertEqual(cash.settled_source, "TotalCashValue (no executions in settlement window)")
+        self.assertEqual(snap.raw["settled_source"], {"USD": SETTLED_DERIVED_SOURCE})
+        ev = snap.raw["settlement_evidence"]
+        self.assertEqual((ev["executions_complete"], ev["executions"], ev["open_orders_complete"], ev["open_orders"],
+                          ev["blocking"]), (True, 0, True, 0, ""))
+        req = next(c for c in self.host.calls if c[0] == "reqExecutions")
+        self.assertEqual((req[2].acctCode, req[2].lastNDays), (ACCOUNT, 7))   # previous business day + today, T+1
+        self.assertIn("reqAllOpenOrders", self.host.names())
+
+    def test_no_settled_cash_row_with_one_execution_in_the_window_is_incomplete(self):
+        self.drop_settled_cash()
+        self.host.executions = [(ib_contract(), ib_execution("0000e0d5.6554a3c7.01.01", 7, perm_id=4242, client_id=0), None)]
+        snap = self.adapter.account_snapshot()
+        self.assertFalse(snap.complete)
+        self.assertEqual(snap.cash, ())
+        self.assertEqual(snap.raw["incomplete_reasons"],
+                         ["SettledCash not reported for USD; settled cannot be derived from TotalCashValue: "
+                          "1 execution(s) in the settlement window (reqExecutions lastNDays=7)"])
+        self.assertEqual(snap.raw["settled_source"], {})
+        self.assertNotIn("reqAllOpenOrders", self.host.names())
+        # The execution is never discarded: it is booked like any other (R5) and reported to the core.
+        self.assertTrue(any(e.execution.exec_key == f"ibkr:{ACCOUNT}:0000e0d5.6554a3c7.01.01" for e in self.events(ExecutionEvent)))
+
+    def test_no_settled_cash_row_with_incomplete_executions_query_is_incomplete(self):
+        self.drop_settled_cash()
+        self.host.silent.add("reqExecutions")
+        snap = self.adapter.account_snapshot()
+        self.assertFalse(snap.complete)
+        self.assertEqual(snap.cash, ())
+        (reason,) = snap.raw["incomplete_reasons"]
+        self.assertIn("executions query for the settlement window incomplete (execDetailsEnd not received", reason)
+        self.assertFalse(snap.raw["settlement_evidence"]["executions_complete"])
+
+    def test_no_settled_cash_row_with_an_open_order_or_incomplete_open_orders_is_incomplete(self):
+        self.drop_settled_cash()
+        self.host.other_orders = [(3, ib_contract(MSFT, "MSFT"), ib_order(3, client_id=5, perm_id=9200), "Submitted",
+                                   "0", "5")]
+        snap = self.adapter.account_snapshot()
+        self.assertFalse(snap.complete)
+        self.assertIn("1 open order(s) (reqAllOpenOrders)", snap.raw["incomplete_reasons"][0])
+        self.host.other_orders = []
+        self.host.silent.add("reqAllOpenOrders")
+        snap = self.adapter.account_snapshot()
+        self.assertFalse(snap.complete)
+        self.assertIn("open-order query incomplete", snap.raw["incomplete_reasons"][0])
+
+    def test_unset_settled_cash_row_is_never_derived(self):
+        self.host.summary[3] = (ACCOUNT, "SettledCash", "1.7976931348623157E308", "USD")
+        snap = self.adapter.account_snapshot()
+        self.assertFalse(snap.complete)
+        self.assertNotIn("reqExecutions", self.host.names())
+
     def test_account_type_mismatch_is_incomplete(self):
         summary = list(self.host.summary)
         adapter = self.make_adapter(expected_account_type="CASH-FIXTURE")
