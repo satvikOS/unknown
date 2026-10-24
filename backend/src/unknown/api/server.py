@@ -774,6 +774,8 @@ def main(argv: list[str] | None = None) -> None:
     paths = Paths(Path(args.home).expanduser()) if args.home else Paths.default()
     ctx = ApiContext(paths, args.account, Path(args.static), Path(args.capabilities), args.secure_cookie)
     server = make_server(ctx, args.host, args.port)
+    from ..alerts.engine import ensure_started   # server-side alerts evaluate whether or not a terminal is open
+    ensure_started(ctx)
     log.info("api listening on http://%s:%d (account %s)", args.host, args.port, args.account)
     server.serve_forever()
 

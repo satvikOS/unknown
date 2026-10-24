@@ -3,7 +3,7 @@
   GET /api/risk/analytics?scope=&benchmark=SPY.ARCX&lookback=252&min_obs=60&shocks=-0.05,-0.10,-0.20&top_k=5
 
 Read-only: positions come from the request's read-only core connection and the core quote book; daily bars come from
-the research bar store (``<UNKNOWN_HOME>/research/research.sqlite``, written by bar providers such as the IBKR history
+the research bar store (``<UNKNOWN_HOME>/research/research.sqlite``, written by bar sources such as the IBKR history
 adapter). The response joins three read models, each figure carrying its formula id and its inputs' as-of:
 
 * ``market_risk``: historical volatility, beta and correlation versus the benchmark ETF, portfolio beta and volatility,
