@@ -24,6 +24,17 @@ export type ExportSource = { kind: 'owner' } | { kind: 'licensed'; source: strin
 
 export const OWNER: ExportSource = { kind: 'owner' };
 
+/** A value from the market-data bus source `source` (IBKR, ALPACA, ...); `realtime` for exchange real-time data. */
+export function marketSource(source: string | null | undefined, realtime: boolean): ExportSource {
+  return { kind: 'licensed', source: `marketdata:${(source ?? 'UNKNOWN').toUpperCase()}`, realtime };
+}
+
+/** Epoch nanoseconds (number or string) to ISO 8601, for a provenance as-of; null when absent. */
+export function nsToIso(ns: unknown): string | null {
+  if (typeof ns !== 'number' && typeof ns !== 'string') return null;
+  return isoOf(ns);
+}
+
 export interface ExportColumn<T> {
   id: string;
   header: string;

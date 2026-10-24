@@ -8,10 +8,12 @@ import type { Instrument, Order } from '../../api/types';
 import { useQuery } from '../../state/react';
 import { routeHref } from '../../state/router';
 import { DataTable, type Column } from '../../ui/DataTable';
+import { ExportButton } from '../../ui/ExportButton';
 import { Money, Qty, ShortId, StatusPill, Timestamp } from '../../ui/primitives';
 import { orderStateTone } from '../../ui/tones';
 import { QueryError, WorkspaceFrame, WorkspaceLink } from '../../ui/WorkspaceFrame';
 import { CancelDialog } from './CancelDialog';
+import { blotterExport } from './exportTables';
 import { cancelAvailability, cancelStateLabel, matchesOrderText } from './model';
 import { HoldsCell, InstrumentCell, SideText, type InstrumentData } from './parts';
 
@@ -214,6 +216,7 @@ export function BlotterView({ tabs, instruments: inst, onOpen }: { tabs: ReactNo
             {rows.length === all.length ? `${all.length}` : `${rows.length} of ${all.length}`} shown · newest first
             {truncated ? ` · the API returns at most ${BLOTTER_LIMIT}; older orders are not listed` : ''}
           </span>
+          <ExportButton table={() => blotterExport(rows, instruments, { orders: scope, session: sessionId || 'all', find: text || '(none)' })} disabled={rows.length === 0} />
         </header>
         <div className="panel-body flush">
           <DataTable

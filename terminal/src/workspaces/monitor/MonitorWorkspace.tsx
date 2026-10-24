@@ -7,13 +7,15 @@
  */
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useQuery } from '../../state/react';
-import { useStreamHealth } from '../../state/marketdata';
+import { useMarketData, useStreamHealth } from '../../state/marketdata';
+import { ExportButton } from '../../ui/ExportButton';
 import { useLinkedSecurity } from '../../ui/link';
 import { Badge } from '../../ui/primitives';
 import { NoValue } from '../../ui/unavailable';
 import { WorkspaceFrame } from '../../ui/WorkspaceFrame';
 import type { WorkspaceProps } from '../types';
 import { addKey, defaultState, loadState, moveKey, removeKey, saveState, type MonitorState, type Watchlist } from './model';
+import { watchlistExport } from './exportTables';
 import { DepthPanel, TimeAndSales, WatchlistGrid } from './panels';
 import './monitor.css';
 
@@ -63,6 +65,7 @@ export function StreamHealthLine() {
 
 export function MonitorWorkspace(_props: WorkspaceProps) {
   const [state, setState] = useMonitorState();
+  const md = useMarketData();
   const linked = useLinkedSecurity();
   const [input, setInput] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -139,6 +142,10 @@ export function MonitorWorkspace(_props: WorkspaceProps) {
           />
           <button type="submit">Add</button>
         </form>
+        <ExportButton
+          disabled={!list.keys.length}
+          table={() => watchlistExport(list, list.keys.map((key) => ({ key, quote: md.quote(key), status: md.status(key) })), Date.now())}
+        />
       </div>
       {error ? (
         <p className="mon-error" role="alert">

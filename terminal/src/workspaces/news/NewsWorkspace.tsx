@@ -10,6 +10,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import { Badge, Timestamp } from '../../ui/primitives';
 import { useLinkedSecurity } from '../../ui/link';
 import { WorkspaceFrame } from '../../ui/WorkspaceFrame';
+import { ExportButton } from '../../ui/ExportButton';
+import { newsExport } from './exportTables';
 import { useApi } from '../research-common/api';
 import { Commands, ErrorNotice, ExtLink, Hash, KV, Loading, Section, Unavailable } from '../research-common/parts';
 import { STORAGE_KEY as MONITOR_STORAGE_KEY } from '../monitor/model';
@@ -161,7 +163,21 @@ export function NewsWorkspace({ route, navigate }: WorkspaceProps) {
           {o.view === 'top' ? (
             <TopStories data={top.data && !isNewsUnavailable(top.data) ? top.data : null} sources={sources} onSelect={setSelected} selected={selected} />
           ) : (
-            <Tape rows={rows} sources={sources} flash={flash} selected={selected} onSelect={setSelected} loading={!list.data && !list.error && params !== null} />
+            <>
+              <ExportButton
+                disabled={rows.length === 0}
+                table={() =>
+                  newsExport(rows, listData?.as_of ?? null, {
+                    view: o.view,
+                    source: o.source ?? 'all',
+                    form: o.form ?? 'all',
+                    issuer: o.issuer ?? (o.view === 'cn' ? (linked ?? 'none') : 'all'),
+                    search: o.q ?? '(none)',
+                  })
+                }
+              />
+              <Tape rows={rows} sources={sources} flash={flash} selected={selected} onSelect={setSelected} loading={!list.data && !list.error && params !== null} />
+            </>
           )}
         </div>
         <aside className="nw-side">
