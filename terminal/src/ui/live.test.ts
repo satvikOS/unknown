@@ -34,14 +34,32 @@ describe('live numbers', () => {
     expect([...classes]).toEqual(['tick-flash-up']);
   });
 
-  it('renders a dash for a missing value and always labels SYNTHETIC data', () => {
+  it('renders a missing value as an em dash with its reason, never as zero', () => {
     const html = (props: Parameters<typeof PriceCell>[0]) => renderToStaticMarkup(createElement(PriceCell, props));
-    expect(html({ value: null })).toContain('—');
-    expect(html({ value: '1.00', dataType: 'SYNTHETIC', badge: 'none' })).toContain('SYN');
+    const missing = html({ value: null, reason: 'NOT_ENTITLED', label: 'AAPL.XNAS last' });
+    expect(missing).toContain('—');
+    expect(missing).toContain('data-reason="NOT_ENTITLED"');
+    expect(missing).toContain('AAPL.XNAS last: not available');
+    expect(missing).not.toMatch(/>0</);
+    expect(html({ value: undefined })).toContain('data-reason="NOT_REPORTED"');
     expect(html({ value: '1.00', dataType: 'DELAYED', badge: 'none' })).not.toContain('DLY');
     expect(html({ value: '1.00', dataType: 'DELAYED' })).toContain('DLY');
     expect(html({ value: '1.00', dataType: 'REALTIME' })).not.toContain('src-badge');
-    expect(html({ value: '1.00', stale: true })).toContain('STALE');
+    const stale = html({ value: '1.00', stale: true, ageMs: 65_000 });
+    expect(stale).toContain('nv-stale');
+    expect(stale).toContain('1 m 05 s');
+    expect(stale).toContain('1.00');
+  });
+
+  it('renders a value whose data type is not a real market-data type as an error, never as data', () => {
+    const html = (props: Parameters<typeof PriceCell>[0]) => renderToStaticMarkup(createElement(PriceCell, props));
+    for (const t of ['SYNTHETIC', 'FIXTURE', 'SAMPLE']) {
+      const out = html({ value: '187.21', dataType: t, source: 'X' });
+      expect(out).toContain('ERR');
+      expect(out).toContain('nv-error');
+      expect(out).not.toContain('187.21');
+      expect(out).toContain(`data type ${t} from X is not real market data`);
+    }
   });
 });
 

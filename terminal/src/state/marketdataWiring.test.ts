@@ -15,8 +15,8 @@ function client(): MarketDataClient {
 }
 
 const trade = (seq: number, price: string) =>
-  JSON.stringify({ key: 'AAPL.XNAS', seq, price, size: '10', exchange: null, conditions: [], source: 'SYNTHETIC',
-    data_type: 'SYNTHETIC', ts_source_ns: String(1_700_000_000_000_000_000 + seq), ts_recv_ns: '1', ts_pub_ns: '1' });
+  JSON.stringify({ key: 'AAPL.XNAS', seq, price, size: '10', exchange: null, conditions: [], source: 'TEST',
+    data_type: 'REALTIME', ts_source_ns: String(1_700_000_000_000_000_000 + seq), ts_recv_ns: '1', ts_pub_ns: '1' });
 
 describe('market-data wiring', () => {
   it('feeds each new trade to the chart once, oldest first, with its source and data type', () => {
@@ -30,7 +30,7 @@ describe('market-data wiring', () => {
     c.flush();
     c.onEvent('trade', trade(2, '190.05'));   // redelivered: no second tick
     c.flush();
-    expect(ticks).toEqual(['AAPL.XNAS trade 190.00 SYNTHETIC SYNTHETIC', 'AAPL.XNAS trade 190.05 SYNTHETIC SYNTHETIC']);
+    expect(ticks).toEqual(['AAPL.XNAS trade 190.00 REALTIME TEST', 'AAPL.XNAS trade 190.05 REALTIME TEST']);
     off();
   });
 

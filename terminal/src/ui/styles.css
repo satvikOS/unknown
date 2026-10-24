@@ -2,7 +2,7 @@
  * Unknown terminal: original visual system. A near-black workstation (the default) and a warm paper light
  * option, hairline structure, tabular monospace numbers, amber for commands and functions, and colour
  * reserved for meaning: red for stop and failure, green for start and healthy, a distinct hue per account
- * mode, semantic up/down/unchanged, bid/ask, stale and data-type (REALTIME/DELAYED/FROZEN/SYNTHETIC) tokens.
+ * mode, semantic up/down/unchanged, bid/ask, stale and data-type (REALTIME/DELAYED/FROZEN) tokens.
  * Every status also carries text and a glyph, never colour alone. Contrast pairs are listed in
  * terminal/README.md and checked against WCAG 2.2 AA.
  */
@@ -49,7 +49,6 @@
   --src-realtime: #3fd68a;
   --src-delayed: #ffc24d;
   --src-frozen: #8ec5ff;
-  --src-synthetic: #e58cff;
   --flash-gain: rgb(63 214 138 / 0.3);
   --flash-loss: rgb(255 107 107 / 0.3);
   --flash-up: var(--flash-gain);
@@ -124,7 +123,6 @@
   --src-realtime: #1a6f40;
   --src-delayed: #855200;
   --src-frozen: #1d5bb8;
-  --src-synthetic: #8a2bb0;
   --flash-gain: rgb(23 105 60 / 0.18);
   --flash-loss: rgb(177 38 29 / 0.16);
   --link-1: #c0392b;
@@ -178,7 +176,6 @@
     --src-realtime: #1a6f40;
     --src-delayed: #855200;
     --src-frozen: #1d5bb8;
-    --src-synthetic: #8a2bb0;
     --flash-gain: rgb(23 105 60 / 0.18);
     --flash-loss: rgb(177 38 29 / 0.16);
     --link-1: #c0392b;

@@ -8,9 +8,13 @@ import type { Ohlcv } from './studies';
 
 export const INTERVALS = ['1m', '5m', '15m', '30m', '1h', '1d', '1w', '1mo'] as const;
 export type IntervalCode = (typeof INTERVALS)[number];
-export const DATA_TYPES = ['REALTIME', 'DELAYED', 'FROZEN', 'SYNTHETIC'] as const;
+/** The only data types a chart draws; bars or ticks of any other type are refused (an error, never drawn). */
+export const DATA_TYPES = ['REALTIME', 'DELAYED', 'FROZEN'] as const;
 export type DataType = (typeof DATA_TYPES)[number];
-export const SYNTHETIC_TEXT = 'SYNTHETIC: generated demo data, not market data';
+
+export function isChartDataType(x: unknown): x is DataType {
+  return typeof x === 'string' && (DATA_TYPES as readonly string[]).includes(x);
+}
 
 export interface ChartBar {
   startNs: string;
@@ -54,6 +58,8 @@ export interface BarsResponse {
   available: boolean;
   source: string | null;
   dataType: DataType | null;
+  /** Set when the bars were refused because their data type is not real market data; no bar is kept then. */
+  refused: string | null;
   label: string | null;
   currency: string | null;
   adjustment: string | null;
@@ -95,15 +101,23 @@ function parseBar(raw: unknown): ChartBar | null {
   };
 }
 
-/** Defensive parse: anything malformed is dropped, and an unknown data type is treated as SYNTHETIC (fail closed). */
+/**
+ * Defensive parse: anything malformed is dropped. Bars whose data type is not REALTIME, DELAYED or FROZEN (or is
+ * missing) are refused, fail closed: no bar is kept and `refused` says why.
+ */
 export function parseBarsResponse(raw: unknown): BarsResponse | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
   const dt = str(r.data_type);
-  const dataType: DataType | null = dt === null ? null : (DATA_TYPES as readonly string[]).includes(dt) ? (dt as DataType) : 'SYNTHETIC';
+  const dataType: DataType | null = isChartDataType(dt) ? dt : null;
   const session = (r.session ?? {}) as Record<string, unknown>;
   const live = (r.live ?? {}) as Record<string, unknown>;
-  const bars = (Array.isArray(r.bars) ? r.bars : []).map(parseBar).filter((b): b is ChartBar => b !== null);
+  const parsed = (Array.isArray(r.bars) ? r.bars : []).map(parseBar).filter((b): b is ChartBar => b !== null);
+  const refused =
+    dataType === null && (parsed.length > 0 || dt !== null)
+      ? `Refused bars${str(r.source) ? ` from ${str(r.source)}` : ''}: data type ${dt ?? 'missing'} is not real market data.`
+      : null;
+  const bars = refused ? [] : parsed;
   bars.sort((a, b) => a.time - b.time);
   return {
     key: str(r.key) ?? '',
@@ -111,7 +125,8 @@ export function parseBarsResponse(raw: unknown): BarsResponse | null {
     available: r.available === true && bars.length > 0,
     source: str(r.source),
     dataType,
-    label: str(r.label) ?? (dataType === 'SYNTHETIC' ? SYNTHETIC_TEXT : null),
+    refused,
+    label: str(r.label),
     currency: str(r.currency),
     adjustment: str(r.adjustment),
     adjustmentNote: str(r.adjustment_note),
@@ -141,11 +156,11 @@ export function parseBarsResponse(raw: unknown): BarsResponse | null {
   };
 }
 
-/** The header label: source and data type, never a SYNTHETIC series without its warning. */
-export function sourceLabel(r: Pick<BarsResponse, 'source' | 'dataType'>): string {
+/** The header label: source and data type; refused bars say ERR. */
+export function sourceLabel(r: Pick<BarsResponse, 'source' | 'dataType' | 'refused'>): string {
+  if (r.refused) return `ERR · ${r.source ?? 'unknown source'}`;
   if (!r.source) return 'no source';
-  if (r.dataType === 'SYNTHETIC' || r.source === 'SYNTHETIC') return SYNTHETIC_TEXT;
-  return `${r.source} · ${r.dataType ?? 'data type unknown'}`;
+  return `${r.source} · ${r.dataType ?? 'data type not reported'}`;
 }
 
 // ------------------------------------------------------------------ exact decimal addition (volume)
@@ -186,12 +201,12 @@ export interface LiveResult {
 }
 
 /**
- * Applies one tick to the last bar. A tick whose data type disagrees with the series about being SYNTHETIC is
- * ignored, so synthetic and real data are never mixed. Ticks older than the last bar are ignored (history is final).
+ * Applies one tick to the last bar. A tick whose data type is not real market data, or a series without a real data
+ * type, is ignored: nothing but real data is ever drawn. Ticks older than the last bar are ignored (history is final).
  */
 export function applyTick(bars: readonly ChartBar[], hint: LiveHint, seriesType: DataType | null, tick: Tick): LiveResult {
   const same = { bars: bars as ChartBar[], changed: false, needsRefetch: false };
-  if ((tick.dataType === 'SYNTHETIC') !== (seriesType === 'SYNTHETIC')) return same;
+  if (!isChartDataType(tick.dataType) || !isChartDataType(seriesType)) return same;
   if (!isDecimal(tick.price) || !nsOk(tick.tsNs) || bars.length === 0) return same;
   const t = BigInt(tick.tsNs);
   const last = bars[bars.length - 1]!;

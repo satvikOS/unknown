@@ -58,9 +58,10 @@ describe('monitor model', () => {
     expect(cumulative(['100', null, '250'])).toEqual(['100', '100', '350']);
   });
 
-  it('labels every row with its source; SYNTHETIC always says so', () => {
-    expect(sourceBadge({ source: 'SYNTHETIC', data_type: 'SYNTHETIC' }).text).toBe('SYNTHETIC');
-    expect(sourceBadge({ source: 'SYNTHETIC', data_type: 'SYNTHETIC' }).title).toMatch(/not market data/);
+  it('labels every row with its source; a non-market data type is an error badge', () => {
+    const bad = sourceBadge({ source: 'GEN', data_type: 'SYNTHETIC' as never });
+    expect(bad).toMatchObject({ text: 'ERR', tone: 'bad' });
+    expect(bad.title).toMatch(/data type SYNTHETIC is not real market data/);
     expect(sourceBadge({ source: 'IBKR', data_type: 'DELAYED' })).toMatchObject({ text: 'IBKR DELAYED', tone: 'warn' });
     expect(sourceBadge({ source: 'ALPACA', data_type: 'REALTIME', feed: 'alpaca:iex' }).title).toMatch(/alpaca:iex/);
     expect(sourceBadge(undefined).text).toBe('NO DATA');

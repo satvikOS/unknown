@@ -55,10 +55,10 @@
 .chart-ws-live {
   color: var(--accent);
 }
-.chart-ws-synthetic {
+.chart-ws-refused {
   margin: 0;
   padding: 6px 10px;
-  border: 1px solid var(--warn);
+  border: 1px solid var(--alert);
   border-radius: var(--radius);
   color: var(--text);
   font-weight: 600;
@@ -85,4 +85,9 @@
 }
 .chart-ws-attribution a {
   color: inherit;
+}
+.chart-ws-empty {
+  margin: 0;
+  padding: 16px 10px;
+  color: var(--text-muted);
 }
