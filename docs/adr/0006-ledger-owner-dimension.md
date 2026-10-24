@@ -79,6 +79,18 @@ The command path refuses actions that would make an owner's available cash or qu
 - **Withdrawal:** taken from `outside` first. If `outside` is insufficient, an exception blocks new exposure.
 - **Manual trade:** owner `external`. Its cash need is covered by an owner transfer from `outside`; if that is impossible, an exception is opened.
 
+## Amendment (2026-10-24): the buy fee envelope comes from the broker's fee schedule
+
+Status: accepted (2026-10-24). Tested offline only, not paper-verified. It supersedes the policy's `fees` block as the source of the buy fee envelope in the cash hold above.
+
+- **Source.** A BUY's fee envelope is `pretrade_bound` of the fee schedule in `config/fees` whose `broker` is the account's provider and whose `venues`, `products` and `currency` cover the order's instrument (`risk/fee_schedule.py`, `FeeScheduleBook`). Verified items are taken as stated. Unverified items take their conservative bound: no tier discount, no cap, the per-order minimum, the remove-liquidity exchange fee on every share, and the file's `upper_bound`. The bound is taken over the three dates around the UTC date, so every venue's local trade date is covered. Amounts are exact `Fixed` at ledger scale, rounded up (ADR-0004 #4).
+- **Refusal.** If no schedule covers the order, or two do, or a file fails to load, the new pretrade check `FEE_SCHEDULE` refuses the entry. Its detail is the reason: `FEE_SCHEDULE_MISSING`, `FEE_SCHEDULE_AMBIGUOUS` or `FEE_SCHEDULE_UNPRICEABLE`, with the broker, venue, product and currency, and the name of any file that failed to load. Nothing is reserved. Sells reserve no envelope and are never refused for a missing schedule, so risk can still be reduced.
+- **Record.** The `OrderAccepted` event carries `fee_envelope` (amount, basis, `schedule_id` and the sha256 of the canonical file). The order row stores the amount. Replay rebuilds projections from these events, so it never re-reads the file.
+- **Fill estimates.** A fill's provisional fee is that schedule's `charge` (first tier, remove liquidity). For one whole fill this is never above the envelope. Several partial fills each pay the per-order minimum in the estimate, and can exceed the envelope until the commission report arrives, as they could before. If no schedule covers the fill, the estimate uses the policy model, because a fill is a fact and is never refused.
+- **Simulator.** Provider `simulated` keeps the policy's fee model (`risk/fees.envelope`), because the simulated broker charges whatever its fixture states. Research replays depend on this.
+- **Example.** 300 shares at USD 1.00 on IBKR Pro Tiered US: the envelope is USD 2.011672. The old fixed policy envelope was USD 1.80 and under-reserved this order. Test: `test_fee_envelope.py`.
+- **Residuals.** The strategy runtime (`strategy/coreview.py`), research sizing and the what-if and allocation analytics still estimate fees with the policy model. Against an IBKR account they can size a buy the core then refuses with `CASH`. That is a refusal, never an under-reservation. `plan_effective` remains owner-reported until a commission report confirms the Tiered plan.
+
 ## Rejected alternative
 
 Separate bucket balances that must be kept "consistent" with economic balances. That is two sources of truth, and it is the double-counting risk the book warns about.
