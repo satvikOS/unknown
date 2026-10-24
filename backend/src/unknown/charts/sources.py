@@ -6,20 +6,19 @@
 * :class:`AlpacaBarsSource`: Alpaca Market Data API v2 historical stock bars over REST
   (``GET https://data.alpaca.markets/v2/stocks/{symbol}/bars``; docs.alpaca.markets, checked 2026-10-23), enabled
   only when ``<UNKNOWN_HOME>/secrets/alpaca.json`` holds ``key_id`` and ``secret_key``.
-* :class:`SyntheticBarsSource`: deterministic generated bars for demos, always labelled SYNTHETIC.
+
+There is no generated source: a security no configured source covers has no bars (reason ``NO_SOURCE``, ADR-0020).
 """
 from __future__ import annotations
 
 import calendar
-import hashlib
 import json
-import random
 import sqlite3
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Callable, Protocol
@@ -28,9 +27,8 @@ from .aggregate import BaseBar
 from .intervals import NS, Interval, compatible_bases
 from .sessions import SessionClock
 
-DATA_TYPES = ("REALTIME", "DELAYED", "FROZEN", "SYNTHETIC")
+DATA_TYPES = ("REALTIME", "DELAYED", "FROZEN")   # real data only (ADR-0020)
 OPEN_END = 2 ** 62
-SYNTHETIC_LABEL = "SYNTHETIC: generated demo data, not market data"
 UNADJUSTED_NOTE = ("unadjusted: no corporate-action data is applied, so splits and dividends show as price jumps")
 # The bar store's bar_size vocabulary (written by broker history adapters) in seconds.
 STORE_BAR_SECONDS = {"1 min": 60, "2 mins": 120, "3 mins": 180, "5 mins": 300, "10 mins": 600, "15 mins": 900,
@@ -275,7 +273,7 @@ class AlpacaBarsSource:
             raise SourceError("Alpaca keys are not configured")
         feed = str(cfg.get("feed") or "iex")
         data_type = str(cfg.get("data_type") or ("REALTIME" if feed == "iex" else "DELAYED")).upper()
-        if data_type not in DATA_TYPES or data_type == "SYNTHETIC":
+        if data_type not in DATA_TYPES:
             raise SourceError(f"alpaca.json data_type must be REALTIME, DELAYED or FROZEN, not {data_type}")
         if req.interval.intraday:
             base = _pick_base(req, [3600, 1800, 900, 600, 300, 180, 120, 60])
@@ -316,77 +314,3 @@ class AlpacaBarsSource:
         return SourceBars(self.source_id, data_type, f"Alpaca {feed} feed (alpaca.json 'data_type' overrides)",
                           base, bars, currency or "USD", "unadjusted", UNADJUSTED_NOTE + " (Alpaca adjustment=raw)",
                           notes=notes, detail={"timeframe": timeframe, "feed": feed, "pages": pages})
-
-
-# ============================================================================ synthetic (demo only)
-SYNTHETIC_ANCHOR = date(2010, 1, 4)
-
-
-class SyntheticBarsSource:
-    source_id = "SYNTHETIC"
-    kind = "synthetic"
-    real = False
-
-    def availability(self, req: SeriesRequest) -> Availability:
-        return Availability(self.source_id, self.kind, False, False, True,
-                            "generated demo bars; used only when no real source is configured for this security")
-
-    def fetch(self, req: SeriesRequest) -> SourceBars:
-        clock = req.clock
-        seed = int.from_bytes(hashlib.sha256(req.key.encode("utf-8")).digest()[:8], "big")
-        rng = random.Random(seed)
-        price = 2000 + seed % 48000                        # integer cents
-        first, last = clock.trading_date(req.from_ns), clock.trading_date(min(req.to_ns, req.now_ns))
-        base = "day" if not req.interval.intraday else _pick_base(req, [3600, 1800, 900, 600, 300, 180, 120, 60])
-        cents = Decimal("0.01")
-        bars: list[BaseBar] = []
-        d = SYNTHETIC_ANCHOR
-        while d <= last:
-            step, gap = rng.randint(-190, 200), rng.randint(-50, 50)
-            up, dn, vol = rng.randint(0, 120), rng.randint(0, 120), rng.randint(200_000, 4_000_000)
-            o = max(100, price * (10_000 + gap) // 10_000)
-            c = max(100, price * (10_000 + step) // 10_000)
-            h, lo = max(o, c) * (10_000 + up) // 10_000, min(o, c) * (10_000 - dn) // 10_000
-            price = c
-            s = clock.session(d) if d >= first else None
-            if s is not None and s.open_ns <= req.now_ns:
-                if base == "day":
-                    if s.close_ns <= req.now_ns:
-                        bars.append(BaseBar(s.open_ns, s.close_ns, Decimal(o) * cents, Decimal(h) * cents,
-                                            Decimal(lo) * cents, Decimal(c) * cents, Decimal(vol), None, None, d))
-                else:
-                    bars.extend(self._intraday(seed, d, s, base, o, h, lo, c, vol, req.now_ns))
-            d += timedelta(days=1)
-        try:
-            from .sessions import _registry
-            currency = _registry().venue(req.mic).currency if req.mic else None
-        except (KeyError, LookupError, ValueError, OSError):
-            currency = None
-        return SourceBars(self.source_id, "SYNTHETIC", SYNTHETIC_LABEL, base, bars, currency,
-                          "not applicable (synthetic)", "synthetic bars have no corporate actions",
-                          notes=[SYNTHETIC_LABEL], label=SYNTHETIC_LABEL, detail={"seed_basis": "sha256(key)"})
-
-    @staticmethod
-    def _intraday(seed, d, s, base, o, h, lo, c, vol, now_ns):
-        rng = random.Random(seed ^ d.toordinal())
-        step_ns = base * NS
-        n = max(1, -(-(s.close_ns - s.open_ns) // step_ns))
-        k = max(1, o * 12 // 10_000)
-        walk = [0]
-        for _ in range(n):
-            walk.append(walk[-1] + rng.randint(-k, k))
-        path = [min(h, max(lo, o + (c - o) * i // n + walk[i] - walk[n] * i // n)) for i in range(n + 1)]
-        cents = Decimal("0.01")
-        out = []
-        for i in range(n):
-            start = s.open_ns + i * step_ns
-            end = min(start + step_ns, s.close_ns)
-            if end > now_ns:
-                break
-            po, pc = path[i], path[i + 1]
-            ph = min(h, max(po, pc) + rng.randint(0, k))
-            pl = max(lo, min(po, pc) - rng.randint(0, k))
-            out.append(BaseBar(start, end, Decimal(po) * cents, Decimal(ph) * cents, Decimal(pl) * cents,
-                               Decimal(pc) * cents, Decimal(vol // n + rng.randint(0, max(1, vol // (4 * n)))),
-                               None, None))
-        return out

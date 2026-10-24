@@ -17,7 +17,7 @@ from unknown.market.quotes import Quote
 from unknown.gateway.runner import GatewayRunner
 from unknown.reconcile.reconciler import Reconciler
 
-REPO = Path(__file__).resolve().parents[2]
+REPO = Path(__file__).resolve().parents[3]
 POLICY_PATH = REPO / "config" / "policies" / "simulated-default.v1.json"
 ACCOUNT = "SIM-1"
 DEPLOYMENT = "mac-dev"

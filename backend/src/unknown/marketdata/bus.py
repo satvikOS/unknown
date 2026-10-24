@@ -42,7 +42,7 @@ REFUSAL_STATES = ("NOT_ENTITLED", "UNAVAILABLE")
 class _KeyState:
     key: str
     source: str
-    data_type: str
+    data_type: str | None
     refs: int = 0
     reason: str = ""
     fields: dict = field(default_factory=lambda: {f: None for f in QUOTE_FIELDS})
@@ -375,7 +375,9 @@ class MarketDataBus:
                 out = Outcome(False, "UNAVAILABLE", f"{sid}: {type(exc).__name__}: {exc}")
             with self._lock:
                 if out.ok:
-                    st.reason = f"{prior}{sid} ({src.data_type}): {out.reason}".strip()
+                    # Never claim a data type the provider has not reported (IBKR reports it per subscription).
+                    kind = src.data_type or "delivered type not yet reported"
+                    st.reason = f"{prior}{sid} ({kind}): {out.reason}".strip()
                     ev = status_event(key, "SUBSCRIBED", st.reason)
                     for client in self._fanout(key):
                         client.put("status", ev)
@@ -386,7 +388,7 @@ class MarketDataBus:
                     client.keys.discard(key)
             refusals.append(out if out.reason.startswith(sid) else Outcome(False, out.state, f"{sid}: {out.reason}"))
         if not refusals:
-            refusals.append(Outcome(False, "UNAVAILABLE", "no configured source serves this key "
+            refusals.append(Outcome(False, "UNAVAILABLE", "NO_SOURCE: no configured source serves this key "
                                                           "(<UNKNOWN_HOME>/config/marketdata.json routes)"))
         states = [r.state for r in refusals]
         state = "LINE_BUDGET" if "LINE_BUDGET" in states else refusals[0].state
@@ -456,8 +458,8 @@ class MarketDataBus:
                 elif st is not None:
                     status.append(st.status or status_event(key, "SUBSCRIBED", f"{st.reason}; no data yet"))
                 else:
-                    status.append(status_event(key, "UNAVAILABLE", "not streaming: open /api/marketdata/stream with "
-                                                                   "this key first"))
+                    status.append(status_event(key, "UNAVAILABLE", "PENDING: not streaming: open /api/marketdata/stream "
+                                                                   "with this key first"))
         return {"quotes": quotes, "status": status, "ts_pub_ns": ns(self._time_ns())}
 
     def describe(self) -> dict:

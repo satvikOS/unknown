@@ -23,7 +23,7 @@ from test_research_promotion import AGENT, AUTHOR, DEV, EVAL, GATES, PASSING, A,
 from unknown.domain.principal import Principal, Role  # noqa: E402
 from unknown.research.common import AuthorityError, EvidenceError, RegistryError  # noqa: E402
 from unknown.research.promotion import LADDER, RULES, STATUSES  # noqa: E402
-from unknown.research.study import FIXTURE_PROTOCOL  # noqa: E402
+from support.research_study import FIXTURE_PROTOCOL  # noqa: E402
 from unknown.strategy import artifacts  # noqa: E402
 from unknown.strategy.artifacts import ArtifactRefused  # noqa: E402
 

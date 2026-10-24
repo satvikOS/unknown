@@ -8,8 +8,8 @@ anchored on the venue's sourced trading sessions (config/calendars, config/marke
   ``mkt_bar`` with ``provider='IBKR'``) appears as its own source; Alpaca historical bars come over REST when the
   owner stored keys in ``<UNKNOWN_HOME>/secrets/alpaca.json``; the owner may order sources in
   ``<UNKNOWN_HOME>/config/charts.json`` (``{"source_order": ["ALPACA", "IBKR"]}``).
-* Every response names its source and data type (REALTIME, DELAYED, FROZEN or SYNTHETIC).
-* SYNTHETIC bars are generated demo data. They are labelled in every response and are never used when a real source
-  is configured for the security.
+* Every response names its source and data type (REALTIME, DELAYED or FROZEN).
+* There is no generated or demo series (ADR-0020). Without a configured source that covers the security the response
+  has no bars and ``reason: NO_SOURCE``; when every source fails, ``reason: ERROR``; an empty range, ``NO_DATA``.
 * This package never imports a broker SDK or a broker adapter package.
 """

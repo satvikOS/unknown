@@ -19,8 +19,8 @@ cd ~/unknown
 python3 -m venv ~/.unknown/venvs/core          # optional: the core needs only the standard library
 PYTHONPATH=backend/src python3 -m unknown.cli init
 PYTHONPATH=backend/src python3 -m unknown.cli set-passphrase
-# simulator with the FIXTURE market:
-python3 scripts/deploy/macos/render_launchd.py --account SIM-1 --deployment mac-dev --broker simulated --fixture-market \
+# simulator (no quote source: simulated orders never fill and every value shows an em dash with NO_SOURCE; ADR-0020):
+python3 scripts/deploy/macos/render_launchd.py --account SIM-1 --deployment mac-dev --broker simulated \
     --python "$(command -v python3)" --out ~/Library/LaunchAgents
 # or IBKR PAPER (after scripts/setup/ibkr_venv.sh and ~/.unknown/ibkr.json; the owner logs in to IB Gateway):
 python3 scripts/deploy/macos/render_launchd.py --account IBKR-PAPER-1 --deployment mac-dev --broker ibkr \

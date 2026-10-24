@@ -10,8 +10,7 @@ from pathlib import Path
 from .aggregate import FORMULA, aggregate, period_start_ns
 from .intervals import NS, parse_interval
 from .sessions import SessionClock
-from .sources import (AlpacaBarsSource, BarsSource, SeriesRequest, SourceError, StoredBarsSource,
-                      SyntheticBarsSource, store_providers)
+from .sources import AlpacaBarsSource, BarsSource, SeriesRequest, SourceError, StoredBarsSource, store_providers
 
 MAX_BARS = 5000
 DAY_NS = 86_400 * NS
@@ -55,7 +54,7 @@ def build_sources(root: Path, secrets: Path, req: SeriesRequest, http_get=None) 
     order = source_order(root)
     rank = {s: i for i, s in enumerate(order)}
     real.sort(key=lambda s: (rank.get(s.source_id, len(order)), KIND_ORDER.get(s.kind, 9), s.source_id))
-    return [*real, SyntheticBarsSource()]
+    return real
 
 
 def _int(q: dict, name: str) -> int | None:
@@ -102,20 +101,17 @@ def bars(ctx, q: dict, conn, now_ns: int | None = None, http_get=None) -> dict:
     srcs = build_sources(root, ctx.paths.secrets, req, http_get)
     avail = {s.source_id: s.availability(req) for s in srcs}
     considered = {sid: a.as_json() for sid, a in avail.items()}
-    real = [s for s in srcs if s.real and avail[s.source_id].configured and avail[s.source_id].covers]
+    real = [s for s in srcs if avail[s.source_id].configured and avail[s.source_id].covers]
     wanted = (q.get("source") or "").upper() or None
     if wanted:
         pick = [s for s in srcs if s.source_id == wanted]
         if not pick:
             raise ValueError(f"unknown source {wanted}; known: {', '.join(avail)}")
-        if not pick[0].real and real:
-            raise ValueError(f"SYNTHETIC refused: a real source is configured for {req.key} "
-                             f"({', '.join(s.source_id for s in real)})")
-        if pick[0].real and not (avail[wanted].configured and avail[wanted].covers):
+        if not (avail[wanted].configured and avail[wanted].covers):
             raise ValueError(f"source {wanted} cannot serve {req.key}: {avail[wanted].reason}")
         candidates = pick
     else:
-        candidates = real or [s for s in srcs if not s.real]
+        candidates = real
 
     chosen = None
     for s in candidates:
@@ -137,8 +133,12 @@ def bars(ctx, q: dict, conn, now_ns: int | None = None, http_get=None) -> dict:
            "session": {"calendar_id": req.clock.calendar_id, "timezone": req.clock.timezone,
                        "rule": "regular session only (bars outside it are excluded)"}}
     if chosen is None:
+        # Never a substitute series (ADR-0020): no source covers it (NO_SOURCE) or every source failed (ERROR).
+        reason = "ERROR" if candidates else "NO_SOURCE"
         out.update({"available": False, "bars": [], "gaps": [], "count": 0, "source": None, "data_type": None,
-                    "missing_reason": "every configured source failed; see sources_considered"})
+                    "reason": reason,
+                    "missing_reason": ("every configured source failed; see sources_considered" if candidates else
+                                       f"no configured bar source covers {req.key}; see sources_considered")})
         out["session"]["notes"] = req.clock.finish_notes()
         return out
     agg = aggregate(chosen.bars, chosen.base, req.interval, req.clock, req.from_ns, req.to_ns, now)
@@ -157,9 +157,9 @@ def bars(ctx, q: dict, conn, now_ns: int | None = None, http_get=None) -> dict:
     if truncated:
         out["truncation_note"] = f"more than {MAX_BARS} bars: these are the latest {MAX_BARS}; narrow the range"
     if not rows:
-        out["missing_reason"] = (f"{chosen.source_id} returned no bars for {req.key} {req.interval.code} in this range"
-                                 + ("; synthetic bars are not substituted while a real source is configured"
-                                    if chosen.data_type != "SYNTHETIC" else ""))
+        out["reason"] = "NO_DATA"
+        out["missing_reason"] = (f"{chosen.source_id} returned no bars for {req.key} {req.interval.code} in this "
+                                 "range; nothing is substituted")
     out["session"]["notes"] = req.clock.finish_notes()
     return out
 

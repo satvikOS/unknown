@@ -22,8 +22,6 @@ def agents(args) -> dict[str, dict]:
     logs = home / "logs"
     core_module = "unknown.broker.ibkr.serve" if args.broker == "ibkr" else "unknown.service.core"
     core_args = [args.python, "-m", core_module, "--account", args.account, "--deployment", args.deployment]
-    if args.broker == "simulated" and args.fixture_market:
-        core_args.append("--fixture-market")
     common = {"WorkingDirectory": str(REPO / "backend"), "EnvironmentVariables": env}
     return {
         "com.unknown.core": {
@@ -49,7 +47,6 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--account", required=True)
     ap.add_argument("--deployment", required=True)
     ap.add_argument("--broker", choices=["simulated", "ibkr"], default="simulated")
-    ap.add_argument("--fixture-market", action="store_true")
     ap.add_argument("--python", required=True, help="absolute interpreter path")
     ap.add_argument("--home", default="~/.unknown")
     ap.add_argument("--port", type=int, default=8765)

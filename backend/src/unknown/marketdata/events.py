@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from decimal import Decimal, InvalidOperation
 
-DATA_TYPES = ("REALTIME", "DELAYED", "FROZEN", "SYNTHETIC")
+DATA_TYPES = ("REALTIME", "DELAYED", "FROZEN")   # real data only (ADR-0020)
 STATUS_STATES = ("SUBSCRIBED", "UNAVAILABLE", "NOT_ENTITLED", "LINE_BUDGET", "STALE", "ENDED")
 QUOTE_FIELDS = ("bid", "ask", "bid_size", "ask_size", "last", "last_size", "volume", "open", "high", "low",
                 "prev_close")
@@ -95,7 +95,22 @@ def depth_event(key: str, seq: int, *, side: str, levels: list, source: str, dat
             "source": source, "data_type": data_type, "ts_recv_ns": ns(ts_recv_ns)}
 
 
+# status state -> the unavailable-reason code it implies (ADR-0020); SUBSCRIBED carries none unless no data yet.
+_STATE_CODE = {"NOT_ENTITLED": "NOT_ENTITLED", "LINE_BUDGET": "NOT_ENTITLED", "STALE": "STALE", "ENDED": "NO_DATA"}
+
+
+def status_code(state: str, reason: str) -> str | None:
+    """The vocabulary code (``unknown.domain.unavailable``) for a status: a ``CODE:`` prefix of the reason wins."""
+    from ..domain.unavailable import REASONS, classify
+    head = (reason or "").split(":", 1)[0].strip()
+    if head in REASONS:
+        return head
+    if state == "SUBSCRIBED":
+        return "PENDING" if "no data yet" in (reason or "") else None
+    return _STATE_CODE.get(state) or classify(reason)
+
+
 def status_event(key: str, state: str, reason: str) -> dict:
     if state not in STATUS_STATES:
         raise ValueError(f"status state {state!r} not in {STATUS_STATES}")
-    return {"key": key, "state": state, "reason": reason}
+    return {"key": key, "state": state, "reason": reason, "code": status_code(state, reason)}

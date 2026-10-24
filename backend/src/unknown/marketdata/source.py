@@ -1,10 +1,10 @@
-"""The MarketDataSource interface: every provider (IBKR, Alpaca, SYNTHETIC, ...) is an adapter behind it.
+"""The MarketDataSource interface: every provider (IBKR, Alpaca, ...) is an adapter behind it.
 
 Nothing in the bus, the API or the terminal knows a provider by anything other than its ``source_id`` and its
 declared capabilities. A source:
 
 * declares ``capabilities`` (quotes, trades, depth, tick-by-tick, delayed) and its ``data_type`` (REALTIME,
-  DELAYED, FROZEN or SYNTHETIC; a source may send per-event types, e.g. IBKR delivering delayed data);
+  DELAYED or FROZEN; a source may send per-event types, e.g. IBKR delivering delayed data);
 * declares a ``line_budget()`` (simultaneous keys it may stream; None = no stated limit), which the bus enforces
   before calling ``subscribe``;
 * answers ``subscribe(key)`` synchronously with an ``Outcome`` (its local entitlement/coverage check), then delivers
@@ -54,7 +54,7 @@ class Sink(Protocol):
 
 class MarketDataSource(ABC):
     source_id: str = ""
-    data_type: str = "REALTIME"
+    data_type: str | None = "REALTIME"   # None: the provider reports the delivered type per event (e.g. IBKR)
     capabilities: Capabilities = Capabilities()
 
     def line_budget(self) -> int | None:

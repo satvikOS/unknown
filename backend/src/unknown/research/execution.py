@@ -9,7 +9,7 @@ ONE implementation, used by the backtest engine (``engine._Run.execute``) and by
 * **Submit** in the next regular session E, inside ``[open + N, close - M]`` (N, M from the spec, minutes). The
   session's hours come from the calendar, early closes included (XNYS 2026-11-27 closes at 13:00 New York, so the
   window ends at 12:45). A calendar without session hours (the WEEKDAYS fixture calendar) may only be used with
-  FIXTURE data, whose session convention is 14:30-21:00 UTC (``research.fixtures``); real data needs the venue
+  FIXTURE (test) data, whose session convention is 14:30-21:00 UTC (backend/tests/support); real data needs the venue
   calendar (``SessionHoursUnknown`` otherwise). No auction: N >= 1 and M >= 1 minute (the spec enforces both).
 * **Limit at transmission**: buy ``min(model bound, floor_tick(reference x (1 + collar)))``, sell
   ``max(model bound, ceil_tick(reference x (1 - collar)))``. The model bound is the decision's mark +/- the spec's
@@ -30,7 +30,10 @@ from ..domain.clock import NS_PER_S
 from ..domain.fixed import Fixed, Rounding
 from ..domain.instruments import Instrument
 
-FIXTURE_SESSION_BASIS = "FIXTURE session convention 14:30-21:00 UTC (research.fixtures; this calendar has no hours)"
+FIXTURE_SESSION_BASIS = "FIXTURE session convention 14:30-21:00 UTC (test data only; this calendar has no hours)"
+# The convention test series follow (backend/tests/support/research_fixtures.py). Product data never takes this path:
+# product code has no generated series (ADR-0020), and real data needs the venue calendar.
+_FIXTURE_OPEN_S, _FIXTURE_CLOSE_S = (14 * 60 + 30) * 60, 21 * 3600
 BACKTEST_REFERENCE = "execution session open (daily bars carry no quote at transmission; labelled)"
 NS_PER_MIN = 60 * NS_PER_S
 
@@ -101,9 +104,10 @@ def session_bounds(calendar: BusinessCalendar, day: date, *, fixture: bool) -> t
         return (int(utc[0].timestamp()) * NS_PER_S, int(utc[1].timestamp()) * NS_PER_S,
                 f"{calendar.calendar_id}@{calendar.version} session hours")
     if fixture:
-        from .fixtures import session_times
-        s, e, _ = session_times(day)
-        return s, e, FIXTURE_SESSION_BASIS
+        from datetime import datetime, timezone
+        midnight = int(datetime(day.year, day.month, day.day, tzinfo=timezone.utc).timestamp())
+        return ((midnight + _FIXTURE_OPEN_S) * NS_PER_S, (midnight + _FIXTURE_CLOSE_S) * NS_PER_S,
+                FIXTURE_SESSION_BASIS)
     raise SessionHoursUnknown(f"{calendar.calendar_id} has no session hours for {day.isoformat()} and the data is not a "
                               "FIXTURE: pass the venue calendar (e.g. XNYS) to place the submission window")
 

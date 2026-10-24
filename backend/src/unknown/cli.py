@@ -151,10 +151,9 @@ def _reauthenticate(paths: Paths) -> int | None:
 
 
 def _bootstrap_sim(client: CoreClient, args) -> int:
-    """Register a SIMULATED account with fixture instruments and the proposed simulated policy.
-    Everything created here is simulation-only and labelled as fixture data."""
-    from .domain.fixed import Fixed
-    from .domain.instruments import AssetClass, Instrument, TickRule
+    """Register a SIMULATED account with the proposed simulated policy. No instrument, price or position is created:
+    instruments come from a real security master (e.g. ``unknown.broker.ibkr.bootstrap_paper``), never from examples
+    (ADR-0020)."""
     now = time.time_ns()
     owner = _owner(now)
 
@@ -167,14 +166,6 @@ def _bootstrap_sim(client: CoreClient, args) -> int:
     body = json.loads((REPO / "config" / "policies" / "simulated-default.v1.json").read_text())
     pol = run("publish_policy", body=body)
     run("activate_policy", account_key=args.account, policy_hash=pol["body"]["policy_hash"])
-    for iid, sym, name in (("FIX-EQ-1", "FIXA", "Fixture Equity A (simulation only)"),
-                           ("FIX-EQ-2", "FIXB", "Fixture Equity B (simulation only)")):
-        inst = Instrument(instrument_id=iid, asset_class=AssetClass.EQUITY, symbol=sym, name=name, currency="USD",
-                          settlement_currency="USD", venue_mic="XNAS", quantity_increment=Fixed(1), min_quantity=Fixed(1),
-                          multiplier=Fixed(1), settlement_days=1,
-                          tick_rules=(TickRule(Fixed(0), Fixed.parse("0.0001")), TickRule(Fixed(1), Fixed.parse("0.01"))),
-                          attributes={"fixture": True})
-        run("register_instrument", instrument=inst.to_json(), mappings=[{"provider": "simulated", "external_id": iid}])
     run("acquire_execution_ownership", account_key=args.account, deployment_id=args.deployment)
     print("waiting for the first reconciliation (opening import) ...")
     for _ in range(60):

@@ -2,22 +2,33 @@
 
   python harness.py core --broker-state FILE -- <unknown.service.core arguments>
   python harness.py api --step-up-window-s N -- <unknown.api.server arguments>
+  python harness.py test-instruments
   python harness.py md-status [--age-s N]
 
-Both run the real entry points (`unknown.service.core.main`, `unknown.api.server.main`) unchanged
-except for one seam each, so the suite exercises the real core, API, socket, database and terminal:
+Product code has no generated data (ADR-0020). Test doubles live under backend/tests/support and are
+injected here, in code; product configuration, environment variables and flags cannot reach them.
+The core and API run their real entry points (`unknown.service.core.main`, `unknown.api.server.main`)
+with these seams, so the suite exercises the real core, API, socket, database and terminal:
 
-core: the simulated broker lives inside the core process, so restarting the core would make the
-    broker forget every order, fill and cash movement, while the ledger remembers them. A real
-    broker does not forget the account when our process restarts. To model that, the launcher
-    pickles the simulator after a clean SIGTERM shutdown and restores it on the next start (the
-    deterministic FIXTURE quote path restarts from its seed; only the broker's book persists).
+core: the core is built with ``support.fake_market.TestFeedExecution``: a TEST quote feed double
+    publishes into the desk's quote book and the product ``SimulatedExecution`` (source ``TEST``)
+    fills crossing orders from it, as it would from a real configured source. The simulated broker
+    lives inside the core process, so restarting the core would make the broker forget every order,
+    fill and cash movement, while the ledger remembers them. A real broker does not forget the
+    account when our process restarts. To model that, the launcher pickles the simulator after a
+    clean SIGTERM shutdown and restores it on the next start (the TEST quote path restarts from its
+    seed; only the broker's book persists).
+
+test-instruments: registers the suite's two test instruments (``support.e2e_bootstrap``); the
+    product ``bootstrap-sim`` registers none.
 
 api: the API's step-up window is the active policy's reauth_max_age_s (900 s in the default
     simulated policy), or 15 minutes without a policy. The suite caps it with
     server.STEP_UP_MAX_AGE_NS, which can only shorten the window, so the HTTP 428 -> passphrase ->
     same-command-id retry path can be exercised in seconds. The core's own policy check
-    (reauth_max_age_s) is untouched.
+    (reauth_max_age_s) is untouched. The API's live market-data bus is built with the TEST feed
+    double (``support.fake_marketdata``, source id ``TEST``) in place of the owner's
+    config/marketdata.json sources, so the stream, monitor and charts have test data to show.
 
 md-status: the IBKR market-data status file (<UNKNOWN_HOME>/run/ibkr-marketdata-status.json) is written
     only by a running IbkrMarketDataSession, and the suite never connects to IBKR. This writes one with the
@@ -36,12 +47,22 @@ import pickle
 import sys
 from pathlib import Path
 
+BACKEND_TESTS = Path(__file__).resolve().parents[3] / "backend" / "tests"
+
 
 def run_core(state: Path, argv: list[str]) -> None:
+    sys.path.insert(0, str(BACKEND_TESTS))
+    from support.fake_market import TestFeedExecution, e2e_instruments  # TEST-only quote feed double
     from unknown.service import core as core_mod
 
     original_factory = core_mod._simulated_broker
     original_serve = core_mod.serve
+    original_service = core_mod.CoreService
+
+    def service(**kw):
+        kw["sim_execution"] = TestFeedExecution(kw["clock"], kw["broker"], e2e_instruments())
+        print("[e2e harness] core quotes come from the TEST feed double", flush=True)
+        return original_service(**kw)
 
     def broker_factory(clock, cash):
         if state.exists():
@@ -63,12 +84,32 @@ def run_core(state: Path, argv: list[str]) -> None:
 
     core_mod._simulated_broker = broker_factory
     core_mod.serve = serve
+    core_mod.CoreService = service
     core_mod.main(argv)
 
 
-def run_api(window_s: int, argv: list[str]) -> None:
-    from unknown.api import server
+def register_instruments() -> None:
+    sys.path.insert(0, str(BACKEND_TESTS))
+    from support.e2e_bootstrap import register_test_instruments
+    print(f"[e2e harness] registered test instruments: {register_test_instruments()}", flush=True)
 
+
+def run_api(window_s: int, argv: list[str]) -> None:
+    sys.path.insert(0, str(BACKEND_TESTS))
+    from support.fake_marketdata import FeedDouble, bus_config  # TEST-only feed double
+    from unknown.api import server
+    from unknown.marketdata import config as md_config
+    from unknown.marketdata.bus import MarketDataBus
+    from unknown.marketdata.store import TickStore
+
+    def test_bus(cls, home: Path) -> MarketDataBus:
+        bus = cls(bus_config(), {"TEST": FeedDouble(currency_for=md_config.currency_for)},
+                  store=TickStore(Path(home) / "marketdata" / "ticks.sqlite"))
+        bus.start()
+        print("[e2e harness] API market-data bus uses the TEST feed double", flush=True)
+        return bus
+
+    MarketDataBus.from_home = classmethod(test_bus)
     server.STEP_UP_MAX_AGE_NS = window_s * 1_000_000_000
     print(f"[e2e harness] API step-up window set to {window_s} s for this test run", flush=True)
     server.main(argv)
@@ -78,7 +119,7 @@ def write_md_status(age_s: int) -> None:
     import time
     from decimal import Decimal
 
-    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "backend" / "tests"))
+    sys.path.insert(0, str(BACKEND_TESTS))
     import test_ibkr_marketdata as fx  # the backend's fixture socket host, checked against the pinned SDK
     from unknown.broker.ibkr import marketdata as MD
     from unknown.broker.ibkr.config import config_from_dict
@@ -144,6 +185,7 @@ def main() -> None:
     c.add_argument("--broker-state", required=True)
     a = sub.add_parser("api")
     a.add_argument("--step-up-window-s", type=int, required=True)
+    sub.add_parser("test-instruments")
     m = sub.add_parser("md-status")
     m.add_argument("--age-s", type=int, default=0)
     args, rest = ap.parse_known_args()
@@ -153,6 +195,8 @@ def main() -> None:
         run_core(Path(args.broker_state), rest)
     elif args.which == "md-status":
         write_md_status(args.age_s)
+    elif args.which == "test-instruments":
+        register_instruments()
     else:
         run_api(args.step_up_window_s, rest)
 

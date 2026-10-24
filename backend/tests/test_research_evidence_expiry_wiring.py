@@ -26,7 +26,7 @@ from unknown.domain.principal import Principal, Role  # noqa: E402
 from unknown.research.bars import load_series, pit_manifest_entry, record_bars  # noqa: E402
 from unknown.research.common import AuthorityError, EvidenceError  # noqa: E402
 from unknown.research.engine import BacktestConfig  # noqa: E402
-from unknown.research.fixtures import synthetic_bars  # noqa: E402
+from support.research_fixtures import synthetic_bars  # noqa: E402
 from unknown.research.manifest import UNBOUNDED, build_manifest, retention_date  # noqa: E402
 from unknown.service.paths import Paths  # noqa: E402
 from unknown.strategy import artifacts  # noqa: E402

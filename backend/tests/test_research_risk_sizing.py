@@ -15,7 +15,7 @@ from unknown.research import sizing as research_sizing
 from unknown.research.bars import BarSeries, DatasetView
 from unknown.research.costs import CostModel, IbkrFixedUS, IbkrTieredUS
 from unknown.research.engine import BacktestConfig, Sizing, run_backtest
-from unknown.research.fixtures import fixture_instrument, manual_bar
+from support.research_fixtures import fixture_instrument, manual_bar
 from unknown.research.sizing import Holding, RiskTerm, fee_envelope_of, plan_orders, risk_quantity
 from unknown.research.spec import parse_spec
 from unknown.research.strategies import TrendDailyV1, trend_spec
@@ -173,7 +173,7 @@ class BacktestRiskTermTest(unittest.TestCase):
     """The backtest applies the risk term through the shared sizer; a schema v1 spec keeps the legacy sizer."""
 
     def bars(self) -> BarSeries:
-        from unknown.research.fixtures import business_days
+        from support.research_fixtures import business_days
         out, p = [], 1000
         for d in business_days(date(2024, 1, 2), 25):
             out.append(manual_bar("FIX-RS-1", d, f"{p // 100}.{p % 100:02d}", f"{(p + 50) // 100}.{(p + 50) % 100:02d}",

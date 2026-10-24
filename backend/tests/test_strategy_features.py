@@ -24,7 +24,7 @@ from unknown.domain.fixed import Fixed  # noqa: E402
 from unknown.research.bars import BarSeries, load_series, record_bars  # noqa: E402
 from unknown.research.common import SpecError  # noqa: E402
 from unknown.research.features import FEATURE_MISSINGNESS, FeatureRow, feature_rows  # noqa: E402
-from unknown.research.fixtures import manual_bar  # noqa: E402
+from support.research_fixtures import manual_bar  # noqa: E402
 from unknown.research.spec import parse_spec  # noqa: E402
 from unknown.research.strategies import (build, buy_and_hold_spec, trend_score, trend_spec,  # noqa: E402
                                          vol_capped_spec)
@@ -175,7 +175,7 @@ class RunnerFeatureGateTest(unittest.TestCase):
     def test_a_feature_with_a_missing_input_blocks_the_decision(self):
         from unknown.domain.money import Money
         from unknown.policy.model import FeeModel
-        from unknown.research.fixtures import fixture_instrument
+        from support.research_fixtures import fixture_instrument
         from unknown.strategy import artifacts
         from unknown.strategy.coreview import CoreSnapshot
         (self.root / "research").mkdir()
@@ -204,7 +204,7 @@ class RunnerFeatureGateTest(unittest.TestCase):
         one-minute freshness budget on the spread makes a 15-minute-old close unusable at the 21:30 decision."""
         from unknown.domain.money import Money
         from unknown.policy.model import FeeModel
-        from unknown.research.fixtures import fixture_instrument
+        from support.research_fixtures import fixture_instrument
         from unknown.strategy import artifacts
         from unknown.strategy.coreview import CoreSnapshot
         (self.root / "research").mkdir()

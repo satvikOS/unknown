@@ -288,7 +288,7 @@ Everything here stays on this Mac; nothing below is committed except the approva
 
    ```bash
    cd backend
-   PYTHONPATH=src python3 -m unknown.service.core --account SIM-1 --deployment mac-dev --fixture-market &   # or the IBKR PAPER service
+   PYTHONPATH=src python3 -m unknown.service.core --account SIM-1 --deployment mac-dev &   # or the IBKR PAPER service
    PYTHONPATH=src python3 -m unknown.api.server --account SIM-1 --port 8765 &
    PYTHONPATH=src ~/.unknown/venvs/agents/bin/python -m unknown.agents.worker --check
    PYTHONPATH=src ~/.unknown/venvs/agents/bin/python -m unknown.agents.worker &      # --once exits when idle

@@ -110,7 +110,9 @@ def _dec(v) -> str | None:
 
 class IbkrSource(MarketDataSource):
     source_id = "IBKR"
-    data_type = "REALTIME"
+    # IBKR reports the delivered type per subscription (marketDataType callback): live, delayed or frozen. Nothing is
+    # called REALTIME before IBKR says so; each quote carries the delivered type (ADR-0020).
+    data_type = None
 
     def __init__(self, session, *, lines: int, venue_lookup, tick_by_tick: bool = False, depth: bool = False,
                  depth_lines: int = 0, depth_rows: int = 10, smart_depth: bool = True, maintain_s: float = 5.0,

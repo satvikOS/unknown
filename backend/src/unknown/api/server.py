@@ -292,10 +292,14 @@ class Handler(BaseHTTPRequestHandler):
         return "; ".join(parts)
 
     def _quotes(self) -> dict:
+        return self._quotes_or_reason()[0]
+
+    def _quotes_or_reason(self) -> tuple[dict, str | None]:
+        """The core's quotes, or ({}, NOT_CONNECTED) when the core cannot be reached (never a silent empty book)."""
         try:
-            return self.ctx.core.query("quotes")
+            return self.ctx.core.query("quotes"), None
         except (IpcError, OSError):
-            return {}
+            return {}, "NOT_CONNECTED"
 
     def _step_up(self, kind: str | None = None, payload: dict | None = None) -> tuple[int, dict]:
         """The step-up window, in ns, and its basis. Each account's window is its active policy's
@@ -397,7 +401,8 @@ class Handler(BaseHTTPRequestHandler):
         if len(parts) == 2 and parts[0] == "commands":
             return self._command_result(parts[1], conn)
         if parts == ["positions"]:
-            return self._send(200, queries.positions(conn, acct, self._quotes()))
+            quotes, reason = self._quotes_or_reason()
+            return self._send(200, queries.positions(conn, acct, quotes, quotes_reason=reason))
         if parts == ["buckets"]:
             return self._send(200, queries.buckets(conn, acct))
         if parts == ["executions"]:
@@ -425,7 +430,10 @@ class Handler(BaseHTTPRequestHandler):
         if parts == ["risk"]:
             return self._send(200, {"risk": queries.risk(conn, acct), "policy": queries.active_policy(conn, acct)})
         if parts == ["quotes"]:
-            return self._send(200, self._quotes())
+            quotes, reason = self._quotes_or_reason()
+            if reason is not None:
+                return self._error(503, "the core is not reachable, so no quotes can be read", reason=reason)
+            return self._send(200, quotes)
         if parts == ["health"]:
             try:
                 core = self.ctx.core.query("health")

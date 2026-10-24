@@ -9,7 +9,7 @@ from datetime import date
 from unknown.domain.fixed import Fixed
 from unknown.research.bars import BarSeries, DatasetView
 from unknown.research.engine import BacktestConfig, run_backtest
-from unknown.research.fixtures import business_days, fixture_instrument, manual_bar
+from support.research_fixtures import business_days, fixture_instrument, manual_bar
 from unknown.research.spec import parse_spec
 from unknown.research.strategies import (BuyAndHold, TrendDailyV1, VolCappedPassive, build, buy_and_hold_spec, trend_score,
                                          trend_spec, vol_capped_spec)

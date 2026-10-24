@@ -29,7 +29,7 @@ from unknown.domain.fixed import Fixed  # noqa: E402
 from unknown.domain.money import Money  # noqa: E402
 from unknown.policy.model import FeeModel  # noqa: E402
 from unknown.research.bars import record_bars  # noqa: E402
-from unknown.research.fixtures import fixture_instrument  # noqa: E402
+from support.research_fixtures import fixture_instrument  # noqa: E402
 from unknown.service.paths import Paths  # noqa: E402
 from unknown.store.db import connect  # noqa: E402
 from unknown.strategy import artifacts  # noqa: E402

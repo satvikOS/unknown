@@ -29,7 +29,7 @@ from unknown.data.pit import ResearchStore  # noqa: E402
 from unknown.domain.calendar import WEEKDAYS_ONLY  # noqa: E402
 from unknown.domain.clock import NS_PER_S, ManualClock  # noqa: E402
 from unknown.research.bars import record_bars  # noqa: E402
-from unknown.research.fixtures import fixture_instrument, manual_bar  # noqa: E402
+from support.research_fixtures import fixture_instrument, manual_bar  # noqa: E402
 from unknown.service.paths import Paths  # noqa: E402
 from unknown.store.db import connect  # noqa: E402
 from unknown.strategy.artifacts import ArtifactRefused  # noqa: E402

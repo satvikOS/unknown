@@ -88,6 +88,11 @@ exchange. The session never looks a contract up by name.
 
 ### Delivered type, source and the `delayed` flag
 
+On the live market-data bus (`broker/ibkr/mdsource.py`) the IBKR source declares no fixed data type: a new
+subscription's status reads `IBKR (delivered type not yet reported): requested; status follows marketDataType`, and
+each quote carries the type IBKR delivered (REALTIME, DELAYED or FROZEN). Before 2026-10-23 the status read
+`IBKR (REALTIME): requested`, a claim made before IBKR had reported anything (fixed under ADR-0020).
+
 | Delivered (`marketDataType`) | Status | `Quote.source` | `Quote.delayed` |
 |---|---|---|---|
 | 1 live, with no delayed tick ids | `LIVE` | `ibkr:live:<consolidation>`, e.g. `ibkr:live:non_consolidated` | False |
@@ -272,13 +277,13 @@ checked against the ISO 10383 file. The owner should confirm it (CAP-MKT-02 open
 | GET | Returns |
 |---|---|
 | `/api/marketdata/status` | the session status file (connection, line budget, pacing, delivered types, entitlement states, audit), joined with the core's quotes to give `mid`, `spread`, `spread_bps`, `age_ms`, `stale` and `quote_state`, each with a formula id (`mkt.*@1`) and its inputs. Analytics are joined only to the `current` subscription record. When the file is older than 60 s it **fails closed**: every subscription reads `status: STATUS_FILE_STALE` and `live: false`, keeping the file's values as `reported_status` and `reported_live`. Without the file: `available: false` and `unavailable_reason`. |
-| `/api/marketdata/bars?instrument=&bar_size=1 day&what_to_show=TRADES&use_rth=1&as_of_ns=&knowledge_cutoff_ns=&start_ns=&end_ns=&limit=&include_fixture=0` | point-in-time bars with lineage: formula `ibkr.hist_bars@1`, units, availability rule, adjustment and basis flag, request id, and the count excluded as not yet available. `truncated` (with a note) says when `limit` cut the result; the earliest bars are returned. Coverage gaps are listed, and when the result is empty `missing_reason` says `NOT_YET_PUBLISHED`, `COVERAGE_GAP` (with the gap reasons) or never fetched / not stored. |
+| `/api/marketdata/bars?instrument=&bar_size=1 day&what_to_show=TRADES&use_rth=1&as_of_ns=&knowledge_cutoff_ns=&start_ns=&end_ns=&limit=` | point-in-time bars with lineage: formula `ibkr.hist_bars@1`, units, availability rule, adjustment and basis flag, request id, and the count excluded as not yet available. `truncated` (with a note) says when `limit` cut the result; the earliest bars are returned. Coverage gaps are listed, and when the result is empty `missing_reason` says `NOT_YET_PUBLISHED`, `COVERAGE_GAP` (with the gap reasons) or never fetched / not stored. |
 | `/api/marketdata/bars/series` | stored series with version counts |
 | `/api/marketdata/bars/gaps?instrument=` | coverage gaps |
 | `/api/marketdata/contracts` | the contract-verification table, latest per instrument, with verification pass rate (`ins.verification_pass_rate@1`). `last_resolved_ns` is the latest attempt. `last_verified_ns` is the latest attempt that **passed**, or null. |
 
-FIXTURE rows are hidden unless `include_fixture=1`, and are then labelled. The route module does not import the
-IBKR package; it reads the files that package writes, and a test checks that the names match.
+FIXTURE rows (test data) are never served; there is no option to include them (ADR-0020). Unavailable answers carry a
+`reason` code (`docs/design/unavailable-values.md`). The route module does not import the IBKR package; it reads the files that package writes, and a test checks that the names match.
 
 ## 7. Core changes needed (not made here: other owners' files)
 

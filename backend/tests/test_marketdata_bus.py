@@ -1,6 +1,6 @@
-"""Market-data bus (ADR-0018, docs/design/marketdata-stream-contract.md): events, config and routing, SYNTHETIC
-source, coalescing, trade overflow, line budgets, fallback, tick store and the API endpoints. All data is SYNTHETIC or
-a test fixture."""
+"""Market-data bus (ADR-0018, docs/design/marketdata-stream-contract.md): events, config and routing, the TEST feed
+double, coalescing, trade overflow, line budgets, fallback, tick store and the API endpoints. All data comes from test
+doubles injected in code (ADR-0020: product code has no generated source)."""
 from __future__ import annotations
 
 import http.client
@@ -19,7 +19,7 @@ from unknown.marketdata.events import InvalidKey, dec, ns, parse_key, quote_even
 from unknown.marketdata.source import Capabilities, MarketDataSource, Outcome, UnavailableSource
 from unknown.marketdata.sse import parse_keys
 from unknown.marketdata.store import TickStore
-from unknown.marketdata.synthetic import SyntheticSource
+from support.fake_marketdata import FeedDouble
 from unknown.service.paths import Paths
 
 PASSPHRASE = "market data bus tests passphrase"
@@ -88,8 +88,8 @@ class EventTests(unittest.TestCase):
         self.assertEqual(ns(2 ** 53 + 1), str(2 ** 53 + 1))
 
     def test_quote_has_every_contract_field_and_nulls_for_missing(self):
-        ev = quote_event("AAPL.XNAS", 1, {"bid": "1.00"}, currency="USD", source="SYNTHETIC", data_type="SYNTHETIC",
-                         feed="synthetic", size_unit="shares", ts_source_ns=None, ts_recv_ns=1, ts_pub_ns=2)
+        ev = quote_event("AAPL.XNAS", 1, {"bid": "1.00"}, currency="USD", source="TEST", data_type="REALTIME",
+                         feed="test", size_unit="shares", ts_source_ns=None, ts_recv_ns=1, ts_pub_ns=2)
         contract = {"key", "seq", "bid", "ask", "bid_size", "ask_size", "last", "last_size", "volume", "open", "high",
                     "low", "prev_close", "currency", "source", "data_type", "ts_source_ns", "ts_recv_ns", "ts_pub_ns"}
         self.assertLessEqual(contract, set(ev))
@@ -98,16 +98,28 @@ class EventTests(unittest.TestCase):
 
 
 class ConfigTests(unittest.TestCase):
-    def test_default_is_synthetic_only(self):
+    def test_without_a_config_file_there_is_no_source(self):
         with tempfile.TemporaryDirectory() as tmp:
             cfg = C.load_config(Path(tmp))
-        self.assertEqual(list(cfg.sources), ["SYNTHETIC"])
-        self.assertEqual(cfg.sources_for("AAPL.XNAS"), ("SYNTHETIC",))
-        self.assertTrue(cfg.origin.startswith("default"))
+            sources = C.build_sources(cfg, Path(tmp))
+        self.assertEqual((dict(cfg.sources), sources, cfg.sources_for("AAPL.XNAS")), ({}, {}, ()))
+        self.assertTrue(cfg.origin.startswith("none"))
+        bus = MarketDataBus(cfg, sources)
+        bus.start()
+        try:
+            client = bus.open_client(["AAPL.XNAS"])
+            items = drain_all(client, 0.1)
+        finally:
+            bus.stop()
+        status = [ev for n, ev in items if n == "status"]
+        self.assertEqual([(s["state"], s["code"]) for s in status], [("UNAVAILABLE", "NO_SOURCE")])
+        self.assertNotIn("quote", [n for n, _ in items])
 
-    def test_synthetic_is_refused_alongside_a_real_source(self):
-        with self.assertRaisesRegex(C.MarketDataConfigError, "never used when a real source"):
-            C.config_from_dict({"sources": {"SYNTHETIC": {}, "IBKR": {"lines": 5}}})
+    def test_generated_sources_are_refused_by_configuration(self):
+        for sid in ("SYNTHETIC", "TEST", "FIXTURE", "DEMO"):
+            with self.assertRaisesRegex(C.MarketDataConfigError, "only real data"):
+                C.config_from_dict({"sources": {sid: {"factory": "x:y"}}})
+        self.assertNotIn("SYNTHETIC", C.FACTORIES)
 
     def test_routes_choose_sources_in_fallback_order(self):
         cfg = C.config_from_dict({"sources": {"IBKR": {}, "ALPACA": {}},
@@ -127,9 +139,9 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(sources["BROKEN"].describe()["state"], "unavailable")
 
 
-class SyntheticTests(unittest.TestCase):
+class FeedDoubleTests(unittest.TestCase):
     def test_deterministic_and_labelled(self):
-        a, b = SyntheticSource(run_thread=False), SyntheticSource(run_thread=False)
+        a, b = FeedDouble(run_thread=False), FeedDouble(run_thread=False)
         for src in (a, b):
             src.subscribe("AAPL.XNAS")
         seq_a = [a.step(a._keys["AAPL.XNAS"]) for _ in range(20)]
@@ -139,13 +151,13 @@ class SyntheticTests(unittest.TestCase):
         q = seq_a[0].quote
         from decimal import Decimal
         self.assertLess(Decimal(q["bid"]), Decimal(q["ask"]))
-        self.assertEqual(seq_a[0].trade["conditions"], ["SYNTHETIC"])
-        self.assertEqual(a.data_type, "SYNTHETIC")
+        self.assertEqual(seq_a[0].trade["conditions"], [])
+        self.assertEqual((a.source_id, a.data_type), ("TEST", "REALTIME"))
         self.assertNotEqual(a.base_cents("AAPL.XNAS"), a.base_cents("MSFT.XNAS"))
 
-    def test_events_through_the_bus_carry_the_synthetic_label(self):
-        src = SyntheticSource(run_thread=False, currency_for=C.currency_for)
-        bus = make_bus({"SYNTHETIC": src})
+    def test_events_through_the_bus_carry_the_test_source(self):
+        src = FeedDouble(run_thread=False, currency_for=C.currency_for)
+        bus = make_bus({"TEST": src})
         client = bus.open_client(["AAPL.XNAS"])
         src.emit(src._keys["AAPL.XNAS"])
         items = drain_all(client, 0.1)
@@ -155,7 +167,7 @@ class SyntheticTests(unittest.TestCase):
         self.assertIn("depth", kinds)
         for name, ev in items:
             if name != "status":
-                self.assertEqual((ev["source"], ev["data_type"]), ("SYNTHETIC", "SYNTHETIC"))
+                self.assertEqual((ev["source"], ev["data_type"]), ("TEST", "REALTIME"))
         quote = next(ev for n, ev in items if n == "quote")
         self.assertEqual(quote["currency"], "USD")
         bus.stop()
@@ -274,10 +286,10 @@ class TickStoreTests(unittest.TestCase):
             for i in range(8):
                 store.append({"key": "AAPL.XNAS", "seq": i + 1, "price": "1.00", "size": "1", "exchange": None,
                               "conditions": [], "ts_source_ns": None, "ts_recv_ns": str(now[0] - (8 - i) * 10**9),
-                              "source": "SYNTHETIC", "data_type": "SYNTHETIC", "feed": "synthetic"})
+                              "source": "TEST", "data_type": "REALTIME", "feed": "test"})
             store.append({"key": "OLD.XNAS", "seq": 1, "price": "1.00", "size": "1", "exchange": None,
                           "conditions": [], "ts_source_ns": None, "ts_recv_ns": now[0] - 1000 * 10**9,
-                          "source": "SYNTHETIC", "data_type": "SYNTHETIC", "feed": None})
+                          "source": "TEST", "data_type": "REALTIME", "feed": None})
             store.flush()
             page = store.trades("AAPL.XNAS", limit=3)
             self.assertEqual([r["seq"] for r in page], [8, 7, 6])
@@ -286,7 +298,7 @@ class TickStoreTests(unittest.TestCase):
             self.assertEqual(store.prune(), 4)                # 1 too old + 3 beyond 5 rows per key
             self.assertEqual(len(store.trades("AAPL.XNAS")), 5)
             self.assertEqual(store.trades("OLD.XNAS"), [])
-            self.assertEqual(page[0]["data_type"], "SYNTHETIC")
+            self.assertEqual(page[0]["data_type"], "REALTIME")
             store.close()
 
 
@@ -301,6 +313,11 @@ class ApiTests(unittest.TestCase):
         connect(cls.paths.db("SIM-MD")).close()
         cls.paths.token("api", create=True)
         cls.ctx = ApiContext(cls.paths, "SIM-MD", None, None, False)
+        # The TEST feed double is injected in code: product configuration cannot name it (ADR-0020).
+        from support.fake_marketdata import bus_config
+        cls.ctx.marketdata = MarketDataBus(bus_config(), {"TEST": FeedDouble(currency_for=C.currency_for)},
+                                           store=TickStore(cls.paths.root / "marketdata" / "ticks.sqlite"))
+        cls.ctx.marketdata.start()
         cls.server = make_server(cls.ctx, "127.0.0.1", 0)
         cls.port = cls.server.server_address[1]
         threading.Thread(target=cls.server.serve_forever, daemon=True).start()
@@ -352,7 +369,7 @@ class ApiTests(unittest.TestCase):
         self.assertLessEqual({"status", "quote", "trade"}, names)
         self.assertEqual(next(ev for n, ev in events if n == "status")["key"], "bad key")
         quote = next(ev for n, ev in events if n == "quote")
-        self.assertEqual((quote["source"], quote["data_type"]), ("SYNTHETIC", "SYNTHETIC"))
+        self.assertEqual((quote["source"], quote["data_type"]), ("TEST", "REALTIME"))
         for path in ("/api/marketdata/snapshot?keys=AAPL.XNAS", "/api/marketdata/latency", "/api/marketdata/sources",
                      "/api/marketdata/trades?key=AAPL.XNAS"):
             r, c = self.request(path, cookie)
@@ -363,7 +380,7 @@ class ApiTests(unittest.TestCase):
                 self.assertEqual(set(body["stages"]), {"source_to_recv", "recv_to_pub", "pub_to_write"})
                 self.assertGreater(body["stages"]["pub_to_write"]["count"], 0)
             if path.endswith("sources"):
-                self.assertEqual([s["source"] for s in body["sources"]], ["SYNTHETIC"])
+                self.assertEqual([s["source"] for s in body["sources"]], ["TEST"])
             if "trades" in path:
                 self.assertIn("retention", body)
 

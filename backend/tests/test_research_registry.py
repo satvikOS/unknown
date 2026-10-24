@@ -15,7 +15,7 @@ from unknown.domain.principal import Principal, Role
 from unknown.research.bars import BarSeries, DatasetView, HoldoutGrant, fingerprint_until
 from unknown.research.common import AuthorityError, HoldoutError, RegistryError
 from unknown.research.engine import BacktestConfig, run_backtest
-from unknown.research.fixtures import fixture_instrument, recipe, synthetic_bars
+from support.research_fixtures import fixture_instrument, recipe, synthetic_bars
 from unknown.research.manifest import build_manifest, compare_replay, diff_manifests, verify_manifest
 from unknown.research.registry import ResearchRegistry, default_path
 from unknown.research.strategies import build, buy_and_hold_spec, trend_spec

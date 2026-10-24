@@ -18,7 +18,7 @@ from unknown.api.routes import research as routes
 from unknown.domain.principal import Principal, Role
 from unknown.research.common import HoldoutError
 from unknown.research.registry import ResearchRegistry
-from unknown.research.study import run_fixture_study
+from support.research_study import run_fixture_study
 
 
 _STATE: dict = {}
@@ -29,8 +29,11 @@ def setUpModule():
     root = Path(tmp.name)
     reg_path = root / "research" / "experiments.sqlite"
     reg = ResearchRegistry(reg_path)
+    # T1 is recorded unflagged (as the terminal e2e test registry is); TF keeps the registry's fixture flag, which
+    # product routes never serve (ADR-0020).
     report = run_fixture_study(reg, study_id="T1", sessions=420, core_replay_sessions=100, out_dir=root / "reports",
-                               kinds=("trend", "random_walk"))
+                               kinds=("trend", "random_walk"), fixture_flag=False)
+    run_fixture_study(reg, study_id="TF", sessions=420, core_replay_sessions=0, kinds=("trend",))
     _STATE.update(tmp=tmp, root=root, reg_path=reg_path, reg=reg, report=report)
 
 
@@ -121,7 +124,7 @@ class StudyTest(_Shared):
         from unknown.research import stats
         from unknown.research.spec import parse_spec
         from unknown.research.strategies import trend_spec
-        from unknown.research.study import FIXTURE_PROTOCOL, protocol_statistic, selection_score
+        from support.research_study import FIXTURE_PROTOCOL, protocol_statistic, selection_score
         r = [0.01, -0.02, 0.015, -0.005, 0.02, -0.01, 0.0, 0.004]
         util = {**FIXTURE_PROTOCOL, "statistic": "utility.ch20@1", "utility_c_drawdown": "0.5", "utility_c_es": "0.1"}
         fn, sid = protocol_statistic(util)
@@ -162,6 +165,7 @@ class ResearchRoutesTest(_Shared):
         out = routes.handle(self.ctx(self.root / "nope.sqlite"), ["research", "experiments"], {}, "SIM-1", None)
         self.assertFalse(out["available"])
         self.assertIn("not found", out["unavailable_reason"])
+        self.assertEqual(out["reason"], "NO_DATA")
         self.assertIsNone(out["data"])
 
     def test_every_endpoint_returns_data_with_provenance(self):
@@ -173,10 +177,10 @@ class ResearchRoutesTest(_Shared):
         self.assertTrue(detail["data"]["hash_verified"])
         exps = self.get("experiments")
         self.assertEqual({e["experiment_id"] for e in exps["data"]}, {"T1-TREND", "T1-RWALK"})
-        self.assertTrue(all(e["holdout_consumed"] and e["fixture"] for e in exps["data"]))
+        self.assertTrue(all(e["holdout_consumed"] and "fixture" not in e for e in exps["data"]))
         exp = self.get("experiments", "T1-TREND")
         self.assertTrue(exp["data"]["prereg_hash_verified"])
-        self.assertTrue(exp["provenance"]["fixture"])
+        self.assertNotIn("fixture", exp["provenance"])
         trials = self.get("experiments", "T1-TREND", "trials")["data"]
         self.assertTrue(all("returns" not in t for t in trials))
         one = self.get("trials", trials[0]["trial_id"])["data"]
@@ -185,8 +189,9 @@ class ResearchRoutesTest(_Shared):
         dev = self.get("experiments", "T1-TREND", "trials", segment="DEVELOPMENT")["data"]
         self.assertEqual(len(dev), 6)
         reports = self.get("reports")["data"]
+        self.assertEqual([r["report_id"] for r in reports], ["T1-report"])
         rep = self.get("reports", reports[0]["report_id"])
-        self.assertEqual(rep["provenance"]["label"], "FIXTURE")
+        self.assertNotIn("fixture", rep["data"])
         arts = self.get("artifacts")["data"]
         art = self.get("artifacts", arts[0]["artifact_hash"])["data"]
         self.assertEqual(art["chain_problems"], [])
@@ -197,15 +202,17 @@ class ResearchRoutesTest(_Shared):
             for key in ("source", "path", "read_at_ns"):
                 self.assertIn(key, out["provenance"])
 
-    def test_fixture_trials_and_artifacts_are_labelled_and_segments_validated(self):
-        """Review fix (DAT-06/TRM-03): returns and artifacts from FIXTURE experiments carry the FIXTURE label."""
-        trials = self.get("experiments", "T1-TREND", "trials")
-        self.assertEqual(trials["provenance"]["label"], "FIXTURE")
-        one = self.get("trials", trials["data"][0]["trial_id"])
-        self.assertEqual((one["provenance"]["fixture"], one["provenance"]["label"]), (True, "FIXTURE"))
-        art = self.get("artifacts", self.get("artifacts")["data"][0]["artifact_hash"])
-        self.assertEqual(art["provenance"]["label"], "FIXTURE")
-        self.assertEqual(self.get("experiments", "T1-TREND")["provenance"]["label"], "FIXTURE")
+    def test_fixture_flagged_rows_are_never_served_and_segments_validated(self):
+        """ADR-0020: rows the registry flags as FIXTURE (test data) are omitted from lists and 404 when read."""
+        self.assertNotIn("TF-TREND", {e["experiment_id"] for e in self.get("experiments")["data"]})
+        flagged_trial = self.reg.trials("TF-TREND", None)[0]["trial_id"]
+        for parts in (("experiments", "TF-TREND"), ("experiments", "TF-TREND", "trials"), ("trials", flagged_trial),
+                      ("reports", "TF-report")):
+            with self.assertRaisesRegex(LookupError, "never served", msg=str(parts)):
+                self.get(*parts)
+        counts = self.get()["data"]["counts"]
+        self.assertEqual((counts["experiment"], counts["report"]), (2, 1))
+        self.assertEqual(counts["trial"], sum(len(self.reg.trials(e, None)) for e in ("T1-TREND", "T1-RWALK")))
         with self.assertRaises(ValueError):
             self.get("experiments", "T1-TREND", "trials", segment="BOGUS")
 
