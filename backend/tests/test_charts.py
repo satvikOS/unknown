@@ -1,4 +1,4 @@
-"""Chart bars (CAP-MKT-07): exact session-anchored aggregation, gaps, source labels and the synthetic rule.
+"""Chart bars (CAP-MKT-07): exact session-anchored aggregation, gaps, source labels and the real-data-only rule (ADR-0020).
 
 Every price and volume below is a TEST FIXTURE, not market data. Alpaca replies are hand-written fixtures in the
 documented shape (docs.alpaca.markets, stock bars v2); no network is used.
@@ -178,7 +178,7 @@ class ServiceCase(unittest.TestCase):
         return service.bars(self.ctx, q, None, now_ns=self.NOW, http_get=http_get)
 
 
-class StoredAndSyntheticTests(ServiceCase):
+class StoredTests(ServiceCase):
     def test_stored_bars_are_labelled_with_their_provider_and_unadjusted(self):
         self.store()
         r = self.bars(key="AAPL.XNYS", interval="1d", from_ns=ns(2026, 10, 19, 0, 0), to_ns=ns(2026, 10, 23, 0, 0))
@@ -193,22 +193,20 @@ class StoredAndSyntheticTests(ServiceCase):
         r = self.bars(key="AAPL.XNYS", interval="1w", from_ns=ns(2026, 10, 19, 0, 0), to_ns=ns(2026, 10, 23, 0, 0))
         self.assertEqual((r["source"], r["bars"][0]["close"], r["bars"][0]["volume"]), ("OTHERBROKER", "100.25", "37035"))
 
-    def test_fixture_rows_never_chart_and_synthetic_is_labelled(self):
+    def test_fixture_rows_never_chart_and_nothing_is_generated(self):
         self.store(fixture=1)
         r = self.bars(key="AAPL.XNYS", interval="1d")
-        self.assertEqual((r["source"], r["data_type"]), ("SYNTHETIC", "SYNTHETIC"))
-        self.assertTrue(r["label"].startswith("SYNTHETIC"))
-        self.assertGreater(r["count"], 400)
-        again = self.bars(key="AAPL.XNYS", interval="1d")
-        self.assertEqual(r["bars"], again["bars"])                       # deterministic demo data
+        self.assertEqual((r["available"], r["source"], r["data_type"], r["bars"], r["reason"]),
+                         (False, None, None, [], "NO_SOURCE"))
 
-    def test_synthetic_is_refused_when_a_real_source_is_configured(self):
+    def test_an_empty_range_is_no_data_and_never_substituted(self):
         self.store()
-        with self.assertRaisesRegex(ValueError, "SYNTHETIC refused"):
-            self.bars(key="AAPL.XNYS", interval="1d", source="SYNTHETIC")
+        for generated in ("SYNTHETIC", "TEST"):
+            with self.assertRaisesRegex(ValueError, "unknown source"):
+                self.bars(key="AAPL.XNYS", interval="1d", source=generated)
         r = self.bars(key="AAPL.XNYS", interval="1d", from_ns=ns(2026, 1, 5, 0, 0), to_ns=ns(2026, 1, 9, 0, 0))
-        self.assertEqual((r["source"], r["count"], r["available"]), ("IBKR", 0, False))
-        self.assertIn("not substituted", r["missing_reason"])
+        self.assertEqual((r["source"], r["count"], r["available"], r["reason"]), ("IBKR", 0, False, "NO_DATA"))
+        self.assertIn("nothing is substituted", r["missing_reason"])
 
     def test_owner_source_order_is_honoured(self):
         self.store()
@@ -254,23 +252,23 @@ class AlpacaTests(ServiceCase):
         self.assertEqual(int(b["start_ns"]), ns(2026, 10, 20, 9, 30))
         self.assertNotIn("FIXTURE-SECRET", json.dumps(r))
 
-    def test_failure_is_reported_and_never_replaced_by_synthetic(self):
+    def test_failure_is_reported_as_an_error_and_never_replaced(self):
         self.alpaca_keys(feed="sip")
         r = self.bars(self.http([{"message": "forbidden"}], status=403), key="AAPL.XNAS", interval="1d")
-        self.assertEqual((r["available"], r["source"], r["bars"]), (False, None, []))
+        self.assertEqual((r["available"], r["source"], r["bars"], r["reason"]), (False, None, [], "ERROR"))
         alp = next(s for s in r["sources_considered"] if s["source"] == "ALPACA")
         self.assertIn("HTTP 403", alp["error"])
 
-    def test_non_us_market_is_not_covered_so_the_demo_may_use_synthetic(self):
+    def test_non_us_market_is_not_covered_so_there_is_no_source(self):
         self.alpaca_keys()
         r = self.bars(self.http([self.PAGE1]), key="SAP.XETR", interval="1d")
-        self.assertEqual((r["source"], self.calls), ("SYNTHETIC", []))
+        self.assertEqual((r["source"], r["bars"], r["reason"], self.calls), (None, [], "NO_SOURCE", []))
 
     def test_sources_endpoint_lists_availability(self):
         self.alpaca_keys()
         got = service.sources(self.ctx, {"key": "AAPL.XNYS"}, None, now_ns=self.NOW)
         self.assertEqual([(s["source"], s["configured"], s["covers"]) for s in got["sources"]],
-                         [("ALPACA", True, True), ("SYNTHETIC", False, True)])
+                         [("ALPACA", True, True)])
 
 
 class BoundaryTests(unittest.TestCase):
@@ -292,7 +290,8 @@ class ChartsServerTests(LiveCase):
         self.assertEqual((status, got["code"]), (401, "LOGIN_REQUIRED"))
         cookie, _ = self.login()
         status, got, _ = self.call("GET", "/api/charts/bars?key=SAP.XETR&interval=1w", cookie=cookie)
-        self.assertEqual((status, got["data_type"], got["interval"]), (200, "SYNTHETIC", "1w"))
+        self.assertEqual((status, got["available"], got["data_type"], got["reason"], got["interval"]),
+                         (200, False, None, "NO_SOURCE", "1w"))
 
 
 if __name__ == "__main__":
