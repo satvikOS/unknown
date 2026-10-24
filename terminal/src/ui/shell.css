@@ -285,8 +285,8 @@
   outline-offset: 1px;
 }
 /* The focused row (or a focused marker) shows each reason code inline; the tooltip carries the sentence. */
-tr:focus .nv[data-reason]::after,
-.nv[tabindex='0']:focus::after {
+tr:focus .nv-missing[data-reason]::after,
+.nv-missing[tabindex='0']:focus::after {
   content: ' ' attr(data-reason);
   font-size: 9px;
   letter-spacing: 0.04em;
