@@ -164,10 +164,13 @@ class SpendLedger:
 
     # ------------------------------------------------------------------ reserve / settle
     def reserve(self, *, job_id: str, role: str, provider: str, model_id: str, amount: Money,
-                job_cap: Money | None = None, purpose: str = "generate", note: str = "") -> Reservation:
+                job_cap: Money | None = None, purpose: str = "generate", note: str = "",
+                role_day_cap: Money | None = None) -> Reservation:
         """Reserve ``amount`` against every cap atomically, or raise.
 
         ``job_cap`` (the envelope's spend cap) can only lower the owner's per-job cap.
+        ``role_day_cap`` (an AI process's own per-day cap, ``agents/processes``) adds one more check on this
+        role's spend today, in the same transaction; it can only refuse, never widen an owner cap.
         A zero amount is an admission record (used for calls whose billing is free or
         undocumented); it is still refused when any cap is already exhausted.
         """
@@ -183,6 +186,8 @@ class SpendLedger:
             raise BudgetError("reservation amount must not be negative")
         if job_cap is not None and job_cap.currency != caps.currency:
             raise BudgetError("job cap currency differs from the owner policy currency")
+        if role_day_cap is not None and (not isinstance(role_day_cap, Money) or role_day_cap.currency != caps.currency):
+            raise BudgetError("role day cap must be Money in the owner policy currency")
         role_cap = None
         if caps.per_role_per_day is not None:
             role_cap = caps.per_role_per_day.get(role)
@@ -200,6 +205,8 @@ class SpendLedger:
             checks.append(("month", caps.per_month, "month = ?", (month,)))
         if role_cap is not None:
             checks.append((f"role:{role}:day", role_cap, "role = ? AND day = ?", (role, day)))
+        if role_day_cap is not None:
+            checks.append((f"process:{role}:day", role_day_cap, "role = ? AND day = ?", (role, day)))
         if pcaps is not None and pcaps.lifetime is not None:
             checks.append((f"provider:{provider}:lifetime", pcaps.lifetime, "provider = ?", (provider,)))
         if pcaps is not None and pcaps.per_day is not None:
