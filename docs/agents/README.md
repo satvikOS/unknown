@@ -100,7 +100,7 @@ Tool use is provider-neutral: the model asks for a tool through the `tool_reques
 1. **Write the policy file.** It goes at `~/.unknown/config/agents.json` (or `$UNKNOWN_HOME/config/agents.json`), mode `0600`, owned by you. Money values are decimal strings; JSON numbers are refused for money.
 2. **Provide the API key.** Use the environment variable named in `api_key_env`. For Anthropic you can instead use a file under `~/.unknown/secrets/` named by `api_key_file`; it must be mode `0600` or it is refused. Keys are never stored in the policy file and never logged.
 3. **Approve the tariff rows.** In `config/models/tariffs.json`, re-verify each price against the provider's pricing page and set `approved_by` on the rows you rely on. Shipped rows are all unapproved, so admission refuses until you do this. With `refusal_fallback: "default"`, also approve the rows of the fallback targets (`claude-opus-4-8`, `claude-opus-5`), because the worst case must bound a fallback attempt.
-4. **Approve models per role.** Add an entry to `config/models/approved.json` (shipped empty). In code, the catalog comes from a live list call; approval entries name the exact id from that snapshot. The exact entry for Claude Opus 5.5 and the research role is in [step 3 below](#owner-steps-for-a-live-job).
+4. **Approve models per role.** Add an entry to `config/models/approved.json` (it ships with one entry: `claude-opus-5-5` for the `analyst` role, see [AI analyst](#ai-analyst-ask)). In code, the catalog comes from a live list call; approval entries name the exact id from that snapshot. The exact entry for Claude Opus 5.5 and the research role is in [step 3 below](#owner-steps-for-a-live-job).
 
 ### `agents.json` schema (schema_version 1)
 
@@ -181,7 +181,7 @@ Never sent:
 - `temperature`, `top_p` and `top_k`, which return 400 since 2026-10-21;
 - forced `tool_choice`;
 - `output_format`, which is deprecated (structured output goes through `output_config.format`);
-- `cache_control`, so no cache writes are billed;
+- `cache_control`, so no cache writes are billed (research jobs only; the AI analyst caches its prompt, see [AI analyst](#ai-analyst-ask));
 - an assistant prefill.
 
 `stop_reason` is checked before content: `refusal`, with `stop_details.category`, becomes a typed abstention. `usage.iterations` prices each fallback attempt at its own model's rate. A mismatch between the requested and reported `inference_geo`, or a returned model that is not an expected fallback, is quarantined.
@@ -332,6 +332,72 @@ Everything here stays on this Mac; nothing below is committed except the approva
 - **Truncation.** A truncated answer is retried once with twice the output tokens.
 - **Caps.** Every call is checked against 2.00 USD per job and 15.00 USD per day.
 
+## AI analyst (ASK)
+
+Status (ADR-0001): **implemented and tested offline; one live run** (below). The owner asks a question in the terminal (`ASK`, or `<SECURITY> ASK` about the linked security; workspace `ask`, g k). A Claude tool-use loop answers it from the platform's own read-only data, streams the answer back, and cites the tool results it used. The answer is advisory and labelled AI. No analyst tool can place, change or cancel orders, start sessions, move money or write to the core.
+
+```
+terminal ── POST /api/ai/ask ──> API ──writes──> agents/analyst_jobs.sqlite + agents/analyst.sqlite (thread, question)
+   ^                                                      │ claim / finish                ^ events, results, answer
+   └── GET /api/ai/stream (SSE, replay after Last-Event-ID) ──┘             analyst worker (agents venv, holds the key)
+                                                                            ├─ ledger.sqlite (shared caps), audit.sqlite
+                                                                            └─ read-only: research.sqlite, raw layer, news.sqlite
+```
+
+**Processes.** The API (IBKR venv) only relays: it writes the analyst job store and the thread store and streams stored events. It imports no provider, loop, worker, data-source or SDK module (`tests/test_agents_analyst.py::ApiNeverLoadsTheAnalystLoopTest`). The worker is `python -m unknown.agents.analyst` under the agents venv. It is the research model worker (`worker.py`) with its own job store and lock, so it inherits the policy re-read before every job, per-role concurrency, deadline expiry, cancellation, crash recovery against the ledger, the shared spend ledger and the audit trail. It holds no broker credential and delivers nothing to the core.
+
+**One question** (`agents/analyst/loop.py`) runs at most 12 model turns and 24 tool calls. Each turn goes through the same controls as research jobs, in the same order: routability, the data-use gate for counting, the token count, context fit and token cap, the worst case, the data-use gate for generation, the circuit breaker, a reservation against every owner cap, the streamed call, and settlement.
+- The worst case prices the 5-minute cache-write multiplier.
+- The generation gate covers every dataset already in the context, including those behind earlier answers in the thread.
+- Settlement is at the exact tariff cost. The reservation stays UNCONFIRMED when usage is incomplete, a rate is unverified, or the owner cancelled mid-stream.
+
+The answer records the model, the effort, the tokens (input, output, cache read, cache write) and the cost.
+
+**Request** (`stream_client.py`; Claude API skill docs for streaming, tool use, adaptive thinking and prompt caching; SDK 1.12.1 signatures checked):
+- `client.messages.stream(model, max_tokens, system, tools, messages, output_config={"effort"}, inference_geo)`.
+- `thinking` is omitted (adaptive on the default model).
+- `tool_choice` is auto. Temperature and sampling parameters and fallbacks are never sent.
+- Prompt caching uses two breakpoints: one on the system block, which caches tools plus system, and a moving one on the newest user block, which caches the tool loop.
+- The model id comes from `approved.json` and the owner's `default_model`, never from code.
+
+**Tools** (`toolspec.py`, read-only, every one on the envelope's allowlist and nothing else). The registry refuses write-capable names, and `sources.py` opens every store with `mode=ro`. Before reading, a tool checks that each dataset the result would come from permits cloud-model processing (ADR-0015). If one does not, it reads nothing and returns `UNAVAILABLE`/`NOT_ENTITLED` with the reason. The tool gateway checks the same rights again on what comes back. Results enter the context as untrusted data blocks behind a random nonce; their ids (`R1`, `R2`, ...) are the citation refs.
+
+| Tool | Data | Gives values today |
+|---|---|---|
+| `company_search`, `company_filings` | SEC tickers and submissions (research store and raw layer) | yes |
+| `company_financials` | SEC XBRL company facts, standardised statements (std-map@1) | yes |
+| `news_search`, `news_item` | news store FTS (SEC filings feed, SEC and Fed releases; other sources filtered out) | yes, for permitted sources |
+| `market_bars` | stored bars (`mkt_bar`) | no: none stored on this Mac, and their datasets do not permit model processing |
+| `market_snapshot` | live quotes | no: they live in the core and API processes' bus; the worker has no market-data connection |
+| `macro_overview`, `us_yield_curve` | World Bank, OECD, BIS, FRED, Treasury | no: the registry grants no cloud-model processing |
+| `portfolio_positions` | core ledger lots and balances (read-only) | no until the owner registers `owner.portfolio` for model processing |
+| `data_capabilities` | capability register and reason codes (platform text) | yes |
+
+**Citations** (`citations.py`). The model must cite a ref after every factual line. A deterministic check then marks each statement `cited` or `unsourced`, lists refs that name no result, and looks up every number of a cited line in the cited results (exact, or rounded at the stated precision with thousand/million/billion scaling). The terminal greys and flags unsourced lines and unmatched numbers. Each citation opens its stored result in a side panel.
+
+**Threads** live in `agents/analyst.sqlite`. A follow-up carries the thread's last 6 questions and answers. A thread whose last question is unanswered refuses another (HTTP 409). Every question gets an answer record, including when its job is refused, expires, is cancelled or is recovered after a crash.
+
+**Cancel.** `POST /api/ai/jobs/<id>/cancel` cancels a queued question at once. A running one is cancelled at the next stream event: the stream is closed, the output is discarded, and the reservation stays UNCONFIRMED.
+
+**Owner setup.**
+1. `config/models/approved.json` has `claude-opus-5-5` for role `analyst`. It cites the owner's USD 200 authorisation (2026-10-22) and the owner's instruction to build AI into the platform (2026-10-24).
+2. The owner policy needs `"concurrency": {"per_role": {"analyst": 1}}`. It was added on this Mac; caps were unchanged.
+3. The Opus 5.5 tariff row's cache-write multipliers (5m 1.25x, 1h 2x) are marked verified against the skill's prompt-caching reference, so cache writes settle exactly.
+4. Start the worker: `cd backend && PYTHONPATH=src ~/.unknown/venvs/agents/bin/python -m unknown.agents.analyst` (`--check` lists what is missing, with no network call).
+
+**Live run (2026-10-24, `UNKNOWN_HOME=~/.unknown`).** Question: "Summarise AAPL's latest 10-Q and its most recent 8-K filings with sources".
+- The job (id starting `ask-d28cd9c7`) succeeded in 3 model turns and 4 tool calls: `company_search` R1, `company_filings` R2 and R3, `company_financials` R4.
+- The answer cited 29 of 36 statements, with 0 numbers unmatched. Under the current rule, which treats bold-only lines as headings, it is 29 of 33: the 4 unsourced lines are sub-bullets listing what the missing filing text would be needed for.
+- Usage: 8 input, 2,306 output, 6,682 cache-read and 17,728 cache-write tokens.
+- Settled exactly in the ledger at **USD 0.1361284000**.
+- First line of the answer: "Apple's latest 10-Q covers its fiscal Q3 2026, the quarter ended 2026-06-27, and was filed on 2026-07-31 [R2]."
+
+**Not built.**
+- Filing full text: the platform stores the filing index and XBRL facts, not documents. Span-level quotes at offsets (CAP-NEWS-12) are therefore not possible yet.
+- Answers from market data, macro and portfolio data, which wait on data rights.
+- Server-side refusal fallback for the analyst.
+- Calibration of the citation check against a gold set.
+
 ## Verified versus open
 
 ### Adapters: what is implemented from the register and where they refuse to guess
@@ -439,9 +505,9 @@ Only numbers present in the register, or in the coordinator-supplied Claude API 
 
 - Mistral adapter.
 - Batch (CAP-MODEL-07).
-- Prompt caching (CAP-MODEL-08). The xAI `x-grok-conv-id` header is recorded but unused.
-- Native per-provider tool-call translation (CAP-MODEL-03). Tools use `tool_requests` in structured output.
-- Streaming and SSE mid-stream error mapping.
+- Prompt caching (CAP-MODEL-08) for research jobs; only the AI analyst caches (Anthropic). The xAI `x-grok-conv-id` header is recorded but unused.
+- Native per-provider tool-call translation (CAP-MODEL-03) for research jobs, which use `tool_requests` in structured output. The AI analyst uses Anthropic's native tool use.
+- Streaming for research jobs. The AI analyst streams; an error in mid-stream is classified like any other and its partial text is discarded (`reset`).
 - Case-insensitive enum comparison for Anthropic. No current schema has an enum.
 - The licensed or personal enum/const literal check (CAP-MODEL-02).
 - Calibration tables for token estimates.

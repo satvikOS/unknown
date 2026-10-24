@@ -67,11 +67,18 @@ class ShippedTariffFileTest(unittest.TestCase):
         with self.assertRaises(TariffIncomplete):  # sonnet cached rate: sources conflict
             self.book.cost(Usage("anthropic", "claude-sonnet-5-5", input_tokens=10, cached_read_tokens=5), at_ns=AT)
         with self.assertRaises(TariffIncomplete):  # cache-write multipliers recorded as unverified
-            self.book.cost(Usage("anthropic", "claude-opus-5-5", input_tokens=10, cache_write_tokens={"5m": 5}), at_ns=AT)
+            self.book.cost(Usage("anthropic", "claude-haiku-5-5", input_tokens=10, cache_write_tokens={"5m": 5}), at_ns=AT)
         with self.assertRaises(NoTariff):
             self.book.cost(Usage("anthropic", "claude-opus-5-5", input_tokens=10, region="us"), at_ns=AT)
         with self.assertRaises(NoTariff):
             self.book.cost(Usage("xai", "grok-4.7", input_tokens=10), at_ns=utc_ns(2026, 10, 21, 0, 0, 0))
+
+    def test_opus_cache_writes_are_verified_for_the_analysts_prompt_cache(self):
+        # 5-minute writes at 1.25x and 1-hour writes at 2x of the 4.00 input rate (re-checked 2026-10-24)
+        cost = self.book.cost(Usage("anthropic", "claude-opus-5-5", input_tokens=10, cache_write_tokens={"5m": 1_000_000}), at_ns=AT)
+        self.assertEqual(cost.amount, per_million(10, Fixed.parse("4.00")) + Fixed.parse("5.00"))
+        hour = self.book.cost(Usage("anthropic", "claude-opus-5-5", cache_write_tokens={"1h": 1_000_000}), at_ns=AT)
+        self.assertEqual(hour.amount, Fixed.parse("8.00"))
 
     def test_haiku_band_counts_cache_reads(self):
         lower = self.book.cost(Usage("anthropic", "claude-haiku-5-5", input_tokens=100_000, output_tokens=1000), at_ns=AT)

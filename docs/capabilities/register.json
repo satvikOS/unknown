@@ -10209,12 +10209,38 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "implemented",
+        "files": [
+          "backend/src/unknown/agents/analyst",
+          "backend/src/unknown/api/routes/ai.py",
+          "terminal/src/workspaces/ask"
         ],
-        "requirements": []
+        "tests": [
+          "backend/tests/test_agents_analyst.py::CitationCheckTest.test_cited_unsourced_invalid_and_numbers",
+          "backend/tests/test_agents_analyst.py::CitationCheckTest.test_rounding_respects_the_stated_precision",
+          "backend/tests/test_agents_analyst.py::AnalystWorkerTest.test_tool_loop_streams_cites_settles_exactly_and_caches_the_prefix",
+          "backend/tests/test_agents_analyst.py::AnalystWorkerTest.test_tools_outside_the_allowlist_and_unlicensed_data_never_reach_the_model",
+          "backend/tests/test_agents_analyst.py::AnalystWorkerTest.test_injected_instructions_stay_inside_the_untrusted_block",
+          "backend/tests/test_agents_analyst.py::SourcesTest.test_rights_are_checked_before_anything_is_read",
+          "backend/tests/test_agents_analyst.py::AiRoutesTest.test_ask_stream_open_a_citation_and_cancel",
+          "terminal/src/workspaces/ask/render.test.ts::ask answer view > labels the answer AI, links citations and flags unsourced lines and unmatched numbers",
+          "terminal/src/workspaces/ask/model.test.ts::ask answer markup > opens a tool result inside its untrusted-data markers"
+        ],
+        "evidence": [
+          "The AI analyst (ASK) answers an owner question with a streamed Claude tool-use loop over read-only platform data (SEC submissions and company facts, the news store); every statement must cite the tool results it used (R1, R2, ...), and a citation opens the stored result exactly as the model saw it in the terminal's side panel.",
+          "A deterministic post-check labels each statement cited or unsourced, lists refs that name no result, and gives every number of a cited line a match status against the cited results (exact, or rounded at the stated precision with scaling); the terminal flags unsourced lines and unmatched numbers.",
+          "Datasets without cloud-model rights are never read into a model context: the tool returns the reason instead (zero bytes of their content reach the fake provider in the tests).",
+          "One live run on this Mac (2026-10-24, UNKNOWN_HOME=~/.unknown, claude-opus-5-5, effort medium): 'Summarise AAPL's latest 10-Q and its most recent 8-K filings with sources' was answered in 3 model turns and 4 read-only tool calls (company_search, company_filings x2, company_financials); 29 of 33 statements cited, 0 numbers unmatched; the ledger settled it exactly at USD 0.1361284000 (cache read 6,682 and cache write 17,728 tokens)."
+        ],
+        "gaps": [
+          "citations are record-level (one tool result), not span-level: filing and transcript text is not ingested, so no quote can be checked against source offsets (AC1)",
+          "no gold QA set or unsupported_claim_rate measurement (AC3)",
+          "no owner selection of documents for multi-document Q&A; the model chooses tools",
+          "answers are not stored as derived artifacts invalidated when a cited source version changes (AC5)"
+        ],
+        "requirements": [],
+        "updated": "2026-10-24",
+        "verified_against": "feat/ai-analyst@c36dd7f"
       }
     },
     {
@@ -24598,7 +24624,10 @@
           "backend/src/unknown/agents/evidence.py",
           "backend/src/unknown/agents/pit_evidence.py",
           "backend/src/unknown/api/routes/research_jobs.py",
-          "terminal/src/workspaces/research-jobs/JobDetailView.tsx"
+          "terminal/src/workspaces/research-jobs/JobDetailView.tsx",
+          "backend/src/unknown/agents/analyst",
+          "backend/src/unknown/api/routes/ai.py",
+          "terminal/src/workspaces/ask"
         ],
         "tests": [
           "backend/tests/test_agents_pit_evidence.py::EvidenceTest.test_pinned_evidence_ignores_later_knowledge_and_later_publications",
@@ -24606,25 +24635,33 @@
           "backend/tests/test_agents_runner.py::RunnerTest.test_happy_path_submits_a_verified_proposal_and_settles_exactly",
           "backend/tests/test_api_research_jobs.py::TerminalToCoreEndToEndTest.test_question_to_recorded_proposal",
           "backend/tests/test_research_proposal_v2.py::WorkerEmitsVersionTwoEndToEndTest.test_agent_job_end_to_end_records_a_typed_v2_proposal",
-          "terminal/src/workspaces/research-jobs/render.test.ts::proposal panel, schema version 2 > shows the verified claims and the typed evidence references instead of \"None cited.\""
+          "terminal/src/workspaces/research-jobs/render.test.ts::proposal panel, schema version 2 > shows the verified claims and the typed evidence references instead of \"None cited.\"",
+          "backend/tests/test_agents_analyst.py::AnalystWorkerTest.test_tool_loop_streams_cites_settles_exactly_and_caches_the_prefix",
+          "backend/tests/test_agents_analyst.py::AnalystWorkerTest.test_a_continued_thread_sends_the_earlier_question_and_answer",
+          "backend/tests/test_agents_analyst.py::AnalystWorkerTest.test_cancel_mid_stream_discards_the_output_and_keeps_the_money_reserved",
+          "backend/tests/test_agents_analyst.py::AnalystWorkerTest.test_caps_refuse_before_any_call_and_threads_never_stay_blocked",
+          "backend/tests/test_agents_analyst.py::ApiNeverLoadsTheAnalystLoopTest.test_route_modules_load_no_loop_worker_source_or_sdk",
+          "terminal/src/workspaces/ask/registration.test.ts::ask registration > opens with ASK and with <SECURITY> ASK on the command line"
         ],
         "evidence": [
           "A research question becomes a pinned job over point-in-time XBRL fact spans; cited spans, quotes and numbers are verified before a proposal is recorded in the core.",
           "One live call of claude-opus-5-5 ran in CI (GitHub Actions run 39798075556, workflow live-anthropic, 2026-10-22, commit 7eae251): tests.test_agents_live_anthropic passed; token count by the provider endpoint (1,306 prompt tokens); reserved and settled USD 0.00822400.",
-          "Proposals are research_proposal v2: a claim is evidence only when every span it cites yields a typed reference from store provenance (BR-DAT-12). The terminal's Research jobs workspace shows the claims and references."
+          "Proposals are research_proposal v2: a claim is evidence only when every span it cites yields a typed reference from store provenance (BR-DAT-12). The terminal's Research jobs workspace shows the claims and references.",
+          "Grounded Q&A in the terminal (ASK): threads, streamed answers with model, effort, tokens and exact cost, cancel, and read-only tools under the agent layer's budgets, tariffs, data-use gate, tool allowlist and audit trail (role analyst).",
+          "One live run on this Mac (2026-10-24, UNKNOWN_HOME=~/.unknown, claude-opus-5-5, effort medium): 'Summarise AAPL's latest 10-Q and its most recent 8-K filings with sources' was answered in 3 model turns and 4 read-only tool calls (company_search, company_filings x2, company_financials); 29 of 33 statements cited, 0 numbers unmatched; the ledger settled it exactly at USD 0.1361284000 (cache read 6,682 and cache write 17,728 tokens)."
         ],
         "gaps": [
           "filing and document text is not ingested: spans are XBRL facts only",
           "no generated query code (AC3)",
           "no evaluation set or citation metrics (AC1)",
-          "no live research job has run on this Mac: the model is not approved in config/models/approved.json and no key is installed"
+          "no live job of the research role has run on this Mac (the analyst role has; see evidence)"
         ],
         "requirements": [
           "AI-04",
           "DAT-05"
         ],
-        "updated": "2026-10-22",
-        "verified_against": "impl/foundation@8b98d00"
+        "updated": "2026-10-24",
+        "verified_against": "feat/ai-analyst@c36dd7f"
       }
     },
     {
@@ -24892,7 +24929,7 @@
         "gaps": [
           "no evaluation records, so routing is by owner order, not measured quality (AC4)",
           "no routing log with scores (AC3)",
-          "approved.json ships empty"
+          "approved.json approves one model for one role only (claude-opus-5-5 for the analyst, 2026-10-24); research has none"
         ],
         "requirements": [
           "AI-02"
@@ -30055,7 +30092,7 @@
           "backend/src/unknown/agents/providers/gemini.py"
         ],
         "tests": [
-          "backend/tests/test_agents_catalog.py::CatalogTest.test_shipped_approvals_file_is_empty",
+          "backend/tests/test_agents_catalog.py::CatalogTest.test_shipped_approvals_cover_only_the_analyst_role",
           "backend/tests/test_agents_catalog.py::CatalogTest.test_approved_id_missing_becomes_non_routable_with_alert",
           "backend/tests/test_agents_catalog.py::CatalogTest.test_failed_refresh_keeps_last_good_and_auth_failure_blocks",
           "backend/tests/test_agents_static.py::StaticTest.test_no_model_id_literals_in_application_source",

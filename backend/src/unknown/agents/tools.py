@@ -50,6 +50,9 @@ class Decision(enum.Enum):
 class ToolOutput:
     text: str
     dataset_id: str
+    # Further datasets the content was drawn from (one result may combine several, e.g. a news search across
+    # sources). Every one of them must permit cloud-model processing, exactly like ``dataset_id``.
+    also_from: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -124,7 +127,7 @@ class ToolGateway:
             return self._deny(call_id, name, "invalid_arguments", "; ".join(errors[:5]))
         out = spec.handler(args)
         self.executed += 1
-        if not self.rights_ok(out.dataset_id):
+        if not all(self.rights_ok(d) for d in (out.dataset_id, *out.also_from)):
             self.log.append({"call_id": call_id, "tool": name, "decision": "executed", "rule_id": "rights_redacted"})
             return ToolResult(call_id, name, Decision.EXECUTED, "rights_redacted",
                               "tool result withheld: its source dataset does not permit cloud-model processing")

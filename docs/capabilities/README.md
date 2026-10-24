@@ -24,7 +24,7 @@ call under the cited `describe` titles; `--run-tests` runs the cited backend tes
 Playwright end-to-end tests (`terminal/e2e`) and the tests marked IBKR venv run only locally. Passing offline tests is
 evidence of offline behaviour only.
 
-Checked against `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readiness@9914972` on 2026-10-23; `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data@77c16d1` on 2026-10-23; `feat/live-news@5e8a06c` on 2026-10-23; `feat/workstation-shell@c052431` on 2026-10-23; `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d00` on 2026-10-22.
+Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readiness@9914972` on 2026-10-23; `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data@77c16d1` on 2026-10-23; `feat/live-news@5e8a06c` on 2026-10-23; `feat/workstation-shell@c052431` on 2026-10-23; `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d00` on 2026-10-22.
 
 ## Summary by area
 
@@ -33,7 +33,7 @@ Checked against `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readine
 | instruments | 14 | 6 | 0 | 2 | 6 | 0 | 0 |
 | market-data | 13 | 4 | 0 | 5 | 4 | 0 | 0 |
 | company-research | 14 | 3 | 0 | 2 | 9 | 0 | 0 |
-| news-documents | 14 | 9 | 0 | 0 | 5 | 0 | 0 |
+| news-documents | 14 | 8 | 0 | 1 | 5 | 0 | 0 |
 | macro-rates-fx | 14 | 10 | 0 | 2 | 2 | 0 | 0 |
 | portfolio-risk | 13 | 4 | 0 | 0 | 9 | 0 | 0 |
 | multiasset | 14 | 14 | 0 | 0 | 0 | 0 | 0 |
@@ -46,7 +46,7 @@ Checked against `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readine
 | model-providers | 12 | 1 | 0 | 1 | 10 | 0 | 0 |
 | regulatory | 13 | 7 | 0 | 2 | 4 | 0 | 0 |
 | ops-aws | 14 | 7 | 0 | 4 | 3 | 0 | 0 |
-| **all** | 217 | 87 | 0 | 32 | 98 | 0 | 0 |
+| **all** | 217 | 86 | 0 | 33 | 98 | 0 | 0 |
 
 ## Capabilities
 
@@ -122,7 +122,7 @@ Checked against `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readine
 | CAP-NEWS-09 | P1 | Typed corporate event detection from filings, announcements and news | LSEG (Intelligent Tagging NLP service; the fact sheet names Eikon and Reuters Ne | proposed |  | not yet implemented |
 | CAP-NEWS-10 | P1 | Scheduled corporate event calendar (earnings dates, calls, board meetings) | IBKR (TWS API), LSEG Workspace | proposed |  | not yet implemented |
 | CAP-NEWS-11 | P2 | Sentiment scoring for news, filings and transcripts | LSEG (MarketPsych Analytics data feeds; Workspace not named on page), LSEG (Star | proposed |  | not yet implemented |
-| CAP-NEWS-12 | P1 | Grounded summaries and multi-document Q&A with span-level citations | Bloomberg Terminal, LSEG Workspace, S&P Capital IQ Pro | proposed |  | not yet implemented |
+| CAP-NEWS-12 | P1 | Grounded summaries and multi-document Q&A with span-level citations | Bloomberg Terminal, LSEG Workspace, S&P Capital IQ Pro | implemented | 9 | citations are record-level (one tool result), not span-level: filing and transcr |
 | CAP-NEWS-13 | P1 | Alerts on filings, announcements, news and events for watchlists | IBKR (TWS API), LSEG Workspace | tested | 5 | no server-stored alert rules (sources, event types, 8-K item codes, query, senti |
 | CAP-NEWS-14 | P2 | Event studies and news-impact analytics with point-in-time availability | LSEG (StarMine model fact sheet; Workspace not named in document), S&P Capital I | proposed |  | not yet implemented |
 
@@ -250,7 +250,7 @@ Checked against `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readine
 | CAP-AGT-07 | P0 | Secret and sensitive-data isolation for agents (credentials, account ids, owner data) | IBKR, IBKR TWS API, OWASP Top 10 for LLM Applications 2025, SEBI | implemented | 3 | the worker runs as the same OS user as the core, so a same-user process can read |
 | CAP-AGT-08 | P0 | Data-rights gating before content enters a model context (licence, entitlement, retention, provider) | LSEG Workspace, NIST AI RMF 1.0 (AI 100-1), S&P Global / Kensho | tested | 5 | no label propagation to derived summaries and exports (AC2) |
 | CAP-AGT-09 | P0 | Agent audit trail: tamper-evident lineage from evidence to job to proposal to order | FINRA 2026 Annual Regulatory Oversight Report, Model Context Protocol specificat | tested | 7 | proposal-to-order lineage: no order intent consumes research proposals yet |
-| CAP-AGT-10 | P1 | Grounded research Q&A over filings and permitted documents with span-level citations and generated query code | Bloomberg Terminal, LSEG Workspace, OWASP Top 10 for LLM Applications 2025, S&P  | implemented | 6 | filing and document text is not ingested: spans are XBRL facts only |
+| CAP-AGT-10 | P1 | Grounded research Q&A over filings and permitted documents with span-level citations and generated query code | Bloomberg Terminal, LSEG Workspace, OWASP Top 10 for LLM Applications 2025, S&P  | implemented | 12 | filing and document text is not ingested: spans are XBRL facts only |
 | CAP-AGT-11 | P1 | AI summaries of news and earnings events filtered to holdings and watchlists, with provenance | IBKR, LSEG Workspace, NIST AI 600-1 Generative AI Profile, OWASP Top 10 for LLM  | proposed |  | not yet implemented |
 | CAP-AGT-12 | P1 | Model/provider registry with version pinning, measured routing, fallback and change control | Bloomberg Terminal, LSEG Workspace, NIST AI 600-1 Generative AI Profile, NIST AI | implemented | 4 | no evaluation records, so routing is by owner order, not measured quality (AC4) |
 | CAP-AGT-13 | P1 | Agent observability: traces, metrics, cost and quality dashboards with service objectives | NIST AI 600-1 Generative AI Profile, NIST AI RMF 1.0 (AI 100-1), OpenAI Agents S | proposed |  | not yet implemented |
@@ -696,6 +696,19 @@ Checked against `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readine
 - Gap: indexes headlines and feed summaries only (no filing documents, transcripts or licensed news bodies)
 - Gap: no natural-language query, no saved searches as alerts, no export
 - Gap: ranking is newest first, not relevance
+
+### CAP-NEWS-12: Grounded summaries and multi-document Q&A with span-level citations (implemented)
+
+- Files: `backend/src/unknown/agents/analyst`, `backend/src/unknown/api/routes/ai.py`, `terminal/src/workspaces/ask`
+- Tests: `test_agents_analyst::CitationCheckTest.test_cited_unsourced_invalid_and_numbers`; `test_agents_analyst::CitationCheckTest.test_rounding_respects_the_stated_precision`; `test_agents_analyst::AnalystWorkerTest.test_tool_loop_streams_cites_settles_exactly_and_caches_the_prefix`; `test_agents_analyst::AnalystWorkerTest.test_tools_outside_the_allowlist_and_unlicensed_data_never_reach_the_model`; `test_agents_analyst::AnalystWorkerTest.test_injected_instructions_stay_inside_the_untrusted_block`; `test_agents_analyst::SourcesTest.test_rights_are_checked_before_anything_is_read`; `test_agents_analyst::AiRoutesTest.test_ask_stream_open_a_citation_and_cancel`; `src/workspaces/ask/render.test.ts::ask answer view > labels the answer AI, links citations and flags unsourced lines and unmatched numbers`; `src/workspaces/ask/model.test.ts::ask answer markup > opens a tool result inside its untrusted-data markers`
+- Evidence: The AI analyst (ASK) answers an owner question with a streamed Claude tool-use loop over read-only platform data (SEC submissions and company facts, the news store); every statement must cite the tool results it used (R1, R2, ...), and a citation opens the stored result exactly as the model saw it in the terminal's side panel.
+- Evidence: A deterministic post-check labels each statement cited or unsourced, lists refs that name no result, and gives every number of a cited line a match status against the cited results (exact, or rounded at the stated precision with scaling); the terminal flags unsourced lines and unmatched numbers.
+- Evidence: Datasets without cloud-model rights are never read into a model context: the tool returns the reason instead (zero bytes of their content reach the fake provider in the tests).
+- Evidence: One live run on this Mac (2026-10-24, UNKNOWN_HOME=~/.unknown, claude-opus-5-5, effort medium): 'Summarise AAPL's latest 10-Q and its most recent 8-K filings with sources' was answered in 3 model turns and 4 read-only tool calls (company_search, company_filings x2, company_financials); 29 of 33 statements cited, 0 numbers unmatched; the ledger settled it exactly at USD 0.1361284000 (cache read 6,682 and cache write 17,728 tokens).
+- Gap: citations are record-level (one tool result), not span-level: filing and transcript text is not ingested, so no quote can be checked against source offsets (AC1)
+- Gap: no gold QA set or unsupported_claim_rate measurement (AC3)
+- Gap: no owner selection of documents for multi-document Q&A; the model chooses tools
+- Gap: answers are not stored as derived artifacts invalidated when a cited source version changes (AC5)
 
 ### CAP-NEWS-13: Alerts on filings, announcements, news and events for watchlists (tested)
 
@@ -1250,15 +1263,17 @@ Checked against `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readine
 
 ### CAP-AGT-10: Grounded research Q&A over filings and permitted documents with span-level citations and generated query code (implemented)
 
-- Files: `backend/src/unknown/agents/runner.py`, `backend/src/unknown/agents/evidence.py`, `backend/src/unknown/agents/pit_evidence.py`, `backend/src/unknown/api/routes/research_jobs.py`, `terminal/src/workspaces/research-jobs/JobDetailView.tsx`
-- Tests: `test_agents_pit_evidence::EvidenceTest.test_pinned_evidence_ignores_later_knowledge_and_later_publications`; `test_agents_evidence::ClaimVerificationTest.test_verified_claim`; `test_agents_runner::RunnerTest.test_happy_path_submits_a_verified_proposal_and_settles_exactly`; `test_api_research_jobs::TerminalToCoreEndToEndTest.test_question_to_recorded_proposal`; `test_research_proposal_v2::WorkerEmitsVersionTwoEndToEndTest.test_agent_job_end_to_end_records_a_typed_v2_proposal`; `src/workspaces/research-jobs/render.test.ts::proposal panel, schema version 2 > shows the verified claims and the typed evidence references instead of "None cited."`
+- Files: `backend/src/unknown/agents/runner.py`, `backend/src/unknown/agents/evidence.py`, `backend/src/unknown/agents/pit_evidence.py`, `backend/src/unknown/api/routes/research_jobs.py`, `terminal/src/workspaces/research-jobs/JobDetailView.tsx`, `backend/src/unknown/agents/analyst`, `backend/src/unknown/api/routes/ai.py`, `terminal/src/workspaces/ask`
+- Tests: `test_agents_pit_evidence::EvidenceTest.test_pinned_evidence_ignores_later_knowledge_and_later_publications`; `test_agents_evidence::ClaimVerificationTest.test_verified_claim`; `test_agents_runner::RunnerTest.test_happy_path_submits_a_verified_proposal_and_settles_exactly`; `test_api_research_jobs::TerminalToCoreEndToEndTest.test_question_to_recorded_proposal`; `test_research_proposal_v2::WorkerEmitsVersionTwoEndToEndTest.test_agent_job_end_to_end_records_a_typed_v2_proposal`; `src/workspaces/research-jobs/render.test.ts::proposal panel, schema version 2 > shows the verified claims and the typed evidence references instead of "None cited."`; `test_agents_analyst::AnalystWorkerTest.test_tool_loop_streams_cites_settles_exactly_and_caches_the_prefix`; `test_agents_analyst::AnalystWorkerTest.test_a_continued_thread_sends_the_earlier_question_and_answer`; `test_agents_analyst::AnalystWorkerTest.test_cancel_mid_stream_discards_the_output_and_keeps_the_money_reserved`; `test_agents_analyst::AnalystWorkerTest.test_caps_refuse_before_any_call_and_threads_never_stay_blocked`; `test_agents_analyst::ApiNeverLoadsTheAnalystLoopTest.test_route_modules_load_no_loop_worker_source_or_sdk`; `src/workspaces/ask/registration.test.ts::ask registration > opens with ASK and with <SECURITY> ASK on the command line`
 - Evidence: A research question becomes a pinned job over point-in-time XBRL fact spans; cited spans, quotes and numbers are verified before a proposal is recorded in the core.
 - Evidence: One live call of claude-opus-5-5 ran in CI (GitHub Actions run 39798075556, workflow live-anthropic, 2026-10-22, commit 7eae251): tests.test_agents_live_anthropic passed; token count by the provider endpoint (1,306 prompt tokens); reserved and settled USD 0.00822400.
 - Evidence: Proposals are research_proposal v2: a claim is evidence only when every span it cites yields a typed reference from store provenance (BR-DAT-12). The terminal's Research jobs workspace shows the claims and references.
+- Evidence: Grounded Q&A in the terminal (ASK): threads, streamed answers with model, effort, tokens and exact cost, cancel, and read-only tools under the agent layer's budgets, tariffs, data-use gate, tool allowlist and audit trail (role analyst).
+- Evidence: One live run on this Mac (2026-10-24, UNKNOWN_HOME=~/.unknown, claude-opus-5-5, effort medium): 'Summarise AAPL's latest 10-Q and its most recent 8-K filings with sources' was answered in 3 model turns and 4 read-only tool calls (company_search, company_filings x2, company_financials); 29 of 33 statements cited, 0 numbers unmatched; the ledger settled it exactly at USD 0.1361284000 (cache read 6,682 and cache write 17,728 tokens).
 - Gap: filing and document text is not ingested: spans are XBRL facts only
 - Gap: no generated query code (AC3)
 - Gap: no evaluation set or citation metrics (AC1)
-- Gap: no live research job has run on this Mac: the model is not approved in config/models/approved.json and no key is installed
+- Gap: no live job of the research role has run on this Mac (the analyst role has; see evidence)
 - Requirements: AI-04, DAT-05
 
 ### CAP-AGT-12: Model/provider registry with version pinning, measured routing, fallback and change control (implemented)
@@ -1268,7 +1283,7 @@ Checked against `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readine
 - Evidence: Model ids are discovered at runtime and routable only after an owner approval per role; aliases cannot be pinned; a transient error falls back to the next approved candidate after the retry budget.
 - Gap: no evaluation records, so routing is by owner order, not measured quality (AC4)
 - Gap: no routing log with scores (AC3)
-- Gap: approved.json ships empty
+- Gap: approved.json approves one model for one role only (claude-opus-5-5 for the analyst, 2026-10-24); research has none
 - Requirements: AI-02
 
 ### CAP-IBKR-01: TWS API SDK distribution, licensing and TWS/IB Gateway version pinning (tested)
@@ -1480,7 +1495,7 @@ Checked against `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readine
 ### CAP-MODEL-01: Runtime model catalog discovery and capability registry (tested)
 
 - Files: `backend/src/unknown/agents/catalog.py`, `backend/src/unknown/agents/providers/anthropic.py`, `backend/src/unknown/agents/providers/openai.py`, `backend/src/unknown/agents/providers/xai.py`, `backend/src/unknown/agents/providers/gemini.py`
-- Tests: `test_agents_catalog::CatalogTest.test_shipped_approvals_file_is_empty`; `test_agents_catalog::CatalogTest.test_approved_id_missing_becomes_non_routable_with_alert`; `test_agents_catalog::CatalogTest.test_failed_refresh_keeps_last_good_and_auth_failure_blocks`; `test_agents_static::StaticTest.test_no_model_id_literals_in_application_source`; `test_agents_providers::OpenAIDocumentedShapesTest.test_model_object`; `test_agents_providers::XAIDocumentedShapesTest.test_language_model_prices_are_stored_unchanged_and_converted_only_for_cross_check`; `test_agents_providers::AnthropicAdapterTest.test_count_tokens_and_list_models`
+- Tests: `test_agents_catalog::CatalogTest.test_shipped_approvals_cover_only_the_analyst_role`; `test_agents_catalog::CatalogTest.test_approved_id_missing_becomes_non_routable_with_alert`; `test_agents_catalog::CatalogTest.test_failed_refresh_keeps_last_good_and_auth_failure_blocks`; `test_agents_static::StaticTest.test_no_model_id_literals_in_application_source`; `test_agents_providers::OpenAIDocumentedShapesTest.test_model_object`; `test_agents_providers::XAIDocumentedShapesTest.test_language_model_prices_are_stored_unchanged_and_converted_only_for_cross_check`; `test_agents_providers::AnthropicAdapterTest.test_count_tokens_and_list_models`
 - Evidence: Runtime catalog snapshots with diff, approval, routability and alerts; no model id literals in application source.
 - Evidence: One live call of claude-opus-5-5 ran in CI (GitHub Actions run 39798075556, workflow live-anthropic, 2026-10-22, commit 7eae251): tests.test_agents_live_anthropic passed; token count by the provider endpoint (1,306 prompt tokens); reserved and settled USD 0.00822400.
 - Gap: Mistral not implemented

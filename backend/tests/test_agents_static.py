@@ -17,6 +17,12 @@ ALLOWED_PER_FILE = {
     "pit_evidence.py": ("unknown.data.pit",),
     "submission.py": ("unknown.data.pit",),
 }
+# The AI analyst's data sources (one file, read-only stores): the same read-only research, filings, news and macro modules
+# the terminal API's company, news and macro routes use. Still never broker, core, gateway, risk, policy, store, API or
+# market code (FORBIDDEN_INTERNAL below wins).
+ALLOWED_PER_SUBPATH = {
+    "analyst/sources.py": ("unknown.data.fundamentals", "unknown.data.pit", "unknown.data.sources", "unknown.news"),
+}
 FORBIDDEN_INTERNAL = ("unknown.broker", "unknown.core", "unknown.gateway", "unknown.risk", "unknown.reconcile",
                       "unknown.policy", "unknown.store", "unknown.api", "unknown.market")
 
@@ -56,7 +62,8 @@ class StaticTest(unittest.TestCase):
                     names = [a.name for a in node.names]
                 else:
                     continue
-                allowed = ALLOWED_INTERNAL + ALLOWED_PER_FILE.get(p.name, ()) if p.parent == AGENTS else ALLOWED_INTERNAL
+                allowed = ALLOWED_INTERNAL + ALLOWED_PER_FILE.get(p.name, ()) if p.parent == AGENTS else \
+                    ALLOWED_INTERNAL + ALLOWED_PER_SUBPATH.get(p.relative_to(AGENTS).as_posix(), ())
                 for n in names:
                     if n.startswith(FORBIDDEN_INTERNAL) or (n.startswith("unknown") and not n.startswith(allowed)):
                         bad.append(f"{p.name}: {n}")
