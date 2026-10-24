@@ -218,8 +218,10 @@ class IngestionTests(unittest.TestCase):
         self.assertEqual(body["major_holders"]["count"], 2)
         with self.assertRaises(LookupError):
             route.handle(ctx, ["ownership", "123"], {}, "SIM", None)
-        with self.assertRaises(ValueError):
-            route.handle(ctx, ["ownership", "AAPL"], {}, "SIM", None)
+        with self.assertRaises(LookupError):
+            route.handle(ctx, ["ownership", "NOPE"], {}, "SIM", None)
+        by_key = route.handle(ctx, ["ownership", "FXW.XNAS"], {"section": "holders"}, "SIM", None)
+        self.assertEqual((by_key["cik"], sorted(k for k in by_key if k in ("insiders", "major_holders"))), (CIK, ["major_holders"]))
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 """Issuer ownership routes (CAP-CO-09). Route module ``ownership``; read-only (research store ``mode=ro``).
 
-  GET /api/ownership/<cik>?as_of=&top=50      insiders (Forms 3/4/5), institutional holders (13F data sets) with
+  GET /api/ownership/<cik|ticker|AAPL.XNAS>?as_of=&top=50      insiders (Forms 3/4/5), institutional holders (13F data sets) with
                                               changes and concentration, and 5 % holders (Schedules 13D/13G)
 
 Everything is point in time: rows accepted (insiders, schedules) or filed (13F) after ``as_of`` are not shown.
@@ -21,14 +21,21 @@ INGEST = ("python -m unknown.data.sources.edgar_ownership ingest --cik <CIK>, th
 def handle(ctx, parts, q, account_key, conn):
     if len(parts) < 2:
         raise ValueError("use /api/ownership/<cik>")
-    cik = parse_cik(parts[1])
-    eid = edgar_ownership.entity_id(cik)
     db, raw = research_paths(ctx.paths.root)
     try:
         store = ReadOnlyResearchStore(db, raw)
     except FileNotFoundError:
         return {"status": "UNAVAILABLE", "reason": "NO_DATA", "detail": f"research store not initialised ({INGEST})"}
     try:
+        token = parts[1]
+        if token.upper().removeprefix("CIK").isdigit():
+            cik = parse_cik(token)
+            eid = edgar_ownership.entity_id(cik)
+        else:
+            eid = edgar_ownership.resolve_issuer(store, token)
+            if eid is None:
+                raise LookupError(f"{token} is not a ticker of an SEC issuer in the research store (use a CIK, or ingest the issuer)")
+            cik = int(eid[8:])
         t = as_of(q)
         top = max(1, min(500, int(q.get("top", 50))))
         subs, meta = load_submissions(store, eid)

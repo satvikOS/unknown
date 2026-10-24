@@ -14,24 +14,13 @@ from datetime import date, datetime, timedelta, timezone
 
 from ...data.fundamentals.peers import issuers as sec_issuers
 from ...data.fundamentals.readonly import ReadOnlyResearchStore, research_paths
-from ...data.pit import OPEN_END
 from ...data.sources.edgar_events import EVENT_TYPES, calendar, week_start
+from ...data.sources.edgar_ownership import resolve_issuer
 from ...domain.clock import NS_PER_S
 from .company import as_of
 
 STATUSES = {"occurred", "announced", "projected"}
 MAX_DAYS = 400
-
-
-def _resolve(store, token: str) -> str | None:
-    t = token.strip().upper()
-    if t.removeprefix("CIK").isdigit():
-        eid = f"SEC-CIK-{int(t.removeprefix('CIK')):010d}"
-        return eid if store.conn.execute("SELECT 1 FROM entity WHERE entity_id=?", (eid,)).fetchone() else None
-    sym = t.rsplit(".", 1)[0] if "." in t and len(t.rsplit(".", 1)[1]) == 4 else t
-    rows = {r[0] for r in store.conn.execute("SELECT entity_id FROM entity_alias WHERE scheme LIKE 'ticker:%' AND value=? AND valid_to_ns=?",
-                                             (sym, OPEN_END))}
-    return rows.pop() if len(rows) == 1 else None
 
 
 def _set(q: dict, key: str, allowed: set[str]) -> set[str] | None:
@@ -64,7 +53,7 @@ def handle(ctx, parts, q, account_key, conn):
             for tok in q["issuers"].split(","):
                 if not tok.strip():
                     continue
-                eid = _resolve(store, tok)
+                eid = resolve_issuer(store, tok)
                 (chosen.append(eid) if eid else unresolved.append(tok.strip()))
         else:
             chosen = [i["entity_id"] for i in sec_issuers(store)]

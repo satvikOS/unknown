@@ -528,6 +528,18 @@ def major_holders(store, eid: str, as_of_ns: int) -> dict:
             "note": "Each reporting person is shown as filed; members of a group report the same shares, so rows are never summed."}
 
 
+def resolve_issuer(store, token: str) -> str | None:
+    """A CIK, ticker or live key (``AAPL.XNAS``) -> the SEC issuer entity id held in the store, or None (unknown or ambiguous)."""
+    t = token.strip().upper()
+    if t.removeprefix("CIK").isdigit():
+        eid = entity_id(int(t.removeprefix("CIK")))
+        return eid if store.conn.execute("SELECT 1 FROM entity WHERE entity_id=?", (eid,)).fetchone() else None
+    sym = t.rsplit(".", 1)[0] if "." in t and len(t.rsplit(".", 1)[1]) == 4 else t
+    ids = {r[0] for r in store.conn.execute("SELECT entity_id FROM entity_alias WHERE scheme LIKE 'ticker:%' AND value=? AND valid_to_ns=?",
+                                            (sym, OPEN_END))}
+    return ids.pop() if len(ids) == 1 else None
+
+
 def issuer_cusips(store, eid: str, as_of_ns: int) -> list[dict]:
     """CUSIPs named for the issuer on its structured 13D/13G cover pages (official filings), most cited first."""
     counts: dict[str, list[str]] = {}
