@@ -204,9 +204,9 @@ class AlertEngine:
 
     def _closes(self, key: str, n: int, now: int) -> list[float] | None:
         hit = self.closes.get(key)
-        if hit is None or now - hit[0] > STUDY_REFRESH_NS or len(hit[1]) < n * 4:
+        if hit is None or now - hit[0] > STUDY_REFRESH_NS:   # re-read by age only, never per quote
             from ..analytics.market_risk import load_closes
-            s = load_closes(self.research_db, key, [key], now_ns=now, lookback=max(250, n * 5))
+            s = load_closes(self.research_db, key, [key], now_ns=now, lookback=2500)  # n <= 500
             hit = (now, [float(c) for _, c in s.closes])
             self.closes[key] = hit
         return hit[1]
