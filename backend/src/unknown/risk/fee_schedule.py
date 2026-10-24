@@ -11,16 +11,24 @@ calculations are offered, and they are kept apart on purpose:
   exchange fee on every share, and the file's ``upper_bound`` for components the page does not state.
 
 Money is exact ``Fixed``; every component is rounded UP to the currency's ledger scale.
+
+``FeeScheduleBook`` is what the core reserves with (ADR-0006 amendment, 2026-10-24): a BUY's pretrade fee envelope is
+the ``pretrade_bound`` of the schedule, published for the account's broker, that covers the order's venue, product and
+currency. No such schedule refuses the entry with the reason. The simulator alone keeps the policy's fee model,
+because it charges whatever its fixture states.
 """
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from ..domain.canonical import canonical_json, sha256_hex
 from ..domain.fixed import Fixed, Rounding, fmax, fmin
+from ..domain.money import Money
 from ..domain.money import currency as currency_info
+from . import fees as policy_fee_model
 
 REPO = Path(__file__).resolve().parents[4]
 FEES_DIR = REPO / "config" / "fees"
@@ -95,6 +103,11 @@ class TieredSchedule:
     bound_taf_per_share: Fixed
     sources: dict
     body: dict
+    broker: str = ""
+    market: str = ""
+    products: tuple[str, ...] = ()
+    venues: tuple[str, ...] = ()          # ISO 10383 MICs of the listings whose orders this schedule prices
+    content_hash: str = ""                 # sha256 of the canonical file body: the exact text that priced an envelope
 
     @property
     def scale(self) -> int:
@@ -190,7 +203,9 @@ class TieredSchedule:
         return total
 
     def describe(self) -> dict:
-        return {"schedule_id": self.schedule_id, "currency": self.currency, "plan": self.body.get("plan"),
+        return {"schedule_id": self.schedule_id, "content_hash": self.content_hash, "broker": self.broker,
+                "market": self.market, "products": list(self.products), "venues": list(self.venues),
+                "currency": self.currency, "plan": self.body.get("plan"),
                 "tiers": [[u, r.to_str()] for u, r in self.tiers], "minimum": self.minimum.to_str(),
                 "max_fraction_of_value": self.max_fraction_of_value.to_str(),
                 "components": {c.id: {"rate": c.rate.to_str(), "basis": c.basis, "side": c.side, "status": c.status}
@@ -254,14 +269,149 @@ def parse_schedule(body: dict) -> TieredSchedule:
         raise FeeScheduleError("upper_bound is an assumption and must be marked unverified")
     ccy = body["currency"]
     currency_info(ccy)
+    venues = body.get("venues", [])
+    if not isinstance(venues, list) or not all(isinstance(v, str) and len(v) == 4 and v.isalnum() and v.isupper()
+                                               for v in venues):
+        raise FeeScheduleError("venues must be a list of ISO 10383 MICs")
+    if not isinstance(body.get("broker"), str) or not body["broker"]:
+        raise FeeScheduleError("broker must name the provider whose accounts this schedule prices")
     return TieredSchedule(
         schedule_id=sid, currency=ccy, tiers=tuple(tiers), minimum=_fixed(com, "minimum_per_order", "commission"),
         max_fraction_of_value=_fixed(com, "maximum_fraction_of_trade_value", "commission"), components=tuple(comps),
         bound_exchange_per_share=_fixed(ub, "exchange_per_share", "upper_bound"),
         bound_exchange_sub_dollar=_fixed(ub, "exchange_fraction_of_trade_value_sub_dollar", "upper_bound"),
         bound_taf_per_share=_fixed(ub, "finra_taf_per_share_outside_verified_window", "upper_bound"),
-        sources=dict(sources), body=body)
+        sources=dict(sources), body=body, broker=body["broker"], market=str(body.get("market", "")),
+        products=tuple(body.get("products") or ()), venues=tuple(venues), content_hash=sha256_hex(canonical_json(body)))
 
 
 def load_schedule(path: Path | str = IBKR_PRO_TIERED_US) -> TieredSchedule:
     return parse_schedule(json.loads(Path(path).read_text(encoding="utf-8")))
+
+
+# ---------------------------------------------------------------------- the core's fee envelope (ADR-0006 amendment)
+PRODUCT_OF_ASSET_CLASS = {"EQUITY": "STK", "ETF": "ETF"}
+# The simulator is not a broker with a published schedule: it charges what its fixture states, and the policy's fee
+# model is the only statement of that. Every other provider needs a schedule file.
+POLICY_MODEL_PROVIDERS = frozenset({"simulated"})
+BROKER_SCHEDULE = "BROKER_SCHEDULE"
+POLICY_MODEL = "POLICY_MODEL"
+
+
+class FeeEnvelopeUnavailable(Exception):
+    """No fee schedule can price this order; the entry is refused with ``str(exc)`` as the reason."""
+
+
+@dataclass(frozen=True)
+class FeeEnvelope:
+    amount: Fixed                       # ledger scale, never below any charge the order can incur
+    currency: str
+    basis: str                          # BROKER_SCHEDULE | POLICY_MODEL
+    schedule_id: str | None
+    content_hash: str | None
+    unverified: tuple[str, ...]         # what the amount bounds rather than states
+
+    def to_json(self) -> dict:
+        return {"amount": self.amount.to_str(), "currency": self.currency, "basis": self.basis,
+                "schedule_id": self.schedule_id, "content_hash": self.content_hash, "unverified": list(self.unverified)}
+
+    def detail(self) -> str:
+        if self.basis == POLICY_MODEL:
+            return f"fee envelope {self.amount.to_str()} {self.currency} from the policy fee model (simulated broker)"
+        return (f"fee envelope {self.amount.to_str()} {self.currency} from {self.schedule_id} "
+                f"(sha256 {str(self.content_hash)[:12]}); bounded, not stated: {', '.join(self.unverified)}")
+
+
+def _trade_dates(now_ns: int) -> tuple[date, ...]:
+    """Every venue's local trade date is within one day of the UTC date, so the bound is taken over all three."""
+    d = datetime.fromtimestamp(now_ns // 1_000_000_000, tz=timezone.utc).date()
+    return (d - timedelta(days=1), d, d + timedelta(days=1))
+
+
+@dataclass(frozen=True)
+class FeeScheduleBook:
+    """The fee schedules the core may reserve with, and the files that failed to load (named in refusals)."""
+    schedules: tuple[TieredSchedule, ...]
+    errors: tuple[str, ...] = ()
+
+    @classmethod
+    def from_dir(cls, directory: Path | str = FEES_DIR) -> "FeeScheduleBook":
+        schedules, errors = [], []
+        try:
+            paths = sorted(Path(directory).glob("*.json"))
+        except OSError as exc:
+            return cls((), (f"{directory}: {exc}",))
+        for path in paths:
+            try:
+                schedules.append(load_schedule(path))
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                errors.append(f"{path.name}: {exc}")
+        return cls(tuple(schedules), tuple(errors))
+
+    def select(self, broker: str, ccy: str, venue_mic: str, asset_class: str) -> TieredSchedule:
+        product = PRODUCT_OF_ASSET_CLASS.get(asset_class)
+        found = [s for s in self.schedules if s.broker == broker and s.currency == ccy and venue_mic in s.venues
+                 and product in s.products]
+        if len(found) == 1:
+            return found[0]
+        what = f"broker {broker}, venue {venue_mic}, {asset_class} in {ccy}"
+        if len(found) > 1:
+            raise FeeEnvelopeUnavailable(f"FEE_SCHEDULE_AMBIGUOUS: {len(found)} schedules cover {what}: "
+                                         + ", ".join(s.schedule_id for s in found))
+        note = f"; schedules that failed to load: {'; '.join(self.errors)}" if self.errors else ""
+        raise FeeEnvelopeUnavailable(f"FEE_SCHEDULE_MISSING: no fee schedule in config/fees covers {what}{note}")
+
+    def buy_envelope(self, *, broker: str, policy_fees, instrument, quantity: Fixed, limit_price: Fixed,
+                     notional: Fixed, ccy: str, now_ns: int) -> FeeEnvelope:
+        """The reservation fee envelope of a BUY (ADR-0006 #4 as amended): exact Fixed at ledger scale."""
+        scale = currency_info(ccy).ledger_scale
+        if broker in POLICY_MODEL_PROVIDERS:
+            env = policy_fee_model.envelope(policy_fees, quantity, Money(ccy, notional))
+            return FeeEnvelope(env.amount, ccy, POLICY_MODEL, None, None, ("policy fee model",))
+        if instrument is None:
+            raise FeeEnvelopeUnavailable("FEE_SCHEDULE_MISSING: instrument not in master")
+        if instrument.multiplier != Fixed(1):
+            raise FeeEnvelopeUnavailable(f"FEE_SCHEDULE_MISSING: schedules price shares; multiplier {instrument.multiplier}")
+        s = self.select(broker, ccy, instrument.venue_mic, instrument.asset_class.value)
+        try:
+            amount = max(s.pretrade_bound("BUY", quantity, limit_price, d) for d in _trade_dates(now_ns))
+        except FeeScheduleError as exc:
+            raise FeeEnvelopeUnavailable(f"FEE_SCHEDULE_UNPRICEABLE: {s.schedule_id}: {exc}") from None
+        unverified = ["exchange fee on venues not read", "no tier discount", "no cap"]
+        if s.body.get("plan_effective", {}).get("status") == "unverified":
+            unverified.append("plan in effect")
+        return FeeEnvelope(amount.rescale(scale, Rounding.CEILING), ccy, BROKER_SCHEDULE, s.schedule_id, s.content_hash,
+                           tuple(unverified))
+
+    def fill_estimate(self, *, broker: str, policy_fees, instrument, side: str, quantity: Fixed, price: Fixed,
+                      notional: Money, now_ns: int) -> Money:
+        """Provisional fee of one fill until the broker's commission report (LED-07). It uses the schedule that
+        priced the envelope, so a whole fill's estimate never exceeds its envelope. A fill is a fact and is never
+        refused: without a usable schedule the estimate falls back to the policy's fee model."""
+        ccy = notional.currency
+        if (broker not in POLICY_MODEL_PROVIDERS and instrument is not None and instrument.multiplier == Fixed(1)
+                and quantity.is_positive() and quantity.is_multiple_of(Fixed(1)) and side in SIDES):
+            try:
+                s = self.select(broker, ccy, instrument.venue_mic, instrument.asset_class.value)
+                total = s.charge(side, quantity, price, _trade_dates(now_ns)[1]).total
+                return Money(ccy, total.rescale(s.scale, Rounding.CEILING))
+            except (FeeEnvelopeUnavailable, FeeScheduleError):
+                pass
+        return policy_fee_model.estimate(policy_fees, quantity, notional)
+
+
+_DEFAULT: dict[tuple, FeeScheduleBook] = {}
+
+
+def default_book(directory: Path | str = FEES_DIR) -> FeeScheduleBook:
+    """``config/fees`` as a book, re-read when a file there changes (name, size or modification time)."""
+    d = Path(directory)
+    try:
+        key = (str(d), tuple((p.name, p.stat().st_mtime_ns, p.stat().st_size) for p in sorted(d.glob("*.json"))))
+    except OSError:
+        key = (str(d), None)
+    book = _DEFAULT.get(key)
+    if book is None:
+        _DEFAULT.clear()
+        book = _DEFAULT[key] = FeeScheduleBook.from_dir(d)
+    return book

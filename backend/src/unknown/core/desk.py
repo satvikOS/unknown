@@ -22,6 +22,7 @@ from ..domain.errors import CommandConflict, InvariantViolation, Rejected
 from ..domain.ids import IdGenerator, validate_id
 from ..domain.principal import Principal, Role, permitted, strategy_id_reserved
 from ..market.quotes import QuoteBook
+from ..risk.fee_schedule import FeeScheduleBook, default_book
 from ..store.db import Store, Tx
 from . import ledger, order_machine, state
 from .order_machine import UndeclaredOrderTransition
@@ -138,7 +139,8 @@ class Desk:
 
     def __init__(self, store: Store, clock: Clock, ids: IdGenerator, *, deployment_id: str,
                  quotes: QuoteBook | None = None, health: Callable[[], HealthSnapshot] | None = None,
-                 calendars: dict[str, BusinessCalendar] | None = None, verify_each_command: bool = True):
+                 calendars: dict[str, BusinessCalendar] | None = None, verify_each_command: bool = True,
+                 fee_schedules: FeeScheduleBook | None = None):
         self.store = store
         self.clock = clock
         self.ids = ids
@@ -147,8 +149,14 @@ class Desk:
         self.health = health or (lambda: HealthSnapshot(False, False, None, 0, "no health source configured"))
         self.calendars = {"WEEKDAYS": WEEKDAYS_ONLY, **(calendars or {})}
         self.verify_each_command = verify_each_command
+        self._fee_schedules = fee_schedules
         from .handlers import HANDLERS  # late import: handlers import this module
         self._handlers: dict[str, Handler] = HANDLERS
+
+    @property
+    def fee_schedules(self) -> FeeScheduleBook:
+        """The broker fee schedules a BUY's envelope is priced from: the injected book, else ``config/fees``."""
+        return self._fee_schedules if self._fee_schedules is not None else default_book()
 
     # ------------------------------------------------------------- execute
     def execute(self, command: Command) -> Result:
