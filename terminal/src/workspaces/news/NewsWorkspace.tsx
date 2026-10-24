@@ -39,6 +39,7 @@ import {
   type TopResponse,
 } from './model';
 import './news.css';
+import { NoValue } from '../../ui/unavailable';
 
 type StreamState = 'connecting' | 'live' | 'reconnecting' | 'no-store';
 interface Alert {
@@ -399,12 +400,12 @@ function Reader({ detail, error, selected, sources }: { detail: { as_of: string;
             </thead>
             <tbody>
               {it.entities.map((e) => (
-                <tr key={`${e.value}-${e.role}`} title={e.identifier_source ? `Identifiers: ${e.identifier_source}, as of ${e.identifiers_as_of ?? '—'}` : 'No ticker snapshot was available at first sight'}>
+                <tr key={`${e.value}-${e.role}`} title={e.identifier_source ? `Identifiers: ${e.identifier_source}, as of ${e.identifiers_as_of ?? 'not reported'}` : 'No ticker snapshot was available at first sight'}>
                   <td>
-                    {e.name ?? '—'} <span className="nw-src mono">CIK {e.value}</span>
+                    {e.name ?? <NoValue reason="NOT_REPORTED" />} <span className="nw-src mono">CIK {e.value}</span>
                   </td>
                   <td>{e.role}</td>
-                  <td className="mono">{e.tickers.map((t) => t.ticker).join(', ') || '—'}{e.figi ? ` · ${e.figi}` : ''}</td>
+                  <td className="mono">{e.tickers.map((t) => t.ticker).join(', ') || <NoValue reason="NOT_REPORTED" />}{e.figi ? ` · ${e.figi}` : ''}</td>
                   <td>
                     {e.method === 'edgar_feed' ? 'EDGAR feed' : `name match “${e.evidence ?? ''}”`} ({Math.round(e.confidence * 100)}%)
                   </td>
@@ -429,7 +430,7 @@ function Reader({ detail, error, selected, sources }: { detail: { as_of: string;
       ) : null}
       {it.fetch ? (
         <p className="nw-src">
-          Fetched {it.fetch.received?.slice(0, 19).replace('T', ' ') ?? '—'} UTC, HTTP {it.fetch.http_status ?? '—'}, <Hash value={it.fetch.sha256} /> · as of {detail.as_of.slice(0, 19).replace('T', ' ')} UTC
+          Fetched {it.fetch.received?.slice(0, 19).replace('T', ' ') ?? <NoValue reason="NOT_REPORTED" />} UTC, HTTP {it.fetch.http_status ?? <NoValue reason="NOT_REPORTED" />}, <Hash value={it.fetch.sha256} /> · as of {detail.as_of.slice(0, 19).replace('T', ' ')} UTC
         </p>
       ) : null}
     </Section>

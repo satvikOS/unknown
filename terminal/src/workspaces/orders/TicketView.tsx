@@ -31,6 +31,7 @@ import {
   type TicketField,
   type TicketInput,
 } from './ticket';
+import { NoValue } from '../../ui/unavailable';
 
 interface SentIntent {
   commandId: string;
@@ -404,7 +405,7 @@ export function TicketView({
                       </span>
                     </>
                   ) : (
-                    <span className="muted">{session ? 'no cash bucket for this session' : '—'}</span>
+                    <span className="muted">{session ? 'no cash bucket for this session' : <NoValue reason="NOT_APPLICABLE" detail="Choose a session first." />}</span>
                   )}
                 </dd>
                 <dt>Session position</dt>
@@ -412,7 +413,7 @@ export function TicketView({
                   {sessionPosition ? (
                     <Qty value={sessionPosition.quantity} unit={instrument?.symbol ?? sessionPosition.instrument_id} />
                   ) : (
-                    <span className="muted">{input.instrumentId && session ? 'none in this instrument' : '—'}</span>
+                    <span className="muted">{input.instrumentId && session ? 'none in this instrument' : <NoValue reason="NOT_APPLICABLE" detail="Choose a session and an instrument first." />}</span>
                   )}
                 </dd>
                 {limits ? (

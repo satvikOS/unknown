@@ -11,6 +11,7 @@ import { Badge, Money, ShortId, StatusPill } from '../../ui/primitives';
 import { WorkspaceFrame, WorkspaceLink } from '../../ui/WorkspaceFrame';
 import { TabPanel } from '../operations/parts';
 import { EMPTY_JOURNAL, entryBalance, mergeJournalHead, mergeJournalPage, ownerKind, ownerSuggestions, type JournalPageState } from './journal';
+import { NoValue } from '../../ui/unavailable';
 
 const PAGE = 100;
 const MAX_RELOAD = 2000;
@@ -93,7 +94,7 @@ function EntryRows({ e, owner }: { e: JournalEntry; owner: string | null }) {
                 <span className="mono">{l.instrument_id}</span>
               </WorkspaceLink>
             ) : (
-              <span className="muted">—</span>
+              <NoValue reason="NOT_REPORTED" />
             )}
           </td>
         </tr>

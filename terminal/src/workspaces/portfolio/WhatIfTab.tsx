@@ -14,6 +14,7 @@ import { DecisionTable } from '../orders/parts';
 import { usePluginGetOnce } from '../plugin-api/hooks';
 import { sentence, sentences, dec, fmtNum, isRec, num, ofKind, str, weightPct, whatIfErrors, type Rec, type WhatIfInput } from './model';
 import { PortfolioFrame, AsOf, FixtureNote, Lineage, QuoteSnapshotNote, ResultLabel, SnapshotStale, type FormulaDef } from './parts';
+import { NoValue } from '../../ui/unavailable';
 
 const EMPTY: WhatIfInput = { session: '', instrument: '', side: 'BUY', quantity: '', limit: '' };
 
@@ -86,7 +87,7 @@ export function Impact({ body }: { body: Rec }) {
                 dec(head.owned_quantity) ? `unreserved quantity ${formatQuantity(dec(head.owned_quantity) as string)}` : null,
               ]
                 .filter(Boolean)
-                .join(' · ') || '—'}
+                .join(' · ') || <NoValue reason="NOT_REPORTED" />}
             </dd>
           </dl>
           <p className="pf-hint" style={{ marginBottom: 0 }}>
@@ -256,7 +257,7 @@ export function WhatIfTab({ bar, formulas }: { bar: ReactNode; formulas: Map<str
           <QuoteSnapshotNote body={body} />
           {quote ? (
             <p className="pf-hint">
-              Quote evaluated: bid {str(quote.bid) ?? '—'} / ask {str(quote.ask) ?? '—'} {str(quote.currency)}, source {str(quote.source)}, age {num(quote.age_ms) ?? '?'} ms,
+              Quote evaluated: bid {str(quote.bid) ?? <NoValue reason="NOT_REPORTED" />} / ask {str(quote.ask) ?? <NoValue reason="NOT_REPORTED" />} {str(quote.currency)}, source {str(quote.source)}, age {num(quote.age_ms) ?? '?'} ms,
               market-data type {str(quote.market_data_type) ?? '?'}, consolidation {str(quote.consolidation) ?? '?'}
               {quote.fixture === true ? ' (FIXTURE)' : ''}.
             </p>

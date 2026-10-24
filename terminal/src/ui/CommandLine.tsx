@@ -23,6 +23,7 @@ import {
 } from './functions';
 import { channelInfo, isUnlinked, linkedSecurity, setLinkedSecurity, useLinkedSecurity } from './link';
 import { Modal } from './Modal';
+import { NoValue } from './unavailable';
 
 export function installed(workspace: string): boolean {
   return workspace === 'workstation' || hasWorkspace(workspace);
@@ -79,7 +80,7 @@ export function FunctionHelp({ open, onClose }: { open: boolean; onClose: () => 
                   {f.help}
                   {installed(f.workspace) ? null : <span className="muted"> (not installed in this build)</span>}
                 </td>
-                <td>{f.needsSecurity ? 'needed' : '—'}</td>
+                <td>{f.needsSecurity ? 'needed' : <NoValue reason="NOT_APPLICABLE" detail="This function takes no security." />}</td>
               </tr>
             ))}
           </tbody>
@@ -208,7 +209,7 @@ export function CommandLine({ onHelp }: { onHelp: () => void }) {
       <span className="cmdbar-target" title={`Commands go to ${target?.label ?? 'nowhere yet'} on link channel ${chipLabel}`}>
         <span className="link-chip-dot" style={{ ['--chip' as string]: info?.color ?? 'var(--text-muted)' }} aria-hidden="true" />
         <span className="hide-sm">{chipLabel}</span>
-        <span className="num cmdbar-sec">{security ?? '—'}</span>
+        <span className="num cmdbar-sec">{security ?? <NoValue reason="NOT_APPLICABLE" detail="No security is linked." />}</span>
       </span>
       <div className="cmdbar-field">
         <input

@@ -31,6 +31,7 @@ import { BlockerList, FundingExplanationBlock, Pct, SessionLink } from './parts'
 import { readSessionPolicy } from './policy';
 import { SessionActions } from './SessionActions';
 import './sessions.css';
+import { NoValue } from '../../ui/unavailable';
 
 const MILESTONE_LOOK: Record<Milestone['state'], { glyph: string; tone: Tone; text: string }> = {
   done: { glyph: '✓', tone: 'ok', text: 'done' },
@@ -574,7 +575,7 @@ const balanceColumns: Column<BalanceRow>[] = [
       </span>
     ),
   },
-  { id: 'inst', header: 'Instrument', sortValue: (r) => r.instrument_id, cell: (r) => (r.instrument_id ? <WorkspaceLink to="instruments" rest={[r.instrument_id]}>{r.instrument_id}</WorkspaceLink> : <span className="muted">—</span>) },
+  { id: 'inst', header: 'Instrument', sortValue: (r) => r.instrument_id, cell: (r) => (r.instrument_id ? <WorkspaceLink to="instruments" rest={[r.instrument_id]}>{r.instrument_id}</WorkspaceLink> : <NoValue reason="NOT_REPORTED" />) },
   {
     id: 'amount',
     header: 'Ledger balance',
@@ -884,7 +885,7 @@ const timelineColumns: Column<TimelineRow>[] = [
           <ShortId value={e.order_id} head={12} />
         </WorkspaceLink>
       ) : (
-        <span className="muted">—</span>
+        <NoValue reason="NOT_REPORTED" />
       ),
   },
   { id: 'cmd', header: 'Command', cell: (e) => <ShortId value={e.command_id} head={18} /> },

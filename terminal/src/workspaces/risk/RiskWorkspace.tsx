@@ -542,7 +542,8 @@ function positionColumns(
       },
       cell: (p) => {
         const c = conc.get(`${p.owner}/${p.instrument_id}`);
-        if (!c || c.bps === null) return <span className="muted">not a session</span>;
+        if (!c) return <span className="muted">not a session</span>;
+        if (c.bps === null) return <NoValue reason="NOT_REPORTED" detail="The session's equity is not known or not positive." />;
         const over = maxBps !== null && c.bps > maxBps;
         return (
           <span className="num" title={`${c.value} of session equity ${c.sessionEquity} ${p.currency} (${c.basis})`}>

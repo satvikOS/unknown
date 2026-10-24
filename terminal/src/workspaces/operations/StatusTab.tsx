@@ -11,6 +11,7 @@ import { reconciliationTone } from '../../ui/tones';
 import { QueryError, WorkspaceFrame } from '../../ui/WorkspaceFrame';
 import { estimatedFeeExecutions, exceptionCounts, healthChecks, healthLimits, isCoreHealth, worstTone } from './model';
 import { TabPanel } from './parts';
+import { NoValue } from '../../ui/unavailable';
 
 const HEALTH_POLL_MS = 5000;
 
@@ -85,7 +86,7 @@ export function StatusTab({
           <div className="panel-note">
             {isCoreHealth(core) ? (
               <>
-                Core time <Timestamp ns={core.now_ns} nsStr={nsStrOf(core, 'now_ns')} withMs /> · log seq {health.data?.latest_seq ?? '—'} · polled every {HEALTH_POLL_MS / 1000} s
+                Core time <Timestamp ns={core.now_ns} nsStr={nsStrOf(core, 'now_ns')} withMs /> · log seq {health.data?.latest_seq ?? <NoValue reason="NOT_REPORTED" />} · polled every {HEALTH_POLL_MS / 1000} s
               </>
             ) : (
               <>Polled every {HEALTH_POLL_MS / 1000} s through the API.</>
@@ -312,7 +313,7 @@ export function StatusTab({
               <li>
                 <span className="label">Open exceptions</span>
                 <StatusPill
-                  label={o ? `${counts.open} open, ${counts.blocking} blocking${counts.critical ? `, ${counts.critical} critical` : ''}` : '—'}
+                  label={o ? `${counts.open} open, ${counts.blocking} blocking${counts.critical ? `, ${counts.critical} critical` : ''}` : 'NOT REPORTED'}
                   tone={counts.blocking || counts.critical ? 'bad' : counts.open ? 'warn' : 'ok'}
                   compact
                 />
@@ -343,7 +344,7 @@ export function StatusTab({
               <li>
                 <span className="label">Estimated fees</span>
                 <StatusPill
-                  label={fees === null ? '—' : `${fees} execution${fees === 1 ? '' : 's'} with an estimated fee`}
+                  label={fees === null ? 'NOT REPORTED' : `${fees} execution${fees === 1 ? '' : 's'} with an estimated fee`}
                   tone={fees ? 'warn' : 'ok'}
                   compact
                 />

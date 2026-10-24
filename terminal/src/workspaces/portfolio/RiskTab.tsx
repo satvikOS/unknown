@@ -13,6 +13,7 @@ import { usePluginQuery } from '../plugin-api/hooks';
 import { BacktestChart, BarList } from './charts';
 import { SNAPSHOT_STORE_QUERY, backtestDays, dec, fmtFloatMoney, fmtNum, fmtPct, isRec, kupiecVerdict, num, ofKind, recs, str, unavailableReason, weightPct, type BacktestDay, type Rec, type ScopeOption } from './model';
 import { PortfolioFrame, AsOf, FixtureNote, Lineage, QuoteSnapshotNote, ScopeSelect, Toolbar, Unavailable, type FormulaDef } from './parts';
+import { asText, NoValue } from '../../ui/unavailable';
 
 type Group = 'by_instrument' | 'by_owner' | 'by_sector';
 
@@ -39,7 +40,7 @@ function ExposurePanel({ body, formulas }: { body: Rec; formulas: Map<string, Fo
           const rows = recs(c[group]);
           const cols: Column<Rec>[] = [
             { id: 'k', header: group === 'by_instrument' ? 'Instrument' : group === 'by_owner' ? 'Owner' : 'Sector (SIC division)', cell: (r) => <span className="cmd-id">{str(r[keyOf])}</span>, wrap: true },
-            { id: 'n', header: 'Positions', numeric: true, cell: (r) => num(r.positions) ?? '—' },
+            { id: 'n', header: 'Positions', numeric: true, cell: (r) => num(r.positions) ?? <NoValue reason="NOT_REPORTED" /> },
             { id: 'long', header: 'Long', numeric: true, cell: (r) => <Money amount={dec(r.long)} currency={ccy} /> },
             { id: 'short', header: 'Short', numeric: true, cell: (r) => <Money amount={dec(r.short)} currency={ccy} /> },
             { id: 'gross', header: 'Gross', numeric: true, cell: (r) => <Money amount={dec(r.gross)} currency={ccy} />, sortValue: (r) => dec(r.gross), sortKind: 'decimal' },
@@ -69,7 +70,7 @@ function ExposurePanel({ body, formulas }: { body: Rec; formulas: Map<string, Fo
                   <div className="v">{fmtNum(num(conc.hhi), 3)}</div>
                   <div className="s">
                     effective N {fmtNum(num(conc.effective_n), 1)}
-                    {topKey ? ` · ${topKey.replace(/_/g, ' ')} ${fmtPct(num(conc[topKey]), 1)}` : ''}
+                    {topKey ? ` · ${topKey.replace(/_/g, ' ')} ${asText(fmtPct(num(conc[topKey]), 1))}` : ''}
                   </div>
                 </div>
                 <div className="pf-kpi">
@@ -95,7 +96,7 @@ function ExposurePanel({ body, formulas }: { body: Rec; formulas: Map<string, Fo
                 />
                 <span className="pf-hint">{str(conc.basis)}</span>
               </div>
-              {rows.length ? <BarList items={rows.map((r) => ({ key: str(r[keyOf]) ?? '?', label: str(r[keyOf]) ?? '?', value: dec(r.gross), currency: ccy, note: `${weightPct(dec(r.share_of_gross))} of gross` }))} label={`Gross exposure ${group.replace('_', ' ')}, ${ccy}`} /> : null}
+              {rows.length ? <BarList items={rows.map((r) => ({ key: str(r[keyOf]) ?? '?', label: str(r[keyOf]) ?? '?', value: dec(r.gross), currency: ccy, note: `${asText(weightPct(dec(r.share_of_gross)))} of gross` }))} label={`Gross exposure ${group.replace('_', ' ')}, ${ccy}`} /> : null}
               <DataTable caption={`Exposure ${group.replace('_', ' ')}, ${ccy}`} captionHidden columns={cols} rows={rows} rowKey={(r) => str(r[keyOf]) ?? '?'} emptyText="No priced positions." maxHeight="300px" />
               {recs(c.unpriced).length ? (
                 <p className="pf-hint">
@@ -106,7 +107,7 @@ function ExposurePanel({ body, formulas }: { body: Rec; formulas: Map<string, Fo
           );
         })}
         <p className="pf-hint" style={{ margin: 0 }}>
-          Sector scheme: {str(cls.scheme) ?? '—'}. Unclassified names fall into “{str(cls.unclassified_bucket) ?? 'unknown'}”, never a default sector. No FX conversion is applied between currencies.
+          Sector scheme: {str(cls.scheme) ?? <NoValue reason="NOT_REPORTED" />}. Unclassified names fall into “{str(cls.unclassified_bucket) ?? 'unknown'}”, never a default sector. No FX conversion is applied between currencies.
         </p>
         <Lineage body={body} formulas={formulas} />
       </div>
@@ -136,12 +137,12 @@ function VarPanel({ body, formulas }: { body: Rec; formulas: Map<string, Formula
               <div className="pf-kpi">
                 <div className="k">VaR, {ccy}</div>
                 <div className="v">{fmtFloatMoney(num(v.var), ccy)}</div>
-                <div className="s">{num(v.var) === null ? str(v.reason) : `${fmtPct(num(v.var_pct_of_scope_nav), 2)} of scope NAV; scenario ${str(v.var_scenario_date) ?? '?'}`}</div>
+                <div className="s">{num(v.var) === null ? str(v.reason) : `${asText(fmtPct(num(v.var_pct_of_scope_nav), 2))} of scope NAV; scenario ${str(v.var_scenario_date) ?? '?'}`}</div>
               </div>
               <div className="pf-kpi">
                 <div className="k">Expected shortfall, {ccy}</div>
                 <div className="v">{fmtFloatMoney(num(v.es), ccy)}</div>
-                <div className="s">{num(v.es_tail_mean_ibkr_form) !== null ? `IBKR tail-mean form ${fmtFloatMoney(num(v.es_tail_mean_ibkr_form), ccy)}` : 'quantile-integral definition'}</div>
+                <div className="s">{num(v.es_tail_mean_ibkr_form) !== null ? `IBKR tail-mean form ${asText(fmtFloatMoney(num(v.es_tail_mean_ibkr_form), ccy))}` : 'quantile-integral definition'}</div>
               </div>
               <div className="pf-kpi">
                 <div className="k">Worst scenario loss</div>
@@ -152,7 +153,7 @@ function VarPanel({ body, formulas }: { body: Rec; formulas: Map<string, Formula
               </div>
               <div className="pf-kpi">
                 <div className="k">Coverage</div>
-                <div className="v">{v.coverage_complete === true ? 'complete' : v.coverage_complete === false ? 'partial' : '—'}</div>
+                <div className="v">{v.coverage_complete === true ? 'complete' : v.coverage_complete === false ? 'partial' : <NoValue reason="NOT_REPORTED" />}</div>
                 <div className="s">{str(v.partial_note) ?? (recs(v.uncovered).length ? `${recs(v.uncovered).length} position(s) without history` : 'every position covered')}</div>
               </div>
             </div>
@@ -231,7 +232,7 @@ export function BacktestPanel({ body, formulas, fixtureRuns }: { body: Rec; form
         {days.length ? <BacktestChart days={days} currency={ccy} /> : <p className="muted">No backtest day yet: each forecast needs enough return history at the prior valuation.</p>}
         {exceptions.length ? (
           <p className="pf-hint">
-            Exceptions: {exceptions.map((d) => `${d.date} (loss ${fmtFloatMoney(d.realized, ccy)} vs VaR ${fmtFloatMoney(d.forecast, ccy)})`).join('; ')}
+            Exceptions: {exceptions.map((d) => `${d.date} (loss ${asText(fmtFloatMoney(d.realized, ccy))} vs VaR ${asText(fmtFloatMoney(d.forecast, ccy))})`).join('; ')}
           </p>
         ) : null}
         <p className="pf-hint" style={{ margin: 0 }}>

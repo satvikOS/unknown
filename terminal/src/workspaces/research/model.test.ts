@@ -1,4 +1,5 @@
 import { formatStat } from '../research-common/format';
+import { asText } from '../../ui/unavailable';
 import { describe, expect, it } from 'vitest';
 import { findWorkspace, WORKSPACES } from '../registry';
 import {
@@ -120,7 +121,7 @@ describe('study report statistics', () => {
         n_eff: { gate: null, n: 2, reason: 'not computable: fewer than 3 observations or zero variance' },
         paired_bootstrap_oos: { computable: false, reason: 'not computable: fewer than 10 paired observations', n: 7 },
       },
-      formatStat,
+      (x) => asText(formatStat(x)),
     );
     expect(lines).toEqual([
       { label: 'DSR (dsr@1)', text: 'not computable: need >= 2 synchronous trials and >= 60 observations (M = 6, T = 40)' },
@@ -136,7 +137,7 @@ describe('study report statistics', () => {
         dsr: { dsr: 0.912345, M: 6, T: 524 },
         paired_bootstrap_oos: { computable: true, point: 0.0004, conservative_lower: -0.0001, hurdle: 0, passes: false, confidence: 0.9 },
       },
-      formatStat,
+      (x) => asText(formatStat(x)),
     );
     expect(lines).toEqual([
       { label: 'DSR (dsr@1)', text: '0.9123 (M = 6, T = 524)' },

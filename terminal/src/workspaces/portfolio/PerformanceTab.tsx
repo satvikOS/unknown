@@ -14,10 +14,11 @@ import { usePluginQuery } from '../plugin-api/hooks';
 import { LineChart, SignedBarChart } from './charts';
 import { SNAPSHOT_STORE_QUERY, sentence, sentences, arr, dec, fmtNum, fmtPct, irrStatus, isRec, num, ofKind, recs, str, twrStatus, unavailableReason, type Rec, type ScopeOption } from './model';
 import { PortfolioFrame, AsOf, FixtureNote, Lineage, ScopeSelect, Toolbar, Unavailable, type FormulaDef } from './parts';
+import { asText, NoValue } from '../../ui/unavailable';
 
 type Convention = 'start_of_day' | 'end_of_day';
 
-function Kpi({ k, v, s }: { k: string; v: string; s?: string | null }) {
+function Kpi({ k, v, s }: { k: string; v: ReactNode; s?: string | null }) {
   return (
     <div className="pf-kpi">
       <div className="k">{k}</div>
@@ -45,7 +46,7 @@ export function PerformancePanel({ body, formulas }: { body: Rec; formulas: Map<
     { id: 'emv', header: 'EMV', numeric: true, cell: (s) => <Money amount={dec(s.emv)} currency={ccy} /> },
     { id: 'flow', header: 'External flow', numeric: true, cell: (s) => <Money amount={dec(s.external_flow)} currency={ccy} signed /> },
     { id: 'r', header: 'Return', numeric: true, cell: (s) => fmtPct(num(s.return), 3, true), sortValue: (s) => num(s.return), sortKind: 'number' },
-    { id: 'note', header: 'Note', wrap: true, cell: (s) => <span className="pf-hint">{[str(s.reason), arr(s.gap_skipped_incomplete_dates).length ? 'spans skipped incomplete dates' : null].filter(Boolean).join('; ') || '—'}</span> },
+    { id: 'note', header: 'Note', wrap: true, cell: (s) => <span className="pf-hint">{[str(s.reason), arr(s.gap_skipped_incomplete_dates).length ? 'spans skipped incomplete dates' : null].filter(Boolean).join('; ') || <NoValue reason="NOT_REPORTED" />}</span> },
   ];
   return (
     <section className="panel pf-section" aria-labelledby="pf-perf-h">
@@ -74,12 +75,12 @@ export function PerformancePanel({ body, formulas }: { body: Rec; formulas: Map<
           <Kpi k="Modified Dietz" v={fmtPct(num(body.modified_dietz), 3, true)} s="approximate money-weighted, day-weighted flows" />
           <div className="pf-kpi">
             <div className="k">Money-weighted (IRR)</div>
-            <div className="v">{irr.annualized !== null ? `${fmtPct(irr.annualized, 2, true)} a year` : irr.periodMwr !== null ? `${fmtPct(irr.periodMwr, 3, true)} period` : '—'}</div>
+            <div className="v">{irr.annualized !== null ? `${asText(fmtPct(irr.annualized, 2, true))} a year` : irr.periodMwr !== null ? `${asText(fmtPct(irr.periodMwr, 3, true))} period` : <NoValue reason="NOT_REPORTED" />}</div>
             <div className="s">
               <StatusPill label={irr.label} tone={irr.tone} compact detail={irr.reason ?? undefined} /> {irr.flag === 'unique' ? null : irr.reason}
             </div>
           </div>
-          <Kpi k="Max drawdown" v={fmtPct(num(dd.max_drawdown), 2)} s={str(dd.peak_date) ? `peak ${str(dd.peak_date)}, trough ${str(dd.trough_date)}, recovery ${str(dd.recovery_date) ?? '—'}` : str(dd.reason)} />
+          <Kpi k="Max drawdown" v={fmtPct(num(dd.max_drawdown), 2)} s={str(dd.peak_date) ? `peak ${str(dd.peak_date)}, trough ${str(dd.trough_date)}, recovery ${str(dd.recovery_date) ?? 'not reported'}` : str(dd.reason)} />
           <Kpi k="Current drawdown" v={fmtPct(num(dd.current_drawdown), 2)} s="on the flow-adjusted unit value" />
         </div>
         {uv.length > 1 ? (
@@ -87,7 +88,7 @@ export function PerformancePanel({ body, formulas }: { body: Rec; formulas: Map<
             values={uv.map((u) => num(u.unit_value) ?? NaN)}
             labels={uv.map((u) => str(u.date) ?? '')}
             title="Unit value (flow-adjusted, starts at 1000)"
-            format={(v) => fmtNum(v, 2)}
+            format={(v) => asText(fmtNum(v, 2))}
           />
         ) : null}
         <h3 className="pf-hint" style={{ margin: '10px 0 4px' }}>
@@ -105,7 +106,7 @@ export function PerformancePanel({ body, formulas }: { body: Rec; formulas: Map<
           <dt>Sortino</dt>
           <dd className="num">{fmtNum(num(stats.sortino), 2)}</dd>
           <dt>Risk-free rate</dt>
-          <dd>{isRec(stats.risk_free) ? `${fmtPct(num(stats.risk_free.annual), 2)} (${str(stats.risk_free.series_id) ?? 'no series'})` : '—'}</dd>
+          <dd>{isRec(stats.risk_free) ? `${asText(fmtPct(num(stats.risk_free.annual), 2))} (${str(stats.risk_free.series_id) ?? 'no series'})` : <NoValue reason="NOT_REPORTED" />}</dd>
           <dt>Best / worst period</dt>
           <dd className="num">
             {fmtPct(num(stats.best_period), 3, true)} / {fmtPct(num(stats.worst_period), 3, true)}
@@ -144,7 +145,7 @@ export function PnlPanel({ body, formulas }: { body: Rec; formulas: Map<string, 
   const comp = (d: Rec, k: string) => (isRec(d.components) ? dec(d.components[k]) : null);
   const money = (v: unknown) => {
     const x = dec(v);
-    return x === null ? '—' : formatMoney(x, ccy, { signDisplay: 'always' });
+    return x === null ? <NoValue reason="NOT_REPORTED" /> : formatMoney(x, ccy, { signDisplay: 'always' });
   };
   const cols: Column<Rec>[] = [
     { id: 'end', header: 'Day', cell: (d) => str(d.end) ?? '?', sortValue: (d) => str(d.end) ?? '' },
@@ -163,7 +164,7 @@ export function PnlPanel({ body, formulas }: { body: Rec; formulas: Map<string, 
       header: 'Residual',
       numeric: true,
       description: 'P&L minus its explained components; must be exactly zero',
-      cell: (d) => (dec(d.residual) === null ? <span className="pf-hint">{str(d.reason) ?? '—'}</span> : <Money amount={dec(d.residual)} currency={ccy} signed />),
+      cell: (d) => (dec(d.residual) === null ? <span className="pf-hint">{str(d.reason) ?? <NoValue reason="NOT_REPORTED" />}</span> : <Money amount={dec(d.residual)} currency={ccy} signed />),
     },
   ];
   return (
@@ -188,7 +189,7 @@ export function PnlPanel({ body, formulas }: { body: Rec; formulas: Map<string, 
           <Kpi k="Total P&L" v={money(totals.pnl)} s="NAV change minus external flows" />
           <Kpi k="Unrealized change" v={money(totals.unrealized_change)} />
           <Kpi k="Realized" v={money(totals.realized)} />
-          <Kpi k="Fees final / estimated" v={`${money(totals.fees_final)} / ${money(totals.fees_estimated)}`} />
+          <Kpi k="Fees final / estimated" v={<>{money(totals.fees_final)} / {money(totals.fees_estimated)}</>} />
         </div>
         {unpriced.length ? (
           <div className="callout pf-gap" role="status" style={{ ['--tone' as string]: 'var(--warn)' }}>

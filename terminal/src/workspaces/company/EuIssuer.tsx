@@ -32,6 +32,7 @@ import {
 } from './eu';
 import { isUnavailable, type UnavailableBody } from './model';
 import './eu.css';
+import { NoValue } from '../../ui/unavailable';
 
 type Nav = (workspace: string, ...rest: string[]) => void;
 const ESEF_INGEST = (lei: string) => `python -m unknown.data.sources.esef ingest --lei ${lei}`;
@@ -240,7 +241,7 @@ function ComparePanel({ q, hasSec }: { q: ReturnType<typeof useApi<CompareRespon
                   <td title={cell.sec ? `${cell.sec.concept ?? ''} · ${cell.sec.document ?? ''}` : ''}>
                     {cell.sec?.value ? <UnitValue value={cell.sec.value} unit={cell.sec.unit} compact /> : <span className="muted">{c.sec ? sideText(cell.sec) : 'no SEC filer chosen'}</span>}
                   </td>
-                  <td>{cell.difference_esef_minus_sec ?? <span className="muted">{cell.note ?? '—'}</span>}</td>
+                  <td>{cell.difference_esef_minus_sec ?? <span className="muted">{cell.note ?? <NoValue reason="NOT_REPORTED" />}</span>}</td>
                 </tr>
               ))}
             </tbody>
@@ -279,7 +280,7 @@ function FilingsPanel({ id }: { id: EuIdentity | null }) {
                   {l.isin} · {l.mic}
                 </span>
                 <span>
-                  {l.full_name} · CFI {l.cfi ?? '—'} · {l.currency ?? 'no currency'} · first trade {l.first_trade_date ?? '—'}
+                  {l.full_name} · CFI {l.cfi ?? <NoValue reason="NOT_REPORTED" />} · {l.currency ?? 'no currency'} · first trade {l.first_trade_date ?? <NoValue reason="NOT_REPORTED" />}
                   {l.termination_date ? ` · terminated ${l.termination_date}` : ''} · <span className="muted">{l.source}</span>
                 </span>
               </li>

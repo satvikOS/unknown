@@ -12,6 +12,7 @@ import { IssuerFrame, type IssuerContext } from './CompanyWorkspace';
 import { PriceLine } from './Metrics';
 import { isUnavailable, priceParams, unitLabel, type Block, type Identity, type StatementResponse, type TearsheetResponse, type UnavailableBody } from './model';
 import { FilingsTable, PeerGroupPanel } from './Peers';
+import { NoValue } from '../../ui/unavailable';
 
 const KEY_ITEMS = ['revenue', 'gross_profit', 'operating_income', 'net_income', 'cfo', 'free_cash_flow', 'total_assets', 'total_debt', 'cash_and_equivalents', 'equity_total', 'eps_diluted'];
 
@@ -145,9 +146,9 @@ function IdentityBody({ id }: { id: Identity }) {
           id.name !== id.name_as_of ? ['Current name', id.name] : null,
           ['CIK', <span className="mono">{`${id.cik} (${id.entity_id})`}</span>],
           ['SIC', id.sic ? `${id.sic}${id.sic_description ? ` · ${id.sic_description}` : ''}` : <span className="muted">not stated</span>],
-          ['Fiscal year end', <span className="mono">{id.fiscal_year_end ?? '—'}</span>],
-          ['Incorporated', id.state_of_incorporation ?? '—'],
-          ['Entity type', `${id.entity_type ?? '—'} · filer category ${id.filer_category ?? '—'}`],
+          ['Fiscal year end', <span className="mono">{id.fiscal_year_end ?? <NoValue reason="NOT_REPORTED" />}</span>],
+          ['Incorporated', id.state_of_incorporation ?? <NoValue reason="NOT_REPORTED" />],
+          ['Entity type', <>{id.entity_type ?? <NoValue reason="NOT_REPORTED" />} · filer category {id.filer_category ?? <NoValue reason="NOT_REPORTED" />}</>],
           ['LEI', <span className="mono">{id.lei ?? 'not stated'}</span>],
           ['Listings', id.listings.length ? id.listings.map((l) => `${l.ticker} (${l.exchange}; ${l.validity})`).join(', ') : <span className="muted">none</span>],
           id.former_names.length ? ['Former names', id.former_names.map((f) => `${f.name} (${f.from ?? '…'} → ${f.to ?? '…'})`).join('; ')] : null,
@@ -213,7 +214,7 @@ function KeyFigures({ annual, ttm, quarterly }: { annual: StatementResponse; ttm
                   const c = row(s, item)?.cells[col];
                   return (
                     <td key={`${s.basis}${col}`} className="num" title={c?.value === null ? (c?.detail ?? '') : (c?.method ?? '')}>
-                      {!c ? '—' : c.value === null ? <span className="rx-missing">{c.missing_reason}</span> : <UnitValue value={c.value} unit={unitLabel(c.unit)} />}
+                      {!c ? <NoValue reason="NOT_REPORTED" /> : c.value === null ? <span className="rx-missing">{c.missing_reason}</span> : <UnitValue value={c.value} unit={unitLabel(c.unit)} />}
                     </td>
                   );
                 })}

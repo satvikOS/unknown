@@ -23,6 +23,7 @@ import {
   type StatementResponse,
   type UnavailableBody,
 } from './model';
+import { NoValue } from '../../ui/unavailable';
 
 const BASES = ['FY', 'Q', 'TTM'] as const;
 type Basis = (typeof BASES)[number];
@@ -179,7 +180,7 @@ function StatementTable({ data, selected, onSelect }: { data: StatementResponse;
                   </th>
                   {cols.map((col, i) => {
                     const c = row.cells[i];
-                    if (!c) return <td key={col.label} className="num muted">—</td>;
+                    if (!c) return <td key={col.label} className="num"><NoValue reason="NOT_REPORTED" /></td>;
                     const isSel = selected?.item === row.item && selected.col === i;
                     return (
                       <td key={col.label} className="num">

@@ -6,6 +6,7 @@ import { DataTable, type Column } from '../../ui/DataTable';
 import { Age, Badge, FixtureRefused, Money, Qty, StatusPill, type Tone } from '../../ui/primitives';
 import { WorkspaceLink } from '../../ui/WorkspaceFrame';
 import { summarizeDecision, type PretradeCheck, type PretradeDecision } from './decision';
+import { NoValue } from '../../ui/unavailable';
 
 /** Instruments by id (one cached query shared by every orders view). */
 export interface InstrumentData {
@@ -189,7 +190,7 @@ export function DecisionTable({ decision, caption }: { decision: PretradeDecisio
       header: 'Core detail',
       description: 'The core’s text for this rule. For a passing check it can name the condition that would have failed.',
       wrap: true,
-      cell: (c) => (c.detail ? <span className={c.passed ? 'muted' : undefined}>{c.detail}</span> : <span className="muted">—</span>),
+      cell: (c) => (c.detail ? <span className={c.passed ? 'muted' : undefined}>{c.detail}</span> : <NoValue reason="NOT_REPORTED" />),
     },
   ];
   return (

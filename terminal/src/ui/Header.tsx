@@ -12,6 +12,7 @@ import { Icon } from './Icon';
 import { MOD_LABEL } from './keys';
 import { Badge, ModeBadge, StatusPill, type Tone } from './primitives';
 import { nextTheme, setTheme, useTheme } from './theme';
+import { NoValue } from './unavailable';
 
 function isCoreHealth(core: HealthResponse['core'] | undefined): core is CoreHealth {
   return !!core && !('error' in core);
@@ -58,7 +59,7 @@ function StreamPill() {
     <span className="topbar-group" title={detail}>
       <StatusPill label={label} tone={tone} detail={detail} />
       <span className="num muted">
-        seq <span style={{ color: 'var(--text)' }}>{s.seq ?? '—'}</span>
+        seq <span style={{ color: 'var(--text)' }}>{s.seq ?? <NoValue reason="NOT_REPORTED" />}</span>
       </span>
     </span>
   );
@@ -98,7 +99,7 @@ export function Header({ onOpenPalette }: { onOpenPalette: () => void }) {
         <div className="topbar-group account-mode">
           <span className="account-id">
             <span className="label">Account</span>
-            <span className="mono">{account?.account_key ?? '—'}</span>
+            <span className="mono">{account?.account_key ?? <NoValue reason="NOT_REPORTED" />}</span>
           </span>
           <ModeBadge mode={account?.mode ?? coreMode} />
           {modeMismatch ? <StatusPill label="MODE MISMATCH" tone="bad" detail={`Ledger says ${account?.mode}, core broker says ${coreMode}`} /> : null}

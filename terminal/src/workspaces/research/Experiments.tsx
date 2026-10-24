@@ -8,7 +8,7 @@ import { exactJson, nsStrOf } from '../../api/nsStrings';
 import type { QueryResult } from '../../state/react';
 import { DataTable, type Column } from '../../ui/DataTable';
 import { Badge, FixtureRefused, Money, StatusPill } from '../../ui/primitives';
-import { NoValue } from '../../ui/unavailable';
+import { asText, NoValue } from '../../ui/unavailable';
 import { apiPath, useApi } from '../research-common/api';
 import { LineChart } from '../research-common/charts';
 import { cumulativeReturns, labelIndices, maxDrawdown } from '../research-common/chartMath';
@@ -179,7 +179,7 @@ function ExperimentBody({ e, prov }: { e: ExperimentDetail; prov: Envelope<unkno
             rows={[
               ['Trials, all statuses (M)', <strong className="num">{totalTrials(e.trial_counts)}</strong>],
               ...segmentCounts(e.trial_counts).map((s) => [s.segment.toLowerCase().replace('_', ' '), <span className="num">{s.n}</span>] as const),
-              ['Development budget', <span className="num">{`${e.trial_counts.DEVELOPMENT ?? 0} of ${e.budget} (${formatFractionPct(e.budget_consumption, 1)} used)`}</span>],
+              ['Development budget', <span className="num">{`${e.trial_counts.DEVELOPMENT ?? 0} of ${e.budget} (${asText(formatFractionPct(e.budget_consumption, 1))} used)`}</span>],
               [
                 'Search space',
                 <span className="mono">
@@ -237,7 +237,7 @@ function rowStats(t: Trial): TrialMetrics | null {
 
 function statCell(m: TrialMetrics | null, key: string, kind: 'fraction' | 'number' | 'count') {
   const v = numberField(m, key);
-  if (v === null) return <span className="muted">—</span>;
+  if (v === null) return <NoValue reason="NOT_REPORTED" />;
   return <span title={String(v)}>{kind === 'fraction' ? formatFractionPct(v) : kind === 'count' ? String(v) : formatStat(v)}</span>;
 }
 
@@ -456,8 +456,8 @@ function ReturnsChart({ path, label }: { path: ReturnType<typeof cumulativeRetur
   return (
     <LineChart
       title={`Cumulative return of ${label}, ${path[0]!.date} to ${last.date}`}
-      summary={`${path.length} sessions; cumulative ${formatFractionPct(last.value)} (compounded from simple returns, return.simple@1); max drawdown of this path ${formatFractionPct(dd)}. Float statistics.`}
-      series={[{ id: 'cum', label: 'cumulative return', points: path.map((p, i) => ({ x: i, y: p.value * 100, label: `${p.date}: ${formatFractionPct(p.value)}` })) }]}
+      summary={`${path.length} sessions; cumulative ${asText(formatFractionPct(last.value))} (compounded from simple returns, return.simple@1); max drawdown of this path ${asText(formatFractionPct(dd))}. Float statistics.`}
+      series={[{ id: 'cum', label: 'cumulative return', points: path.map((p, i) => ({ x: i, y: p.value * 100, label: `${p.date}: ${asText(formatFractionPct(p.value))}` })) }]}
       xTicks={ticks}
       yFormat={(v) => `${Number(v.toFixed(2))}`}
       yUnit="cumulative return, %"

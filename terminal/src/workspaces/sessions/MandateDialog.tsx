@@ -17,6 +17,7 @@ import { bpsToPercent, moneyText } from './format';
 import { checkMandateInput, type MandateDefaults } from './mandateInput';
 import { NoteList, Pct } from './parts';
 import { formatDurationS, readSessionPolicy, type SessionPolicyView } from './policy';
+import { NoValue } from '../../ui/unavailable';
 
 /** Ledger scale of every currency the core registers today (domain/money.py CURRENCIES). */
 const LEDGER_SCALE = 6;
@@ -197,7 +198,7 @@ export function MandateDialog({ mode, open, onClose, session }: MandateDialogPro
 
           <div className="ses-implied" aria-live="polite">
             <span className="micro">Implied required net return</span>
-            <span className="pct">{check?.requiredPct ? <Pct value={check.requiredPct} /> : <span className="muted">—</span>}</span>
+            <span className="pct">{check?.requiredPct ? <Pct value={check.requiredPct} /> : <NoValue reason="NOT_APPLICABLE" />}</span>
             {check?.requiredPct ? (
               <span className="muted">
                 from <Money amount={check.seed} currency={currency} /> to <Money amount={check.target} currency={currency} />, net of all costs

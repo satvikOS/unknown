@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react';
 import { exactJson, nsStrOf } from '../../api/nsStrings';
 import { DataTable, type Column } from '../../ui/DataTable';
 import { Badge, FixtureRefused, StatusPill } from '../../ui/primitives';
-import { NoValue } from '../../ui/unavailable';
+import { asText, NoValue } from '../../ui/unavailable';
 import { apiPath, useApi } from '../research-common/api';
 import { formatStat } from '../research-common/format';
 import { Hash, JsonTree, KV, Section, StatusTag } from '../research-common/parts';
@@ -223,7 +223,7 @@ export function ReportView({ ctx, id }: { ctx: ResearchCtx; id: string }) {
                       res.experiment_id ? ['Experiment', <a href={`#/research/experiments/${encodeURIComponent(res.experiment_id)}`}>{res.experiment_id}</a>] : null,
                       ['Failing gates', res.failing_gates?.length ? <span className="mono">{res.failing_gates.join(', ')}</span> : <span className="muted">none</span>],
                       res.selected?.artifact_hash ? ['Selected artifact', <a href={`#/research/artifacts/${res.selected.artifact_hash}`}>{res.selected.artifact_hash.slice(0, 16)}…</a>] : null,
-                      ...studyStatLines(res, formatStat).map(
+                      ...studyStatLines(res, (x) => asText(formatStat(x))).map(
                         (l) =>
                           [
                             l.label,
@@ -249,7 +249,7 @@ export function ReportView({ ctx, id }: { ctx: ResearchCtx; id: string }) {
                             <span className="label">
                               <StatusPill label={e.passed ? 'PASS' : 'FAIL'} tone={e.passed ? 'ok' : 'bad'} compact /> <span className="mono">{e.kind}</span>
                             </span>
-                            <span>{e.reasons.length ? <span className="rx-reason">{e.reasons.join('; ')}</span> : <span className="muted">—</span>}</span>
+                            <span>{e.reasons.length ? <span className="rx-reason">{e.reasons.join('; ')}</span> : <NoValue reason="NOT_REPORTED" />}</span>
                           </li>
                         ))}
                       </ul>

@@ -4,18 +4,20 @@
  * useStreamHealth(), which is null until a market-data client registers a provider: the bar then says so instead
  * of inventing a state. No broker or source is assumed.
  */
+import type { ReactNode } from 'react';
 import { useCommandTarget } from './CommandLine';
 import { channelInfo, isUnlinked, useLinkedSecurity } from './link';
 import { DataTypeBadge } from './live';
 import { useUpDown } from './marketPrefs';
 import { StatusPill, type Tone } from './primitives';
 import { useStreamHealth, type StreamHealth } from './streamHealth';
+import { NoValue } from './unavailable';
 
 const STATE_TONE: Record<StreamHealth['state'], Tone> = { live: 'ok', connecting: 'info', stale: 'warn', down: 'bad' };
 const STATE_LABEL: Record<StreamHealth['state'], string> = { live: 'MD STREAMING', connecting: 'MD CONNECTING', stale: 'MD STALE', down: 'MD DOWN' };
 
-function ms(v: number | null | undefined): string {
-  return v == null ? '—' : v < 10 ? v.toFixed(1) : String(Math.round(v));
+function ms(v: number | null | undefined): ReactNode {
+  return v == null ? <NoValue reason="NOT_REPORTED" /> : v < 10 ? v.toFixed(1) : String(Math.round(v));
 }
 
 function MarketData() {
@@ -67,7 +69,7 @@ export function StatusBar() {
       <span className="sb-item" title={`Commands go to ${target?.label ?? 'nowhere yet'}`}>
         <span className="link-chip-dot" style={{ ['--chip' as string]: info?.color ?? 'var(--text-muted)' }} aria-hidden="true" />
         <span className="muted">{isUnlinked(channel) ? 'Unlinked' : info ? `Ch ${info.num}` : channel}</span>
-        <span className="num">{security ?? '—'}</span>
+        <span className="num">{security ?? <NoValue reason="NOT_REPORTED" />}</span>
       </span>
     </footer>
   );

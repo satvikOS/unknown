@@ -8,6 +8,7 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { formatDecimal, isDecimal } from '../../format/decimal';
 import { Money } from '../../ui/primitives';
+import { NoValue } from '../../ui/unavailable';
 import { apiPath, useApi } from '../research-common/api';
 import { RangeBars } from '../research-common/charts';
 import { POPULATE, humanize } from '../research-common/format';
@@ -213,9 +214,9 @@ function DcfFormView({
 
 function inputValue(v: DcfInput): ReactNode {
   if (v.values) return <span className="mono">{v.values.map((x) => formatDecimal(x)).join(', ')}</span>;
-  if (v.we !== undefined || v.wd !== undefined) return <span className="mono">{`we ${v.we ?? '—'} · wd ${v.wd ?? '—'}`}</span>;
+  if (v.we !== undefined || v.wd !== undefined) return <span className="mono">we {v.we ?? <NoValue reason="NOT_REPORTED" />} · wd {v.wd ?? <NoValue reason="NOT_REPORTED" />}</span>;
   if (v.value !== undefined) return <span className="num">{v.value}</span>;
-  return <span className="muted">—</span>;
+  return <NoValue reason="NOT_REPORTED" />;
 }
 
 function DcfResultView({ d }: { d: DcfResult }) {
@@ -455,7 +456,7 @@ function DcfResultView({ d }: { d: DcfResult }) {
                       <td className="num">
                         <Money amount={s.equity_value} currency={ccy} />
                       </td>
-                      <td className="num">{s.per_share ? <Money amount={s.per_share} currency={ccy} /> : '—'}</td>
+                      <td className="num">{s.per_share ? <Money amount={s.per_share} currency={ccy} /> : <NoValue reason="NOT_REPORTED" />}</td>
                     </>
                   ) : (
                     <td colSpan={3} className="wrap rx-reason">
@@ -596,7 +597,7 @@ function SensitivityGrid({ d }: { d: DcfResult }) {
                   const value = s.measure === 'per_share' ? c.per_share : s.measure === 'equity_value' ? c.equity_value : c.enterprise_value;
                   return (
                     <td key={c.g} className="num" style={base ? { outline: '2px solid var(--accent)', outlineOffset: -2 } : undefined}>
-                      {c.valid && value ? <Money amount={value} currency={ccy} /> : <span className="muted" title={c.reason}>n/a</span>}
+                      {c.valid && value ? <Money amount={value} currency={ccy} /> : <NoValue reason={c.valid ? 'NOT_REPORTED' : 'NOT_APPLICABLE'} detail={c.reason} />}
                       {base ? <span className="sr-only"> (base case)</span> : null}
                     </td>
                   );

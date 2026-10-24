@@ -10,6 +10,7 @@ import { ErrorNotice, ExtLink, Flags, IsoTime, KV, Loading, Section, StatusTag, 
 import { IssuerFrame, TextField, type IssuerContext } from './CompanyWorkspace';
 import { PriceLine } from './Metrics';
 import { isUnavailable, issuerHref, parsePeerList, priceParams, type CompanyOptions, type Comps, type FilingsContent, type FilingsResponse, type PeerGroup, type PeersResponse, type UnavailableBody } from './model';
+import { NoValue } from '../../ui/unavailable';
 
 export function PeersView({ ctx }: { ctx: IssuerContext }) {
   const q = useApi<PeersResponse | UnavailableBody>(apiPath('company', ctx.cik, 'peers'), { as_of: ctx.opts.as_of, peers: ctx.opts.peers, ...priceParams(ctx.opts) });
@@ -70,7 +71,7 @@ export function PeerGroupPanel({ g, opts }: { g: PeerGroup; opts: CompanyOptions
               <ul className="rx-tree-list">
                 {g.members.map((m) => (
                   <li key={m.entity_id}>
-                    <a href={issuerHref(m.cik, opts)}>{m.name}</a> <span className="muted mono">CIK {m.cik} · SIC {m.sic ?? '—'}</span>
+                    <a href={issuerHref(m.cik, opts)}>{m.name}</a> <span className="muted mono">CIK {m.cik} · SIC {m.sic ?? <NoValue reason="NOT_REPORTED" />}</span>
                   </li>
                 ))}
               </ul>
@@ -138,7 +139,7 @@ function CompsPanel({ comps, target, names }: { comps: Comps; target: string; na
                 <td>{r.role}</td>
                 {comps.metrics.map((m) => {
                   const v = r.values[m];
-                  if (!v) return <td key={m} className="num muted">—</td>;
+                  if (!v) return <td key={m} className="num"><NoValue reason="NOT_REPORTED" /></td>;
                   return (
                     <td key={m} className="num" title={v.reason ?? `${v.formula} · ${v.period}`}>
                       {v.value !== null ? <UnitValue value={v.value} unit={v.unit} compact /> : null} {v.status !== 'OK' ? <StatusTag status={v.status} detail={v.reason ?? undefined} /> : null}

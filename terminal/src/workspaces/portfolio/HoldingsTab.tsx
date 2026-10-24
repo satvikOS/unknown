@@ -66,7 +66,7 @@ export function CashLadder({ ladder, scope }: { ladder: readonly Rec[]; scope: s
                 <Money amount={dec(c.unallocated_available)} currency={ccy} kind="available" />
               </dd>
               <dt>Broker settled cash</dt>
-              <dd>{dec(c.broker_settled_cash) ? <Money amount={dec(c.broker_settled_cash)} currency={ccy} /> : <span className="pf-hint">{str(c.broker_settled_cash_reason) ?? '—'}</span>}</dd>
+              <dd>{dec(c.broker_settled_cash) ? <Money amount={dec(c.broker_settled_cash)} currency={ccy} /> : <span className="pf-hint">{str(c.broker_settled_cash_reason) ?? <NoValue reason="NOT_REPORTED" />}</span>}</dd>
             </dl>
           );
         })}

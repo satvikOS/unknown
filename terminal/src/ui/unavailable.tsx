@@ -11,7 +11,7 @@
  * A missing value is never rendered as 0, "N/A", a blank or a made-up value. Reasons the API sends that are not in
  * the vocabulary below are shown verbatim.
  */
-import { createContext, useContext, type ReactNode } from 'react';
+import { createContext, createElement, useContext, type ReactElement, type ReactNode } from 'react';
 import { formatAge } from '../format/time';
 
 export const REASON_CODES = ['NOT_ENTITLED', 'NO_SOURCE', 'NOT_REPORTED', 'NOT_APPLICABLE', 'STALE', 'ERROR'] as const;
@@ -130,6 +130,28 @@ export function StaleValue({ children, ageMs, label }: StaleValueProps) {
       <span className="sr-only">{a11yText('stale', label, text)}</span>
     </span>
   );
+}
+
+/** A <NoValue> element, for formatting helpers in .ts files that cannot write JSX. */
+export function noValue(reason: Reason, detail?: string | null): ReactElement {
+  return createElement(NoValue, { reason, detail });
+}
+
+/** The marker for a number that is absent (NOT_REPORTED) or not finite (NOT_APPLICABLE), or null when it is usable. */
+export function missingNumber(x: number | null | undefined): ReactElement | null {
+  if (x === null || x === undefined) return noValue('NOT_REPORTED');
+  if (!Number.isFinite(x)) return noValue('NOT_APPLICABLE', `The statistic is ${String(x)}.`);
+  return null;
+}
+
+/**
+ * Text for a formatted value inside prose, a tooltip or a summary (where an element cannot go): the value, or the
+ * reason in words ("not reported", "not applicable", "error") for a <NoValue> marker.
+ */
+export function asText(v: string | ReactElement): string {
+  if (typeof v === 'string') return v;
+  const reason = (v.props as { reason?: unknown }).reason;
+  return typeof reason === 'string' ? reason.toLowerCase().replace(/_/g, ' ') : 'not reported';
 }
 
 /** `value` when present, otherwise <NoValue reason>. Use for any text value that may be absent. */

@@ -12,6 +12,7 @@ import { registerStatusTone } from '../../ui/tones';
 import { QueryError, WorkspaceFrame } from '../../ui/WorkspaceFrame';
 import type { WorkspaceProps } from '../types';
 import { countBy, normalizeRegister, type CapabilityRow } from './normalize';
+import { NoValue } from '../../ui/unavailable';
 
 const SAFE_URL = /^https?:\/\/[^\s]+$/i;
 
@@ -132,8 +133,8 @@ const columns: Column<CapabilityRow>[] = [
     ),
   },
   { id: 'title', header: 'Capability', wrap: true, sortValue: (r) => r.title, cell: (r) => r.title || <span className="muted">untitled</span> },
-  { id: 'area', header: 'Area', sortValue: (r) => r.area, cell: (r) => r.area ?? <span className="muted">—</span> },
-  { id: 'priority', header: 'Priority', sortValue: (r) => r.priority, cell: (r) => r.priority ?? <span className="muted">—</span> },
+  { id: 'area', header: 'Area', sortValue: (r) => r.area, cell: (r) => r.area ?? <NoValue reason="NOT_REPORTED" /> },
+  { id: 'priority', header: 'Priority', sortValue: (r) => r.priority, cell: (r) => r.priority ?? <NoValue reason="NOT_REPORTED" /> },
   {
     id: 'status',
     header: 'Implementation status',
@@ -153,7 +154,7 @@ const columns: Column<CapabilityRow>[] = [
     id: 'products',
     header: 'Reference scope',
     wrap: true,
-    cell: (r) => (r.products.length ? <span className="muted">{r.products.join(' · ')}</span> : <span className="muted">—</span>),
+    cell: (r) => (r.products.length ? <span className="muted">{r.products.join(' · ')}</span> : <NoValue reason="NOT_REPORTED" />),
   },
 ];
 
@@ -247,9 +248,9 @@ export function CapabilitiesWorkspace({ route, navigate }: WorkspaceProps) {
                     maxHeight="220px"
                     columns={[
                       { id: 'area', header: 'Area', sortValue: (a) => a.area, cell: (a) => a.area },
-                      { id: 'on', header: 'Verified on', sortValue: (a) => a.verifiedOn, cell: (a) => a.verifiedOn ?? <span className="muted">—</span> },
-                      { id: 'checked', header: 'URLs checked', numeric: true, sortKind: 'number', sortValue: (a) => a.urlsChecked, cell: (a) => a.urlsChecked ?? '—' },
-                      { id: 'supported', header: 'URLs supporting', numeric: true, sortKind: 'number', sortValue: (a) => a.urlsSupported, cell: (a) => a.urlsSupported ?? '—' },
+                      { id: 'on', header: 'Verified on', sortValue: (a) => a.verifiedOn, cell: (a) => a.verifiedOn ?? <NoValue reason="NOT_REPORTED" /> },
+                      { id: 'checked', header: 'URLs checked', numeric: true, sortKind: 'number', sortValue: (a) => a.urlsChecked, cell: (a) => a.urlsChecked ?? <NoValue reason="NOT_REPORTED" /> },
+                      { id: 'supported', header: 'URLs supporting', numeric: true, sortKind: 'number', sortValue: (a) => a.urlsSupported, cell: (a) => a.urlsSupported ?? <NoValue reason="NOT_REPORTED" /> },
                     ]}
                     rows={reg.areas}
                     rowKey={(a) => a.area}

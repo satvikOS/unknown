@@ -33,6 +33,7 @@ import {
   type MacroCatalog,
   type MacroOptions,
 } from './model';
+import { NoValue } from '../../ui/unavailable';
 
 export function MacroWorkspace({ route, navigate }: WorkspaceProps) {
   const o = parseMacroRoute(route.rest);
@@ -127,7 +128,7 @@ function CatalogPanel({ c }: { c: MacroCatalog }) {
                   {s.status !== 'OK' ? <Commands commands={populateFor(s.dataset)} /> : null}
                 </td>
                 <td className="num">{s.observations}</td>
-                <td className="mono">{s.first_date ? `${s.first_date} → ${s.last_date}` : '—'}</td>
+                <td className="mono">{s.first_date ? `${s.first_date} → ${s.last_date}` : <NoValue reason="NOT_REPORTED" />}</td>
                 <td>
                   <IsoTime iso={s.newest_available_time} />
                 </td>

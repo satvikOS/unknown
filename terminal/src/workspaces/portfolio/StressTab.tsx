@@ -14,6 +14,7 @@ import { QueryError } from '../../ui/WorkspaceFrame';
 import { usePluginGetOnce, type OneShot } from '../plugin-api/hooks';
 import { arr, sentence, dec, isRec, num, ofKind, recs, scenarioParams, str, STRESS_SCENARIOS, stressParamError, thresholdRows, type Rec, type ScopeOption, type StressScenario, type ThresholdRow } from './model';
 import { PortfolioFrame, AsOf, FixtureNote, Lineage, OwnerName, QuoteSnapshotNote, ResultLabel, ScopeSelect, SnapshotStale, type FormulaDef } from './parts';
+import { NoValue } from '../../ui/unavailable';
 
 interface Run {
   scenario: StressScenario;
@@ -64,7 +65,7 @@ export function PnlSummary({ body }: { body: Rec }) {
 
 /** An amount the response gives without a currency: shown exactly, and marked as unlabelled. */
 function Unlabelled({ v }: { v: string | null }) {
-  if (v === null) return <span className="muted">—</span>;
+  if (v === null) return <NoValue reason="NOT_REPORTED" />;
   return (
     <span className="num" title="The response does not say which currency this amount is in">
       {formatDecimal(v, { minFraction: 2 })} <span className="muted">(currency not reported)</span>
@@ -185,7 +186,7 @@ export function ScenarioDetails({ body, scenario, instrumentCurrency = () => nul
           {str(body.finding) ? <p style={{ marginTop: 0 }}>{str(body.finding)}.</p> : null}
           <p className="pf-hint">
             Became stale: {recs(body.became_stale).map((b) => `${str(b.instrument_id)} (${str(b.owner)})`).join(', ') || 'none'}. Valuation after:{' '}
-            {isRec(body.valuation_status_after) ? Object.entries(body.valuation_status_after).map(([c, s]) => `${c} ${String(s)}`).join(', ') : '—'}.
+            {isRec(body.valuation_status_after) ? Object.entries(body.valuation_status_after).map(([c, s]) => `${c} ${String(s)}`).join(', ') : <NoValue reason="NOT_REPORTED" />}.
           </p>
           {ccys.length ? (
             <dl className="kv">
@@ -244,10 +245,10 @@ export function ScenarioDetails({ body, scenario, instrumentCurrency = () => nul
     const extra = isRec(body.additional_cost_by_currency) ? Object.entries(body.additional_cost_by_currency) : [];
     const params = isRec(body.parameters) ? body.parameters : {};
     const model = (m: unknown) =>
-      isRec(m) ? `per share ${str(m.per_share) ?? '?'}, minimum ${str(m.minimum) ?? '?'}, cap ${num(m.maximum_bps_of_notional) ?? '?'} bps of notional` : '—';
+      isRec(m) ? `per share ${str(m.per_share) ?? '?'}, minimum ${str(m.minimum) ?? '?'}, cap ${num(m.maximum_bps_of_notional) ?? '?'} bps of notional` : 'not reported';
     const pCols: Column<Rec>[] = [
       { id: 'x', header: 'Execution', cell: (p) => <span className="cmd-id">{str(p.exec_key)}</span>, wrap: true },
-      { id: 'o', header: 'Owner', cell: (p) => (str(p.owner) ? <OwnerName owner={str(p.owner) ?? ''} /> : <span className="muted">—</span>) },
+      { id: 'o', header: 'Owner', cell: (p) => (str(p.owner) ? <OwnerName owner={str(p.owner) ?? ''} /> : <NoValue reason="NOT_REPORTED" />) },
       { id: 'e', header: 'Estimate', numeric: true, cell: (p) => <Money amount={dec(p.estimate)} currency={str(p.currency) ?? ''} kind="estimated" /> },
       { id: 'r', header: 'Revised final', numeric: true, cell: (p) => <Money amount={dec(p.revised_final)} currency={str(p.currency) ?? ''} /> },
       { id: 'a', header: 'Additional cost', numeric: true, cell: (p) => <Money amount={dec(p.additional_cost)} currency={str(p.currency) ?? ''} /> },
@@ -397,10 +398,10 @@ function StressResult({ run, q, rerun, formulas }: { run: Run; q: OneShot<unknow
   ];
   const pCols: Column<Rec>[] = [
     { id: 'i', header: 'Instrument', cell: (p) => <span className="cmd-id">{str(p.instrument_id)}</span> },
-    { id: 'o', header: 'Owner', cell: (p) => (str(p.owner) ? <OwnerName owner={str(p.owner) ?? ''} /> : '—') },
-    { id: 'q', header: 'Quantity', numeric: true, cell: (p) => str(p.quantity) ?? '—' },
-    { id: 's', header: 'Shock', numeric: true, cell: (p) => str(p.shock) ?? '—' },
-    { id: 'pb', header: 'Price before / after', numeric: true, cell: (p) => `${str(p.price_before) ?? '—'} → ${str(p.price_after) ?? '—'}` },
+    { id: 'o', header: 'Owner', cell: (p) => (str(p.owner) ? <OwnerName owner={str(p.owner) ?? ''} /> : <NoValue reason="NOT_REPORTED" />) },
+    { id: 'q', header: 'Quantity', numeric: true, cell: (p) => str(p.quantity) ?? <NoValue reason="NOT_REPORTED" /> },
+    { id: 's', header: 'Shock', numeric: true, cell: (p) => str(p.shock) ?? <NoValue reason="NOT_REPORTED" /> },
+    { id: 'pb', header: 'Price before / after', numeric: true, cell: (p) => <>{str(p.price_before) ?? <NoValue reason="NOT_REPORTED" />} → {str(p.price_after) ?? <NoValue reason="NOT_REPORTED" />}</> },
     { id: 'mv', header: 'Value after', numeric: true, cell: (p) => <Money amount={dec(p.market_value_after)} currency={str(p.currency) ?? ''} /> },
     { id: 'pnl', header: 'P&L', numeric: true, cell: (p) => <Money amount={dec(p.pnl)} currency={str(p.currency) ?? ''} signed /> },
   ];
