@@ -33,8 +33,12 @@ class CatalogTest(TempDirCase, unittest.TestCase):
     def catalog(self, *approvals):
         return Catalog(tuple(approvals), self.clock.now_ns, 24 * 3600 * SECOND, store_dir=self.tmp / "catalog")
 
-    def test_shipped_approvals_file_is_empty(self):
-        self.assertEqual(load_approvals(), ())
+    def test_shipped_approvals_cover_only_the_owner_approved_ai_process_roles(self):
+        # The owner approved one model for the AI process roles (USD 200 authorization 2026-10-22, instruction to build AI
+        # into the platform 2026-10-24); no other role, in particular research, ships approved.
+        shipped = load_approvals()
+        self.assertEqual([(a.provider, a.approved_by, sorted(a.roles)) for a in shipped],
+                         [("anthropic", "owner", ["ai_brief", "ai_explainer", "ai_summary"])])
 
     def test_new_ids_are_unreviewed_until_approved(self):
         cat = self.catalog(approval("model-a"))

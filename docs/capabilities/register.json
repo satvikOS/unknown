@@ -24947,7 +24947,7 @@
         "gaps": [
           "no evaluation records, so routing is by owner order, not measured quality (AC4)",
           "no routing log with scores (AC3)",
-          "approved.json ships empty"
+          "approved.json ships one owner approval, for the AI process roles (ai_brief, ai_summary, ai_explainer) only; no research approval ships"
         ],
         "requirements": [
           "AI-02"
@@ -30133,7 +30133,7 @@
           "backend/src/unknown/agents/providers/gemini.py"
         ],
         "tests": [
-          "backend/tests/test_agents_catalog.py::CatalogTest.test_shipped_approvals_file_is_empty",
+          "backend/tests/test_agents_catalog.py::CatalogTest.test_shipped_approvals_cover_only_the_owner_approved_ai_process_roles",
           "backend/tests/test_agents_catalog.py::CatalogTest.test_approved_id_missing_becomes_non_routable_with_alert",
           "backend/tests/test_agents_catalog.py::CatalogTest.test_failed_refresh_keeps_last_good_and_auth_failure_blocks",
           "backend/tests/test_agents_static.py::StaticTest.test_no_model_id_literals_in_application_source",

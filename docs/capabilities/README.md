@@ -1293,7 +1293,7 @@ Checked against `feat/ai-processes@a5429dc` on 2026-10-24; `feat/global-data@a06
 - Evidence: Model ids are discovered at runtime and routable only after an owner approval per role; aliases cannot be pinned; a transient error falls back to the next approved candidate after the retry budget.
 - Gap: no evaluation records, so routing is by owner order, not measured quality (AC4)
 - Gap: no routing log with scores (AC3)
-- Gap: approved.json ships empty
+- Gap: approved.json ships one owner approval, for the AI process roles (ai_brief, ai_summary, ai_explainer) only; no research approval ships
 - Requirements: AI-02
 
 ### CAP-AGT-13: Agent observability: traces, metrics, cost and quality dashboards with service objectives (tested)
@@ -1516,7 +1516,7 @@ Checked against `feat/ai-processes@a5429dc` on 2026-10-24; `feat/global-data@a06
 ### CAP-MODEL-01: Runtime model catalog discovery and capability registry (tested)
 
 - Files: `backend/src/unknown/agents/catalog.py`, `backend/src/unknown/agents/providers/anthropic.py`, `backend/src/unknown/agents/providers/openai.py`, `backend/src/unknown/agents/providers/xai.py`, `backend/src/unknown/agents/providers/gemini.py`
-- Tests: `test_agents_catalog::CatalogTest.test_shipped_approvals_file_is_empty`; `test_agents_catalog::CatalogTest.test_approved_id_missing_becomes_non_routable_with_alert`; `test_agents_catalog::CatalogTest.test_failed_refresh_keeps_last_good_and_auth_failure_blocks`; `test_agents_static::StaticTest.test_no_model_id_literals_in_application_source`; `test_agents_providers::OpenAIDocumentedShapesTest.test_model_object`; `test_agents_providers::XAIDocumentedShapesTest.test_language_model_prices_are_stored_unchanged_and_converted_only_for_cross_check`; `test_agents_providers::AnthropicAdapterTest.test_count_tokens_and_list_models`
+- Tests: `test_agents_catalog::CatalogTest.test_shipped_approvals_cover_only_the_owner_approved_ai_process_roles`; `test_agents_catalog::CatalogTest.test_approved_id_missing_becomes_non_routable_with_alert`; `test_agents_catalog::CatalogTest.test_failed_refresh_keeps_last_good_and_auth_failure_blocks`; `test_agents_static::StaticTest.test_no_model_id_literals_in_application_source`; `test_agents_providers::OpenAIDocumentedShapesTest.test_model_object`; `test_agents_providers::XAIDocumentedShapesTest.test_language_model_prices_are_stored_unchanged_and_converted_only_for_cross_check`; `test_agents_providers::AnthropicAdapterTest.test_count_tokens_and_list_models`
 - Evidence: Runtime catalog snapshots with diff, approval, routability and alerts; no model id literals in application source.
 - Evidence: One live call of claude-opus-5-5 ran in CI (GitHub Actions run 39798075556, workflow live-anthropic, 2026-10-22, commit 7eae251): tests.test_agents_live_anthropic passed; token count by the provider endpoint (1,306 prompt tokens); reserved and settled USD 0.00822400.
 - Gap: Mistral not implemented

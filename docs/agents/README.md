@@ -1,6 +1,6 @@
 # Bounded agent layer (increment I6)
 
-Status (ADR-0001 vocabulary): **implemented and tested offline**, including the model worker, the durable job store, the audit trail and the terminal API routes (see [Running research jobs on this Mac](#running-research-jobs-on-this-mac)). The only paid call so far is the CI live smoke test (`live-anthropic.yml`). Paid calls stay disabled until the owner writes `~/.unknown/config/agents.json` and approves the tariff rows and models involved; `approved.json` still ships empty. Decision record: [ADR-0016](../adr/0016-bounded-agents-and-model-providers.md). Evidence: the `model-providers` (CAP-MODEL-01..12) and `agent-operations` (CAP-AGT-01..14) records in [`docs/capabilities/register.json`](../capabilities/register.json), verified 2026-10-22.
+Status (ADR-0001 vocabulary): **implemented and tested offline**, including the model worker, the durable job store, the audit trail and the terminal API routes (see [Running research jobs on this Mac](#running-research-jobs-on-this-mac)). The only paid call so far is the CI live smoke test (`live-anthropic.yml`). Paid calls stay disabled until the owner writes `~/.unknown/config/agents.json` and approves the tariff rows and models involved; `approved.json` ships one owner approval, for the AI process roles only (see [AI processes](#ai-processes-briefs-summaries-explainer-approvals-cost)). Decision record: [ADR-0016](../adr/0016-bounded-agents-and-model-providers.md). Evidence: the `model-providers` (CAP-MODEL-01..12) and `agent-operations` (CAP-AGT-01..14) records in [`docs/capabilities/register.json`](../capabilities/register.json), verified 2026-10-22.
 
 ## Architecture
 
@@ -100,7 +100,7 @@ Tool use is provider-neutral: the model asks for a tool through the `tool_reques
 1. **Write the policy file.** It goes at `~/.unknown/config/agents.json` (or `$UNKNOWN_HOME/config/agents.json`), mode `0600`, owned by you. Money values are decimal strings; JSON numbers are refused for money.
 2. **Provide the API key.** Use the environment variable named in `api_key_env`. For Anthropic you can instead use a file under `~/.unknown/secrets/` named by `api_key_file`; it must be mode `0600` or it is refused. Keys are never stored in the policy file and never logged.
 3. **Approve the tariff rows.** In `config/models/tariffs.json`, re-verify each price against the provider's pricing page and set `approved_by` on the rows you rely on. Shipped rows are all unapproved, so admission refuses until you do this. With `refusal_fallback: "default"`, also approve the rows of the fallback targets (`claude-opus-4-8`, `claude-opus-5`), because the worst case must bound a fallback attempt.
-4. **Approve models per role.** Add an entry to `config/models/approved.json` (shipped empty). In code, the catalog comes from a live list call; approval entries name the exact id from that snapshot. The exact entry for Claude Opus 5.5 and the research role is in [step 3 below](#owner-steps-for-a-live-job).
+4. **Approve models per role.** Add an entry to `config/models/approved.json` (shipped with the AI process roles only). In code, the catalog comes from a live list call; approval entries name the exact id from that snapshot. The exact entry for Claude Opus 5.5 and the research role is in [step 3 below](#owner-steps-for-a-live-job).
 
 ### `agents.json` schema (schema_version 1)
 
