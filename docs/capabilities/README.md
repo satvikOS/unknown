@@ -24,16 +24,16 @@ call under the cited `describe` titles; `--run-tests` runs the cited backend tes
 Playwright end-to-end tests (`terminal/e2e`) and the tests marked IBKR venv run only locally. Passing offline tests is
 evidence of offline behaviour only.
 
-Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a5429dc` on 2026-10-24; `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readiness@9914972` on 2026-10-23; `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data@77c16d1` on 2026-10-23; `feat/live-news@5e8a06c` on 2026-10-23; `feat/workstation-shell@c052431` on 2026-10-23; `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d00` on 2026-10-22.
+Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a5429dc` on 2026-10-24; `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readiness@9914972` on 2026-10-23; `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data@77c16d1` on 2026-10-23; `feat/live-news@5e8a06c` on 2026-10-23; `feat/screener-ownership-calendar@9522c3e` on 2026-10-24; `feat/workstation-shell@c052431` on 2026-10-23; `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d00` on 2026-10-22.
 
 ## Summary by area
 
 | Area | Capabilities | proposed | specified | implemented | tested | paper-verified | live-verified |
 |---|---|---|---|---|---|---|---|
 | instruments | 14 | 6 | 0 | 2 | 6 | 0 | 0 |
-| market-data | 13 | 4 | 0 | 5 | 4 | 0 | 0 |
-| company-research | 14 | 3 | 0 | 2 | 9 | 0 | 0 |
-| news-documents | 14 | 8 | 0 | 1 | 5 | 0 | 0 |
+| market-data | 13 | 3 | 0 | 5 | 5 | 0 | 0 |
+| company-research | 14 | 2 | 0 | 2 | 10 | 0 | 0 |
+| news-documents | 14 | 7 | 0 | 1 | 6 | 0 | 0 |
 | macro-rates-fx | 14 | 10 | 0 | 2 | 2 | 0 | 0 |
 | portfolio-risk | 13 | 4 | 0 | 0 | 9 | 0 | 0 |
 | multiasset | 14 | 14 | 0 | 0 | 0 | 0 | 0 |
@@ -46,7 +46,7 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a542
 | model-providers | 12 | 1 | 0 | 1 | 10 | 0 | 0 |
 | regulatory | 13 | 7 | 0 | 2 | 4 | 0 | 0 |
 | ops-aws | 14 | 7 | 0 | 4 | 3 | 0 | 0 |
-| **all** | 217 | 83 | 0 | 33 | 101 | 0 | 0 |
+| **all** | 217 | 80 | 0 | 33 | 104 | 0 | 0 |
 
 ## Capabilities
 
@@ -83,7 +83,7 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a542
 | CAP-MKT-07 | P1 | Price charts with technical studies, comparisons and annotations | Bloomberg Terminal, IBKR TWS API, S&P Capital IQ Pro | tested | 28 | Studies are checked against hand-derived reference values, not yet against TA-Li |
 | CAP-MKT-08 | P0 | Watchlists / monitors with per-cell status, as-of dates and market-data line budgeting | Bloomberg Terminal, IBKR (all platforms), IBKR Web API, S&P Capital IQ Pro | implemented | 7 | rows beyond the budget are refused, not polled or served delayed (AC1) |
 | CAP-MKT-09 | P1 | Alerts on price, volume, time, study values, news and filings | Bloomberg Terminal, IBKR Web API, LSEG Workspace, S&P Capital IQ Pro | proposed |  | not yet implemented |
-| CAP-MKT-10 | P1 | Equity screening with point-in-time criteria, reproducible as-of runs and real-time scans | Bloomberg Terminal, Bloomberg Terminal (via MATLAB Datafeed Toolbox), IBKR TWS A | proposed |  | not yet implemented |
+| CAP-MKT-10 | P1 | Equity screening with point-in-time criteria, reproducible as-of runs and real-time scans | Bloomberg Terminal, Bloomberg Terminal (via MATLAB Datafeed Toolbox), IBKR TWS A | tested | 16 | universe is the issuers held in the research store, not an exchange listing: sur |
 | CAP-MKT-11 | P0 | Market-data entitlement, professional status, display vs non-display use and fee registry | Bloomberg B-PIPE, IBKR (all APIs), IBKR (all platforms) | implemented | 2 | no entitlement and fee registry with display vs non-display use, no cost report, |
 | CAP-MKT-12 | P1 | India equity market data (NSE and BSE): quotes, depth, candles, instruments and licensing | BSE India (via Deutsche Börse licensing), Zerodha Kite Connect, Zerodha Kite Con | proposed |  | not yet implemented |
 | CAP-MKT-13 | P2 | European equity market data: per-venue quotes, delayed public data and the EU consolidated tape | Bloomberg B-PIPE, EU consolidated tape (EuroCTP), LSEG Workspace | proposed |  | not yet implemented |
@@ -100,7 +100,7 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a542
 | CAP-CO-06 | P1 | Point-in-time fundamentals, amendment and restatement history | Bloomberg (Enterprise Data), LSEG Workspace / LSEG fundamentals, S&P Capital IQ  | tested | 6 | no 8-K 4.02 NON_RELIANCE marking (AC6) |
 | CAP-CO-07 | P1 | Valuation multiples, financial ratios and documented enterprise-value bridge | Bloomberg Terminal, IBKR TWS Fundamentals Explorer, LSEG Workspace / LSEG fundam | tested | 8 | market multiples need an explicit price input: no licensed price source is wired |
 | CAP-CO-08 | P1 | Analyst consensus estimates, revisions, actuals and earnings surprise (licensed) | Bloomberg Terminal, IBKR TWS Fundamentals Explorer, LSEG Workspace (I/B/E/S), S& | proposed |  | not yet implemented |
-| CAP-CO-09 | P1 | Ownership: institutional (13F), insider (Forms 3/4/5), major holders (13D/13G) and non-US shareholding disclosures | Bloomberg Terminal, IBKR TWS Fundamentals Explorer, LSEG Workspace, S&P Capital  | proposed |  | not yet implemented |
+| CAP-CO-09 | P1 | Ownership: institutional (13F), insider (Forms 3/4/5), major holders (13D/13G) and non-US shareholding disclosures | Bloomberg Terminal, IBKR TWS Fundamentals Explorer, LSEG Workspace, S&P Capital  | tested | 21 | not reconciled against the SEC insider transactions data sets or a full 13F quar |
 | CAP-CO-10 | P1 | Peer group construction and trading comparables (current and point-in-time) | Bloomberg Terminal, IBKR TWS Fundamentals Explorer, S&P Capital IQ Pro | tested | 5 | no saved named peer sets (AC2) |
 | CAP-CO-11 | P1 | DCF and WACC valuation with sensitivity surface and valuation range summary | Bloomberg Terminal, S&P Capital IQ Pro | tested | 8 | no EUR risk-free curve (AC2) |
 | CAP-CO-12 | P1 | Company tearsheet / overview page with sourced key facts | Bloomberg Terminal, IBKR TWS Fundamentals Explorer, S&P Capital IQ Pro | tested | 4 | no quote block with live status (AC3) |
@@ -120,7 +120,7 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a542
 | CAP-NEWS-07 | P1 | Earnings and investor call transcripts with speaker turns, versions and live streaming | Bloomberg Terminal, LSEG Workspace, S&P Capital IQ Pro | proposed |  | not yet implemented |
 | CAP-NEWS-08 | P1 | Full-text search across filings, announcements, transcripts and news | Bloomberg Terminal, LSEG (news products page; Workspace not named on page), S&P  | tested | 4 | indexes headlines and feed summaries only (no filing documents, transcripts or l |
 | CAP-NEWS-09 | P1 | Typed corporate event detection from filings, announcements and news | LSEG (Intelligent Tagging NLP service; the fact sheet names Eikon and Reuters Ne | proposed |  | not yet implemented |
-| CAP-NEWS-10 | P1 | Scheduled corporate event calendar (earnings dates, calls, board meetings) | IBKR (TWS API), LSEG Workspace | proposed |  | not yet implemented |
+| CAP-NEWS-10 | P1 | Scheduled corporate event calendar (earnings dates, calls, board meetings) | IBKR (TWS API), LSEG Workspace | tested | 9 | Wall Street Horizon via IBKR not integrated (the capability's primary source; no |
 | CAP-NEWS-11 | P2 | Sentiment scoring for news, filings and transcripts | LSEG (MarketPsych Analytics data feeds; Workspace not named on page), LSEG (Star | proposed |  | not yet implemented |
 | CAP-NEWS-12 | P1 | Grounded summaries and multi-document Q&A with span-level citations | Bloomberg Terminal, LSEG Workspace, S&P Capital IQ Pro | implemented | 9 | citations are record-level (one tool result), not span-level: filing and transcr |
 | CAP-NEWS-13 | P1 | Alerts on filings, announcements, news and events for watchlists | IBKR (TWS API), LSEG Workspace | tested | 5 | no server-stored alert rules (sources, event types, 8-K item codes, query, senti |
@@ -531,6 +531,23 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a542
 - Gap: watchlists are per browser, not stored server-side
 - Gap: no paper run against the 100-line budget recorded
 
+### CAP-MKT-10: Equity screening with point-in-time criteria, reproducible as-of runs and real-time scans (tested)
+
+- Files: `backend/src/unknown/screener/__init__.py`, `backend/src/unknown/screener/fields.py`, `backend/src/unknown/screener/engine.py`, `backend/src/unknown/screener/store.py`, `backend/src/unknown/api/routes/screener.py`, `terminal/src/workspaces/screener/index.ts`, `terminal/src/workspaces/screener/model.ts`, `terminal/src/workspaces/screener/ScreenerWorkspace.tsx`, `terminal/src/workspaces/screener/screener.css`
+- Tests: `test_screener::ScreenerTests.test_compile_refuses_floats_frames_and_currency_less_money`; `test_screener::ScreenerTests.test_criteria_pass_fail_and_missing_reasons`; `test_screener::ScreenerTests.test_nm_excluded_by_default_and_included_on_request`; `test_screener::ScreenerTests.test_missing_price_is_a_reason_never_a_pass`; `test_screener::ScreenerTests.test_live_quote_only_for_now_and_recorded`; `test_screener::ScreenerTests.test_currency_mismatch_is_not_applicable`; `test_screener::ScreenerTests.test_look_ahead_a_later_filing_changes_the_result_only_after_acceptance`; `test_screener::ScreenerTests.test_rerun_reproduces_despite_later_knowledge`; `test_screener::ScreenerTests.test_manifest_records_versions_and_universe`; `test_screener::ScreenerTests.test_saved_screens_are_versioned_and_runs_append_only`; `test_screener::ScreenerTests.test_routes`; `test_screener::ScreenerTests.test_route_live_bus_used_only_when_streaming`; `src/workspaces/screener/model.test.ts::screener model > builds a definition from the draft and names the first problem`; `src/workspaces/screener/model.test.ts::screener model > formats values by unit and leaves a missing value to the reason marker`; `src/workspaces/screener/model.test.ts::screener results view > shows counts, reasons for missing and NM values, excluded rows and the manifest`; `src/workspaces/screener/model.test.ts::screener results view > says when nothing passes instead of showing an empty grid`
+- Evidence: Screen compiler (screener/engine.py compile_definition): criteria on SEC metrics (every FORMULAS id@version), FY fields shared by SEC and ESEF (revenue_fy, net_income_fy, net_margin_fy, roe_fy, ...) and price; values are decimal strings (floats refused); money and price criteria name a currency (no FX conversion: another currency is NOT_APPLICABLE); a definition naming the SEC frames API is refused with the reason that frames are not point-in-time.
+- Evidence: Missing values never pass or fail silently: per criterion, missing=exclude (default; the row is excluded and counted by reason) or include (kept as UNKNOWN, flagged); nm=exclude by default (P/E with negative earnings is NM and excluded unless the owner opts in). Reasons use the ADR-0020 vocabulary.
+- Evidence: Point in time and reproducible: a run reads facts available at as_of and known at the knowledge cutoff (default the run time); the manifest records the definition hash, as_of, cutoff, universe entity ids, every price input (source, value, observation time) and per-dataset data versions; GET /api/screener/runs/<id>/verify recomputes from the manifest and compares result hashes (test: a silent correction learned later leaves the stored run reproducible while a fresh run differs). Look-ahead test: a 10-Q accepted at t changes revenue_ttm and the pass/fail outcome only from t.
+- Evidence: Prices: owner price inputs from the PIT store, or for a run as of now the market-data bus quote of a listing it is already streaming (last price; a quote after the as-of time is refused); otherwise price-based fields show NO_SOURCE / NOT_CONNECTED / PENDING / STALE with the detail.
+- Evidence: Saved screens are versioned and runs are append-only in <UNKNOWN_HOME>/screener/screener.sqlite (POST /api/screener/screens, /api/screener/runs). Terminal workspace EQS (g x): criteria builder, saved screens with recorded runs and Verify, results grid with an em dash and reason for every missing value, excluded rows by reason and the run manifest.
+- Evidence: Run on the real research store on 2026-10-24 (14 issuers: 9 SEC, 5 ESEF), gross_margin >= 0.3 and pe_ttm < 40 with missing kept as unknown: 6 SEC issuers kept as UNKNOWN (pe_ttm NOT_CONNECTED: no price source in that process), 5 ESEF issuers excluded as NOT_APPLICABLE (TTM formula on annual-only filers) and 3 SEC issuers as NOT_REPORTED.
+- Gap: universe is the issuers held in the research store, not an exchange listing: survivorship coverage is not measured (AC6)
+- Gap: no PIT close-price history in screens (research mkt_bar bars are not mapped to issuers); price criteria need owner price inputs or a streaming quote
+- Gap: no real-time intraday scans (top movers, volume spikes), no scheduled screens, no send-to-watchlist, no historical sequence backtest
+- Gap: results export (CSV/XLSX) not built
+- Gap: natural-language criteria not built (AC7)
+- Requirements: DAT-02, DAT-05
+
 ### CAP-MKT-11: Market-data entitlement, professional status, display vs non-display use and fee registry (implemented)
 
 - Files: `backend/src/unknown/broker/ibkr/marketdata.py`, `backend/src/unknown/data/registry.py`
@@ -614,6 +631,23 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a542
 - Gap: EV is INCOMPLETE for most filers because preferred stock and minority interest are usually omitted (owner decision pending)
 - Requirements: DAT-05
 
+### CAP-CO-09: Ownership: institutional (13F), insider (Forms 3/4/5), major holders (13D/13G) and non-US shareholding disclosures (tested)
+
+- Files: `backend/src/unknown/data/sources/edgar_ownership.py`, `backend/src/unknown/data/sources/edgar_13f.py`, `backend/src/unknown/api/routes/ownership.py`, `config/providers/sec-edgar.json`, `terminal/src/workspaces/ownership/index.ts`, `terminal/src/workspaces/ownership/model.ts`, `terminal/src/workspaces/ownership/OwnershipWorkspace.tsx`, `terminal/src/workspaces/ownership/ownership.css`
+- Tests: `test_edgar_ownership::ParserTests.test_form4_rows_codes_and_exact_numbers`; `test_edgar_ownership::ParserTests.test_dtd_refused_and_wrong_root`; `test_edgar_ownership::ParserTests.test_schedule_persons_skip_signature_block`; `test_edgar_ownership::ParserTests.test_document_url_strips_rendering_folder`; `test_edgar_ownership::IngestionTests.test_counts_issuer_filter_lookback_and_skip`; `test_edgar_ownership::IngestionTests.test_point_in_time_and_flow`; `test_edgar_ownership::IngestionTests.test_ten_b5_one_flag_is_never_presented`; `test_edgar_ownership::IngestionTests.test_major_holders_and_cusip`; `test_edgar_ownership::IngestionTests.test_route`; `test_edgar_13f::Form13FTests.test_parse_dates_and_links`; `test_edgar_13f::Form13FTests.test_aggregation_amendments_and_changes`; `test_edgar_13f::Form13FTests.test_point_in_time`; `test_edgar_13f::Form13FTests.test_exit_recorded_only_when_the_manager_filed_without_the_issuer`; `test_edgar_13f::Form13FTests.test_restatement_without_the_position_is_not_reported`; `test_edgar_13f::Form13FTests.test_reingest_is_unchanged_and_values_exact`; `test_edgar_13f::Form13FTests.test_missing_shares_outstanding_gives_reason`; `src/workspaces/ownership/model.test.ts::ownership model > rounds exactly for display and shows fractions as percentages`; `src/workspaces/ownership/views.test.ts::ownership views > institutional holders show change, % held and an em dash with a reason for an exit`; `src/workspaces/ownership/views.test.ts::ownership views > a section without data shows the reason and the command, never an empty table`; `src/workspaces/ownership/views.test.ts::ownership views > insider rows show codes, a missing price as a reason and the net flow`; `src/workspaces/ownership/views.test.ts::ownership views > 5 % holders list persons, and a free-text filing says it is not parsed`
+- Evidence: Insiders (sec.form345): each Form 3/4/5 XML listed in the issuer submissions is fetched (rendering folder stripped), kept only when issuerCik is the issuer, and stored per row in the PIT store at its acceptance time (exact decimal strings, transaction codes, A/D, post-transaction holdings, D/I, footnotes). Open-market P and S are separated from grants and exercises; the net open-market flow (insider_net_open_market_flow@1) is exact and counts unpriced rows instead of valuing them; a 4/A marks the original it restates so a trade is not counted twice. aff10b5One is stored as published and never presented as a 10b5-1 flag.
+- Evidence: Institutional (sec.form13f): SEC Form 13F data set ZIPs; holdings per manager and report period for the issuer CUSIPs named on its structured 13D/13G cover pages (form13f_holder@1: SH rows summed, PUT/CALL and PRN rows counted, VALUE unit by filing date); RESTATEMENT replaces, NEW HOLDINGS adds; exits only for managers that filed an original report without the issuer; entries use the prior period filer list; % held uses shares outstanding nearest the report period; concentration top 5/10/20; available at the end of the filing day (date-only data set).
+- Evidence: 5 % holders (sec.schedule13dg): structured Schedule 13D/13G XML (reporting persons, aggregate, percent of class, CUSIP, event date) on the issuer; filings the issuer made as a holder of others are skipped by accession prefix and by issuerCik; pre-2024 free-text schedules listed with links, not parsed.
+- Evidence: Real ingestion into ~/.unknown on 2026-10-24 for AAPL, MSFT, NVDA, JPM: AAPL 55 Forms 3/4/5 (168 rows), 6 13D/13G filings, latest 13F period 2026-06-30 with 6,137 holders (top-10 31.9 %); MSFT 143 (275 rows), 4, 6,240 holders; NVDA 85 (497 rows), 7, 5,943 holders; JPM 123 (299 rows), 2, 5,089 holders. 13F data sets 01mar2026-31may2026 and 01jun2026-31aug2026 (about 100 MB each, 9,716 and 9,900 holdings filings); 51,931 13F holder records in all (both periods, amendments and exits); insider lookback 365 days, schedules 1,095 days; no fetch errors.
+- Evidence: Terminal workspace OWN (g u): institutional holders with change and % held, insider table with flow summary, 5 % holders; every missing value an em dash with its reason.
+- Gap: not reconciled against the SEC insider transactions data sets or a full 13F quarter for 20 issuers (AC1, AC2): the 13F path ingests the data sets directly, the insider path the per-filing XML
+- Gap: only the two latest 13F data set windows are ingested by default; earlier history needs --window
+- Gap: CUSIP comes from structured 13D/13G cover pages; an issuer without one needs --cusip CIK=CUSIP; no unmapped-CUSIP review list
+- Gap: pre-December-2024 Schedule 13D/13G amounts are not parsed (free text)
+- Gap: India and EU ownership: not licensed (no feed or import)
+- Gap: the 10b5-1 flag stays hidden until the aff10b5One definition is confirmed from SEC documentation
+- Requirements: DAT-02, DAT-05
+
 ### CAP-CO-10: Peer group construction and trading comparables (current and point-in-time) (tested)
 
 - Files: `backend/src/unknown/data/fundamentals/peers.py`, `backend/src/unknown/data/fundamentals/metrics.py`, `backend/src/unknown/api/routes/company.py`, `terminal/src/workspaces/company/Peers.tsx`
@@ -696,6 +730,19 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a542
 - Gap: indexes headlines and feed summaries only (no filing documents, transcripts or licensed news bodies)
 - Gap: no natural-language query, no saved searches as alerts, no export
 - Gap: ranking is newest first, not relevance
+
+### CAP-NEWS-10: Scheduled corporate event calendar (earnings dates, calls, board meetings) (tested)
+
+- Files: `backend/src/unknown/data/sources/edgar_events.py`, `backend/src/unknown/api/routes/calendar.py`, `config/providers/sec-edgar.json`, `terminal/src/workspaces/calendar/index.ts`, `terminal/src/workspaces/calendar/model.ts`, `terminal/src/workspaces/calendar/CalendarWorkspace.tsx`, `terminal/src/workspaces/calendar/calendar.css`
+- Tests: `test_edgar_events::AnnouncementParserTests.test_future_date_with_time_and_no_period_end`; `test_edgar_events::AnnouncementParserTests.test_year_inferred_and_past_or_far_dates_ignored`; `test_edgar_events::CalendarTests.test_ingested_announcement_and_statuses`; `test_edgar_events::CalendarTests.test_as_of_hides_later_filings_and_announcements`; `test_edgar_events::CalendarTests.test_filters_and_weeks`; `test_edgar_events::CalendarTests.test_route`; `src/workspaces/calendar/model.test.ts::calendar model > builds parameters; an empty watchlist blocks the request with a reason`; `src/workspaces/calendar/model.test.ts::calendar views > every entry shows its status and source; projected entries say they are estimated`; `src/workspaces/calendar/model.test.ts::calendar views > says when there are no events, and lists issuers it could not use`
+- Evidence: Partial, SEC filings only: occurred results releases (8-K Item 2.02) and periodic reports (10-Q/10-K) at their acceptance time; announced dates the issuer stated in an 8-K Item 7.01/8.01 (sentence kept as evidence, available at that 8-K acceptance; sec.event_announcements); projected entries one year after the prior-year event, labelled "estimated (internal)" with the filing they derive from, replaced by an announcement within 30 days and closed by an occurrence within 35 days.
+- Evidence: GET /api/calendar groups entries by ISO week with status and type filters; issuers by CIK, ticker or live key. Terminal workspace EVTS (g v): by week, for the monitor watchlist, all ingested issuers or typed tickers; every entry shows status, basis and source.
+- Evidence: Real run on 2026-10-24 for AAPL, MSFT, NVDA, JPM: 15 recent 8-Ks with Item 7.01/8.01 scanned, no announced results date found (these issuers announce dates on their own websites); the calendar shows JPM results occurred 2026-10-13 and projected MSFT/AAPL/NVDA results and reports for late October and November, labelled estimated.
+- Gap: Wall Street Horizon via IBKR not integrated (the capability's primary source; not validated against current IBKR Campus docs)
+- Gap: no call times except those stated in an 8-K; no dividend, split or India board-meeting events
+- Gap: no revision history of dates, no reminders, no date_accuracy metric
+- Gap: the announced-date parser is a sentence pattern over 8-K text; issuer website announcements are not read
+- Requirements: DAT-02
 
 ### CAP-NEWS-12: Grounded summaries and multi-document Q&A with span-level citations (implemented)
 

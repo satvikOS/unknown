@@ -5882,12 +5882,57 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "tested",
+        "files": [
+          "backend/src/unknown/screener/__init__.py",
+          "backend/src/unknown/screener/fields.py",
+          "backend/src/unknown/screener/engine.py",
+          "backend/src/unknown/screener/store.py",
+          "backend/src/unknown/api/routes/screener.py",
+          "terminal/src/workspaces/screener/index.ts",
+          "terminal/src/workspaces/screener/model.ts",
+          "terminal/src/workspaces/screener/ScreenerWorkspace.tsx",
+          "terminal/src/workspaces/screener/screener.css"
         ],
-        "requirements": []
+        "tests": [
+          "backend/tests/test_screener.py::ScreenerTests.test_compile_refuses_floats_frames_and_currency_less_money",
+          "backend/tests/test_screener.py::ScreenerTests.test_criteria_pass_fail_and_missing_reasons",
+          "backend/tests/test_screener.py::ScreenerTests.test_nm_excluded_by_default_and_included_on_request",
+          "backend/tests/test_screener.py::ScreenerTests.test_missing_price_is_a_reason_never_a_pass",
+          "backend/tests/test_screener.py::ScreenerTests.test_live_quote_only_for_now_and_recorded",
+          "backend/tests/test_screener.py::ScreenerTests.test_currency_mismatch_is_not_applicable",
+          "backend/tests/test_screener.py::ScreenerTests.test_look_ahead_a_later_filing_changes_the_result_only_after_acceptance",
+          "backend/tests/test_screener.py::ScreenerTests.test_rerun_reproduces_despite_later_knowledge",
+          "backend/tests/test_screener.py::ScreenerTests.test_manifest_records_versions_and_universe",
+          "backend/tests/test_screener.py::ScreenerTests.test_saved_screens_are_versioned_and_runs_append_only",
+          "backend/tests/test_screener.py::ScreenerTests.test_routes",
+          "backend/tests/test_screener.py::ScreenerTests.test_route_live_bus_used_only_when_streaming",
+          "terminal/src/workspaces/screener/model.test.ts::screener model > builds a definition from the draft and names the first problem",
+          "terminal/src/workspaces/screener/model.test.ts::screener model > formats values by unit and leaves a missing value to the reason marker",
+          "terminal/src/workspaces/screener/model.test.ts::screener results view > shows counts, reasons for missing and NM values, excluded rows and the manifest",
+          "terminal/src/workspaces/screener/model.test.ts::screener results view > says when nothing passes instead of showing an empty grid"
+        ],
+        "evidence": [
+          "Screen compiler (screener/engine.py compile_definition): criteria on SEC metrics (every FORMULAS id@version), FY fields shared by SEC and ESEF (revenue_fy, net_income_fy, net_margin_fy, roe_fy, ...) and price; values are decimal strings (floats refused); money and price criteria name a currency (no FX conversion: another currency is NOT_APPLICABLE); a definition naming the SEC frames API is refused with the reason that frames are not point-in-time.",
+          "Missing values never pass or fail silently: per criterion, missing=exclude (default; the row is excluded and counted by reason) or include (kept as UNKNOWN, flagged); nm=exclude by default (P/E with negative earnings is NM and excluded unless the owner opts in). Reasons use the ADR-0020 vocabulary.",
+          "Point in time and reproducible: a run reads facts available at as_of and known at the knowledge cutoff (default the run time); the manifest records the definition hash, as_of, cutoff, universe entity ids, every price input (source, value, observation time) and per-dataset data versions; GET /api/screener/runs/<id>/verify recomputes from the manifest and compares result hashes (test: a silent correction learned later leaves the stored run reproducible while a fresh run differs). Look-ahead test: a 10-Q accepted at t changes revenue_ttm and the pass/fail outcome only from t.",
+          "Prices: owner price inputs from the PIT store, or for a run as of now the market-data bus quote of a listing it is already streaming (last price; a quote after the as-of time is refused); otherwise price-based fields show NO_SOURCE / NOT_CONNECTED / PENDING / STALE with the detail.",
+          "Saved screens are versioned and runs are append-only in <UNKNOWN_HOME>/screener/screener.sqlite (POST /api/screener/screens, /api/screener/runs). Terminal workspace EQS (g x): criteria builder, saved screens with recorded runs and Verify, results grid with an em dash and reason for every missing value, excluded rows by reason and the run manifest.",
+          "Run on the real research store on 2026-10-24 (14 issuers: 9 SEC, 5 ESEF), gross_margin >= 0.3 and pe_ttm < 40 with missing kept as unknown: 6 SEC issuers kept as UNKNOWN (pe_ttm NOT_CONNECTED: no price source in that process), 5 ESEF issuers excluded as NOT_APPLICABLE (TTM formula on annual-only filers) and 3 SEC issuers as NOT_REPORTED."
+        ],
+        "gaps": [
+          "universe is the issuers held in the research store, not an exchange listing: survivorship coverage is not measured (AC6)",
+          "no PIT close-price history in screens (research mkt_bar bars are not mapped to issuers); price criteria need owner price inputs or a streaming quote",
+          "no real-time intraday scans (top movers, volume spikes), no scheduled screens, no send-to-watchlist, no historical sequence backtest",
+          "results export (CSV/XLSX) not built",
+          "natural-language criteria not built (AC7)"
+        ],
+        "requirements": [
+          "DAT-02",
+          "DAT-05"
+        ],
+        "updated": "2026-10-24",
+        "verified_against": "feat/screener-ownership-calendar@9522c3e"
       }
     },
     {
@@ -7869,12 +7914,61 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "tested",
+        "files": [
+          "backend/src/unknown/data/sources/edgar_ownership.py",
+          "backend/src/unknown/data/sources/edgar_13f.py",
+          "backend/src/unknown/api/routes/ownership.py",
+          "config/providers/sec-edgar.json",
+          "terminal/src/workspaces/ownership/index.ts",
+          "terminal/src/workspaces/ownership/model.ts",
+          "terminal/src/workspaces/ownership/OwnershipWorkspace.tsx",
+          "terminal/src/workspaces/ownership/ownership.css"
         ],
-        "requirements": []
+        "tests": [
+          "backend/tests/test_edgar_ownership.py::ParserTests.test_form4_rows_codes_and_exact_numbers",
+          "backend/tests/test_edgar_ownership.py::ParserTests.test_dtd_refused_and_wrong_root",
+          "backend/tests/test_edgar_ownership.py::ParserTests.test_schedule_persons_skip_signature_block",
+          "backend/tests/test_edgar_ownership.py::ParserTests.test_document_url_strips_rendering_folder",
+          "backend/tests/test_edgar_ownership.py::IngestionTests.test_counts_issuer_filter_lookback_and_skip",
+          "backend/tests/test_edgar_ownership.py::IngestionTests.test_point_in_time_and_flow",
+          "backend/tests/test_edgar_ownership.py::IngestionTests.test_ten_b5_one_flag_is_never_presented",
+          "backend/tests/test_edgar_ownership.py::IngestionTests.test_major_holders_and_cusip",
+          "backend/tests/test_edgar_ownership.py::IngestionTests.test_route",
+          "backend/tests/test_edgar_13f.py::Form13FTests.test_parse_dates_and_links",
+          "backend/tests/test_edgar_13f.py::Form13FTests.test_aggregation_amendments_and_changes",
+          "backend/tests/test_edgar_13f.py::Form13FTests.test_point_in_time",
+          "backend/tests/test_edgar_13f.py::Form13FTests.test_exit_recorded_only_when_the_manager_filed_without_the_issuer",
+          "backend/tests/test_edgar_13f.py::Form13FTests.test_restatement_without_the_position_is_not_reported",
+          "backend/tests/test_edgar_13f.py::Form13FTests.test_reingest_is_unchanged_and_values_exact",
+          "backend/tests/test_edgar_13f.py::Form13FTests.test_missing_shares_outstanding_gives_reason",
+          "terminal/src/workspaces/ownership/model.test.ts::ownership model > rounds exactly for display and shows fractions as percentages",
+          "terminal/src/workspaces/ownership/views.test.ts::ownership views > institutional holders show change, % held and an em dash with a reason for an exit",
+          "terminal/src/workspaces/ownership/views.test.ts::ownership views > a section without data shows the reason and the command, never an empty table",
+          "terminal/src/workspaces/ownership/views.test.ts::ownership views > insider rows show codes, a missing price as a reason and the net flow",
+          "terminal/src/workspaces/ownership/views.test.ts::ownership views > 5 % holders list persons, and a free-text filing says it is not parsed"
+        ],
+        "evidence": [
+          "Insiders (sec.form345): each Form 3/4/5 XML listed in the issuer submissions is fetched (rendering folder stripped), kept only when issuerCik is the issuer, and stored per row in the PIT store at its acceptance time (exact decimal strings, transaction codes, A/D, post-transaction holdings, D/I, footnotes). Open-market P and S are separated from grants and exercises; the net open-market flow (insider_net_open_market_flow@1) is exact and counts unpriced rows instead of valuing them; a 4/A marks the original it restates so a trade is not counted twice. aff10b5One is stored as published and never presented as a 10b5-1 flag.",
+          "Institutional (sec.form13f): SEC Form 13F data set ZIPs; holdings per manager and report period for the issuer CUSIPs named on its structured 13D/13G cover pages (form13f_holder@1: SH rows summed, PUT/CALL and PRN rows counted, VALUE unit by filing date); RESTATEMENT replaces, NEW HOLDINGS adds; exits only for managers that filed an original report without the issuer; entries use the prior period filer list; % held uses shares outstanding nearest the report period; concentration top 5/10/20; available at the end of the filing day (date-only data set).",
+          "5 % holders (sec.schedule13dg): structured Schedule 13D/13G XML (reporting persons, aggregate, percent of class, CUSIP, event date) on the issuer; filings the issuer made as a holder of others are skipped by accession prefix and by issuerCik; pre-2024 free-text schedules listed with links, not parsed.",
+          "Real ingestion into ~/.unknown on 2026-10-24 for AAPL, MSFT, NVDA, JPM: AAPL 55 Forms 3/4/5 (168 rows), 6 13D/13G filings, latest 13F period 2026-06-30 with 6,137 holders (top-10 31.9 %); MSFT 143 (275 rows), 4, 6,240 holders; NVDA 85 (497 rows), 7, 5,943 holders; JPM 123 (299 rows), 2, 5,089 holders. 13F data sets 01mar2026-31may2026 and 01jun2026-31aug2026 (about 100 MB each, 9,716 and 9,900 holdings filings); 51,931 13F holder records in all (both periods, amendments and exits); insider lookback 365 days, schedules 1,095 days; no fetch errors.",
+          "Terminal workspace OWN (g u): institutional holders with change and % held, insider table with flow summary, 5 % holders; every missing value an em dash with its reason."
+        ],
+        "gaps": [
+          "not reconciled against the SEC insider transactions data sets or a full 13F quarter for 20 issuers (AC1, AC2): the 13F path ingests the data sets directly, the insider path the per-filing XML",
+          "only the two latest 13F data set windows are ingested by default; earlier history needs --window",
+          "CUSIP comes from structured 13D/13G cover pages; an issuer without one needs --cusip CIK=CUSIP; no unmapped-CUSIP review list",
+          "pre-December-2024 Schedule 13D/13G amounts are not parsed (free text)",
+          "India and EU ownership: not licensed (no feed or import)",
+          "the 10b5-1 flag stays hidden until the aff10b5One definition is confirmed from SEC documentation"
+        ],
+        "requirements": [
+          "DAT-02",
+          "DAT-05"
+        ],
+        "updated": "2026-10-24",
+        "verified_against": "feat/screener-ownership-calendar@9522c3e"
       }
     },
     {
@@ -9959,12 +10053,43 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "tested",
+        "files": [
+          "backend/src/unknown/data/sources/edgar_events.py",
+          "backend/src/unknown/api/routes/calendar.py",
+          "config/providers/sec-edgar.json",
+          "terminal/src/workspaces/calendar/index.ts",
+          "terminal/src/workspaces/calendar/model.ts",
+          "terminal/src/workspaces/calendar/CalendarWorkspace.tsx",
+          "terminal/src/workspaces/calendar/calendar.css"
         ],
-        "requirements": []
+        "tests": [
+          "backend/tests/test_edgar_events.py::AnnouncementParserTests.test_future_date_with_time_and_no_period_end",
+          "backend/tests/test_edgar_events.py::AnnouncementParserTests.test_year_inferred_and_past_or_far_dates_ignored",
+          "backend/tests/test_edgar_events.py::CalendarTests.test_ingested_announcement_and_statuses",
+          "backend/tests/test_edgar_events.py::CalendarTests.test_as_of_hides_later_filings_and_announcements",
+          "backend/tests/test_edgar_events.py::CalendarTests.test_filters_and_weeks",
+          "backend/tests/test_edgar_events.py::CalendarTests.test_route",
+          "terminal/src/workspaces/calendar/model.test.ts::calendar model > builds parameters; an empty watchlist blocks the request with a reason",
+          "terminal/src/workspaces/calendar/model.test.ts::calendar views > every entry shows its status and source; projected entries say they are estimated",
+          "terminal/src/workspaces/calendar/model.test.ts::calendar views > says when there are no events, and lists issuers it could not use"
+        ],
+        "evidence": [
+          "Partial, SEC filings only: occurred results releases (8-K Item 2.02) and periodic reports (10-Q/10-K) at their acceptance time; announced dates the issuer stated in an 8-K Item 7.01/8.01 (sentence kept as evidence, available at that 8-K acceptance; sec.event_announcements); projected entries one year after the prior-year event, labelled \"estimated (internal)\" with the filing they derive from, replaced by an announcement within 30 days and closed by an occurrence within 35 days.",
+          "GET /api/calendar groups entries by ISO week with status and type filters; issuers by CIK, ticker or live key. Terminal workspace EVTS (g v): by week, for the monitor watchlist, all ingested issuers or typed tickers; every entry shows status, basis and source.",
+          "Real run on 2026-10-24 for AAPL, MSFT, NVDA, JPM: 15 recent 8-Ks with Item 7.01/8.01 scanned, no announced results date found (these issuers announce dates on their own websites); the calendar shows JPM results occurred 2026-10-13 and projected MSFT/AAPL/NVDA results and reports for late October and November, labelled estimated."
+        ],
+        "gaps": [
+          "Wall Street Horizon via IBKR not integrated (the capability's primary source; not validated against current IBKR Campus docs)",
+          "no call times except those stated in an 8-K; no dividend, split or India board-meeting events",
+          "no revision history of dates, no reminders, no date_accuracy metric",
+          "the announced-date parser is a sentence pattern over 8-K text; issuer website announcements are not read"
+        ],
+        "requirements": [
+          "DAT-02"
+        ],
+        "updated": "2026-10-24",
+        "verified_against": "feat/screener-ownership-calendar@9522c3e"
       }
     },
     {
