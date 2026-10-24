@@ -375,7 +375,7 @@ function SpendPanel({ d }: { d: JobDetail }) {
           </dd>
           <dt>Output schema</dt>
           <dd>
-            {env?.output_schema ?? <NoValue reason="NOT_REPORTED" />} v{env?.schema_version ?? '?'}
+            {env?.output_schema ?? <NoValue reason="NOT_REPORTED" />} v{env?.schema_version ?? <NoValue reason="NOT_REPORTED" />}
           </dd>
         </dl>
         {use ? (

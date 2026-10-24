@@ -225,12 +225,13 @@ function usePaletteItems(open: boolean, openHelp: () => void, openFunctions: () 
       });
     }
     for (const i of instruments.data ?? []) {
+      if (i.attributes?.fixture === true) continue; // not a real security: never offered
       out.push({
         id: `ins:${i.instrument_id}`,
         group: 'Instruments',
         label: `${i.symbol} ${i.name}`,
         hint: i.instrument_id,
-        keywords: `instrument ${i.instrument_id} ${i.venue_mic} ${i.attributes.fixture ? 'fixture' : ''}`,
+        keywords: `instrument ${i.instrument_id} ${i.venue_mic}`,
         run: () => router.navigate('instruments', i.instrument_id),
       });
     }

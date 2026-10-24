@@ -175,8 +175,9 @@ export interface Position {
   mark: Decimal | null;
   market_value: Decimal | null;
   unrealized: Decimal | null;
-  /** Human-readable basis, e.g. "bid from fixture-market age 252 ms FIXTURE" or "unavailable: no quote". */
+  /** Human-readable basis, e.g. "bid from IBKR age 252 ms" or "unavailable: no quote". */
   mark_basis: string;
+  /** The mark came from a FIXTURE (test) quote: the terminal refuses it and shows an error, never the value. */
   mark_fixture?: boolean;
 }
 

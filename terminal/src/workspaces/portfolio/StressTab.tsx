@@ -144,7 +144,7 @@ export function CoreReaction({ body }: { body: Rec }) {
       </header>
       <div className="panel-body">
         <p className="pf-hint" style={{ marginTop: 0 }}>
-          The core's valuation command ran on a copy of core seq {num(cr.computed_on_core_seq) ?? '?'}. These events were recorded only in that copy.
+          The core's valuation command ran on a copy of core seq {num(cr.computed_on_core_seq) ?? <NoValue reason="NOT_REPORTED" />}. These events were recorded only in that copy.
         </p>
         {events.length ? (
           <ul className="pf-list">
@@ -213,7 +213,7 @@ export function ScenarioDetails({ body, scenario, instrumentCurrency = () => nul
                 return (
                   <li key={i}>
                     {str(v.instrument_id)} ({str(v.owner)}): at its last mark {ccy ? <Money amount={dec(v.value_at_last_mark)} currency={ccy} /> : <Unlabelled v={dec(v.value_at_last_mark)} />}, after a{' '}
-                    {haircut ?? '?'} haircut {ccy ? <Money amount={dec(v.value_after_haircut)} currency={ccy} /> : <Unlabelled v={dec(v.value_after_haircut)} />}
+                    {haircut ?? <NoValue reason="NOT_REPORTED" />} haircut {ccy ? <Money amount={dec(v.value_after_haircut)} currency={ccy} /> : <Unlabelled v={dec(v.value_after_haircut)} />}
                   </li>
                 );
               })}

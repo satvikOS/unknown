@@ -254,7 +254,7 @@ export function SubscriptionDetail({ s }: { s: Subscription }) {
           <dt>Quote state</dt>
           <dd>{s.quote_state ?? <NoValue reason="NOT_REPORTED" />}</dd>
           <dt>Last tick</dt>
-          <dd>{s.age_ms !== null ? `${formatAge(s.age_ms)} before the status was written` : 'no tick'} · {s.ticks ?? 0} ticks</dd>
+          <dd>{s.age_ms !== null ? `${formatAge(s.age_ms)} before the status was written` : 'no tick'} · {s.ticks ?? <NoValue reason="NOT_REPORTED" />} ticks</dd>
           {s.unavailable ? (
             <>
               <dt>Unavailable</dt>
@@ -311,7 +311,7 @@ export function SubscriptionDetail({ s }: { s: Subscription }) {
                 <ul className="md-fields">
                   {s.errors.map((e, i) => (
                     <li key={i}>
-                      <span className="num">{e.code ?? '?'}</span> {e.text}
+                      <span className="num">{e.code ?? <NoValue reason="NOT_REPORTED" />}</span> {e.text}
                     </li>
                   ))}
                 </ul>

@@ -1,7 +1,7 @@
 /**
  * Header widget registry: other branches add a ticker tape or similar strip under the header without editing the
  * shell. Widgets render in `order`, each inside its own error boundary (a failing widget shows one line, the
- * header keeps working). A widget labels its own data type (SYNTHETIC is never shown unlabelled). Nothing renders
+ * header keeps working). A widget labels its own data type and shows only real data (ui/unavailable.tsx for the rest). Nothing renders
  * while the registry is empty.
  */
 import { Component, useSyncExternalStore, type ComponentType, type ReactNode } from 'react';

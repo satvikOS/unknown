@@ -76,10 +76,10 @@ function ExposurePanel({ body, formulas }: { body: Rec; formulas: Map<string, Fo
                 <div className="pf-kpi">
                   <div className="k">Coverage</div>
                   <div className="v">
-                    {num(cov.priced_positions) ?? 0} priced · {num(cov.unpriced_positions) ?? 0} unpriced
+                    {num(cov.priced_positions) ?? <NoValue reason="NOT_REPORTED" />} priced · {num(cov.unpriced_positions) ?? <NoValue reason="NOT_REPORTED" />} unpriced
                   </div>
                   <div className="s">
-                    {num(cov.stale_marked_positions) ?? 0} stale-marked · sector-classified {weightPct(dec(cov.sector_classified_share_of_gross))} of gross
+                    {num(cov.stale_marked_positions) ?? <NoValue reason="NOT_REPORTED" />} stale-marked · sector-classified {weightPct(dec(cov.sector_classified_share_of_gross))} of gross
                   </div>
                 </div>
               </div>
@@ -127,8 +127,8 @@ function VarPanel({ body, formulas }: { body: Rec; formulas: Map<string, Formula
       <div className="panel-body">
         <QuoteSnapshotNote body={body} />
         <div className="callout pf-gap" role="note" style={{ ['--tone' as string]: 'var(--info)' }}>
-          {str(body.statement) ?? 'VaR does not represent the worst-case loss'}. Confidence {str(body.alpha) ?? '?'}, horizon {num(body.horizon_days) ?? '?'} day(s), up to{' '}
-          {num(body.lookback_scenarios) ?? '?'} scenarios from {num(hist.valuation_dates_visible) ?? 0} visible valuation date(s). Figures are statistical estimates (floats), loss positive.
+          {str(body.statement) ?? 'VaR does not represent the worst-case loss'}. Confidence {str(body.alpha) ?? <NoValue reason="NOT_REPORTED" />}, horizon {num(body.horizon_days) ?? <NoValue reason="NOT_REPORTED" />} day(s), up to{' '}
+          {num(body.lookback_scenarios) ?? <NoValue reason="NOT_REPORTED" />} scenarios from {num(hist.valuation_dates_visible) ?? <NoValue reason="NOT_REPORTED" />} visible valuation date(s). Figures are statistical estimates (floats), loss positive.
         </div>
         {str(hist.unavailable_reason) ? <Unavailable what="Return history" reason={str(hist.unavailable_reason) as string} /> : null}
         {by.map(([ccy, v]) => (
@@ -148,7 +148,7 @@ function VarPanel({ body, formulas }: { body: Rec; formulas: Map<string, Formula
                 <div className="k">Worst scenario loss</div>
                 <div className="v">{fmtFloatMoney(num(v.worst_loss), ccy)}</div>
                 <div className="s">
-                  {num(v.scenarios) ?? 0} scenarios{isRec(v.scenario_dates) && str(v.scenario_dates.first) ? `, ${str(v.scenario_dates.first)} to ${str(v.scenario_dates.last)}` : ''}
+                  {num(v.scenarios) ?? <NoValue reason="NOT_REPORTED" />} scenarios{isRec(v.scenario_dates) && str(v.scenario_dates.first) ? `, ${str(v.scenario_dates.first)} to ${str(v.scenario_dates.last)}` : ''}
                 </div>
               </div>
               <div className="pf-kpi">
@@ -219,7 +219,7 @@ export function BacktestPanel({ body, formulas, fixtureRuns }: { body: Rec; form
         <h2 id="pf-bt-h">VaR backtest</h2>
         <span className="pf-label">
           <StatusPill label={`${exceptions.length} exception(s)`} tone={exceptions.length ? 'warn' : 'neutral'} compact />
-          <span className="pf-hint">confidence {str(body.alpha) ?? '?'}, window {num(body.window) ?? '?'}</span>
+          <span className="pf-hint">confidence {str(body.alpha) ?? <NoValue reason="NOT_REPORTED" />}, window {num(body.window) ?? <NoValue reason="NOT_REPORTED" />}</span>
         </span>
       </header>
       <div className="panel-body">

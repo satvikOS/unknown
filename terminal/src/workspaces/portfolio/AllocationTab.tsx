@@ -232,7 +232,7 @@ export function AllocationTab({ bar, scope, setScope, options, formulas }: { bar
             <section className="panel pf-section" aria-labelledby="pf-mv-h">
               <header>
                 <h2 id="pf-mv-h">Mean-variance diagnostics</h2>
-                <StatusPill label={str(mv.status) ?? '?'} tone={str(mv.status)?.startsWith('optimal') ? 'ok' : 'warn'} compact />
+                <StatusPill label={str(mv.status) ?? 'NOT REPORTED'} tone={str(mv.status)?.startsWith('optimal') ? 'ok' : 'warn'} compact />
               </header>
               <div className="panel-body">
                 <dl className="kv">
@@ -251,7 +251,7 @@ export function AllocationTab({ bar, scope, setScope, options, formulas }: { bar
                     <>
                       <dt>Covariance</dt>
                       <dd>
-                        Ledoit-Wolf shrinkage toward {str(cov.target)}, intensity {fmtNum(num(cov.intensity), 3)}, {num(cov.observations) ?? '?'} observations; condition number{' '}
+                        Ledoit-Wolf shrinkage toward {str(cov.target)}, intensity {fmtNum(num(cov.intensity), 3)}, {num(cov.observations) ?? <NoValue reason="NOT_REPORTED" />} observations; condition number{' '}
                         {fmtNum(num(cov.condition_number_before), 1)} → {fmtNum(num(cov.condition_number_after), 1)}; {cov.psd === true ? 'positive semidefinite' : 'not PSD'}
                       </dd>
                     </>

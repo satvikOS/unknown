@@ -24,12 +24,15 @@ cd backend
 export UNKNOWN_HOME=/tmp/unknown-dev            # any private directory
 PYTHONPATH=src python3 -m unknown.cli init
 PYTHONPATH=src python3 -m unknown.cli set-passphrase
-PYTHONPATH=src python3 -m unknown.service.core --account SIM-1 --deployment mac-dev --fixture-market &
+PYTHONPATH=src python3 -m unknown.service.core --account SIM-1 --deployment mac-dev &
 PYTHONPATH=src python3 -m unknown.cli bootstrap-sim --account SIM-1 --deployment mac-dev
 PYTHONPATH=src python3 -m unknown.api.server --account SIM-1 --port 8765 --static ../terminal/dist &
 cd ../terminal
 UNKNOWN_API=http://127.0.0.1:8765 TERMINAL_PORT=5173 npm run dev   # http://127.0.0.1:5173
 ```
+
+The terminal shows only real data and real streams. Without a configured market-data source every quote cell shows an
+em dash with its reason (for example NO_SOURCE or NOT_ENTITLED), and the simulated broker fills nothing.
 
 Vite proxies `/api` to `UNKNOWN_API`, including the Server-Sent Events stream. In production, `python -m unknown.api.server --static terminal/dist` serves the build. The page loads no third-party origin, so it works under the API's Content-Security-Policy (`default-src 'self'`).
 
@@ -160,14 +163,16 @@ useTrackedCommand(commandId) // live record for one command;  <CommandStatus com
   emptyText?; virtualizeAbove?: number (500); rowHeight?: number (28); maxHeight?: string ('min(70vh, 640px)') />
 
 <Money amount={decimalString|null} currency="USD" kind?: 'realized'|'unrealized'|'settled'|'unsettled'|'protected'
-       |'available'|'held'|'authorized'|'estimated'|'cost'|'marked' showKind? signed? unavailable?="no quote" />
-<Qty value={decimalString} unit? />
-<Timestamp ns={epochNs} nsStr={nsStrOf(row, 'x_ns')} | ms={epochMs} zone?: 'utc'|'local' withMs? withNs? never?="never" />
+       |'available'|'held'|'authorized'|'estimated'|'cost'|'marked' showKind? signed? reason?="NO_SOURCE" unavailable?="detail" />
+<Qty value={decimalString} unit? reason? />
+<Timestamp ns={epochNs} nsStr={nsStrOf(row, 'x_ns')} | ms={epochMs} zone?: 'utc'|'local' withMs? withNs? never?="not finished" | reason?="NOT_REPORTED" />
       // nsStr: the API's exact *_ns_str. Every <Timestamp ns> passes it (ui/timestamp.test.ts scans the source): the
       // millisecond comes from it, the tooltip shows all nine fraction digits, withNs shows them in the text.
 <Age sinceNs? | ageMs + observedAtMs? clockOffsetMs? staleAfterMs? />   // live-ticking; appends "(stale)"
 <StatusPill label="RUNNING" tone: 'ok'|'warn'|'bad'|'info'|'neutral' detail? compact? />  // text + glyph + colour
-<Badge tone?>FIXTURE</Badge>  <FixtureBadge />  <ModeBadge mode="SIMULATED" />  <ShortId value=… />  <YesNo … />
+<Badge tone?>SYSTEM</Badge>  <FixtureRefused detail? />  <ModeBadge mode="SIMULATED" />  <ShortId value=… />  <YesNo … />
+<NoValue reason="NOT_ENTITLED" detail? label? focusable? />   // ui/unavailable.tsx: em dash + reason (tooltip, data-reason, sr text)
+<ErrorValue reason="ERROR" detail? />  <StaleValue ageMs={…}>{value}</StaleValue>  noValue(reason) / asText(v) in .ts helpers
 <WorkspaceFrame title description? queries?={[q1, q2]} actions?>…</WorkspaceFrame>  // provenance: seq, age, refresh
 <QueryError what="Orders" error={q.error} />
 ```
@@ -178,7 +183,7 @@ Formatting is exact. `formatDecimal('1234567.8912', { minFraction: 2 })` gives `
 
 **Theme.** Dark (near-black) is the default; light and "follow the system" are options (palette, header button).
 Amber (`--cmd`) marks commands and functions. Market tokens: `--up`/`--down`/`--unch`, `--bid`/`--ask`, `--alert`,
-`--stale`, `--src-realtime|delayed|frozen|synthetic`, `--link-1..8`, `--row-dense` (20 px; opt in with
+`--stale`, `--src-realtime|delayed|frozen`, `--link-1..8`, `--row-dense` (20 px; opt in with
 `table.data.dense`). The up/down colours follow the owner's convention (`ui/marketPrefs.ts`; green-up default,
 red-up option in the palette). Numbers use tabular figures everywhere.
 
@@ -202,12 +207,22 @@ workspace still open it alone.
 tape). A market-data client calls `registerStreamHealthProvider({ subscribe, getSnapshot })`; `useStreamHealth()`
 returns null until then and the status bar says no client is registered. `<PriceCell value dataType source stale />`
 and `useTickFlash(value, ref?)` flash on change through an element ref (no re-render of the surrounding tree;
-exact decimal comparison). SYNTHETIC values always show their label. No API here names or assumes a broker.
+exact decimal comparison). PriceCell renders a missing value as `<NoValue reason>` and a value whose data type is not
+REALTIME, DELAYED or FROZEN as an error, never as data. No API here names or assumes a broker.
+
+**Unavailable values (owner rule 2026-10-23).** The platform shows only real data. A value that is not available is an
+em dash (—) in the muted token with a machine-readable reason: `NOT_ENTITLED`, `NO_SOURCE`, `NOT_REPORTED`,
+`NOT_APPLICABLE`, `STALE`, `ERROR`, or any reason string the API sends, shown verbatim. The reason and a sentence are in
+the tooltip (`title`), in visually hidden text for assistive technology and in `data-reason`; in a table, the focused row
+shows each reason inline. An error renders as `ERR` in the alert token, and a stale value keeps its value with its age in
+the warning token. A missing value is never rendered as 0, "N/A", a blank or a made-up value. Anything the API marks as
+FIXTURE (a quote, mark, instrument, portfolio answer, research result) is refused and shown as `ERR`, never as data. Test
+doubles live only in unit tests and `e2e/support`; product code has no mock, sample or example data.
 
 ## Contract checklist (enforced in code)
 
 - Money is a decimal string from the API and is never converted to a JS number. Every amount shows its currency, and amount kinds are labelled in column headers and tooltips.
-- Quotes and marks show their source and age. Fixture data carries a `FIXTURE` badge. The header always shows the account mode in text and colour, plus a mode-coloured band.
+- Quotes and marks show their source and age. A missing value is an em dash with its reason; fixture or non-market data is an error (`ERR`), never a value. The header always shows the account mode in text and colour, plus a mode-coloured band.
 - Red STOP is always in the header and never shrinks out of view. It needs only a session and sends immediately. The drawer then shows the durable command id and stop progress from `/api/preflight` `stop_progress`: entries blocked, open buys and cancels pending, unknown orders, residual positions, and "reconciled flat" only when the server says so. Liquidation is read from the active policy (`NONE`), and the drawer says it is not offered.
 - Green START opens the preflight panel. It lists each blocker with its cause and resolution and offers no bypass. Start is enabled only when a stop or resume hold is active and every blocker is resolvable by step-up.
 - There are no optimistic updates. A command shows `sending`, then `pending` with its command id, then `applied` when the stream reaches the command's event seq. On any stream reconnect or reset, every visible query refetches; a new seq or a gap refetches every visible query on core state (data outside the event log, such as research, is `seqDriven: false`).
@@ -229,7 +244,7 @@ Text tokens on their surfaces, as computed from `styles.css`:
 | command amber / surface; GO text / GO fill | 10.4; 10.6 | 6.1; 6.3 |
 | up, down, unchanged / surface | 10.1, 6.8, 10.4 | 6.4, 6.4, 6.6 |
 | bid, ask, stale / surface | 8.6, 9.4, 6.5 | 6.2, 6.2, 6.4 |
-| REALTIME, DELAYED, FROZEN, SYNTHETIC / surface | 10.1, 11.8, 10.4, 8.6 | 5.9, 6.3, 6.2, 6.6 |
+| REALTIME, DELAYED, FROZEN / surface | 10.1, 11.8, 10.4 | 5.9, 6.3, 6.2 |
 | STOP text / STOP fill | 5.6 | 6.6 |
 | START text / START fill | 5.4 | 6.2 |
 | control border (inputs, buttons) / surface | 4.0 | 3.8 |

@@ -251,14 +251,14 @@ export function WhatIfTab({ bar, formulas }: { bar: ReactNode; formulas: Map<str
           <div className="pf-note">
             <StatusPill label={body.approved === true ? 'would be approved' : `would be refused: ${str(body.code) ?? '?'}`} tone={body.approved === true ? 'ok' : 'bad'} />
             {str(body.message) ? <span>{str(body.message)}</span> : null}
-            <span>evaluated as deployment {str(body.evaluated_as_deployment) ?? '?'}</span>
+            <span>evaluated as deployment {str(body.evaluated_as_deployment) ?? <NoValue reason="NOT_REPORTED" />}</span>
             <AsOf body={body} />
           </div>
           <QuoteSnapshotNote body={body} />
           {quote ? (
             <p className="pf-hint">
-              Quote evaluated: bid {str(quote.bid) ?? <NoValue reason="NOT_REPORTED" />} / ask {str(quote.ask) ?? <NoValue reason="NOT_REPORTED" />} {str(quote.currency)}, source {str(quote.source)}, age {num(quote.age_ms) ?? '?'} ms,
-              market-data type {str(quote.market_data_type) ?? '?'}, consolidation {str(quote.consolidation) ?? '?'}
+              Quote evaluated: bid {str(quote.bid) ?? <NoValue reason="NOT_REPORTED" />} / ask {str(quote.ask) ?? <NoValue reason="NOT_REPORTED" />} {str(quote.currency)}, source {str(quote.source)}, age {num(quote.age_ms) ?? <NoValue reason="NOT_REPORTED" />} ms,
+              market-data type {str(quote.market_data_type) ?? <NoValue reason="NOT_REPORTED" />}, consolidation {str(quote.consolidation) ?? <NoValue reason="NOT_REPORTED" />}
               {quote.fixture === true ? ' (FIXTURE)' : ''}.
             </p>
           ) : null}

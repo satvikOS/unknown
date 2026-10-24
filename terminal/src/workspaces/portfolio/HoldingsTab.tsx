@@ -114,7 +114,7 @@ export function HoldingsTab({ bar, q, scope, setScope, basis, setBasis, options,
     { id: 'mv', header: 'Market value (fresh)', numeric: true, cell: (o) => <Money amount={dec(o.market_value_fresh)} currency={str(o.currency) ?? ''} kind="marked" /> },
     { id: 'navm', header: 'NAV (marked)', numeric: true, description: 'Uses last marks, stale ones flagged; null when any position is unpriced', cell: (o) => <Money amount={dec(o.nav_marked)} currency={str(o.currency) ?? ''} unavailable="A position is unpriced." />, sortValue: (o) => dec(o.nav_marked), sortKind: 'decimal' },
     { id: 'navf', header: 'NAV (fresh)', numeric: true, description: 'Published only when every position has a fresh mark', cell: (o) => <Money amount={dec(o.nav_fresh)} currency={str(o.currency) ?? ''} reason="STALE" unavailable="Published only when every position has a fresh mark." /> },
-    { id: 'status', header: 'Valuation', cell: (o) => <StatusPill label={str(o.valuation_status) ?? '?'} tone={statusTone(str(o.valuation_status))} compact /> },
+    { id: 'status', header: 'Valuation', cell: (o) => <StatusPill label={str(o.valuation_status) ?? 'NOT REPORTED'} tone={statusTone(str(o.valuation_status))} compact /> },
   ];
 
   const posCols: Column<Rec>[] = [
@@ -146,7 +146,7 @@ export function HoldingsTab({ bar, q, scope, setScope, basis, setBasis, options,
         return (
           <span className="pf-label" title={str(m.reason) ?? str(m.source) ?? undefined}>
             <Money amount={dec(m.price)} currency={str(p.currency) ?? ''} reason={str(m.status) ?? 'NOT_REPORTED'} unavailable={str(m.reason) ?? undefined} />
-            <StatusPill label={str(m.status) ?? '?'} tone={statusTone(str(m.status))} compact detail={str(m.reason) ?? undefined} />
+            <StatusPill label={str(m.status) ?? 'NOT REPORTED'} tone={statusTone(str(m.status))} compact detail={str(m.reason) ?? undefined} />
             {num(m.age_ms) !== null ? <Age ageMs={num(m.age_ms)} /> : null}
           </span>
         );
@@ -189,7 +189,7 @@ export function HoldingsTab({ bar, q, scope, setScope, basis, setBasis, options,
         <span className="spacer" />
         {mp ? (
           <span className="pf-hint">
-            Marks: {str(mp.basis)} from {str(mp.source)}; fresh within {num(mp.max_age_ms)?.toLocaleString('en-US') ?? '?'} ms (policy budget)
+            Marks: {str(mp.basis)} from {str(mp.source)}; fresh within {num(mp.max_age_ms)?.toLocaleString('en-US') ?? <NoValue reason="NOT_REPORTED" />} ms (policy budget)
           </span>
         ) : null}
       </Toolbar>
@@ -209,7 +209,7 @@ export function HoldingsTab({ bar, q, scope, setScope, basis, setBasis, options,
                   </div>
                   <div className="s">
                     fresh: <Money amount={dec(t.nav_fresh)} currency={ccy} unavailable="not all marks fresh" /> ·{' '}
-                    <StatusPill label={str(t.valuation_status) ?? '?'} tone={statusTone(str(t.valuation_status))} compact />
+                    <StatusPill label={str(t.valuation_status) ?? 'NOT REPORTED'} tone={statusTone(str(t.valuation_status))} compact />
                   </div>
                 </div>
               );
@@ -223,7 +223,7 @@ export function HoldingsTab({ bar, q, scope, setScope, basis, setBasis, options,
                     <Money amount={dec(t.available_cash)} currency={ccy} />
                   </div>
                   <div className="s">
-                    liquid <Money amount={dec(t.liquid_value)} currency={ccy} /> · {num(t.owners) ?? '?'} owner(s)
+                    liquid <Money amount={dec(t.liquid_value)} currency={ccy} /> · {num(t.owners) ?? <NoValue reason="NOT_REPORTED" />} owner(s)
                   </div>
                 </div>
               );

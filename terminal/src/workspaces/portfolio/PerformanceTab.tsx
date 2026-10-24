@@ -41,7 +41,7 @@ export function PerformancePanel({ body, formulas }: { body: Rec; formulas: Map<
   const neff = isRec(stats.n_eff) ? num(stats.n_eff.n_eff) : null;
   const subCols: Column<Rec>[] = [
     { id: 'start', header: 'Start', cell: (s) => str(s.start) ?? '?', sortValue: (s) => str(s.start) ?? '' },
-    { id: 'end', header: 'End', cell: (s) => str(s.end) ?? '?' },
+    { id: 'end', header: 'End', cell: (s) => str(s.end) ?? <NoValue reason="NOT_REPORTED" /> },
     { id: 'bmv', header: 'BMV', numeric: true, cell: (s) => <Money amount={dec(s.bmv)} currency={ccy} /> },
     { id: 'emv', header: 'EMV', numeric: true, cell: (s) => <Money amount={dec(s.emv)} currency={ccy} /> },
     { id: 'flow', header: 'External flow', numeric: true, cell: (s) => <Money amount={dec(s.external_flow)} currency={ccy} signed /> },
@@ -92,7 +92,7 @@ export function PerformancePanel({ body, formulas }: { body: Rec; formulas: Map<
           />
         ) : null}
         <h3 className="pf-hint" style={{ margin: '10px 0 4px' }}>
-          Risk statistics on {num(stats.n) ?? 0} sub-period returns ({num(stats.periods_per_year) ?? '?'} periods a year, std n-1)
+          Risk statistics on {num(stats.n) ?? <NoValue reason="NOT_REPORTED" />} sub-period returns ({num(stats.periods_per_year) ?? <NoValue reason="NOT_REPORTED" />} periods a year, std n-1)
         </h3>
         {str(stats.insufficient_data) ? <p className="pf-hint">{str(stats.insufficient_data)}</p> : null}
         <dl className="kv">
@@ -101,7 +101,7 @@ export function PerformancePanel({ body, formulas }: { body: Rec; formulas: Map<
           <dt>Sharpe</dt>
           <dd>
             <span className="num">{fmtNum(num(stats.sharpe), 2)}</span>
-            {se ? <span className="pf-hint"> ± {fmtNum(num(se.n_eff), 2)} (1 s.e., n_eff {neff !== null ? fmtNum(neff, 1) : '?'}). {sentence(str(se.note))}</span> : null}
+            {se ? <span className="pf-hint"> ± {fmtNum(num(se.n_eff), 2)} (1 s.e., n_eff {neff !== null ? fmtNum(neff, 1) : <NoValue reason="NOT_REPORTED" />}). {sentence(str(se.note))}</span> : null}
           </dd>
           <dt>Sortino</dt>
           <dd className="num">{fmtNum(num(stats.sortino), 2)}</dd>

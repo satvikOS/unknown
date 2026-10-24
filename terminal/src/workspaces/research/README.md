@@ -4,7 +4,7 @@ Registered as `research` (`g q`, nav order 130). It reads `GET /api/research` (b
 
 ## Routes
 
-- `#/research` or `#/research/experiments`: pre-registered experiments, with FIXTURE labels, trial counts (every status counts toward M), the development budget, the holdout window and whether the holdout was consumed.
+- `#/research` or `#/research/experiments`: pre-registered experiments (a FIXTURE experiment is marked as an error and its results are refused), trial counts (every status counts toward M), the development budget, the holdout window and whether the holdout was consumed.
 - `#/research/experiments/<id>[/segment=…]`: one experiment.
   - The pre-registration, with its hash re-verified by the API, the hypothesis, selection metric, rejection criteria and holdout plan, and the full record.
   - Trial counts by segment, the budget, the search space and amendments.
@@ -20,13 +20,13 @@ Registered as `research` (`g q`, nav order 130). It reads `GET /api/research` (b
   - the evidence, with gate verdicts (PASS/FAIL) and the reasons, verbatim;
   - the API's re-verification of the whole transition chain (a problem it reports may concern another artifact's records, and the view says so);
   - the artifact body.
-- `#/research/strategies[/<spec_hash>]`: registered specifications, with the hash re-verified. "FIXTURE DATA ALLOWED" is shown when the spec's data requirements allow fixtures.
-- `#/research/reports[/<id>]`: reports. A fixture study shows its warning, the per-kind status, failing gates, conclusion, DSR, PBO, n_eff, the paired bootstrap and the gate verdicts. A statistic the engine could not compute (too few observations, zero variance) shows the engine's reason, and the bootstrap then says NOT COMPUTABLE, not FAIL.
+- `#/research/strategies[/<spec_hash>]`: registered specifications, with the hash re-verified. "FIXTURE DATA ALLOWED" is shown as an error-toned label when the spec's data requirements allow fixtures.
+- `#/research/reports[/<id>]`: reports. A report derived from a fixture study is refused (an error, not its figures); otherwise the per-kind status, failing gates, conclusion, DSR, PBO, n_eff, the paired bootstrap and the gate verdicts. A statistic the engine could not compute (too few observations, zero variance) shows the engine's reason, and the bootstrap then says NOT COMPUTABLE, not FAIL.
 - `#/research/formulas`: the formula registry (`formula_id@version`), which is served from code and is available without a registry.
 
 ## Labels and missing data
 
-- FIXTURE (or UNKNOWN ORIGIN) appears exactly where the API's provenance says so (`provenance.label`, `fixture`), and each panel shows its provenance: source, path, schema version, read time and formulas.
+- Data whose provenance is FIXTURE (`provenance.label`, `fixture`) is refused: the view shows an error, never the data. UNKNOWN ORIGIN is labelled where the API says so, and each panel shows its provenance: source, path, schema version, read time and formulas.
 - Without a registry, the API's reason is shown verbatim. It names `python -m unknown.research.study`, which exits with "the following arguments are required: --out", so the complete command (`python -m unknown.research.study --out <DIR>`) is shown in its place.
 - Integers beyond 2^53 in nested records (nanosecond timestamps such as `registered_at_ns`) have already been rounded by the browser's JSON parser. A `*_ns` value is shown exactly from the API's `*_ns_str` sibling; any other such integer is marked with "≈" and the view says so, instead of showing it as exact.
 
