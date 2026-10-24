@@ -42,7 +42,8 @@ function ApprovalCard({ a, onDone }: { a: Approval; onDone: () => void }) {
         <Badge tone="neutral">{a.kind}</Badge>
       </header>
       <p className="muted">
-        From {a.source} <ShortId value={a.source_id} head={14} /> · queued <Timestamp ns={a.created_ns} /> · expires <Timestamp ns={a.expires_ns} />
+        From {a.source} <ShortId value={a.source_id} head={14} /> · queued <Timestamp ns={a.created_ns} nsStr={a.nsStr.created} /> · expires{' '}
+        <Timestamp ns={a.expires_ns} nsStr={a.nsStr.expires} />
       </p>
       <p>
         Content hash <code className="ai-hash">{a.content_hash}</code>
@@ -70,7 +71,7 @@ function ApprovalCard({ a, onDone }: { a: Approval; onDone: () => void }) {
         </div>
       ) : (
         <p className="muted">
-          {a.state.toLowerCase()} by {a.decided_by ?? 'the system'} <Timestamp ns={a.decided_ns} />
+          {a.state.toLowerCase()} by {a.decided_by ?? 'the system'} <Timestamp ns={a.decided_ns} nsStr={a.nsStr.decided} />
           {a.decision_reason ? `: ${a.decision_reason}` : ''}
         </p>
       )}

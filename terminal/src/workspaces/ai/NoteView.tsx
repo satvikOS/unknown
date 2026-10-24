@@ -83,7 +83,7 @@ export function NoteBody({ note, onCite }: { note: NoteDetail; onCite: (id: stri
         ) : (
           <Badge tone="neutral">data only (no model output)</Badge>
         )}
-        <Timestamp ns={note.createdNs} />
+        <Timestamp ns={note.createdNs} nsStr={note.createdNsStr} />
         {note.label?.promptTemplateHash ? (
           <span className="muted">
             prompt <ShortId value={note.label.promptTemplateHash} head={10} />

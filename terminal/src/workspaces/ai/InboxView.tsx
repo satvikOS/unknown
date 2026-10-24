@@ -82,7 +82,7 @@ export function InboxView({ process, symbol, navigate }: { process: ProcessId | 
     {
       id: 'created',
       header: 'Created',
-      cell: (n) => <Timestamp ns={n.created_ns} />,
+      cell: (n) => <Timestamp ns={n.created_ns} nsStr={n.created_ns_str} />,
       sortValue: (n) => n.created_ns ?? 0,
       sortKind: 'number',
     },

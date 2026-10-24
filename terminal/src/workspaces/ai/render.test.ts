@@ -28,7 +28,14 @@ const RAW = {
       data_lines: [],
       items: [
         { citation: 'news:108', title: '424B2 - JPMorgan', kind: 'filing', form: '424B2', why: 'filing', sent_to_model: true },
-        { citation: 'news:223', title: 'ECB survey', kind: 'central_bank', why: 'central-bank release', sent_to_model: false, not_sent_reason: 'local only' },
+        {
+          citation: 'news:223',
+          title: 'ECB survey',
+          kind: 'central_bank',
+          why: 'central-bank release',
+          sent_to_model: false,
+          not_sent_reason: 'local only',
+        },
       ],
       unavailable: [{ what: 'price move for JPM', reason: 'no stored daily bars' }],
       citations: { 'news:108': { kind: 'filing', title: '424B2 - JPMorgan' } },

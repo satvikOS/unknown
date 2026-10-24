@@ -3,6 +3,7 @@
  * The server owns the shapes (backend/src/unknown/api/routes/ai_processes.py); anything unexpected parses to null
  * and the view says so instead of guessing.
  */
+import { exactNs } from '../../api/nsStrings';
 
 export const PROCESSES = ['brief', 'summaries', 'explainer'] as const;
 export type ProcessId = (typeof PROCESSES)[number];
@@ -57,6 +58,7 @@ export interface NoteSummary {
   run_id: string;
   process: string;
   created_ns: number | null;
+  created_ns_str: string | null;
   title: string;
   status: string;
   symbols: string[];
@@ -90,6 +92,7 @@ export function parseNoteList(raw: unknown): NoteSummary[] | null {
       run_id: str(n.run_id) ?? '',
       process: str(n.process) ?? '',
       created_ns: num(n.created_ns),
+      created_ns_str: exactNs(n, 'created_ns'),
       title: n.title as string,
       status: str(n.status) ?? '',
       symbols: strs(n.symbols),
@@ -139,6 +142,7 @@ export interface NoteDetail {
   title: string;
   status: string;
   createdNs: number | null;
+  createdNsStr: string | null;
   contentHash: string;
   contentHashOk: boolean;
   label: NoteLabel | null;
@@ -219,6 +223,7 @@ export function parseNoteDetail(raw: unknown): NoteDetail | null {
     title: str(n.title) ?? '',
     status: str(n.status) ?? '',
     createdNs: num(n.created_ns),
+    createdNsStr: exactNs(n, 'created_ns'),
     contentHash: str(n.content_hash) ?? '',
     contentHashOk: n.content_hash_ok === true,
     label: parseLabel(b.label),
@@ -281,6 +286,7 @@ export interface Approval {
   created_ns: number | null;
   expires_ns: number | null;
   decided_ns: number | null;
+  nsStr: { created: string | null; expires: string | null; decided: string | null };
   decided_by: string | null;
   decision_reason: string | null;
 }
@@ -302,6 +308,7 @@ export function parseApprovals(raw: unknown): Approval[] | null {
       created_ns: num(a.created_ns),
       expires_ns: num(a.expires_ns),
       decided_ns: num(a.decided_ns),
+      nsStr: { created: exactNs(a, 'created_ns'), expires: exactNs(a, 'expires_ns'), decided: exactNs(a, 'decided_ns') },
       decided_by: str(a.decided_by),
       decision_reason: str(a.decision_reason),
     });
