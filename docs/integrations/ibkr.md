@@ -234,7 +234,7 @@ check sees an empty batch when nothing is new.
 
 - Requests: `reqAccountSummary(reqId, "All", "AccountType,NetLiquidation,TotalCashValue,SettledCash,AvailableFunds")`
   and `reqPositions()`. Both are cancelled after every snapshot, and a third summary subscription is refused.
-- Cash: settled = SettledCash and total = TotalCashValue. AvailableFunds and NetLiquidation are kept in raw
+- Cash: settled = SettledCash and total = TotalCashValue. With no SettledCash row for a currency, settled = TotalCashValue only after `reqExecutions` (acctCode, `lastNDays=7`) and `reqAllOpenOrders` both complete empty; `settled_source` records the derivation (ADR-0012 amendment 2026-10-24). AvailableFunds and NetLiquidation are kept in raw
   only. Values are about 3 minutes stale by IBKR's design.
 - `complete` requires both End callbacks, every cash value set, and AccountType equal to the expected type
   when one is configured. Zero-quantity positions are skipped.

@@ -345,8 +345,9 @@ def _account_items(adapter, items) -> None:
         snap = adapter.account_snapshot()
         sn.data = {"account_type": snap.raw.get("account_type"), "complete": snap.complete,
                    "incomplete_reasons": snap.raw.get("incomplete_reasons"),
-                   "cash": [{"currency": c.currency, "settled": _dec(c.settled), "total": _dec(c.total)}
-                            for c in snap.cash],
+                   "cash": [{"currency": c.currency, "settled": _dec(c.settled), "total": _dec(c.total),
+                             "settled_source": c.settled_source} for c in snap.cash],
+                   "settlement_evidence": snap.raw.get("settlement_evidence"),
                    "positions": [{"provider_ref": p.provider_ref, "instrument_id": p.instrument_id,
                                   "quantity": _dec(p.quantity), "average_cost": _dec(p.average_cost),
                                   "currency": p.currency} for p in snap.positions],
@@ -355,6 +356,7 @@ def _account_items(adapter, items) -> None:
         sn.detail = (f"AccountType {sn.data['account_type']!r}, {len(snap.cash)} cash row(s), "
                      f"{len(snap.positions)} position(s)" + (", unmapped: " + ",".join(sn.data["unmapped_positions"])
                                                               if sn.data["unmapped_positions"] else "")
+                     + "".join(f", {c.currency} settled = {c.settled_source}" for c in snap.cash if c.settled_source)
                      if snap.complete else "incomplete: " + "; ".join(snap.raw.get("incomplete_reasons") or []))
     except Exception as exc:
         sn.result, sn.detail = "FAIL", f"{type(exc).__name__}: {exc}"
