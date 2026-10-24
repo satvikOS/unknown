@@ -1,0 +1,84 @@
+/* Equity screener (CAP-MKT-10): design tokens only. */
+.eqs-form fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 0 0 8px;
+  padding: 4px 10px 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: flex-end;
+}
+.eqs-form legend {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  padding: 0 4px;
+}
+.eqs-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  min-width: 0;
+}
+.eqs-form label.eqs-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  color: inherit;
+  min-height: 24px;
+}
+.eqs-form input,
+.eqs-form select {
+  max-width: 100%;
+}
+.eqs-crit {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+.eqs-crit-note {
+  flex-basis: 100%;
+}
+.eqs-problem {
+  color: var(--bad);
+}
+.eqs-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.eqs-excluded,
+.eqs-manifest {
+  margin-top: 10px;
+}
+.eqs-excluded ul {
+  padding-left: 18px;
+  font-size: var(--fs-sm);
+}
+.eqs-manifest dl {
+  display: grid;
+  grid-template-columns: minmax(120px, max-content) 1fr;
+  gap: 2px 12px;
+  font-size: var(--fs-sm);
+}
+.eqs-manifest dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.eqs-dv {
+  display: contents;
+}
+.eqs-saved {
+  padding-left: 18px;
+  margin: 0;
+}
+.eqs-saved li {
+  margin: 2px 0;
+}
