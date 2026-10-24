@@ -14,7 +14,9 @@
  *   monitor g w (52)
  *   chart g h (57)
  *   news g n (115)
+ *   ai g k (87)
  */
+import { aiWorkspace } from './ai';
 import { auditWorkspace } from './audit';
 import { capabilitiesWorkspace } from './capabilities';
 import { chartWorkspace } from './chart';
@@ -49,6 +51,7 @@ export const WORKSPACES: readonly WorkspaceDefinition[] = validateRegistry([
   macroWorkspace,
   researchWorkspace,
   researchJobsWorkspace,
+  aiWorkspace,
   marketDataWorkspace,
   monitorWorkspace,
   newsWorkspace,
