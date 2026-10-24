@@ -352,6 +352,16 @@ class CoreService:
             raise OutcomeUnknown(f"the core did not finish {describe_request(req)} within {self.request_wait_s:g} s; "
                                  "it is still queued and may yet run. Query its command id before resending.") from None
 
+    def _market_data_health(self) -> dict | None:
+        """The market-data maintainer's health when an adapter installed one (``market_data_health``), else None."""
+        fn = getattr(self, "market_data_health", None)
+        if fn is None:
+            return None
+        try:
+            return fn()
+        except Exception as exc:
+            return {"status": "UNKNOWN", "reason": f"health unavailable: {type(exc).__name__}: {exc}"}
+
     def broker_provider(self) -> str | None:
         try:
             return self.broker.capabilities().provider
@@ -426,7 +436,9 @@ class CoreService:
                         "provider": self.broker_provider(), "account_mode": h.broker_account_mode,
                         "memory_latch": self.memory_latch.view() if self.memory_latch is not None else None,
                         "event_journal": self.journal.status() if self.journal is not None else None,
-                        "sim_execution": self.sim_execution.status() if self.sim_execution is not None else None}
+                        "sim_execution": self.sim_execution.status() if self.sim_execution is not None else None,
+                        "broker_connection": self.broker_connection(),
+                        "market_data": self._market_data_health()}
             if name == "preflight":
                 if "OWNER" not in roles:
                     raise PermissionError("preflight dry run requires the owner token")
@@ -559,7 +571,10 @@ class CoreService:
         self._was_connected = s.connected
         if s.connected and s.authenticated:
             self._reconnect_backoff_s = RECONNECT_MIN_S
+            self._reconnect_attempts, self._down_since_ns = 0, None
             return
+        if getattr(self, "_down_since_ns", None) is None:
+            self._down_since_ns = self.clock.now_ns()
         if (s.auth_required_reason or "").startswith("DISCONNECTED_UNSAFE"):
             return   # identity mismatch is latched in the adapter; only the owner can clear it
         if s.connected:
@@ -571,13 +586,48 @@ class CoreService:
         if now < getattr(self, "_next_reconnect_at", 0.0):
             return
         log.info("broker not connected (%s); connecting", s.auth_required_reason)
+        self._reconnect_attempts = getattr(self, "_reconnect_attempts", 0) + 1
+        self._last_reconnect_ns = self.clock.now_ns()
         try:
             connect()
         except Exception:
             log.exception("broker connect failed")
+        after = self.broker.session()
+        if after.connected:
+            # Recorded now, not at the next tick: a drop before that tick is then a fresh disconnect, retried at once.
+            self._was_connected = True
+            if after.authenticated:
+                self._reconnect_backoff_s, self._next_reconnect_at = RECONNECT_MIN_S, 0.0
+                self._reconnect_attempts, self._down_since_ns = 0, None
+                return
         backoff = getattr(self, "_reconnect_backoff_s", RECONNECT_MIN_S)
         self._next_reconnect_at = now + backoff
         self._reconnect_backoff_s = min(backoff * 2, RECONNECT_MAX_S)
+
+    def broker_connection(self) -> dict | None:
+        """Health view of the broker connection: why it is not ready and how reconnecting goes (CAP-IBKR-07).
+        None for an adapter without a socket (the simulator)."""
+        if getattr(self.broker, "connect", None) is None:
+            return None
+        s = self.broker.session()
+        ready = s.connected and s.authenticated
+        latched = (s.auth_required_reason or "").startswith("DISCONNECTED_UNSAFE")
+        nxt = getattr(self, "_next_reconnect_at", 0.0)
+        if ready:
+            state = "connected"
+        elif latched:
+            state = "latched"                     # identity mismatch: only the owner clears it
+        elif s.connected:
+            state = "waiting_for_gateway"         # socket up, IBKR not (1100 / login): no reconnect can help
+        else:
+            state = "reconnecting"
+        return {"state": state, "reason": None if ready else s.auth_required_reason,
+                "down_since_ns": None if ready else getattr(self, "_down_since_ns", None),
+                "attempts": 0 if ready else getattr(self, "_reconnect_attempts", 0),
+                "last_attempt_ns": getattr(self, "_last_reconnect_ns", None),
+                "next_attempt_in_s": (round(max(0.0, nxt - time.monotonic()), 3) if state == "reconnecting" else None),
+                "backoff_s": getattr(self, "_reconnect_backoff_s", RECONNECT_MIN_S),
+                "policy": f"{RECONNECT_MIN_S:g} s doubling to {RECONNECT_MAX_S:g} s; never logs in"}
 
     def refresh_instrument_map(self, provider: str) -> None:
         """Copy provider mappings into a dict the adapter's message thread can read without SQLite."""

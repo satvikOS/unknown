@@ -590,6 +590,7 @@ class IbkrMarketDataSession:
         self._rule_listeners: list[Callable[[int, list], None]] = []
         self._audit: deque = deque(maxlen=500)
         self._anomalies: deque = deque(maxlen=500)
+        self.connections = 0                    # verified connections so far (a change means a reconnect)
         self.requests_sent = 0
         self.entitlement_errors = 0
         self.pacing_violations = 0
@@ -619,10 +620,30 @@ class IbkrMarketDataSession:
 
         Never automates login (R9). On identity mismatch the session latches unsafe and disconnects."""
         cfg = self._cfg
+        stale = None
+        with self.cv:
+            if self._socket_up and not self._unsafe:
+                if not _safe(self._client.isConnected, False):
+                    # The socket died without connectionClosed reaching us: record the loss, then reconnect.
+                    self._socket_lost("socket found closed at reconnect")
+                elif not self._verified:
+                    # Up but never verified (the Gateway was not logged in at connect): drop it and start over,
+                    # so a Gateway that comes back is picked up without a process restart.
+                    stale = self._client
+            if stale is None and (self._unsafe or self._socket_up):
+                return self.connection_state()
+        if stale is not None:
+            _safe(stale.disconnect)
+            with self.cv:
+                self._socket_lost("unverified socket replaced by a new connection")
         with self.cv:
             if self._unsafe or self._socket_up:
                 return self.connection_state()
             self._next_valid_id, self._managed, self._verified, self._reason = None, None, False, None
+            # IBKR connectivity state belongs to the socket it arrived on: an 1100 or a farm break seen before a
+            # Gateway restart is never carried onto the new connection (it would keep every quote stale).
+            self._upstream_down = None
+            self._farms_down.clear()
         client = self._client_factory(self._wrapper)
         with self.cv:
             self._client = client
@@ -673,6 +694,7 @@ class IbkrMarketDataSession:
                 return self.connection_state()
         with self.cv:
             self._verified = True
+            self.connections += 1
             self._audit_entry(None, "SESSION_READY", f"PAPER identity verified; client {self._md.client_id}")
         # reqMarketDataType applies to later reqMktData calls; the delivered type is still taken from marketDataType.
         err = self.request("query", "reqMarketDataType", self._md.requested_market_data_type)
@@ -717,6 +739,7 @@ class IbkrMarketDataSession:
                     "reason": None if (self._verified and self._socket_up) else
                     (self._unsafe or self._reason or "NOT_CONNECTED"),
                     "upstream_down": self._upstream_down, "data_farms_down": sorted(self._farms_down),
+                    "connections": self.connections,
                     "client_id": self._md.client_id, "account": self._cfg.masked_account(),
                     "host": f"{self._cfg.host}:{self._cfg.port}", "evidence_level": "OFFLINE_TESTED_NOT_PAPER_VERIFIED"}
 

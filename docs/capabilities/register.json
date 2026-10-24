@@ -25714,7 +25714,8 @@
         "files": [
           "backend/src/unknown/broker/ibkr/adapter.py",
           "backend/src/unknown/broker/ibkr/config.py",
-          "backend/src/unknown/broker/ibkr/check.py"
+          "backend/src/unknown/broker/ibkr/check.py",
+          "backend/src/unknown/broker/ibkr/evidence.py"
         ],
         "tests": [
           "backend/tests/test_ibkr_adapter.py::ConfigTests.test_documented_live_ports_are_refused",
@@ -25728,23 +25729,29 @@
           "backend/tests/test_ibkr_check.py::CheckTests.test_wrong_account_latches_unsafe_and_requests_nothing",
           "backend/tests/test_ibkr_check.py::CheckTests.test_a_client_id_in_use_is_refused_before_any_socket",
           "backend/tests/test_ibkr_check.py::CheckTests.test_clock_failures_fail_closed",
-          "backend/tests/test_ibkr_check.py::CheckTests.test_delayed_data_means_real_time_is_not_entitled"
+          "backend/tests/test_ibkr_check.py::CheckTests.test_delayed_data_means_real_time_is_not_entitled",
+          "backend/tests/test_ibkr_evidence.py::EvidenceTests.test_every_read_only_item_passes_and_nothing_but_reads_is_sent",
+          "backend/tests/test_ibkr_evidence.py::EvidenceTests.test_wrong_account_fails_identity_and_requests_nothing_else",
+          "backend/tests/test_ibkr_evidence.py::EvidenceTests.test_client_ids_of_other_connections_and_zero_are_refused",
+          "backend/tests/test_ibkr_evidence.py::EvidenceTests.test_record_is_written_outside_git_with_mode_600_and_a_table",
+          "backend/tests/test_ibkr_evidence.py::EvidenceWithRealAdapterTests.test_account_items_through_the_order_adapter_send_only_reads [IBKR venv]"
         ],
         "evidence": [
           "Only PAPER profiles are accepted; documented live ports are refused; the managed-account list at handshake must equal the configured paper id, otherwise DISCONNECTED_UNSAFE is latched and never retried.",
           "All 179 tests of test_ibkr_adapter, test_ibkr_marketdata, test_ibkr_serve and test_service_supervisor pass in the IBKR venv (official ibapi client, version string 1051.1, i.e. TWS API 10.51.01; fake host, no network) on 2026-10-22; 65 of those tests are skipped in interpreters without ibapi.",
-          "Read-only owner check python -m unknown.broker.ibkr.check --account <key>: dedicated client id (refused if it equals the order or market-data client id), PAPER identity, server version, clock skew from reqCurrentTimeInMillis against the policy's max_clock_skew_ms, the market-data type IBKR delivered for AAPL and real-time entitlement; then cancel and disconnect. No order call, no core command, no file written (fake host, 8 tests)."
+          "Read-only owner check python -m unknown.broker.ibkr.check --account <key>: dedicated client id (refused if it equals the order or market-data client id), PAPER identity, server version, clock skew from reqCurrentTimeInMillis against the policy's max_clock_skew_ms, the market-data type IBKR delivered for AAPL and real-time entitlement; then cancel and disconnect. No order call, no core command, no file written (fake host, 8 tests).",
+          "Evidence runner (python -m unknown.broker.ibkr.evidence) executes the read-only items of docs/integrations/ibkr.md section 5 with its own client ids and writes a dated record (identity, server version, SDK fingerprint, clock, contracts, delivered market-data type, account snapshot, open orders, executions, commissions, error 200 mapping) under ~/.unknown/evidence/; order items are listed as owner session and never executed. Not yet run against IB Gateway."
         ],
         "gaps": [
-          "no persisted session record with server_version and connect time (AC5)",
-          "not paper-verified: no IBKR paper session has run (BRK-02)"
+          "not paper-verified: no IBKR paper session has run (BRK-02)",
+          "the evidence record persists the server version per evidence run, but the adapter writes no per-session record with server_version and connect time (AC5)"
         ],
         "requirements": [
           "BRK-02",
           "EXE-01"
         ],
-        "updated": "2026-10-23",
-        "verified_against": "feat/ibkr-pro-readiness@9914972"
+        "updated": "2026-10-24",
+        "verified_against": "feat/ibkr-evidence-runner@50b6d50"
       }
     },
     {
@@ -26587,7 +26594,10 @@
         "files": [
           "backend/src/unknown/broker/ibkr/adapter.py",
           "backend/src/unknown/broker/ibkr/marketdata.py",
-          "backend/src/unknown/service/core.py"
+          "backend/src/unknown/service/core.py",
+          "backend/src/unknown/broker/ibkr/reconnect.py",
+          "backend/src/unknown/broker/ibkr/serve.py",
+          "backend/src/unknown/broker/ibkr/mdsource.py"
         ],
         "tests": [
           "backend/tests/test_ibkr_adapter.py::ConnectivityTests.test_system_codes_map_to_connectivity_events [IBKR venv]",
@@ -26595,11 +26605,18 @@
           "backend/tests/test_ibkr_adapter.py::ConnectivityTests.test_socket_port_reset_1300_drops_the_session [IBKR venv]",
           "backend/tests/test_ibkr_adapter.py::SubmitTests.test_upstream_loss_blocks_new_entries_until_restored [IBKR venv]",
           "backend/tests/test_ibkr_marketdata.py::QuoteTests.test_connectivity_loss_blanks_quotes_and_1101_requires_resubscribe",
-          "backend/tests/test_control_recovery.py::ConnectivityTests.test_disconnect_event_forces_reconciliation_before_entries"
+          "backend/tests/test_control_recovery.py::ConnectivityTests.test_disconnect_event_forces_reconciliation_before_entries",
+          "backend/tests/test_ibkr_reconnect.py::SessionDropAndReturnTests.test_1100_then_closed_socket_then_return_is_live_again_without_a_restart",
+          "backend/tests/test_ibkr_reconnect.py::SessionDropAndReturnTests.test_a_socket_closed_without_a_callback_is_replaced_on_connect",
+          "backend/tests/test_ibkr_reconnect.py::MaintainerTests.test_drop_is_reported_in_health_and_reconnects_with_backoff_when_the_gateway_returns",
+          "backend/tests/test_ibkr_reconnect.py::BusSourceTests.test_drop_and_return_reconnects_with_backoff_and_reopens_time_and_sales",
+          "backend/tests/test_ibkr_reconnect.py::CoreHealthTests.test_health_reports_reason_attempts_and_next_attempt",
+          "backend/tests/test_ibkr_reconnect.py::AdapterDropAndReturnTests.test_core_reconnects_the_adapter_after_1100_and_a_gateway_restart [IBKR venv]"
         ],
         "evidence": [
           "1100/1101/1102/1300/2110 and socket EOF map to connectivity events; entries stay blocked until a reconciliation; market data is blanked and resubscribed after 1101.",
-          "All 179 tests of test_ibkr_adapter, test_ibkr_marketdata, test_ibkr_serve and test_service_supervisor pass in the IBKR venv (official ibapi client, version string 1051.1, i.e. TWS API 10.51.01; fake host, no network) on 2026-10-22; 65 of those tests are skipped in interpreters without ibapi."
+          "All 179 tests of test_ibkr_adapter, test_ibkr_marketdata, test_ibkr_serve and test_service_supervisor pass in the IBKR venv (official ibapi client, version string 1051.1, i.e. TWS API 10.51.01; fake host, no network) on 2026-10-22; 65 of those tests are skipped in interpreters without ibapi.",
+          "Gateway drop and return (seen live 2026-10-24: 1100, closed socket, 502 while down): the market-data session no longer carries an 1100 or a farm break onto a new socket; the core, the core's market-data maintainer and the market-data bus source reconnect with capped backoff (5 s doubling to 300 s) without a restart and report the outage (core health broker_connection and market_data; bus source describe); the bus source re-requests tick-by-tick and depth on the new socket. Offline fake-host tests only."
         ],
         "gaps": [
           "no MAINTENANCE label for published reset windows (AC5)",
@@ -26610,8 +26627,8 @@
           "BRK-04",
           "OPS-03"
         ],
-        "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "updated": "2026-10-24",
+        "verified_against": "feat/ibkr-evidence-runner@50b6d50"
       }
     },
     {
@@ -26891,16 +26908,22 @@
           "backend/src/unknown/broker/ibkr/serve.py",
           "backend/src/unknown/service/core.py",
           "backend/src/unknown/broker/ibkr/adapter.py",
-          "docs/deploy/macos.md"
+          "docs/deploy/macos.md",
+          "backend/src/unknown/broker/ibkr/reconnect.py",
+          "scripts/deploy/macos/render_launchd.py"
         ],
         "tests": [
           "backend/tests/test_service_supervisor.py::SupervisorTests.test_logged_out_host_is_not_reconnected_while_the_socket_is_up",
           "backend/tests/test_service_supervisor.py::SupervisorTests.test_identity_unsafe_latch_is_never_retried",
           "backend/tests/test_ibkr_adapter.py::ConnectionTests.test_weekly_login_failure_message_reports_auth_required [IBKR venv]",
-          "backend/tests/test_control_recovery.py::RestartRecoveryTests.test_stop_survives_restart_and_restart_sets_recovery_hold"
+          "backend/tests/test_control_recovery.py::RestartRecoveryTests.test_stop_survives_restart_and_restart_sets_recovery_hold",
+          "backend/tests/test_ibkr_reconnect.py::SessionDropAndReturnTests.test_a_socket_opened_before_login_is_replaced_once_the_gateway_is_logged_in",
+          "backend/tests/test_ibkr_reconnect.py::SessionDropAndReturnTests.test_identity_latch_is_never_reconnected",
+          "backend/tests/test_deploy_render_launchd.py::RenderLaunchdTests.test_all_processes_with_their_interpreters"
         ],
         "evidence": [
-          "The service reconnects with capped backoff but never logs in for the owner; a weekly re-login condition reports AUTH_REQUIRED; the stop latch survives restarts. Login automation (IBC) is excluded by policy (threat model T15)."
+          "The service reconnects with capped backoff but never logs in for the owner; a weekly re-login condition reports AUTH_REQUIRED; the stop latch survives restarts. Login automation (IBC) is excluded by policy (threat model T15).",
+          "A Gateway restart needs no process restart: a socket opened before the owner's login is replaced once the Gateway is logged in, and every IBKR connection reconnects with backoff. launchd supervises the core, API, news poller and AI workers; IB Gateway itself is started and logged in by the owner (no login automation; docs/deploy/macos.md)."
         ],
         "gaps": [
           "no owner notification or reminders for AUTH_REQUIRED (alerting not built, CAP-OPS-06)",
@@ -26912,8 +26935,8 @@
           "BRK-04",
           "OPS-04"
         ],
-        "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "updated": "2026-10-24",
+        "verified_against": "feat/ibkr-evidence-runner@50b6d50"
       }
     },
     {

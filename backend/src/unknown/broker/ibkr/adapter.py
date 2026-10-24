@@ -389,6 +389,10 @@ class IbkrAdapter:
         arrive and the session reports AUTH_REQUIRED (R9)."""
         cfg = self._cfg
         with self._cv:
+            if self._socket_up and not self._unsafe and not _safe_call(self._client.isConnected, False):
+                # The socket died without connectionClosed reaching us (session() already reports it as not
+                # connected): record SOCKET_DOWN so this reconnect is not refused as "already connected".
+                self._socket_down("socket found closed at reconnect")
             if self._unsafe or self._socket_up:
                 return self._session_locked()
             self._next_valid_id = None
