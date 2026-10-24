@@ -394,13 +394,16 @@ def ingest_schedules(store, cik: int, submissions: dict, fetcher: Fetcher, now_n
 def load_or_fetch_submissions(store, cik: int, fetcher: Fetcher) -> dict:
     """Fresh submissions JSON for the issuer, kept in the raw layer and made the entity's ``submissions_ref`` (filings
     views filter by acceptance time, so a newer snapshot never shows a filing before it was accepted)."""
-    body, sha, _ = _fetch_raw(store, fetcher, SUBMISSIONS.format(cik=cik), "sec.submissions")
+    body, sha, receipt = _fetch_raw(store, fetcher, SUBMISSIONS.format(cik=cik), "sec.submissions")
     subs = json.loads(body)
     eid = entity_id(cik)
     row = store.conn.execute("SELECT kind, name, attributes FROM entity WHERE entity_id=?", (eid,)).fetchone()
     attrs = json.loads(row["attributes"] or "{}") if row else {"cik": cik, "sic": subs.get("sic")}
     attrs["submissions_ref"] = sha
     store.upsert_entity(eid, row["kind"] if row else "issuer", (row["name"] if row else None) or subs.get("name", ""), attrs)
+    for t, ex in zip(subs.get("tickers", []), subs.get("exchanges", [])):
+        # As in data.sec: current tickers carry no validity dates, so they are recorded from retrieval, never backdated.
+        store.add_alias(f"ticker:{ex or 'UNKNOWN'}", t, eid, receipt, f"raw:{sha}")
     return subs
 
 

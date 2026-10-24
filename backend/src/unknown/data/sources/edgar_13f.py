@@ -143,11 +143,11 @@ def _value_unit(filing_date: date) -> str:
     return "USD" if filing_date >= DOLLARS_FROM else "USD_thousands"
 
 
-def _stored(store, eid: str, manager_cik: int, period: str, at_ns: int):
-    rows = store.conn.execute("SELECT * FROM observation WHERE dataset=? AND entity_id=? AND field=? AND period_end=? AND known_to_ns=? "
-                              "AND available_time_ns<=? ORDER BY available_time_ns DESC, publication_id DESC LIMIT 1",
-                              (DATASET, eid, f"13f:{manager_cik:010d}", period, OPEN_END, at_ns)).fetchone()
-    return rows
+def _stored(store, eid: str, manager_cik: int, period: str, at_ns: int, exclude: str = ""):
+    """The manager's latest stored version for the period available at ``at_ns``, other than publication ``exclude``."""
+    return store.conn.execute("SELECT * FROM observation WHERE dataset=? AND entity_id=? AND field=? AND period_end=? AND known_to_ns=? "
+                              "AND available_time_ns<=? AND publication_id<>? ORDER BY available_time_ns DESC, publication_id DESC LIMIT 1",
+                              (DATASET, eid, f"13f:{manager_cik:010d}", period, OPEN_END, at_ns, exclude)).fetchone()
 
 
 def _periods(store, eid: str) -> list[str]:
@@ -181,7 +181,7 @@ def ingest_data_set(store, data: bytes, window: str, url: str, targets: dict[str
             amend = f.get("amendment_type") if f["type"] == "13F-HR/A" else None
             base = dict(dataset=DATASET, entity_id=eid, field=f"13f:{f['cik']:010d}", unit="json", period_end=period, period_kind="QUARTER",
                         receipt_time_ns=receipt_ns, available_time_ns=avail, publication_id=f["accession"])
-            prev = _stored(store, eid, f["cik"], period, avail) if amend else None
+            prev = _stored(store, eid, f["cik"], period, avail, f["accession"]) if amend else None
             if not hs:
                 if amend == "RESTATEMENT" and prev is not None and prev["value_text"] is not None:
                     _rec(store, c, Observation(missing_reason="NOT_REPORTED", source_ref=f"raw:{sha}#{f['accession']}",
@@ -190,17 +190,18 @@ def ingest_data_set(store, data: bytes, window: str, url: str, targets: dict[str
                 continue
             shares = sum((h.shares for h in hs), Fixed(0))
             value = sum((h.value for h in hs), Fixed(0))
+            n_rows, n_opt, n_prn = sum(h.rows for h in hs), sum(h.option_rows for h in hs), sum(h.principal_rows for h in hs)
             flags = [f"form:{f['type']}", "availability_from_filed_date"]
             if amend == "NEW HOLDINGS" and prev is not None and prev["value_text"] is not None:
                 before = json.loads(prev["value_text"])
                 shares = shares + Fixed.parse(before["shares"])
                 value = value + Fixed.parse(before["value"])
+                n_rows, n_opt, n_prn = n_rows + before["rows"], n_opt + before["option_rows"], n_prn + before["principal_rows"]
                 flags.append(f"new_holdings_added_to:{prev['publication_id']}")
             doc = {"manager_cik": f["cik"], "manager": f.get("manager"), "accession": f["accession"], "type": f["type"],
                    "amendment_type": amend, "report_type": f.get("report_type"), "filing_date": f["filing_date"].isoformat(), "period": period,
                    "shares": shares.to_str(), "value": value.to_str(), "value_unit": _value_unit(f["filing_date"]),
-                   "rows": sum(h.rows for h in hs), "option_rows": sum(h.option_rows for h in hs),
-                   "principal_rows": sum(h.principal_rows for h in hs), "cusips": sorted({h.cusip for h in hs}),
+                   "rows": n_rows, "option_rows": n_opt, "principal_rows": n_prn, "cusips": sorted({h.cusip for h in hs}),
                    "issuer_names": sorted(set().union(*(h.names for h in hs))), "classes": sorted(set().union(*(h.classes for h in hs))),
                    "window": window, "formula": FORMULA}
             _rec(store, c, Observation(value_text=canonical(doc), source_ref=f"raw:{sha}#INFOTABLE/{f['accession']}",
