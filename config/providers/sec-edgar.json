@@ -88,6 +88,66 @@
       "rights_source": "https://www.sec.gov/about/privacy-information (public information; cite the SEC); feed listed at https://www.sec.gov/about/rss-feeds",
       "rights_verified_on": "2026-10-23",
       "verdict": "allowed"
+    },
+    {
+      "dataset_id": "sec.form345",
+      "description": "Insider ownership reports (Forms 3, 4, 5 and amendments): the XML ownership document of each filing listed in the issuer's submissions (issuer, reporting owner and relationship, non-derivative and derivative transactions and holdings with codes, shares, prices and post-transaction holdings, footnotes)",
+      "endpoint": "https://www.sec.gov/Archives/edgar/data/<issuer CIK>/<accession without dashes>/<primaryDocument without its xsl* rendering folder>",
+      "coverage": "Section 16 filings in the issuer's main submissions file (XML ownership documents; issuerCik must equal the issuer)",
+      "history_depth": "the ingestion lookback (default 365 days of filings) within the main submissions file",
+      "update_frequency": "as filings are disseminated; fetched when the owner runs the ingestion",
+      "availability_rule": "each transaction is available at the EDGAR acceptance time of its accession (submissions acceptanceDateTime), never earlier",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_cloud", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "https://www.sec.gov/about/privacy-information ('Information presented on sec.gov is considered public information and may be copied or further distributed by users of the web site without the SEC's permission'); fair access https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data ('Current max request rate: 10 requests/second', declared User-Agent); data set description https://www.sec.gov/data-research/sec-markets-data/insider-transactions-data-sets",
+      "rights_verified_on": "2026-10-24",
+      "verdict": "allowed"
+    },
+    {
+      "dataset_id": "sec.schedule13dg",
+      "description": "Beneficial ownership reports (Schedules 13D and 13G and amendments) on the issuer: structured XML cover pages (reporting persons, aggregate amount, percent of class, issuer CUSIP, event date) since the December 2024 structured-data rule; earlier free-text filings are listed with their links only",
+      "endpoint": "https://www.sec.gov/Archives/edgar/data/<issuer CIK>/<accession without dashes>/<primaryDocument without its xsl* rendering folder>",
+      "coverage": "Schedule 13D/13G filings in the issuer's main submissions file where the issuer is the subject company (issuerCik must equal the issuer)",
+      "history_depth": "the ingestion lookback (default 1,095 days) within the main submissions file",
+      "update_frequency": "as filings are disseminated; fetched when the owner runs the ingestion",
+      "availability_rule": "available at the EDGAR acceptance time of the accession (submissions acceptanceDateTime)",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_cloud", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "https://www.sec.gov/about/privacy-information (public information; cite the SEC); fair access https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data",
+      "rights_verified_on": "2026-10-24",
+      "verdict": "allowed"
+    },
+    {
+      "dataset_id": "sec.form13f",
+      "description": "Form 13F data sets: the XML information tables of 13F-HR filings flattened by the SEC into quarterly ZIP files (SUBMISSION, COVERPAGE, INFOTABLE, ...). Rows for the ingested issuers' CUSIPs are aggregated per manager and report period (shares, market value)",
+      "endpoint": "https://www.sec.gov/data-research/sec-markets-data/form-13f-data-sets (one ZIP per three-month filing window, e.g. .../form-13f-data-sets/01jun2026-31aug2026_form13f.zip)",
+      "coverage": "13F-HR and 13F-HR/A filings disseminated in the window of each data set (any report period; late filers appear in later windows)",
+      "history_depth": "data sets from 2013 Q3; the ingestion takes the windows the owner selects (default the two latest)",
+      "update_frequency": "a new ZIP per three-month filing window",
+      "availability_rule": "a holding is available at 23:59:59 America/New_York on the FILING_DATE of its accession (the data set carries a date only, so this is conservative); the report period is kept as the period",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_cloud", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "https://www.sec.gov/data-research/sec-markets-data/form-13f-data-sets ('extracted from the eXtensible Markup Language (XML) based portion of Form 13F submissions ... presented without change from the as-filed submissions'); public information per https://www.sec.gov/about/privacy-information",
+      "rights_verified_on": "2026-10-24",
+      "verdict": "allowed"
+    },
+    {
+      "dataset_id": "sec.event_announcements",
+      "description": "Announced results dates: the primary document of the issuer's recent 8-K filings with Item 7.01 or 8.01, searched for a sentence that schedules a results release or call on a stated date",
+      "endpoint": "https://www.sec.gov/Archives/edgar/data/<issuer CIK>/<accession without dashes>/<primaryDocument>",
+      "coverage": "8-K filings with Item 7.01 or 8.01 in the issuer's main submissions file within the lookback (default 200 days, at most 20 documents per issuer)",
+      "history_depth": "the ingestion lookback",
+      "update_frequency": "fetched when the owner runs the ingestion",
+      "availability_rule": "an announced date is available at the acceptance time of the 8-K that states it",
+      "allowed_uses": ["display", "non_display", "storage", "derived_storage", "model_processing_cloud", "model_processing_local"],
+      "retention_days": null,
+      "vintage_support": false,
+      "rights_source": "https://www.sec.gov/about/privacy-information (public information; cite the SEC); fair access https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data",
+      "rights_verified_on": "2026-10-24",
+      "verdict": "allowed"
     }
   ]
 }
