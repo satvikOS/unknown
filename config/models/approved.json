@@ -1,5 +1,10 @@
 {
   "schema_version": 1,
   "comment": "Owner-edited model approvals (ADR-0016 section 3; CAP-MODEL-01, CAP-MODEL-11). Shipped EMPTY: nothing is routable until the owner adds an entry. A model discovered by a catalog refresh but absent here is 'unreviewed' and is never routed. Entry format: {\"provider\": \"<provider id>\", \"model_id\": \"<exact id from a catalog snapshot>\", \"roles\": [\"<role>\"], \"approved_by\": \"owner\", \"approved_at\": \"YYYY-MM-DD\", \"policy_version\": \"<owner policy hash or version label>\", \"lifecycle_reviewed_until\": \"YYYY-MM-DD\" (only for providers whose list endpoint exposes no lifecycle, e.g. OpenAI and Gemini), \"note\": \"...\"}. Moving aliases (ids ending in -latest, or ids another catalog row lists as an alias) are refused. Replacing a pinned id requires a recorded regression evaluation (CAP-MODEL-11).",
-  "approvals": []
+  "approvals": [
+    {"provider": "anthropic", "model_id": "claude-opus-5-5", "roles": ["ai_brief", "ai_summary", "ai_explainer"],
+     "approved_by": "owner", "approved_at": "2026-10-24",
+     "policy_version": "13d24206ac7ac8b361dcf36055224e037c2937a074e1a375038b73738b7ea3b4",
+     "note": "AI processes (morning brief, filing summaries, move explainer; backend/src/unknown/agents/processes) under the owner's USD 200 model-spend authorization (2026-10-22) and the owner's instruction to build AI into the platform (2026-10-24). Spend is capped per process in ~/.unknown/config/ai_processes.json and by agents.json."}
+  ]
 }

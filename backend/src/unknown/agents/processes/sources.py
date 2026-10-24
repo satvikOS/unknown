@@ -157,14 +157,15 @@ def _item(r: sqlite3.Row, ents: list[dict]) -> NewsItem:
 def news_items(news_db: Path, *, since_ns: int | None = None, until_ns: int | None = None, after_id: int | None = None,
                kinds: Iterable[str] | None = None, forms: Iterable[str] | None = None, ciks: Iterable[str] | None = None,
                item_ids: Iterable[int] | None = None, limit: int = 200) -> list[NewsItem]:
-    """Stored items (syndicated copies excluded), oldest first. ``forms`` matches amendments too (8-K/A).
+    """Stored items (syndicated copies excluded), oldest first: published at or after ``since_ns`` (the received time
+    when the feed states no publication time) and received by ``until_ns``. ``forms`` matches amendments too (8-K/A).
     Raises SourceUnavailable when the news store is missing."""
     conn = _open_ro(news_db)
     if conn is None:
         raise SourceUnavailable(f"the news store {news_db} is missing (start the news poller)")
     where, args = ["dup_of IS NULL"], []
-    if since_ns is not None:
-        where.append("first_seen_ns >= ?")
+    if since_ns is not None:   # published in the window (received time when the feed states none): a backfilled
+        where.append("COALESCE(published_ns, first_seen_ns) >= ?")   # old release is not an overnight item
         args.append(since_ns)
     if until_ns is not None:
         where.append("first_seen_ns <= ?")

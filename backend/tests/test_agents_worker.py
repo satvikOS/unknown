@@ -524,7 +524,7 @@ class WorkerReadinessTest(WorkerHarness, unittest.TestCase):
         out = subprocess.run([sys.executable, "-m", "unknown.agents.worker", "--check", "--home", str(self.home)],
                              capture_output=True, text=True, timeout=120, cwd=str(SRC.parent),
                              env={k: v for k, v in {**os.environ, "PYTHONPATH": str(SRC)}.items() if k != "ANTHROPIC_API_KEY"})
-        self.assertEqual(out.returncode, 1, out.stderr)                 # the repository's approved.json is empty
+        self.assertEqual(out.returncode, 1, out.stderr)                 # the repository's approved.json approves no research model
         self.assertIn("MISS approved.json", out.stdout)
         self.assertFalse((self.home / "agents").exists())
 

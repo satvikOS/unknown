@@ -70,14 +70,16 @@ class NewsFixture:
         self.next_id = 1
 
     def add(self, source_id: str, title: str, *, seen_ns: int, form: str | None = None, summary: str = "",
-            ciks: tuple[tuple[str, str, tuple[str, ...]], ...] = (), dup_of: int | None = None) -> int:
+            ciks: tuple[tuple[str, str, tuple[str, ...]], ...] = (), dup_of: int | None = None,
+            published_ns: int | None = None) -> int:
         iid = self.next_id
         self.next_id += 1
         kind = "filing" if source_id == "sec-filings" else "release"
         self.store.conn.execute(
             "INSERT INTO news_item(item_id, source_id, guid, kind, title, summary, link, form, published_ns, first_seen_ns,"
             " norm_title, items_json, dup_of) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (iid, source_id, f"g{iid}", kind, title, summary, f"https://www.sec.gov/fixture/{iid}", form, seen_ns - 60 * SECOND,
+            (iid, source_id, f"g{iid}", kind, title, summary, f"https://www.sec.gov/fixture/{iid}", form,
+             seen_ns - 60 * SECOND if published_ns is None else published_ns,
              seen_ns, title.lower(), json.dumps(["2.02"] if form == "8-K" else []), dup_of))
         for cik, name, tickers in ciks:
             self.store.conn.execute("INSERT INTO news_entity(item_id, scheme, value, name, role, method, confidence, tickers_json)"
@@ -172,6 +174,8 @@ class MorningBriefTest(ProcessHarness, unittest.TestCase):
                            ciks=((OTHER_CIK, "Canopy Growth Corp", ()),))
         self.frb = n.add("frb-press", "Federal Reserve Board announces approval of application", seen_ns=T0 - 4 * HOUR)
         self.ecb = n.add("ecb-press", "ECB publishes supervisory statement", seen_ns=T0 - 5 * HOUR)
+        self.backfill = n.add("frb-press", "Federal Reserve release published weeks ago", seen_ns=T0 - HOUR,
+                              published_ns=T0 - 20 * 86_400 * SECOND)
         self.old = n.add("sec-filings", "10-Q - Apple Inc.", form="10-Q", seen_ns=T0 - 40 * HOUR,
                          ciks=((AAPL_CIK, "Apple Inc.", (AAPL,)),))
 
@@ -199,7 +203,8 @@ class MorningBriefTest(ProcessHarness, unittest.TestCase):
         self.assertEqual([ln["status"] for ln in body["lines"]], ["verified", "verified", "unsupported", "unsupported"])
         self.assertEqual(body["lines"][3]["citations"], [])                 # an invented span id is never shown as a source
         # evidence: watched filing and the central-bank release went to the model; the ECB release (local-only rights)
-        # is listed as not sent; the unwatched filing and the item before the window are absent
+        # is listed as not sent; the unwatched filing, the item before the window and a release received in the window
+        # but published weeks earlier (a backfill, not an overnight item) are absent
         items = {i["citation"]: i for i in body["items"]}
         self.assertEqual(set(items), {f"news:{self.jpm}", f"news:{self.frb}", f"news:{self.ecb}"})
         self.assertFalse(items[f"news:{self.ecb}"]["sent_to_model"])

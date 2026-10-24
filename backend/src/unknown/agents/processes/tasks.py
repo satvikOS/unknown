@@ -19,9 +19,10 @@ def brief_task(*, date: str, calendar: str, window: tuple[str, str], subjects: I
         f"MORNING BRIEF for {date} ({calendar} trading day). Window: {window[0]} to {window[1]} (UTC).",
         f"Watched issuers (watchlist and holdings): {', '.join(subjects) or 'none'}.",
         "Write the owner's morning brief from the evidence: overnight filings and regulator releases for the watched "
-        "issuers, and central-bank releases. Put a one-sentence overview in hypothesis. Then one claim per material item, "
-        f"most important first, at most {max_claims} claims, saying what was filed or released and, in plain words, why "
-        "it may matter to an owner of the issuer. If no item is material, set abstain to true and say so in reason.",
+        "issuers, and central-bank releases. Put a one-sentence overview in hypothesis. Then one claim per item, most "
+        f"important first, at most {max_claims} claims (group items of the same form by the same filer into one claim "
+        "citing each of their span ids), saying what was filed or released, whether it looks routine or material, and in "
+        "plain words why it may matter to an owner of the issuer. Set abstain to true only when the evidence holds no item.",
         COMMON,
     ])
 
