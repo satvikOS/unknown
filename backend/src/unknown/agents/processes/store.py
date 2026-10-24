@@ -308,6 +308,8 @@ class ProcessStore:
 
     def expire_due(self) -> list[str]:
         now = self._clock_ns()
+        if not self._rows("SELECT 1 FROM approvals WHERE state = 'PENDING' AND expires_ns <= ? LIMIT 1", (now,)):
+            return []           # the worker calls this every cycle: take the write lock only when something expires
 
         def tx(db):
             ids = [r[0] for r in db.execute("SELECT approval_id FROM approvals WHERE state = 'PENDING' AND expires_ns <= ?", (now,))]
