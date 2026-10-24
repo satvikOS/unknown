@@ -3,6 +3,7 @@ export const PORTFOLIO_TABS = [
   { id: 'holdings', label: 'Holdings' },
   { id: 'performance', label: 'Performance' },
   { id: 'risk', label: 'Exposure and VaR' },
+  { id: 'market', label: 'Market risk' },
   { id: 'stress', label: 'Stress' },
   { id: 'whatif', label: 'What-if' },
   { id: 'allocation', label: 'Allocation' },
