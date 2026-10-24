@@ -133,7 +133,7 @@ class Worker:
                  core_factory: Callable[[], Any] | None = None,
                  adapter_factories: Mapping[str, Callable[[AdapterContext], ProviderAdapter]] | None = None,
                  models_dir: Path | None = None, registry: Mapping | None = None, environ: Mapping[str, str] | None = None,
-                 worker_id: str | None = None):
+                 worker_id: str | None = None, jobs_path: Path | None = None, lock_name: str = "worker.lock"):
         self.paths = paths
         self.clock = clock or SystemClock()
         self.sleep_ns = sleep_ns or (lambda ns: time.sleep(ns / NS))
@@ -146,7 +146,9 @@ class Worker:
         root = paths.root
         self.policy_path = default_policy_path(root)
         self.research_path = root / "research" / "research.sqlite"
-        self.jobs = JobStore(default_jobs_path(root), clock_ns=self.clock.now_ns)
+        # A subclass running another kind of job (the AI analyst) keeps its own job store and worker lock.
+        self.jobs = JobStore(Path(jobs_path) if jobs_path else default_jobs_path(root), clock_ns=self.clock.now_ns)
+        self.lock_name = lock_name
         self.audit = AuditTrail(default_audit_path(root), clock_ns=self.clock.now_ns)
         self.catalog = Catalog((), self.clock.now_ns, 24 * 3600 * NS, store_dir=root / "agents" / "catalog")
         self._catalog_attempt_ns: dict[str, int] = {}
@@ -160,7 +162,7 @@ class Worker:
     # ------------------------------------------------------------------ lifecycle
     def start(self) -> list[dict]:
         """Take the per-home worker lock, then recover jobs a dead worker left RUNNING."""
-        lock = self.paths.root / "agents" / "worker.lock"
+        lock = self.paths.root / "agents" / self.lock_name
         lock.parent.mkdir(parents=True, exist_ok=True)
         fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
         try:
