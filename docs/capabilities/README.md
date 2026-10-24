@@ -24,7 +24,7 @@ call under the cited `describe` titles; `--run-tests` runs the cited backend tes
 Playwright end-to-end tests (`terminal/e2e`) and the tests marked IBKR venv run only locally. Passing offline tests is
 evidence of offline behaviour only.
 
-Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readiness@9914972` on 2026-10-23; `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data@77c16d1` on 2026-10-23; `feat/live-news@5e8a06c` on 2026-10-23; `feat/workstation-shell@c052431` on 2026-10-23; `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d00` on 2026-10-22.
+Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a5429dc` on 2026-10-24; `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-pro-readiness@9914972` on 2026-10-23; `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data@77c16d1` on 2026-10-23; `feat/live-news@5e8a06c` on 2026-10-23; `feat/workstation-shell@c052431` on 2026-10-23; `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d00` on 2026-10-22.
 
 ## Summary by area
 
@@ -40,13 +40,13 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/global-data@a0658
 | strategy-research | 14 | 2 | 0 | 3 | 9 | 0 | 0 |
 | execution-oms | 14 | 5 | 0 | 1 | 8 | 0 | 0 |
 | workspace-ux | 12 | 3 | 0 | 3 | 6 | 0 | 0 |
-| agent-operations | 14 | 4 | 0 | 3 | 7 | 0 | 0 |
+| agent-operations | 14 | 1 | 0 | 3 | 10 | 0 | 0 |
 | ibkr-integration | 14 | 2 | 0 | 2 | 10 | 0 | 0 |
 | data-providers | 14 | 6 | 0 | 2 | 6 | 0 | 0 |
 | model-providers | 12 | 1 | 0 | 1 | 10 | 0 | 0 |
 | regulatory | 13 | 7 | 0 | 2 | 4 | 0 | 0 |
 | ops-aws | 14 | 7 | 0 | 4 | 3 | 0 | 0 |
-| **all** | 217 | 86 | 0 | 33 | 98 | 0 | 0 |
+| **all** | 217 | 83 | 0 | 33 | 101 | 0 | 0 |
 
 ## Capabilities
 
@@ -244,16 +244,16 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/global-data@a0658
 | CAP-AGT-01 | P0 | Bounded agent jobs: envelope, deadlines, turn/tool/retry caps, no unbounded spawning | Bloomberg Terminal, Claude Agent SDK, LSEG Workspace, OWASP Top 10 for LLM Appli | tested | 8 | kill_grace_s is not in the envelope; a provider call in flight at the deadline i |
 | CAP-AGT-02 | P0 | Agent cost budgets: pre-call reservation, hierarchical caps, provider hard limits and billing reconciliation | Claude API (Anthropic), Claude Agent SDK, LSEG Workspace, OWASP Top 10 for LLM A | tested | 6 | provider cost-report reconciliation is manual: reconcile() takes an owner eviden |
 | CAP-AGT-03 | P0 | Per-role tool allowlists and capability manifests enforced outside the model | Bloomberg Terminal, FINRA 2026 Annual Regulatory Oversight Report, Model Context | tested | 6 | no owner-signed capability manifests (AC3) |
-| CAP-AGT-04 | P0 | Human-in-the-loop approval queue binding owner decisions to exact proposals | FINRA 2026 Annual Regulatory Oversight Report, IBKR, Model Context Protocol spec | proposed |  | not yet implemented |
+| CAP-AGT-04 | P0 | Human-in-the-loop approval queue binding owner decisions to exact proposals | FINRA 2026 Annual Regulatory Oversight Report, IBKR, Model Context Protocol spec | tested | 5 | order intents are not proposals yet: no state-version binding, no risk-superviso |
 | CAP-AGT-05 | P0 | Owner intervention controls: pause roles, cancel jobs, disable model-dependent decisions, red stop with order cancel | EU MiFID II RTS 6 (Delegated Regulation 2017/589), UK onshored copy, IBKR TWS AP | tested | 11 | no 'disable model-dependent decisions' switch: no model output feeds orders toda |
 | CAP-AGT-06 | P0 | Prompt-injection defence for filings, news, web pages, owner uploads and tool outputs | Bloomberg Terminal, Claude Agent SDK, NIST AI 600-1 Generative AI Profile, OWASP | tested | 4 | no injection corpus or canary scanner (AC1, AC2) |
 | CAP-AGT-07 | P0 | Secret and sensitive-data isolation for agents (credentials, account ids, owner data) | IBKR, IBKR TWS API, OWASP Top 10 for LLM Applications 2025, SEBI | implemented | 3 | the worker runs as the same OS user as the core, so a same-user process can read |
 | CAP-AGT-08 | P0 | Data-rights gating before content enters a model context (licence, entitlement, retention, provider) | LSEG Workspace, NIST AI RMF 1.0 (AI 100-1), S&P Global / Kensho | tested | 5 | no label propagation to derived summaries and exports (AC2) |
 | CAP-AGT-09 | P0 | Agent audit trail: tamper-evident lineage from evidence to job to proposal to order | FINRA 2026 Annual Regulatory Oversight Report, Model Context Protocol specificat | tested | 7 | proposal-to-order lineage: no order intent consumes research proposals yet |
 | CAP-AGT-10 | P1 | Grounded research Q&A over filings and permitted documents with span-level citations and generated query code | Bloomberg Terminal, LSEG Workspace, OWASP Top 10 for LLM Applications 2025, S&P  | implemented | 12 | filing and document text is not ingested: spans are XBRL facts only |
-| CAP-AGT-11 | P1 | AI summaries of news and earnings events filtered to holdings and watchlists, with provenance | IBKR, LSEG Workspace, NIST AI 600-1 Generative AI Profile, OWASP Top 10 for LLM  | proposed |  | not yet implemented |
+| CAP-AGT-11 | P1 | AI summaries of news and earnings events filtered to holdings and watchlists, with provenance | IBKR, LSEG Workspace, NIST AI 600-1 Generative AI Profile, OWASP Top 10 for LLM  | tested | 8 | summaries use the stored feed entry, not the filing document; no transcripts or  |
 | CAP-AGT-12 | P1 | Model/provider registry with version pinning, measured routing, fallback and change control | Bloomberg Terminal, LSEG Workspace, NIST AI 600-1 Generative AI Profile, NIST AI | implemented | 4 | no evaluation records, so routing is by owner order, not measured quality (AC4) |
-| CAP-AGT-13 | P1 | Agent observability: traces, metrics, cost and quality dashboards with service objectives | NIST AI 600-1 Generative AI Profile, NIST AI RMF 1.0 (AI 100-1), OpenAI Agents S | proposed |  | not yet implemented |
+| CAP-AGT-13 | P1 | Agent observability: traces, metrics, cost and quality dashboards with service objectives | NIST AI 600-1 Generative AI Profile, NIST AI RMF 1.0 (AI 100-1), OpenAI Agents S | tested | 4 | no OpenTelemetry spans or exporter, no trace viewer and no SLO reports |
 | CAP-AGT-14 | P1 | Agent evaluation suites, red-team tests and release gate for model, prompt, tool and manifest changes | LSEG Workspace, NIST AI 600-1 Generative AI Profile, NIST AI RMF 1.0 (AI 100-1), | proposed |  | not yet implemented |
 
 ### ibkr-integration
@@ -1212,6 +1212,18 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/global-data@a0658
 - Gap: no per-role privilege surface report (AC5)
 - Requirements: AUT-04, SEC-02, AI-01
 
+### CAP-AGT-04: Human-in-the-loop approval queue binding owner decisions to exact proposals (tested)
+
+- Files: `backend/src/unknown/agents/processes/store.py`, `backend/src/unknown/agents/processes/scheduler.py`, `backend/src/unknown/api/routes/ai_processes.py`, `terminal/src/workspaces/ai/ApprovalsView.tsx`, `terminal/src/workspaces/ai/model.ts`
+- Tests: `test_agents_processes::ApprovalQueueTest.test_a_decision_is_bound_to_the_content_hash_and_audited_in_the_same_transaction`; `test_agents_processes::ApprovalQueueTest.test_tampered_content_expiry_and_rejection_cooldown`; `test_agents_processes::ApprovalQueueTest.test_a_succeeded_research_proposal_is_queued_once_with_its_hash`; `test_agents_processes::AiProcessRoutesTest.test_an_owner_decision_through_the_api_is_hash_bound_and_audited`; `src/workspaces/ai/model.test.ts::ai workspace model > refuses unexpected list shapes instead of guessing`
+- Evidence: A durable queue (agents/processes.sqlite) holds proposals as immutable typed objects with the SHA-256 of their canonical content and an expiry; succeeded, non-abstained research proposals are queued by the model worker.
+- Evidence: The owner decides in the terminal (AIQ) with the hash shown; the store refuses payload_hash_mismatch (hash sent or hash recomputed from stored content differs), expired and already-decided proposals, and appends the decision (actor owner, session hash) to the hash-chained audit trail inside the decision transaction; refusals are audited too. Identical content rejected within 7 days is suppressed.
+- Evidence: A decision changes only its row: no code path reads it to place an order, start a session, move money or write to the core (the approval test asserts no core call).
+- Gap: order intents are not proposals yet: no state-version binding, no risk-supervisor re-check after approval and no IBKR what-if preview
+- Gap: no reauthentication step for approvals and no paused-run resume after a decision
+- Gap: override and rejection rates are counted on the dashboard but not tracked as an evaluation metric
+- Requirements: AUT-02, AUT-04, AI-01
+
 ### CAP-AGT-05: Owner intervention controls: pause roles, cancel jobs, disable model-dependent decisions, red stop with order cancel (tested)
 
 - Files: `backend/src/unknown/core/handlers/control.py`, `backend/src/unknown/api/routes/research_jobs.py`, `backend/src/unknown/agents/jobstore.py`, `backend/src/unknown/agents/config.py`, `backend/src/unknown/service/core.py`
@@ -1276,6 +1288,19 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/global-data@a0658
 - Gap: no live job of the research role has run on this Mac (the analyst role has; see evidence)
 - Requirements: AI-04, DAT-05
 
+### CAP-AGT-11: AI summaries of news and earnings events filtered to holdings and watchlists, with provenance (tested)
+
+- Files: `backend/src/unknown/agents/processes`, `backend/src/unknown/agents/worker.py`, `backend/src/unknown/api/routes/ai_processes.py`, `terminal/src/workspaces/ai`
+- Tests: `test_agents_processes::MorningBriefTest.test_brief_runs_once_on_a_trading_day_with_cited_verified_lines_and_rights_filtered_evidence`; `test_agents_processes::MorningBriefTest.test_the_process_day_cap_refuses_before_any_call_and_the_note_keeps_the_non_ai_list`; `test_agents_processes::MorningBriefTest.test_not_scheduled_before_the_configured_time_or_on_a_holiday`; `test_agents_processes::SummariesTest.test_new_watched_filings_and_regulator_items_are_summarised_once_from_the_first_item_after_switch_on`; `test_agents_processes::ExplainerTest.test_with_bars_the_model_relates_items_or_says_nothing_explains_the_move`; `test_agents_processes::ExplainerTest.test_without_real_bars_it_says_so_and_makes_no_call`; `test_agents_processes::SourceMapAgreesWithTheNewsPollerTest.test_the_copied_source_to_dataset_map_equals_the_pollers`; `src/workspaces/ai/render.test.ts::AI note rendering > labels AI text, flags unverified lines and marks unsent sources and missing data`
+- Evidence: Morning brief (market days per config/calendars), filing and regulator summaries for watched issuers as the news poller stores them, and an on-request move explainer run in the model worker through Worker._prepare and JobRunner (approved model, tariff, gate, reservation with a per-process day cap, audit, claim verification).
+- Evidence: Only datasets the registry permits for cloud model processing are sent; others are listed with the reason; price bars are never sent and appear as data lines; each model line keeps its verification status and unverified lines are flagged; notes carry the AI label (model id, prompt template hash, time).
+- Evidence: Live on this Mac 2026-10-24 (worker --run-brief, watchlist AAPL MSFT NVDA JPM): one verified line citing news:108, news:120, news:125 (JPMorgan 424B2 filings); 11 ECB/RBI releases listed as not sent; price moves unavailable (no stored bars); ledger cost 0.018932 USD. An earlier run (0.040224 USD) exposed backfilled releases counted as overnight, fixed by windowing on publication time.
+- Gap: summaries use the stored feed entry, not the filing document; no transcripts or licensed news
+- Gap: importance flags are the model's routine/material wording, not deterministic rules with holding weights
+- Gap: no typed fact re-extraction for numbers in summaries and no owner error marking for evaluation
+- Gap: price moves need stored real daily bars (mkt_bar); this Mac has none yet
+- Requirements: AI-01, AI-04, AI-05
+
 ### CAP-AGT-12: Model/provider registry with version pinning, measured routing, fallback and change control (implemented)
 
 - Files: `backend/src/unknown/agents/catalog.py`, `config/models/approved.json`, `backend/src/unknown/agents/runner.py`
@@ -1283,8 +1308,19 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/global-data@a0658
 - Evidence: Model ids are discovered at runtime and routable only after an owner approval per role; aliases cannot be pinned; a transient error falls back to the next approved candidate after the retry budget.
 - Gap: no evaluation records, so routing is by owner order, not measured quality (AC4)
 - Gap: no routing log with scores (AC3)
-- Gap: approved.json approves one model for one role only (claude-opus-5-5 for the analyst, 2026-10-24); research has none
+- Gap: approved.json ships one owner entry: claude-opus-5-5 for the analyst and AI process roles (ai_brief, ai_summary, ai_explainer), 2026-10-24; research has none
 - Requirements: AI-02
+
+### CAP-AGT-13: Agent observability: traces, metrics, cost and quality dashboards with service objectives (tested)
+
+- Files: `backend/src/unknown/agents/processes/dashboard.py`, `backend/src/unknown/agents/budget.py`, `backend/src/unknown/agents/runner.py`, `backend/src/unknown/api/routes/ai_processes.py`, `terminal/src/workspaces/ai/CostView.tsx`
+- Tests: `test_agents_processes::RecoveryAndDashboardTest.test_dashboard_reports_spend_by_day_role_and_process_against_caps`; `test_agents_processes::LedgerProcessCapTest.test_the_process_day_cap_is_checked_in_the_reservation_transaction`; `test_agents_processes::RecoveryAndDashboardTest.test_a_run_left_running_is_failed_and_its_possibly_sent_spend_stays_reserved`; `src/workspaces/ai/model.test.ts::ai workspace model > parses the dashboard and computes cap shares without rounding amounts`
+- Evidence: GET /api/ai/dashboard (terminal AICOST) computes read-only from the spend ledger, the process store and the audit trail: spend per UTC day and role, today/month/lifetime against owner caps, unconfirmed spend, and per process the switch, day cap, spend today, runs, failures, latency p50/p95, tokens, cost and the unverified-line rate, approvals by state and the audit-chain check; no prompt or evidence text.
+- Evidence: The runner's generated record now carries prompt and output token counts.
+- Gap: no OpenTelemetry spans or exporter, no trace viewer and no SLO reports
+- Gap: no alert aggregation, rate-limit headroom or reconciliation against the provider's usage report
+- Gap: research jobs appear by role in spend only; their latency and quality are not in the per-process table
+- Requirements: AI-03, AI-05
 
 ### CAP-IBKR-01: TWS API SDK distribution, licensing and TWS/IB Gateway version pinning (tested)
 
@@ -1495,7 +1531,7 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/global-data@a0658
 ### CAP-MODEL-01: Runtime model catalog discovery and capability registry (tested)
 
 - Files: `backend/src/unknown/agents/catalog.py`, `backend/src/unknown/agents/providers/anthropic.py`, `backend/src/unknown/agents/providers/openai.py`, `backend/src/unknown/agents/providers/xai.py`, `backend/src/unknown/agents/providers/gemini.py`
-- Tests: `test_agents_catalog::CatalogTest.test_shipped_approvals_cover_only_the_analyst_role`; `test_agents_catalog::CatalogTest.test_approved_id_missing_becomes_non_routable_with_alert`; `test_agents_catalog::CatalogTest.test_failed_refresh_keeps_last_good_and_auth_failure_blocks`; `test_agents_static::StaticTest.test_no_model_id_literals_in_application_source`; `test_agents_providers::OpenAIDocumentedShapesTest.test_model_object`; `test_agents_providers::XAIDocumentedShapesTest.test_language_model_prices_are_stored_unchanged_and_converted_only_for_cross_check`; `test_agents_providers::AnthropicAdapterTest.test_count_tokens_and_list_models`
+- Tests: `test_agents_catalog::CatalogTest.test_shipped_approvals_cover_only_the_analyst_and_ai_process_roles`; `test_agents_catalog::CatalogTest.test_approved_id_missing_becomes_non_routable_with_alert`; `test_agents_catalog::CatalogTest.test_failed_refresh_keeps_last_good_and_auth_failure_blocks`; `test_agents_static::StaticTest.test_no_model_id_literals_in_application_source`; `test_agents_providers::OpenAIDocumentedShapesTest.test_model_object`; `test_agents_providers::XAIDocumentedShapesTest.test_language_model_prices_are_stored_unchanged_and_converted_only_for_cross_check`; `test_agents_providers::AnthropicAdapterTest.test_count_tokens_and_list_models`
 - Evidence: Runtime catalog snapshots with diff, approval, routability and alerts; no model id literals in application source.
 - Evidence: One live call of claude-opus-5-5 ran in CI (GitHub Actions run 39798075556, workflow live-anthropic, 2026-10-22, commit 7eae251): tests.test_agents_live_anthropic passed; token count by the provider endpoint (1,306 prompt tokens); reserved and settled USD 0.00822400.
 - Gap: Mistral not implemented

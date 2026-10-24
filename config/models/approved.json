@@ -1,17 +1,20 @@
 {
   "schema_version": 1,
-  "comment": "Owner-edited model approvals (ADR-0016 section 3; CAP-MODEL-01, CAP-MODEL-11). Shipped EMPTY: nothing is routable until the owner adds an entry. A model discovered by a catalog refresh but absent here is 'unreviewed' and is never routed. Entry format: {\"provider\": \"<provider id>\", \"model_id\": \"<exact id from a catalog snapshot>\", \"roles\": [\"<role>\"], \"approved_by\": \"owner\", \"approved_at\": \"YYYY-MM-DD\", \"policy_version\": \"<owner policy hash or version label>\", \"lifecycle_reviewed_until\": \"YYYY-MM-DD\" (only for providers whose list endpoint exposes no lifecycle, e.g. OpenAI and Gemini), \"note\": \"...\"}. Moving aliases (ids ending in -latest, or ids another catalog row lists as an alias) are refused. Replacing a pinned id requires a recorded regression evaluation (CAP-MODEL-11).",
+  "comment": "Owner-edited model approvals (ADR-0016 section 3; CAP-MODEL-01, CAP-MODEL-11). Shipped with one owner entry (the AI analyst and AI process roles); nothing else is routable until the owner adds an entry. A model discovered by a catalog refresh but absent here is 'unreviewed' and is never routed. Entry format: {\"provider\": \"<provider id>\", \"model_id\": \"<exact id from a catalog snapshot>\", \"roles\": [\"<role>\"], \"approved_by\": \"owner\", \"approved_at\": \"YYYY-MM-DD\", \"policy_version\": \"<owner policy hash or version label>\", \"lifecycle_reviewed_until\": \"YYYY-MM-DD\" (only for providers whose list endpoint exposes no lifecycle, e.g. OpenAI and Gemini), \"note\": \"...\"}. Moving aliases (ids ending in -latest, or ids another catalog row lists as an alias) are refused. Replacing a pinned id requires a recorded regression evaluation (CAP-MODEL-11).",
   "approvals": [
     {
       "provider": "anthropic",
       "model_id": "claude-opus-5-5",
       "roles": [
-        "analyst"
+        "analyst",
+        "ai_brief",
+        "ai_explainer",
+        "ai_summary"
       ],
       "approved_by": "owner (delegated to Claude Code under the owner's instruction of 2026-10-24 to build AI into the platform)",
       "approved_at": "2026-10-24",
       "policy_version": "e0d2e00c6bb43e5184cdacb0c9b20df0bffee9b10f7ceff96120e029665b1e7a",
-      "note": "AI analyst (ASK, role analyst) under the owner's USD 200.00 Anthropic authorisation of 2026-10-22 (caps in agents.json: 15.00/day, 2.00/job) and the owner's instruction of 2026-10-24 to build AI into the platform. Answers are advisory; the role's tools are read-only."
+      "note": "AI analyst (ASK, role analyst; read-only tools) and AI processes (morning brief, filing summaries, move explainer; backend/src/unknown/agents/processes) under the owner's USD 200.00 Anthropic authorisation of 2026-10-22 (caps in agents.json: 15.00/day, 2.00/job; per-process caps in ~/.unknown/config/ai_processes.json) and the owner's instruction of 2026-10-24 to build AI into the platform. All output is advisory."
     }
   ]
 }

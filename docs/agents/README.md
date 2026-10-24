@@ -1,6 +1,6 @@
 # Bounded agent layer (increment I6)
 
-Status (ADR-0001 vocabulary): **implemented and tested offline**, including the model worker, the durable job store, the audit trail and the terminal API routes (see [Running research jobs on this Mac](#running-research-jobs-on-this-mac)). The only paid call so far is the CI live smoke test (`live-anthropic.yml`). Paid calls stay disabled until the owner writes `~/.unknown/config/agents.json` and approves the tariff rows and models involved; `approved.json` still ships empty. Decision record: [ADR-0016](../adr/0016-bounded-agents-and-model-providers.md). Evidence: the `model-providers` (CAP-MODEL-01..12) and `agent-operations` (CAP-AGT-01..14) records in [`docs/capabilities/register.json`](../capabilities/register.json), verified 2026-10-22.
+Status (ADR-0001 vocabulary): **implemented and tested offline**, including the model worker, the durable job store, the audit trail and the terminal API routes (see [Running research jobs on this Mac](#running-research-jobs-on-this-mac)). The only paid call so far is the CI live smoke test (`live-anthropic.yml`). Paid calls stay disabled until the owner writes `~/.unknown/config/agents.json` and approves the tariff rows and models involved; `approved.json` ships one owner approval, for the AI process roles only (see [AI processes](#ai-processes-briefs-summaries-explainer-approvals-cost)). Decision record: [ADR-0016](../adr/0016-bounded-agents-and-model-providers.md). Evidence: the `model-providers` (CAP-MODEL-01..12) and `agent-operations` (CAP-AGT-01..14) records in [`docs/capabilities/register.json`](../capabilities/register.json), verified 2026-10-22.
 
 ## Architecture
 
@@ -100,7 +100,7 @@ Tool use is provider-neutral: the model asks for a tool through the `tool_reques
 1. **Write the policy file.** It goes at `~/.unknown/config/agents.json` (or `$UNKNOWN_HOME/config/agents.json`), mode `0600`, owned by you. Money values are decimal strings; JSON numbers are refused for money.
 2. **Provide the API key.** Use the environment variable named in `api_key_env`. For Anthropic you can instead use a file under `~/.unknown/secrets/` named by `api_key_file`; it must be mode `0600` or it is refused. Keys are never stored in the policy file and never logged.
 3. **Approve the tariff rows.** In `config/models/tariffs.json`, re-verify each price against the provider's pricing page and set `approved_by` on the rows you rely on. Shipped rows are all unapproved, so admission refuses until you do this. With `refusal_fallback: "default"`, also approve the rows of the fallback targets (`claude-opus-4-8`, `claude-opus-5`), because the worst case must bound a fallback attempt.
-4. **Approve models per role.** Add an entry to `config/models/approved.json` (it ships with one entry: `claude-opus-5-5` for the `analyst` role, see [AI analyst](#ai-analyst-ask)). In code, the catalog comes from a live list call; approval entries name the exact id from that snapshot. The exact entry for Claude Opus 5.5 and the research role is in [step 3 below](#owner-steps-for-a-live-job).
+4. **Approve models per role.** Add an entry to `config/models/approved.json` (it ships with one owner entry: `claude-opus-5-5` for the `analyst` role and the AI process roles `ai_brief`, `ai_summary` and `ai_explainer`; research has none). In code, the catalog comes from a live list call; approval entries name the exact id from that snapshot. The exact entry for Claude Opus 5.5 and the research role is in [step 3 below](#owner-steps-for-a-live-job).
 
 ### `agents.json` schema (schema_version 1)
 
@@ -398,6 +398,54 @@ The answer records the model, the effort, the tokens (input, output, cache read,
 - Server-side refusal fallback for the analyst.
 - Calibration of the citation check against a gold set.
 
+## AI processes (briefs, summaries, explainer, approvals, cost)
+
+Status: **implemented and tested offline** (`backend/tests/test_agents_processes.py`, `terminal/src/workspaces/ai/*.test.ts`), and proven live once on this Mac (below). Code: `backend/src/unknown/agents/processes/`, the API in `backend/src/unknown/api/routes/ai_processes.py`, the terminal workspace in `terminal/src/workspaces/ai/` (CAP-AGT-04, CAP-AGT-11, CAP-AGT-13).
+
+The processes run **inside the model worker** (`python -m unknown.agents.worker`), after its research jobs and one run per cycle. Each model call goes through the research-job path unchanged: `Worker._prepare` (approved candidates, owner-approved tariff, budget probe, catalog) and `JobRunner` (data-use gate, token count, worst-case reservation, call, settlement, schema validation, claim verification), with every record in the hash-chained audit trail under the run id. Each process uses its own ledger role (`ai_brief`, `ai_summary`, `ai_explainer`) and its own day cap, which `SpendLedger.reserve(role_day_cap=...)` checks inside the same transaction as the owner caps; the per-run cap is the envelope's spend cap, which can only lower `per_job`.
+
+| Process | Trigger | Evidence sent to the model | Output |
+|---|---|---|---|
+| `brief` | Trading days of `brief.calendar` (`config/calendars`), at or after `brief.time` local time and before the close; once per day (`brief:<date>`). `worker --run-brief` queues one on demand (last 24 h). | Filings and regulator releases tagged with a watched issuer, and central-bank releases, published since the previous session's close. | One cited line per item (routine or material, and why); price moves as data lines. |
+| `summaries` | Each new 8-K/10-Q/10-K (and amendments) or regulator release tagged with a watched issuer, as the news poller stores it, starting with the first item after the switch is first on (`summary:news:<item id>`). | That item's stored feed entry (title, summary, items, dates); the filing document itself is not fetched. | Up to three cited lines. |
+| `explainer` | Owner request: terminal or `POST /api/ai/explain` (`explain:<request id>`). | Filings and releases naming the issuer in the window (default 5 days). | Cited lines relating items to the move, or "No filing or release in the window explains the move." |
+
+Watched issuers are `watchlist` plus held symbols. The worker never opens the core database: the terminal API records which symbols are held, and the instrument ids of watchlist symbols, without quantities (`POST /api/ai/holdings`, called when the AI workspace opens). Tickers resolve to CIKs through the research store's SEC ticker reference.
+
+**Data rules (ADR-0016, ADR-0020).** Only items whose dataset the registry permits for `model_processing_cloud` are sent (today: SEC filings, SEC press and litigation releases, Federal Reserve releases). Others (ECB, RBI, SEBI; FRED, ECB, OECD and Treasury series) are listed in the note as not sent, with the registry's reason. Price bars are never sent: no bar dataset grants model processing, so moves are computed locally from real stored daily bars (`mkt_bar`, `fixture = 0`) and shown as data lines citing `bar:<provider>:<instrument>:<date>`. A missing store, table or reference becomes an "unavailable" entry with its reason. An empty window makes no model call. Evidence reaches the model only inside the runner's nonce-delimited untrusted blocks; the task names no tools and the envelope allows none.
+
+**Notes.** `<UNKNOWN_HOME>/agents/processes.sqlite` (WAL, mode 0600) holds runs, notes, the approval queue, holdings snapshots and cursors. A note is immutable (triggers refuse UPDATE and DELETE) and carries its content hash, the AI label (model ids, prompt template hash, time, advisory text), the overview (marked uncited), the model's lines with the verifier's status (`verified`: cited and the quote is in the source; `uncertain`: cited, quote not checked; `unsupported`: no citation, an unknown span or a quote not found), data lines, every item considered with sent or not sent, what was unavailable, and the cost and tokens. When the model call is refused (budget, policy, gate), the note keeps the non-AI list and says why. Notes go nowhere else: not to the core, and nothing reads them to act.
+
+**Approval queue (CAP-AGT-04).** A succeeded, non-abstained research proposal is queued with the SHA-256 of its canonical content (other producers use `ProcessStore.propose`). The owner approves or rejects in the terminal; the request carries the hash shown. The store refuses the decision (`payload_hash_mismatch`) when that hash differs from the stored one or from the hash recomputed from the stored content, refuses expired (`expires_hours`, default 168) and already-decided proposals, and appends the decision to the audit trail (actor `owner`, session hash) inside the same transaction: no decision without its audit record. A proposal's content is immutable; the same rejected content is not queued again for 7 days. **A decision changes only its row**: nothing reads it to place an order, start a session, move money, change policy or write to the core.
+
+**Cost and quality (CAP-AGT-13).** `GET /api/ai/dashboard` reads the ledger, the process store and the audit trail read-only: spend per UTC day and role, today, month and lifetime against the owner caps, unconfirmed spend, per process the switch, day cap, spend today, runs, failures, latency p50/p95, tokens, cost and the share of unverified lines, approvals by state and the audit-chain check. Prompts and evidence text are never included.
+
+### `ai_processes.json` (owner, `~/.unknown/config/ai_processes.json`)
+
+Absent file: every process is off. Unknown keys, JSON numbers for money, a per-run cap above the day cap, an unknown calendar or a file others can write turn every process off with the reason (audited once). Nothing in the agent layer writes it.
+
+```json
+{"schema_version": 1, "currency": "USD", "watchlist": ["AAPL", "MSFT", "NVDA", "JPM"], "include_holdings": true,
+ "brief": {"enabled": true, "per_day": "0.50", "per_run": "0.50", "time": "07:30", "calendar": "XNYS", "max_output_tokens": 4000, "max_items": 40},
+ "summaries": {"enabled": false, "per_day": "2.00", "per_run": "0.25", "forms": ["8-K", "10-Q", "10-K"], "regulator": true, "max_output_tokens": 2000, "max_per_cycle": 3},
+ "explainer": {"enabled": true, "per_day": "2.00", "per_run": "0.50", "window_days": 5, "max_output_tokens": 3000, "max_items": 30},
+ "approvals": {"queue_research_proposals": true, "expiry_hours": 168}}
+```
+
+Defaults: brief 0.50 per day, summaries 2.00 per day (0.25 per item), explainer 0.50 per request (2.00 per day); every switch defaults to off. The model for the three roles is approved in `config/models/approved.json` under the owner's USD 200 authorization (2026-10-22) and instruction to build AI into the platform (2026-10-24).
+
+### API and terminal
+
+`GET /api/ai/notes[?process=&symbol=]`, `/api/ai/notes/<id>`, `/api/ai/runs[/<id>]`, `/api/ai/approvals[/<id>]`, `/api/ai/dashboard`, `/api/ai/config`; `POST /api/ai/explain`, `/api/ai/holdings`, `/api/ai/approvals/<id>/decide`. Owner session required; POSTs need the CSRF token. The API loads no runner, worker or adapter code. Terminal: workspace **AI notes** (`g k`), functions `BRIEF`, `AIQ` (approval queue) and `AICOST`.
+
+### Live proof (2026-10-24, this Mac)
+
+`worker --once --run-brief` on the owner's store (watchlist AAPL, MSFT, NVDA, JPM; no holdings): 14 items in the window, 3 sent (three JPMorgan 424B2 filings, `news:108`, `news:120`, `news:125`); 11 ECB and RBI releases listed as not sent (local-only rights); price moves unavailable (no stored daily bars). The note's one line was verified against its three sources. Cost from the ledger: 0.018932 USD (2,543 prompt and 438 output tokens). An earlier run of the first prompt version cost 0.040224 USD and abstained; it showed that Federal Reserve releases backfilled into the window were being treated as overnight items, which the publication-time window now excludes.
+
+### Not built
+
+Full filing documents (summaries use the feed entry), transcripts and licensed news; quotes from the core's live book (the brief uses stored daily bars only); macro release calendars; approval of order intents with state-version binding and broker what-if preview (no order intent consumes proposals); owner marking of note errors for evaluation; OpenTelemetry export and alerting (the dashboard reads the existing ledger and audit records).
+
 ## Verified versus open
 
 ### Adapters: what is implemented from the register and where they refuse to guess
@@ -511,8 +559,8 @@ Only numbers present in the register, or in the coordinator-supplied Claude API 
 - Case-insensitive enum comparison for Anthropic. No current schema has an enum.
 - The licensed or personal enum/const literal check (CAP-MODEL-02).
 - Calibration tables for token estimates.
-- The approval queue (CAP-AGT-04).
-- The OpenTelemetry traces (CAP-AGT-13).
+- Approval of order intents (CAP-AGT-04). The queue itself is built for research proposals; see [AI processes](#ai-processes-briefs-summaries-explainer-approvals-cost).
+- The OpenTelemetry traces (CAP-AGT-13). The cost and quality dashboard reads the ledger and audit records instead.
 - The evaluation release gate (CAP-AGT-14).
 - A terminal panel for research jobs. The API routes exist; the browser terminal does not call them yet.
 - `kill_grace_s`. A provider call in flight at the deadline is not interrupted; its output is discarded.

@@ -1,0 +1,221 @@
+/* AI workspace: local layout only; colours come from the shared tokens in src/ui/styles.css. */
+
+.ai-root {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.ai-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  padding: 0 0 4px;
+}
+.ai-tabs a {
+  padding: 4px 10px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.ai-tabs a.active {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.ai-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+@media (max-width: 1180px) {
+  .ai-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.ai-stack {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.ai-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  margin: 0 0 10px;
+}
+.ai-toolbar .spacer {
+  flex: 1;
+}
+.ai-gap {
+  margin: 0 0 12px;
+}
+.ai-inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.ai-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ai-headline {
+  margin: 0;
+  font-size: 1.05em;
+}
+.ai-lines {
+  margin: 0;
+  padding-left: 1.4em;
+  display: grid;
+  gap: 8px;
+}
+.ai-lines li.flagged {
+  border-left: 3px solid var(--warn);
+  padding-left: 6px;
+}
+.ai-flag {
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+.ai-plain {
+  margin: 0;
+  padding-left: 1.2em;
+  display: grid;
+  gap: 4px;
+}
+.ai-cite {
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  padding: 0 5px;
+  margin: 0 2px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface-2);
+  color: var(--info);
+  cursor: pointer;
+}
+.ai-source {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+}
+.ai-source h3 {
+  margin: 0 0 6px;
+}
+.ai-quote {
+  border-left: 3px solid var(--border);
+  padding-left: 8px;
+  color: var(--text-muted);
+}
+.ai-dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 10px;
+  margin: 6px 0;
+}
+.ai-dl dt {
+  color: var(--text-muted);
+}
+.ai-dl dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ai-explain {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.ai-explain label {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+.ai-explain input,
+.ai-issuer {
+  width: 9em;
+}
+.ai-ok {
+  color: var(--ok);
+}
+.ai-bad {
+  color: var(--bad);
+}
+.ai-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  display: grid;
+  gap: 6px;
+}
+.ai-card p {
+  margin: 0;
+}
+.ai-hash {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+.ai-pre {
+  max-height: 320px;
+  overflow: auto;
+  font-size: 0.85em;
+  margin: 6px 0 0;
+}
+.ai-reason {
+  width: 22em;
+}
+.ai-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin: 0 0 12px;
+}
+.ai-kpis div {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+}
+.ai-kpis dt {
+  color: var(--text-muted);
+}
+.ai-kpis dd {
+  margin: 4px 0 0;
+}
+.ai-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 90px;
+}
+.ai-meter span {
+  display: inline-block;
+  height: 6px;
+  background: var(--info);
+  border-radius: 3px;
+  min-width: 1px;
+  max-width: 60px;
+}
+.ai-meter em {
+  font-style: normal;
+  color: var(--text-muted);
+}
+.ai-scroll {
+  overflow-x: auto;
+}
+.ai-table {
+  border-collapse: collapse;
+  min-width: 360px;
+}
+.ai-table th,
+.ai-table td {
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.ai-table .num {
+  text-align: right;
+  font-family: var(--font-mono);
+}

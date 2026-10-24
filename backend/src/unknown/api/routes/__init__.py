@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import importlib
 
-MODULES: list[str] = ["ai", "charts", "company", "macro_global", "marketdata", "meta", "news", "portfolio", "research", "research_jobs"]
+MODULES: list[str] = ["ai", "ai_processes", "charts", "company", "macro_global", "marketdata", "meta", "news", "portfolio", "research", "research_jobs"]
 
 
 class RouteConflict(RuntimeError):

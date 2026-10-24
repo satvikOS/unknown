@@ -574,7 +574,9 @@ class JobRunner:
                 used = sum(u.prompt_tokens + u.output_tokens for u in gen.usages) if gen.usage_complete else tc.input_tokens + max_out
                 tokens_committed += used
                 self._rec(records, "generated", status=gen.status.value, request_id=gen.request_id, returned_model=gen.returned_model_id,
-                          served_by_fallback=gen.served_by_fallback, cost=str(cost), raw_sha256=gen.raw_sha256)
+                          served_by_fallback=gen.served_by_fallback, cost=str(cost), raw_sha256=gen.raw_sha256,
+                          prompt_tokens=sum(u.prompt_tokens for u in gen.usages) if gen.usage_complete else None,
+                          output_tokens=sum(u.output_tokens for u in gen.usages) if gen.usage_complete else None)
                 notes = []
                 if gen.returned_model_id is not None and gen.returned_model_id != c.model_id:
                     if gen.served_by_fallback and gen.returned_model_id in adapter.additional_billed_models(req):

@@ -23697,12 +23697,38 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "tested",
+        "files": [
+          "backend/src/unknown/agents/processes/store.py",
+          "backend/src/unknown/agents/processes/scheduler.py",
+          "backend/src/unknown/api/routes/ai_processes.py",
+          "terminal/src/workspaces/ai/ApprovalsView.tsx",
+          "terminal/src/workspaces/ai/model.ts"
         ],
-        "requirements": []
+        "tests": [
+          "backend/tests/test_agents_processes.py::ApprovalQueueTest.test_a_decision_is_bound_to_the_content_hash_and_audited_in_the_same_transaction",
+          "backend/tests/test_agents_processes.py::ApprovalQueueTest.test_tampered_content_expiry_and_rejection_cooldown",
+          "backend/tests/test_agents_processes.py::ApprovalQueueTest.test_a_succeeded_research_proposal_is_queued_once_with_its_hash",
+          "backend/tests/test_agents_processes.py::AiProcessRoutesTest.test_an_owner_decision_through_the_api_is_hash_bound_and_audited",
+          "terminal/src/workspaces/ai/model.test.ts::ai workspace model > refuses unexpected list shapes instead of guessing"
+        ],
+        "evidence": [
+          "A durable queue (agents/processes.sqlite) holds proposals as immutable typed objects with the SHA-256 of their canonical content and an expiry; succeeded, non-abstained research proposals are queued by the model worker.",
+          "The owner decides in the terminal (AIQ) with the hash shown; the store refuses payload_hash_mismatch (hash sent or hash recomputed from stored content differs), expired and already-decided proposals, and appends the decision (actor owner, session hash) to the hash-chained audit trail inside the decision transaction; refusals are audited too. Identical content rejected within 7 days is suppressed.",
+          "A decision changes only its row: no code path reads it to place an order, start a session, move money or write to the core (the approval test asserts no core call)."
+        ],
+        "gaps": [
+          "order intents are not proposals yet: no state-version binding, no risk-supervisor re-check after approval and no IBKR what-if preview",
+          "no reauthentication step for approvals and no paused-run resume after a decision",
+          "override and rejection rates are counted on the dashboard but not tracked as an evaluation metric"
+        ],
+        "requirements": [
+          "AUT-02",
+          "AUT-04",
+          "AI-01"
+        ],
+        "verified_against": "feat/ai-processes@a5429dc",
+        "updated": "2026-10-24"
       }
     },
     {
@@ -24790,12 +24816,41 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "tested",
+        "files": [
+          "backend/src/unknown/agents/processes",
+          "backend/src/unknown/agents/worker.py",
+          "backend/src/unknown/api/routes/ai_processes.py",
+          "terminal/src/workspaces/ai"
         ],
-        "requirements": []
+        "tests": [
+          "backend/tests/test_agents_processes.py::MorningBriefTest.test_brief_runs_once_on_a_trading_day_with_cited_verified_lines_and_rights_filtered_evidence",
+          "backend/tests/test_agents_processes.py::MorningBriefTest.test_the_process_day_cap_refuses_before_any_call_and_the_note_keeps_the_non_ai_list",
+          "backend/tests/test_agents_processes.py::MorningBriefTest.test_not_scheduled_before_the_configured_time_or_on_a_holiday",
+          "backend/tests/test_agents_processes.py::SummariesTest.test_new_watched_filings_and_regulator_items_are_summarised_once_from_the_first_item_after_switch_on",
+          "backend/tests/test_agents_processes.py::ExplainerTest.test_with_bars_the_model_relates_items_or_says_nothing_explains_the_move",
+          "backend/tests/test_agents_processes.py::ExplainerTest.test_without_real_bars_it_says_so_and_makes_no_call",
+          "backend/tests/test_agents_processes.py::SourceMapAgreesWithTheNewsPollerTest.test_the_copied_source_to_dataset_map_equals_the_pollers",
+          "terminal/src/workspaces/ai/render.test.ts::AI note rendering > labels AI text, flags unverified lines and marks unsent sources and missing data"
+        ],
+        "evidence": [
+          "Morning brief (market days per config/calendars), filing and regulator summaries for watched issuers as the news poller stores them, and an on-request move explainer run in the model worker through Worker._prepare and JobRunner (approved model, tariff, gate, reservation with a per-process day cap, audit, claim verification).",
+          "Only datasets the registry permits for cloud model processing are sent; others are listed with the reason; price bars are never sent and appear as data lines; each model line keeps its verification status and unverified lines are flagged; notes carry the AI label (model id, prompt template hash, time).",
+          "Live on this Mac 2026-10-24 (worker --run-brief, watchlist AAPL MSFT NVDA JPM): one verified line citing news:108, news:120, news:125 (JPMorgan 424B2 filings); 11 ECB/RBI releases listed as not sent; price moves unavailable (no stored bars); ledger cost 0.018932 USD. An earlier run (0.040224 USD) exposed backfilled releases counted as overnight, fixed by windowing on publication time."
+        ],
+        "gaps": [
+          "summaries use the stored feed entry, not the filing document; no transcripts or licensed news",
+          "importance flags are the model's routine/material wording, not deterministic rules with holding weights",
+          "no typed fact re-extraction for numbers in summaries and no owner error marking for evaluation",
+          "price moves need stored real daily bars (mkt_bar); this Mac has none yet"
+        ],
+        "requirements": [
+          "AI-01",
+          "AI-04",
+          "AI-05"
+        ],
+        "verified_against": "feat/ai-processes@a5429dc",
+        "updated": "2026-10-24"
       }
     },
     {
@@ -24929,7 +24984,7 @@
         "gaps": [
           "no evaluation records, so routing is by owner order, not measured quality (AC4)",
           "no routing log with scores (AC3)",
-          "approved.json approves one model for one role only (claude-opus-5-5 for the analyst, 2026-10-24); research has none"
+          "approved.json ships one owner entry: claude-opus-5-5 for the analyst and AI process roles (ai_brief, ai_summary, ai_explainer), 2026-10-24; research has none"
         ],
         "requirements": [
           "AI-02"
@@ -25066,12 +25121,35 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "tested",
+        "files": [
+          "backend/src/unknown/agents/processes/dashboard.py",
+          "backend/src/unknown/agents/budget.py",
+          "backend/src/unknown/agents/runner.py",
+          "backend/src/unknown/api/routes/ai_processes.py",
+          "terminal/src/workspaces/ai/CostView.tsx"
         ],
-        "requirements": []
+        "tests": [
+          "backend/tests/test_agents_processes.py::RecoveryAndDashboardTest.test_dashboard_reports_spend_by_day_role_and_process_against_caps",
+          "backend/tests/test_agents_processes.py::LedgerProcessCapTest.test_the_process_day_cap_is_checked_in_the_reservation_transaction",
+          "backend/tests/test_agents_processes.py::RecoveryAndDashboardTest.test_a_run_left_running_is_failed_and_its_possibly_sent_spend_stays_reserved",
+          "terminal/src/workspaces/ai/model.test.ts::ai workspace model > parses the dashboard and computes cap shares without rounding amounts"
+        ],
+        "evidence": [
+          "GET /api/ai/dashboard (terminal AICOST) computes read-only from the spend ledger, the process store and the audit trail: spend per UTC day and role, today/month/lifetime against owner caps, unconfirmed spend, and per process the switch, day cap, spend today, runs, failures, latency p50/p95, tokens, cost and the unverified-line rate, approvals by state and the audit-chain check; no prompt or evidence text.",
+          "The runner's generated record now carries prompt and output token counts."
+        ],
+        "gaps": [
+          "no OpenTelemetry spans or exporter, no trace viewer and no SLO reports",
+          "no alert aggregation, rate-limit headroom or reconciliation against the provider's usage report",
+          "research jobs appear by role in spend only; their latency and quality are not in the per-process table"
+        ],
+        "requirements": [
+          "AI-03",
+          "AI-05"
+        ],
+        "verified_against": "feat/ai-processes@a5429dc",
+        "updated": "2026-10-24"
       }
     },
     {
@@ -30092,7 +30170,7 @@
           "backend/src/unknown/agents/providers/gemini.py"
         ],
         "tests": [
-          "backend/tests/test_agents_catalog.py::CatalogTest.test_shipped_approvals_cover_only_the_analyst_role",
+          "backend/tests/test_agents_catalog.py::CatalogTest.test_shipped_approvals_cover_only_the_analyst_and_ai_process_roles",
           "backend/tests/test_agents_catalog.py::CatalogTest.test_approved_id_missing_becomes_non_routable_with_alert",
           "backend/tests/test_agents_catalog.py::CatalogTest.test_failed_refresh_keeps_last_good_and_auth_failure_blocks",
           "backend/tests/test_agents_static.py::StaticTest.test_no_model_id_literals_in_application_source",

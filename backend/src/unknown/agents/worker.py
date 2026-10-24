@@ -66,6 +66,7 @@ from .envelope import EnvelopeError, JobEnvelope
 from .gate import DataUseGate, GateError, load_provider_policies
 from .jobstore import MAX_START_ATTEMPTS, JobStore, StateConflict, default_jobs_path, store_state_for
 from .pit_evidence import EMPTY, Evidence, EvidenceError, EvidenceSelection, derive, manifest_matches, task_names_instruments
+from .processes.scheduler import ProcessScheduler
 from .prompts import agent_principal_id, proposal_command_id
 from .providers.anthropic import AnthropicAdapter
 from .providers.base import CircuitBreaker, ProviderAdapter, RetryPolicy, SendRefused
@@ -158,6 +159,8 @@ class Worker:
         self._lock_fd: int | None = None
         self._delivery_errors: dict[str, str] = {}
         self._unfinished: dict[str, _Outcome] = {}
+        # AI processes (agents/processes): briefs, summaries, explainers and the approval queue, stepped after research jobs.
+        self.processes = ProcessScheduler(self)
 
     # ------------------------------------------------------------------ lifecycle
     def start(self) -> list[dict]:
@@ -171,10 +174,11 @@ class Worker:
             os.close(fd)
             raise WorkerError(f"another model worker holds {lock}; one worker runs per UNKNOWN_HOME") from None
         self._lock_fd = fd
-        return self.recover()
+        actions = self.recover()
+        return actions + self.processes.recover()
 
     def close(self) -> None:
-        for closer in (self.jobs.close, self.audit.close, self._ledger.close if self._ledger else None):
+        for closer in (self.jobs.close, self.audit.close, self.processes.close, self._ledger.close if self._ledger else None):
             if closer is not None:
                 try:
                     closer()
@@ -304,10 +308,18 @@ class Worker:
         else:
             job = self.jobs.claim_next(self.worker_id, max_global=1, max_per_role=None)
         if job is None:
-            return worked
+            return self._process_step() or worked
         self._run_claimed(job, policy, problem)
         self._deliver_due()
         return True
+
+    def _process_step(self) -> bool:
+        """At most one AI process run (agents/processes) when no research job was claimed; never raises."""
+        try:
+            return self.processes.step()
+        except Exception:
+            log.exception("AI process step failed; retrying next cycle")
+            return False
 
     def _run_claimed(self, job: dict, policy: OwnerPolicy | None, problem: str | None) -> None:
         jid = job["job_id"]
@@ -461,13 +473,33 @@ class Worker:
             as_of_ns, instrument_ids, entity_ids = self._subject(inputs, env, task)
         except EvidenceError as exc:
             return _fail("denied_by_policy", f"evidence: {exc}")
+        prepared = self._prepare(jid, role=env.role, spend_cap=env.spend_cap, policy=policy, ledger=ledger,
+                                 max_out=inputs["max_output_tokens"], is_cancelled=self.jobs.cancel_requested)
+        if isinstance(prepared, _Outcome):
+            return prepared
+        deps, usable = prepared
+        max_out = inputs["max_output_tokens"]
+        result = JobRunner(deps).run(env, JobInputs(task, evidence.spans, inputs["horizon_seconds"], max_out, evidence.facts,
+                                                    as_of_ns=as_of_ns, instrument_ids=instrument_ids, entity_ids=entity_ids),
+                                     usable)
+        state = store_state_for(result.status)
+        deliver = result.proposal is not None and result.discarded_output_hash is None and state in ("SUCCEEDED", "FAILED")
+        return _Outcome(state, result.status.value, result.reason, result.proposal if deliver else None,
+                        result.discarded_output_hash)
+
+    def _prepare(self, jid: str, *, role: str, spend_cap, policy: OwnerPolicy, ledger, max_out: int,
+                 is_cancelled: Callable[[str], bool]) -> "tuple[RunnerDeps, list[Candidate]] | _Outcome":
+        """Admission without the network, shared by research jobs and the AI processes (``agents/processes``):
+        approved candidates, adapters with keys and SDKs, owner-approved tariffs, a budget probe against every
+        cap (``ledger`` may add a process's own day cap), the catalog refresh, then the runner's dependencies.
+        Returns the failure outcome instead when nothing can be sent."""
         try:
             approvals = load_approvals(self.models_dir / "approved.json")
         except (CatalogError, OSError, ValueError) as exc:
             return _fail("denied_by_policy", f"approved.json: {exc}")
         self.catalog.approvals = approvals
         self.catalog.max_age_ns = policy.catalog_max_age_hours * 3600 * NS
-        candidates, why = self._candidates(policy, approvals, env.role)
+        candidates, why = self._candidates(policy, approvals, role)
         if not candidates:
             return _fail("denied_by_policy", why)
         try:
@@ -506,15 +538,14 @@ class Worker:
         self._audit(jid, {"kind": "candidates", "usable": [f"{c.provider}/{c.model_id}" for c in usable], "skipped": skipped})
         if not usable:
             return _fail("denied_by_policy", "no candidate model can be sent: " + "; ".join(skipped))
-        max_out = inputs["max_output_tokens"]
         refusal: Exception | None = None
         for c in usable:
             adapter = adapters[c.provider]
             try:
                 floor = tariffs.worst_case(c.provider, c.model_id, at_ns=now, prompt_tokens=0, max_output_tokens=max_out,
                                            region=adapter.requested_region() or "global")
-                probe = ledger.reserve(job_id=jid, role=env.role, provider=c.provider, model_id=c.model_id, amount=floor,
-                                       job_cap=env.spend_cap, purpose="admission_probe",
+                probe = ledger.reserve(job_id=jid, role=role, provider=c.provider, model_id=c.model_id, amount=floor,
+                                       job_cap=spend_cap, purpose="admission_probe",
                                        note="cheapest possible call of this job; released at once")
                 ledger.release(probe, note="admission probe: headroom confirmed before any provider call")
             except (BudgetError, TariffError) as exc:
@@ -535,15 +566,9 @@ class Worker:
                              self.clock.now_ns),
             catalog=self.catalog, core=_NoCore(), tools=ToolRegistry(), clock_ns=self.clock.now_ns, sleep_ns=self.sleep_ns,
             retry=RetryPolicy(r.max_attempts, r.base_ms, r.max_ms, r.jitter_ms), breaker=self._breaker,
-            estimate=policy.estimate, is_cancelled=self.jobs.cancel_requested, principal_id=agent_principal_id(env.role),
+            estimate=policy.estimate, is_cancelled=is_cancelled, principal_id=agent_principal_id(role),
             defer_submission=True, on_record=lambda rec: self._audit(jid, rec, actor="runner"))
-        result = JobRunner(deps).run(env, JobInputs(task, evidence.spans, inputs["horizon_seconds"], max_out, evidence.facts,
-                                                    as_of_ns=as_of_ns, instrument_ids=instrument_ids, entity_ids=entity_ids),
-                                     usable)
-        state = store_state_for(result.status)
-        deliver = result.proposal is not None and result.discarded_output_hash is None and state in ("SUCCEEDED", "FAILED")
-        return _Outcome(state, result.status.value, result.reason, result.proposal if deliver else None,
-                        result.discarded_output_hash)
+        return deps, usable
 
     # ------------------------------------------------------------------ proposal outbox
     def _deliver_due(self) -> bool:
@@ -659,6 +684,9 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--once", action="store_true", help="exit when no job is queued and no delivery is due")
     ap.add_argument("--check", action="store_true", help="print what a live job needs on this machine, then exit (no network)")
     ap.add_argument("--worker-id", default=None)
+    ap.add_argument("--run-brief", action="store_true",
+                    help="queue one on-demand morning brief (last 24 hours) before running; needs brief.enabled in "
+                         "ai_processes.json")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     paths = Paths(Path(args.home).expanduser()) if args.home else Paths.default()
@@ -676,6 +704,9 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(2) from None
     for ok, text in worker.readiness():
         (log.info if ok else log.warning)("readiness: %s", text)
+    if args.run_brief:
+        run = worker.processes.request_brief(requested_by="owner-cli")
+        log.info("queued on-demand morning brief %s", run["run_id"])
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     signal.signal(signal.SIGINT, lambda *_: stop.set())
