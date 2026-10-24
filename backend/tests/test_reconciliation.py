@@ -53,6 +53,8 @@ class ScriptedBroker(SimulatedBroker):
     * ``forget_history``: the execution-history window no longer reaches the
       trades made so far, as with a provider's limited execution history; those
       holdings are then visible only in positions and cash.
+    * ``settled_source``: every cash row says its settled figure was derived
+      by the adapter (ADR-0012 amendment 2026-10-24, IBKR without SettledCash).
     """
 
     def __init__(self, *args, **kwargs):
@@ -60,6 +62,7 @@ class ScriptedBroker(SimulatedBroker):
         self.extra_positions: tuple[PositionRow, ...] = ()
         self.disconnect_during: str | None = None
         self.history_floor = 0
+        self.settled_source: str | None = None
 
     def forget_history(self) -> None:
         self.drain_events()
@@ -75,6 +78,9 @@ class ScriptedBroker(SimulatedBroker):
         snap = super().account_snapshot()
         if self.extra_positions:
             snap = dataclasses.replace(snap, positions=snap.positions + self.extra_positions)
+        if self.settled_source:
+            snap = dataclasses.replace(snap, cash=tuple(dataclasses.replace(c, settled_source=self.settled_source)
+                                                        for c in snap.cash))
         return snap
 
     def open_orders(self):
@@ -202,6 +208,24 @@ class OpeningImportTests(_Base):
         self.assertEqual(h.balance("OPENING", "outside"), F("-1000.00"))
         n = h.desk.store.query("SELECT COUNT(*) AS n FROM journal_entries WHERE kind='OPENING'")[0]["n"]
         self.assertEqual(n, 1)
+        self.assertEqual(h.verify(), [])
+
+    def test_derived_settled_cash_reconciles_and_the_run_names_its_source(self):
+        """ADR-0012 amendment 2026-10-24: IBKR sends no SettledCash row, so the adapter reports settled =
+        TotalCashValue with broker evidence of no unsettled activity. Reconciliation uses that figure like any
+        settled cash and records its source on the run's event, so the terminal can show it."""
+        h, broker = scripted_harness("1000.00")
+        self.track(h)
+        broker.settled_source = "TotalCashValue (no executions in settlement window)"
+        rec = register_until_reconcile(h)
+        self.assertEqual(rec.body["status"], "CLEAN", rec.body)
+        self.assertEqual(h.balance("CASH", "outside"), F("1000.00"))
+        (row,) = h.desk.store.query("SELECT payload FROM events WHERE type='ReconciliationCompleted'")
+        self.assertEqual(json.loads(row["payload"])["info"]["settled_sources"], {"USD": broker.settled_source})
+        broker.settled_source = None
+        self.assertEqual(h.reconcile().body["status"], "CLEAN")
+        last = h.desk.store.query("SELECT payload FROM events WHERE type='ReconciliationCompleted' ORDER BY seq")[-1]
+        self.assertNotIn("settled_sources", json.loads(last["payload"])["info"])   # unchanged when the broker reports it
         self.assertEqual(h.verify(), [])
 
     def test_position_bought_manually_before_first_reconciliation_is_imported_as_outside(self):
