@@ -28,7 +28,11 @@ Only the owner can do the actions below. Each step names the command and the doc
    ```
 7. **Pricing: IBKR Pro Tiered (switched 2026-10-23, effective within 24 hours).** Every order pays at least the USD 0.35 minimum commission, plus exchange, clearing, regulatory and pass-through fees. A USD 100 buy of 4 shares costs about USD 0.36 in all, so a buy and a sell of a USD 100 position cost about USD 0.73: 0.73% of the USD 100 session seed, against a USD 5 target. Tiered applies only to SmartRouted orders; the adapter routes everything SMART. Values, sources and statuses: `config/fees/ibkr-pro-tiered-us.json`. The paper policy still reserves its conservative USD 1.20 per buy. That covers Tiered for orders up to the policy's USD 100 limit, but not above it for low-priced stocks: revisit the fee envelope before raising `max_order_notional`. The first paper commission reports confirm the plan is in effect.
 8. Open the terminal and review preflight. Press **green start** only when every blocker is clear.
-9. Work through the evidence checklist in `docs/integrations/ibkr.md` section 5. A capability moves to `paper-verified` only when its item passes. Item 4 now matters more: the core holds an IBKR **Inactive** order as UNKNOWN with its reservation (a held buy is canceled automatically). Record which real sequences produce Inactive.
+9. Work through the evidence checklist in `docs/integrations/ibkr.md` section 5. A capability moves to `paper-verified` only when its item passes. Start with the read-only evidence runner. It places nothing, writes nothing to the core and stores a dated record and table in `~/.unknown/evidence/`. Every item that needs an order is listed as "requires owner session", with its steps:
+   ```bash
+   PYTHONPATH=src ~/.unknown/venvs/ibkr/bin/python -m unknown.broker.ibkr.evidence --account IBKR-PAPER-1
+   ```
+   Copy its table into `docs/status/STATUS.md`. Item 4 now matters more: the core holds an IBKR **Inactive** order as UNKNOWN with its reservation (a held buy is canceled automatically). Record which real sequences produce Inactive.
 
 ## 1a. Run the platform against IBKR paper (real data only, ADR-0020)
 
@@ -68,7 +72,11 @@ python3 scripts/deploy/macos/render_launchd.py --account IBKR-PAPER-1 --deployme
     --python ~/.unknown/venvs/ibkr/bin/python --out ~/Library/LaunchAgents
 ```
 
-Then load the three agents as `docs/deploy/macos.md` describes, and open http://127.0.0.1:8765. Backups run every 15 minutes. Run `python -m unknown.cli restore-drill --account IBKR-PAPER-1` at least once a month.
+The renderer also writes the news poller and, once `~/.unknown/venvs/agents` exists (section 3), the AI analyst and
+AI process workers. When `~/.unknown/config/marketdata.json` enables the IBKR source, the API runs under the IBKR venv.
+Load the agents as `docs/deploy/macos.md` describes, and open http://127.0.0.1:8765. IB Gateway is not one of them:
+you start it and log in yourself. After a Gateway restart or IBKR maintenance, everything reconnects on its own once
+the Gateway is logged in again. Backups run every 15 minutes. Run `python -m unknown.cli restore-drill --account IBKR-PAPER-1` at least once a month.
 
 ## 3. Claude research jobs on this Mac (USD 200 authorized; USD 0.008224 spent so far)
 

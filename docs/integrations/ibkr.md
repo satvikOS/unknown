@@ -276,6 +276,39 @@ Run each item against the owner's paper account with IB Gateway at the pinned bu
 journal and screenshots outside the repository, and record the outcome in `docs/status/STATUS.md`. A
 capability moves to `paper-verified` only when its item passes.
 
+**Read-only items: the evidence runner.** With IB Gateway logged in on the paper port, run:
+
+```bash
+cd backend
+PYTHONPATH=src ~/.unknown/venvs/ibkr/bin/python -m unknown.broker.ibkr.evidence --account IBKR-PAPER-1
+```
+
+The runner uses its own client ids, 92 and 93. It refuses 0 and the ids of the order adapter, the core's
+market-data session and the bus source. It runs every item below that needs no order:
+
+- identity on both of its connections (item 2);
+- the negotiated server version and the SDK fingerprint (item 1);
+- clock skew against the paper policy;
+- contract resolution of the registered universe. These are the instruments with an `ibkr` mapping in the core
+  database, which it opens read-only. `--universe` is used only when nothing is registered;
+- the market-data type IBKR delivers for each instrument;
+- the account summary and positions snapshot that reconciliation uses (item 7: `AccountType`, `SettledCash`,
+  `TotalCashValue`);
+- the open orders of every client (item 8);
+- the executions and commission reports IBKR still returns (item 6, including the raw `Execution.time` text);
+- the error mapping on a deliberately invalid read: contract details for conId 1, where IBKR 200 must map to
+  UNRESOLVED.
+
+It writes `~/.unknown/evidence/ibkr-paper-<UTC>.json` (mode 600) with a `.md` table beside it, never into the
+repository, and prints the table. Each item is PASS, FAIL, INCONCLUSIVE (for example a frozen market-data type
+outside regular hours), NOT_RUN (with the reason) or OWNER_SESSION. Exit code 0 means every read-only item passed.
+The runner places, modifies and cancels nothing, never presses start and writes nothing to the core.
+
+Every item that needs an order, a configuration change or a Gateway restart is listed as OWNER_SESSION with its
+exact steps, and the runner never executes it. That covers the rest of items 1 and 2, items 3 to 5, the order parts
+of items 6 and 7, the manual order in item 8, and items 9 to 11. Tests: `backend/tests/test_ibkr_evidence.py`
+(fake IBKR hosts).
+
 1. **SDK and host pin (R1).** Installer SHA-256, `API_VersionNum.txt`, `load_sdk()` fingerprint, host build and
    negotiated server version recorded. Changing the pin makes the adapter refuse to start. A PyPI-installed
    `ibapi` is refused.
@@ -308,7 +341,10 @@ capability moves to `paper-verified` only when its item passes.
 9. **Connectivity (R7, R9).**
    - Disable the network for 60 s while an order is working, and record the 1100 / 1101 / 1102 sequence.
    - Find out whether a code follows 2110. The adapter clears UPSTREAM_DOWN only on 1101/1102 or on reconnect.
-   - Kill and restart IB Gateway: SOCKET_DOWN, then reconnect and full reconciliation.
+   - Kill and restart IB Gateway: SOCKET_DOWN, then reconnect and full reconciliation. No process is restarted.
+     The core's health query shows `broker_connection` going from `reconnecting` to `connected`, and
+     `market_data` going from `RECONNECTING` to `CONNECTED`. `GET /api/marketdata/sources` shows the bus source's
+     state. Offline tests: `backend/tests/test_ibkr_reconnect.py`.
    - Observe one nightly reset and one weekly re-login, and record what was actually needed and when.
 10. **Pacing (R8).** A soak at 1.2 x R_max shows no error 100. Cancels still go out while entries are
     saturated.
