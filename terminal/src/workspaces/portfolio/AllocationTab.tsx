@@ -183,6 +183,7 @@ export function AllocationTab({ bar, scope, setScope, options, formulas }: { bar
         </div>
       </form>
       <QueryError what="Allocation" error={q.error} />
+      <FixtureNote data={q.data} what="Allocation" />
       {body ? (
         <>
           <ResultLabel kind="proposal" text={str(body.label)} />
@@ -191,7 +192,6 @@ export function AllocationTab({ bar, scope, setScope, options, formulas }: { bar
             <span>scope {str(body.scope)}</span>
           </div>
           <QuoteSnapshotNote body={body} />
-          <FixtureNote body={body} />
           {str(body.history_unavailable_reason) ? <Unavailable what="Return history" reason={str(body.history_unavailable_reason) as string} /> : null}
           <section className="panel pf-section" aria-labelledby="pf-w-h">
             <header>

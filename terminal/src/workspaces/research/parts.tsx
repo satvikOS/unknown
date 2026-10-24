@@ -2,13 +2,14 @@
 import type { ReactNode } from 'react';
 import { nsStrOf } from '../../api/nsStrings';
 import type { QueryResult } from '../../state/react';
-import { Badge, FixtureBadge, Timestamp } from '../../ui/primitives';
+import { Badge, FixtureRefused, Timestamp } from '../../ui/primitives';
 import { POPULATE } from '../research-common/format';
 import { ErrorNotice, Loading, Unavailable } from '../research-common/parts';
 import { provenanceLabel, type Envelope, type Provenance } from './model';
 
 /**
- * Renders an /api/research envelope: the API's error, its unavailable reason, or the data. The only unavailable
+ * Renders an /api/research envelope: the API's error, its unavailable reason, or the data. Data whose provenance is
+ * FIXTURE (derived from a fixture experiment) is not real data: it is refused and shown as an error, never rendered. The only unavailable
  * reason the API gives is a missing registry; it names `python -m unknown.research.study` without the `--out`
  * argument that command requires, so the complete documented command is shown in its place.
  */
@@ -18,13 +19,21 @@ export function EnvelopeView<T>({ q, what, children }: { q: QueryResult<Envelope
   if (!q.data.available || q.data.data === null) {
     return <Unavailable what={what} reason={q.data.unavailable_reason ?? 'the API reported this view as unavailable without a reason'} commands={[POPULATE.study]} />;
   }
+  if (provenanceLabel(q.data.provenance) === 'FIXTURE') {
+    return (
+      <div className="callout rx-error" role="alert" style={{ ['--tone' as string]: 'var(--alert)' }}>
+        <FixtureRefused label={what} detail="Its provenance is a FIXTURE experiment." /> <strong>{what} not shown.</strong> It is derived from a
+        FIXTURE (test) experiment, which is not real data.
+      </div>
+    );
+  }
   return <>{children(q.data.data, q.data.provenance)}</>;
 }
 
-/** FIXTURE (or UNKNOWN ORIGIN) exactly where the API's provenance says so. */
+/** An error for FIXTURE provenance (refused), or UNKNOWN ORIGIN, exactly where the API's provenance says so. */
 export function ProvenanceLabel({ p }: { p: Provenance | null | undefined }) {
   const l = provenanceLabel(p);
-  if (l === 'FIXTURE') return <FixtureBadge title="Provenance: derived from a FIXTURE (synthetic) experiment; not market data and not evidence of profitability" />;
+  if (l === 'FIXTURE') return <FixtureRefused detail="Its provenance is a FIXTURE experiment." />;
   if (l === 'UNKNOWN ORIGIN') return <Badge tone="warn" title="Provenance could not tell whether this came from fixture or real data">UNKNOWN ORIGIN</Badge>;
   return null;
 }

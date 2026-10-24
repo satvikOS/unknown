@@ -43,8 +43,18 @@ export const recs = (v: unknown): Rec[] => arr(v).filter(isRec);
  * The body when it is an object of the expected `kind`; null otherwise. A route that has no history
  * answers `{kind, available: false, reason}`, which is returned as is (callers show the reason).
  */
+/**
+ * The body of an answer of `kind`, or null. An answer computed from FIXTURE (test) data is refused here, so no tab
+ * can display it as data; <FixtureNote data> shows the refusal as an error instead.
+ */
 export function ofKind(body: unknown, kind: string): Rec | null {
-  return isRec(body) && body.kind === kind ? body : null;
+  return isRec(body) && body.kind === kind && body.fixture_data !== true ? body : null;
+}
+
+/** The refusal text when an answer was computed from FIXTURE (test) data, else null. */
+export function fixtureRefusal(body: unknown): string | null {
+  if (!isRec(body) || body.fixture_data !== true) return null;
+  return str(body.fixture_note) ?? 'Computed from FIXTURE (test) data.';
 }
 
 /** `{available: false, reason}` answers (no snapshot store yet). */

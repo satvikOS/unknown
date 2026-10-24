@@ -3,7 +3,7 @@ import { useId, useMemo, useState } from 'react';
 import type { Instrument, OrderHold, Quote } from '../../api/types';
 import { useQuery, type QueryResult } from '../../state/react';
 import { DataTable, type Column } from '../../ui/DataTable';
-import { Age, Badge, FixtureBadge, Money, Qty, StatusPill, type Tone } from '../../ui/primitives';
+import { Age, Badge, FixtureRefused, Money, Qty, StatusPill, type Tone } from '../../ui/primitives';
 import { WorkspaceLink } from '../../ui/WorkspaceFrame';
 import { summarizeDecision, type PretradeCheck, type PretradeDecision } from './decision';
 
@@ -26,7 +26,7 @@ export function isFixtureInstrument(i: Instrument | undefined): boolean {
   return Boolean(i && i.attributes && i.attributes.fixture === true);
 }
 
-/** Symbol + id, linked to the instruments workspace when it exists, with a FIXTURE label for fixtures. */
+/** Symbol + id, linked to the instruments workspace when it exists; a fixture (not real) instrument is an error. */
 export function InstrumentCell({ id, instrument }: { id: string; instrument: Instrument | undefined }) {
   return (
     <span className="ord-inline">
@@ -34,7 +34,7 @@ export function InstrumentCell({ id, instrument }: { id: string; instrument: Ins
         <strong>{instrument?.symbol ?? id}</strong>
       </WorkspaceLink>
       {instrument ? <span className="muted cmd-id">{id}</span> : null}
-      {isFixtureInstrument(instrument) ? <FixtureBadge title="Fixture instrument: simulation only, not a real security" /> : null}
+      {isFixtureInstrument(instrument) ? <FixtureRefused detail="This instrument is not a real security." /> : null}
     </span>
   );
 }
@@ -84,12 +84,19 @@ export interface QuoteLineProps {
   context: 'live' | 'at decision';
 }
 
-/** Bid / ask / last with currency, the source, the age and FIXTURE / DELAYED labels. */
+/** Bid / ask / last with currency, the source, the age and the DELAYED label. A fixture quote is an error, never shown. */
 export function QuoteLine({ quote, observedAtMs, staleAfterMs, context }: QuoteLineProps) {
   if (!quote) {
     return (
       <p className="muted ord-quote-none">
         {context === 'live' ? 'The core holds no quote for this instrument, so the QUOTE_FRESH check would fail.' : 'No quote was recorded with this decision.'}
+      </p>
+    );
+  }
+  if (quote.fixture) {
+    return (
+      <p className="ord-quote-none" role="alert">
+        <FixtureRefused label="Quote" /> The quote from {quote.source} is not real market data and is not shown.
       </p>
     );
   }
@@ -99,19 +106,19 @@ export function QuoteLine({ quote, observedAtMs, staleAfterMs, context }: QuoteL
         <div>
           <dt>Bid</dt>
           <dd>
-            <Money amount={quote.bid} currency={quote.currency} unavailable="no bid" />
+            <Money amount={quote.bid} currency={quote.currency} unavailable="The quote has no bid." />
           </dd>
         </div>
         <div>
           <dt>Ask</dt>
           <dd>
-            <Money amount={quote.ask} currency={quote.currency} unavailable="no ask" />
+            <Money amount={quote.ask} currency={quote.currency} unavailable="The quote has no ask." />
           </dd>
         </div>
         <div>
           <dt>Last</dt>
           <dd>
-            <Money amount={quote.last} currency={quote.currency} unavailable="no last" />
+            <Money amount={quote.last} currency={quote.currency} unavailable="The quote has no last price." />
           </dd>
         </div>
       </dl>
@@ -130,7 +137,6 @@ export function QuoteLine({ quote, observedAtMs, staleAfterMs, context }: QuoteL
             </>
           )}
         </span>
-        {quote.fixture ? <FixtureBadge title="Fixture quote: generated for simulation, not market data" /> : null}
         {quote.delayed ? (
           <Badge tone="warn" title="Delayed quotes cannot validate an order (QUOTE_NOT_DELAYED)">
             DELAYED

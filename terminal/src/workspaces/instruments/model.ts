@@ -39,7 +39,7 @@ export function tickSummary(rules: Instrument['tick_rules']): string {
   return bands.map((b) => (b.to !== null ? `${b.tick} below ${b.to}` : `${b.tick} from ${b.from}`)).join(' · ');
 }
 
-/** Simulation-only reference data: the core marks fixture instruments with attributes.fixture = true. */
+/** Not a real security: the core marks fixture instruments with attributes.fixture = true. The terminal refuses them. */
 export function isFixture(i: Pick<Instrument, 'attributes'>): boolean {
   const f = i.attributes?.fixture;
   return f === true || f === 'true' || f === 1;
@@ -53,7 +53,7 @@ export interface InstrumentFlag {
 
 export function instrumentFlags(i: Instrument): InstrumentFlag[] {
   const flags: InstrumentFlag[] = [];
-  if (isFixture(i)) flags.push({ label: 'FIXTURE', tone: 'warn', detail: 'Fixture instrument for simulation only; not real reference data.' });
+  if (isFixture(i)) flags.push({ label: 'ERR', tone: 'bad', detail: 'ERROR: this instrument is marked as FIXTURE (test) data, not a real security; its reference data and quotes are not shown.' });
   if (i.status !== 'ACTIVE') flags.push({ label: i.status, tone: 'bad', detail: `Instrument status ${i.status}.` });
   if (i.leveraged) flags.push({ label: 'LEVERAGED', tone: 'info', detail: 'Leveraged product (policy eligibility decides tradability).' });
   if (i.inverse) flags.push({ label: 'INVERSE', tone: 'info', detail: 'Inverse product (policy eligibility decides tradability).' });
@@ -88,7 +88,7 @@ export function matchInstrument(i: Instrument, query: string): boolean {
 }
 
 /**
- * Attributes sorted by key, with the fixture marker first. A `*_ns` value is given as the API's exact `*_ns_str`
+ * Attributes sorted by key, with the fixture marker first (it is shown as an error). A `*_ns` value is given as the API's exact `*_ns_str`
  * (JSON.parse rounded the number), and the sibling itself is not listed as an attribute.
  */
 export function attributeEntries(attributes: Record<string, unknown> | null | undefined): [string, unknown][] {

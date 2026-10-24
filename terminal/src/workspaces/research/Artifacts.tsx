@@ -8,6 +8,7 @@ import { Fragment } from 'react';
 import { nsStrOf } from '../../api/nsStrings';
 import { DataTable, type Column } from '../../ui/DataTable';
 import { StatusPill } from '../../ui/primitives';
+import { NoValue } from '../../ui/unavailable';
 import { apiPath, useApi } from '../research-common/api';
 import { Hash, JsonTree, KV, Section, StatusTag } from '../research-common/parts';
 import { ARTIFACT_STATUSES, artifactTone, gateSummary, type ArtifactDetail, type ArtifactRow, type Envelope, type Evidence } from './model';
@@ -117,8 +118,8 @@ function ArtifactBody({ a, prov }: { a: ArtifactDetail; prov: Envelope<unknown>[
                         {t.principal} ({t.role})
                         {t.approval ? <span className="muted"> · owner approval recorded</span> : null}
                       </td>
-                      <td className="wrap">{t.reason ?? '—'}</td>
-                      <td className="mono wrap">{t.evidence_ids.join(', ') || '—'}</td>
+                      <td className="wrap">{t.reason ?? <NoValue reason="NOT_REPORTED" />}</td>
+                      <td className="mono wrap">{t.evidence_ids.join(', ') || <NoValue reason="NOT_REPORTED" detail="No evidence recorded." />}</td>
                       <td>
                         <Hash value={t.record_hash} head={8} /> · <Hash value={t.prev_record_hash} head={8} />
                       </td>

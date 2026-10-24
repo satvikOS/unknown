@@ -1,11 +1,12 @@
-/** Shared pieces of the Portfolio workspace: lineage, fixture and quote notes, labels, scope select. */
+/** Shared pieces of the Portfolio workspace: lineage, fixture refusals and quote notes, labels, scope select. */
 import type { ReactNode } from 'react';
 import { exactJson, exactNs, isNsStringSibling } from '../../api/nsStrings';
 import { useStream, type QueryResult } from '../../state/react';
 import { WorkspaceFrame, WorkspaceLink } from '../../ui/WorkspaceFrame';
-import { Badge, FixtureBadge, ShortId, StatusPill, Timestamp } from '../../ui/primitives';
+import { Badge, FixtureRefused, ShortId, StatusPill, Timestamp } from '../../ui/primitives';
+import { NoValue } from '../../ui/unavailable';
 import { usePluginQuery } from '../plugin-api/hooks';
-import { SNAPSHOT_STORE_QUERY, arr, isRec, num, recs, str, whatIfStale, type Rec, type ScopeOption } from './model';
+import { SNAPSHOT_STORE_QUERY, arr, fixtureRefusal, isRec, num, recs, str, whatIfStale, type Rec, type ScopeOption } from './model';
 
 export interface FormulaDef {
   id: string;
@@ -68,12 +69,16 @@ export function Unavailable({ what, reason }: { what: string; reason: string }) 
   );
 }
 
-/** The FIXTURE label for results computed from fixture quotes or instruments. */
-export function FixtureNote({ body }: { body: Rec | null }) {
-  if (!body || body.fixture_data !== true) return null;
+/**
+ * An answer computed from fixture quotes or instruments is not real data: it is refused (ofKind returns null for
+ * it) and this shows the refusal as an error. Pass the raw query data.
+ */
+export function FixtureNote({ data, what }: { data: unknown; what: string }) {
+  const why = fixtureRefusal(data);
+  if (!why) return null;
   return (
-    <div className="pf-note">
-      <FixtureBadge /> <span>{str(body.fixture_note) ?? 'Computed from FIXTURE data: test data, not market data.'}</span>
+    <div className="callout pf-gap" role="alert" style={{ ['--tone' as string]: 'var(--alert)' }}>
+      <FixtureRefused label={what} detail={why} /> <strong>{what} not shown.</strong> {why} Only real data is displayed.
     </div>
   );
 }
@@ -150,9 +155,9 @@ export function Lineage({ body, formulas }: { body: Rec | null; formulas: Map<st
           </ul>
         </dd>
         <dt>Units</dt>
-        <dd>{str(lin.units) ?? '—'}</dd>
+        <dd>{str(lin.units) ?? <NoValue reason="NOT_REPORTED" />}</dd>
         <dt>Source dates</dt>
-        <dd>{isRec(lin.source_dates) ? <SourceDates dates={lin.source_dates} /> : '—'}</dd>
+        <dd>{isRec(lin.source_dates) ? <SourceDates dates={lin.source_dates} /> : <NoValue reason="NOT_REPORTED" />}</dd>
         {missing.length ? (
           <>
             <dt>Missing</dt>
@@ -255,7 +260,7 @@ export function AsOf({ body }: { body: Rec | null }) {
   const seq = num(body.core_seq) ?? num(body.snapshot_seq);
   return (
     <span className="pf-hint">
-      computed <Timestamp ns={at} nsStr={exactNs(body, 'as_of_ns')} never="—" />
+      computed <Timestamp ns={at} nsStr={exactNs(body, 'as_of_ns')} reason="NOT_REPORTED" />
       {seq !== null ? ` on core seq ${seq}` : ''}
     </span>
   );

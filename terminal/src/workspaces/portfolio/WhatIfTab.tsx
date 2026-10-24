@@ -234,6 +234,7 @@ export function WhatIfTab({ bar, formulas }: { bar: ReactNode; formulas: Map<str
         again.
       </p>
       <QueryError what="What-if" error={once.error} />
+      <FixtureNote data={once.data} what="What-if" />
       {isRec(once.data) && once.data.kind === 'whatif' && str(once.data.fault) ? (
         <div className="callout pf-gap" role="alert" style={{ ['--tone' as string]: 'var(--bad)' }}>
           <strong>No decision.</strong> {str(once.data.reason)} ({str(once.data.fault)})
@@ -253,7 +254,6 @@ export function WhatIfTab({ bar, formulas }: { bar: ReactNode; formulas: Map<str
             <AsOf body={body} />
           </div>
           <QuoteSnapshotNote body={body} />
-          <FixtureNote body={body} />
           {quote ? (
             <p className="pf-hint">
               Quote evaluated: bid {str(quote.bid) ?? '—'} / ask {str(quote.ask) ?? '—'} {str(quote.currency)}, source {str(quote.source)}, age {num(quote.age_ms) ?? '?'} ms,

@@ -11,7 +11,8 @@ import type { Bucket, Order, Position, Quote, RiskState } from '../../api/types'
 import { isDecimal } from '../../format/decimal';
 import { useNow, useQuery } from '../../state/react';
 import { DataTable, type Column } from '../../ui/DataTable';
-import { Age, Badge, FixtureBadge, Money, Qty, ShortId, StatusPill, Timestamp } from '../../ui/primitives';
+import { Age, Badge, FixtureRefused, Money, Qty, ShortId, StatusPill, Timestamp } from '../../ui/primitives';
+import { NoValue } from '../../ui/unavailable';
 import { QueryError, WorkspaceFrame, WorkspaceLink } from '../../ui/WorkspaceFrame';
 import { hasWorkspace } from '../registry';
 import type { WorkspaceProps } from '../types';
@@ -109,7 +110,9 @@ function LossBudgetPanel({ risk, limits, timeZone, buckets, positions, quotes, q
           multipliers,
         })
       : null;
-  const live = estimate?.status === 'complete' && estimate.pnl !== null;
+  // Marks from fixture (test) quotes are not real data: such an estimate is refused, never used or shown.
+  const refused = estimate?.fixture === true;
+  const live = estimate?.status === 'complete' && estimate.pnl !== null && !refused;
   const pnl = live ? (estimate.pnl as string) : risk.cumulative_pnl;
   const allowance = decimalOrNull(limits.cumulative_loss_allowance);
   const trigger = decimalOrNull(limits.daily_loss_trigger);
@@ -117,7 +120,12 @@ function LossBudgetPanel({ risk, limits, timeZone, buckets, positions, quotes, q
   const dayUse = trigger ? budgetUse(dailyLoss(risk.day_start_pnl, pnl), trigger) : null;
   const today = timeZone ? riskDayAt(timeZone, now) : null;
   const newDay = today !== null && risk.risk_day !== null && today !== risk.risk_day;
-  const basis = live ? (
+  const basis = refused ? (
+    <>
+      <FixtureRefused detail="Current marks include FIXTURE quotes." /> Current marks include FIXTURE (test) quotes, which are not real market
+      data, so this uses the recorded P&amp;L.
+    </>
+  ) : live ? (
     <>
       P&amp;L at current marks (terminal estimate, core definition: system buckets’ liquid value plus system positions at a fresh bid, minus authorized
       capital).
@@ -159,12 +167,6 @@ function LossBudgetPanel({ risk, limits, timeZone, buckets, positions, quotes, q
               live ? (
                 <>
                   At current marks
-                  {estimate.fixture ? (
-                    <>
-                      {' '}
-                      from fixture quotes <FixtureBadge />
-                    </>
-                  ) : null}
                   .
                 </>
               ) : (
@@ -189,12 +191,6 @@ function LossBudgetPanel({ risk, limits, timeZone, buckets, positions, quotes, q
               ) : live ? (
                 <>
                   At current marks
-                  {estimate.fixture ? (
-                    <>
-                      {' '}
-                      from fixture quotes <FixtureBadge />
-                    </>
-                  ) : null}
                   , from the P&amp;L at the first valuation of the risk day.
                 </>
               ) : (
@@ -214,11 +210,16 @@ function LossBudgetPanel({ risk, limits, timeZone, buckets, positions, quotes, q
             {live ? (
               <>
                 <Money amount={estimate.pnl} currency={ccy} signed />{' '}
-                {estimate.fixture ? <FixtureBadge title="Marked with fixture quotes: simulation only" /> : null}{' '}
                 <span className="muted">realized + unrealized, terminal estimate</span>
               </>
             ) : (
-              <span className="muted">{estimate?.status === 'incomplete' ? 'unavailable: marks incomplete' : 'loading'}</span>
+              refused ? (
+                <FixtureRefused detail="Current marks include FIXTURE quotes." />
+              ) : estimate?.status === 'incomplete' ? (
+                <NoValue reason="NOT_REPORTED" detail="Current marks are incomplete." />
+              ) : (
+                <span className="muted">loading</span>
+              )
             )}
           </dd>
           {live ? (
@@ -372,13 +373,11 @@ function ExposurePanel({
           <dl className="kv">
             <dt>Positions at bid</dt>
             <dd>
-              <Money amount={gross.positionsAtBid} currency={ccy} kind="marked" />
               {gross.lines.some((l) => l.fixture) ? (
-                <>
-                  {' '}
-                  <FixtureBadge title="Marked with fixture quotes: simulation only" />
-                </>
-              ) : null}
+                <FixtureRefused detail="Marked with FIXTURE quotes." />
+              ) : (
+                <Money amount={gross.positionsAtBid} currency={ccy} kind="marked" />
+              )}
             </dd>
             <dt>Positions at cost</dt>
             <dd>
@@ -390,13 +389,13 @@ function ExposurePanel({
             </dd>
             <dt>Gross exposure</dt>
             <dd>
-              {gross.total ? <Money amount={gross.total} currency={ccy} /> : <span className="muted">unavailable</span>}
-              {gross.total && gross.lines.some((l) => l.fixture) ? (
-                <>
-                  {' '}
-                  <FixtureBadge title="Includes positions marked with fixture quotes" />
-                </>
-              ) : null}
+              {gross.lines.some((l) => l.fixture) ? (
+                <FixtureRefused detail="Includes positions marked with FIXTURE quotes." />
+              ) : gross.total ? (
+                <Money amount={gross.total} currency={ccy} />
+              ) : (
+                <NoValue reason="NOT_REPORTED" detail="A position or order in the exposure has no price." />
+              )}
             </dd>
             <dt>Largest position</dt>
             <dd>
@@ -513,12 +512,7 @@ function positionColumns(
       numeric: true,
       sortKind: 'decimal',
       sortValue: (p) => p.mark,
-      cell: (p) => (
-        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-          {p.mark_fixture ? <FixtureBadge /> : null}
-          <Money amount={p.mark} currency={p.currency} kind="marked" unavailable="no quote" />
-        </span>
-      ),
+      cell: (p) => (p.mark_fixture ? <FixtureRefused detail={p.mark_basis} /> : <Money amount={p.mark} currency={p.currency} kind="marked" unavailable="No quote for this instrument." />),
     },
     {
       id: 'mv',
@@ -526,7 +520,7 @@ function positionColumns(
       numeric: true,
       sortKind: 'decimal',
       sortValue: (p) => p.market_value,
-      cell: (p) => <Money amount={p.market_value} currency={p.currency} kind="marked" unavailable="no quote" />,
+      cell: (p) => (p.mark_fixture ? <FixtureRefused /> : <Money amount={p.market_value} currency={p.currency} kind="marked" unavailable="No quote for this instrument." />),
     },
     {
       id: 'unreal',
@@ -534,7 +528,7 @@ function positionColumns(
       numeric: true,
       sortKind: 'decimal',
       sortValue: (p) => p.unrealized,
-      cell: (p) => <Money amount={p.unrealized} currency={p.currency} kind="unrealized" signed unavailable="no quote" />,
+      cell: (p) => (p.mark_fixture ? <FixtureRefused /> : <Money amount={p.unrealized} currency={p.currency} kind="unrealized" signed unavailable="No quote for this instrument." />),
     },
     {
       id: 'conc',
@@ -570,6 +564,7 @@ function positionColumns(
       cell: (p) => {
         const q = quotes?.[p.instrument_id];
         if (!q) return <span title={p.mark_basis}>{p.mark_basis}</span>;
+        if (q.fixture) return <FixtureRefused detail={`The quote from ${q.source} is not real market data.`} />;
         return (
           <span title={`Server basis: ${p.mark_basis}`}>
             {q.bid === null ? 'no bid' : 'bid'} from <span className="mono">{q.source}</span>,{' '}
@@ -578,12 +573,6 @@ function positionColumns(
               <>
                 {' '}
                 <Badge tone="warn">delayed</Badge>
-              </>
-            ) : null}
-            {q.fixture ? (
-              <>
-                {' '}
-                <FixtureBadge />
               </>
             ) : null}
           </span>

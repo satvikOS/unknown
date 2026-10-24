@@ -66,7 +66,7 @@ export function JobListView({ navigate }: Pick<WorkspaceProps, 'navigate'>) {
       cell: (j) => <StatusPill label={j.delivery} tone={deliveryTone(j.delivery)} compact />,
       sortValue: (j) => j.delivery,
     },
-    { id: 'finished', header: 'Finished', cell: (j) => <Timestamp ns={j.finished_ns} nsStr={nsStrOf(j, 'finished_ns')} never="—" />, sortValue: (j) => j.finished_ns ?? 0, sortKind: 'number' },
+    { id: 'finished', header: 'Finished', cell: (j) => <Timestamp ns={j.finished_ns} nsStr={nsStrOf(j, 'finished_ns')} reason="NOT_REPORTED" />, sortValue: (j) => j.finished_ns ?? 0, sortKind: 'number' },
     { id: 'id', header: 'Job id', cell: (j) => <ShortId value={j.job_id} head={14} /> },
   ];
 

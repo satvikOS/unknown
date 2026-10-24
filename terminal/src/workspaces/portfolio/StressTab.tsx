@@ -193,8 +193,8 @@ export function ScenarioDetails({ body, scenario, instrumentCurrency = () => nul
                 <Fragment key={c}>
                   <dt>Fresh NAV, {c}</dt>
                   <dd>
-                    <Money amount={dec(before[c])} currency={c} unavailable="not every mark fresh" /> →{' '}
-                    <Money amount={dec(after[c])} currency={c} unavailable="not every mark fresh" />
+                    <Money amount={dec(before[c])} currency={c} reason="STALE" unavailable="Not every mark is fresh." /> →{' '}
+                    <Money amount={dec(after[c])} currency={c} reason="STALE" unavailable="Not every mark is fresh." />
                   </dd>
                 </Fragment>
               ))}
@@ -407,6 +407,7 @@ function StressResult({ run, q, rerun, formulas }: { run: Run; q: OneShot<unknow
   return (
     <>
       <QueryError what="Stress scenario" error={q.error} />
+      <FixtureNote data={q.data} what="Stress" />
       {q.status === 'loading' && !body ? <p className="muted">Loading the scenario on a private copy of the core…</p> : null}
       {isRec(q.data) && q.data.kind === 'stress' && str(q.data.fault) ? (
         <div className="callout pf-gap" role="alert" style={{ ['--tone' as string]: 'var(--bad)' }}>
@@ -426,7 +427,6 @@ function StressResult({ run, q, rerun, formulas }: { run: Run; q: OneShot<unknow
             <AsOf body={body} />
           </div>
           <QuoteSnapshotNote body={body} />
-          <FixtureNote body={body} />
           {str(body.note) && scenario !== 'fee_revision' ? <p className="pf-hint">{str(body.note)}</p> : null}
           <PnlSummary body={body} />
           {positions.length ? (

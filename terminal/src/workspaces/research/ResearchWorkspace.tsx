@@ -2,7 +2,7 @@
  * Research (I5; CAP-RES-10/-11/-12; DAT-05, DAT-06, TRM-03): read-only views of the research registry served
  * at GET /api/research — pre-registered experiments with trial counts and the holdout access log, every trial
  * with its manifest and return series, strategy specifications, artifacts with status history and gate
- * verdicts, reports, and the formula registry. FIXTURE labels appear exactly where the API's provenance says so.
+ * verdicts, reports, and the formula registry. Anything whose provenance is FIXTURE is refused and shown as an error.
  * When the registry does not exist the API's reason is shown with the command that creates it.
  *
  * Routes: `#/research[/experiments[/<id>[/segment=…]]]`, `#/research/trials/<trial_id>`,

@@ -10,7 +10,7 @@ import { formatClock } from '../format/time';
 import { BrandMark } from './AuthScreens';
 import { Icon } from './Icon';
 import { MOD_LABEL } from './keys';
-import { FixtureBadge, ModeBadge, StatusPill, type Tone } from './primitives';
+import { Badge, ModeBadge, StatusPill, type Tone } from './primitives';
 import { nextTheme, setTheme, useTheme } from './theme';
 
 function isCoreHealth(core: HealthResponse['core'] | undefined): core is CoreHealth {
@@ -38,7 +38,11 @@ function HealthPills() {
         detail={`Core answered; ${core.cycle_errors} loop errors; disk free ${core.disk_free_mb} MB`}
       />
       <StatusPill label={brokerLabel} tone={brokerOk ? 'ok' : 'bad'} detail={`${core.provider}: ${core.detail}`} />
-      {core.provider === 'simulated' ? <FixtureBadge title={`Simulated broker (${core.detail}); quotes and fills are fixtures`} /> : null}
+      {core.provider === 'simulated' ? (
+        <Badge tone="info" title={`Simulated broker (${core.detail}): fills are simulated at prices from a real configured quote source; with none it fills nothing. No order reaches a market.`}>
+          SIM BROKER
+        </Badge>
+      ) : null}
     </>
   );
 }

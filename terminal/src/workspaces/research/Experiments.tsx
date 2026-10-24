@@ -7,7 +7,8 @@ import { useMemo } from 'react';
 import { exactJson, nsStrOf } from '../../api/nsStrings';
 import type { QueryResult } from '../../state/react';
 import { DataTable, type Column } from '../../ui/DataTable';
-import { Badge, FixtureBadge, Money, StatusPill } from '../../ui/primitives';
+import { Badge, FixtureRefused, Money, StatusPill } from '../../ui/primitives';
+import { NoValue } from '../../ui/unavailable';
 import { apiPath, useApi } from '../research-common/api';
 import { LineChart } from '../research-common/charts';
 import { cumulativeReturns, labelIndices, maxDrawdown } from '../research-common/chartMath';
@@ -47,7 +48,7 @@ export function ExperimentList({ ctx }: { ctx: ResearchCtx }) {
           <a href={`#/research/experiments/${encodeURIComponent(e.experiment_id)}`} tabIndex={-1}>
             <strong>{e.experiment_id}</strong>
           </a>
-          {e.fixture ? <FixtureBadge /> : null}
+          {e.fixture ? <FixtureRefused detail="A FIXTURE (test) experiment: its results are not shown." /> : null}
         </span>
       ),
     },
@@ -263,7 +264,7 @@ function TrialsPanel({ ctx, id, segment, q }: { ctx: ResearchCtx; id: string; se
         const key = statBlocks(t.metrics)[0]?.key;
         return (
           <span className="mono">
-            {t.label ?? '—'}
+            {t.label ?? <NoValue reason="NOT_REPORTED" />}
             {key ? <span className="muted" title="Statistics in this row come from this block of the trial's metrics"> [{key}]</span> : null}
           </span>
         );

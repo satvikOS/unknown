@@ -54,11 +54,12 @@ describe('tick rules', () => {
 });
 
 describe('flags and labels', () => {
-  it('flags fixture data and non-active, leveraged or inverse products', () => {
+  it('flags fixture data as an error, and non-active, leveraged or inverse products', () => {
     expect(isFixture(FIXA)).toBe(true);
     expect(isFixture({ attributes: {} })).toBe(false);
     expect(isFixture({ attributes: { fixture: 'true' } })).toBe(true);
-    expect(instrumentFlags(FIXA).map((f) => f.label)).toEqual(['FIXTURE']);
+    expect(instrumentFlags(FIXA).map((f) => f.label)).toEqual(['ERR']);
+    expect(instrumentFlags(FIXA)[0]?.tone).toBe('bad');
     const odd = { ...FIXA, attributes: {}, status: 'HALTED', leveraged: true, inverse: true };
     expect(instrumentFlags(odd).map((f) => f.label)).toEqual(['HALTED', 'LEVERAGED', 'INVERSE']);
   });

@@ -8,7 +8,7 @@ export const researchWorkspace: WorkspaceDefinition = {
   order: 130,
   load: () => import('./ResearchWorkspace').then((m) => m.ResearchWorkspace),
   description: 'Experiments, trials with manifests and returns, strategy specs, artifacts with gate verdicts, reports, formulas',
-  keywords: ['experiment', 'trial', 'backtest', 'pre-registration', 'holdout', 'manifest', 'artifact', 'promotion', 'evidence', 'gate', 'report', 'formula', 'strategy', 'fixture'],
+  keywords: ['experiment', 'trial', 'backtest', 'pre-registration', 'holdout', 'manifest', 'artifact', 'promotion', 'evidence', 'gate', 'report', 'formula', 'strategy'],
   commands: [
     { id: 'artifacts', label: 'Strategy artifacts and gate verdicts', path: ['artifacts'], keywords: 'promotion evidence status' },
     { id: 'reports', label: 'Research reports', path: ['reports'], keywords: 'study report' },

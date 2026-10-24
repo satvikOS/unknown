@@ -137,7 +137,7 @@ export function ProposalTypedFields({ p }: { p: Proposal }) {
       <dl className="kv">
         <dt>As of</dt>
         <dd>
-          <Timestamp ns={p.as_of_ns} nsStr={nsStrOf(p, 'as_of_ns')} never="—" />
+          <Timestamp ns={p.as_of_ns} nsStr={nsStrOf(p, 'as_of_ns')} reason="NOT_REPORTED" />
         </dd>
         <dt>Instruments</dt>
         <dd>{p.instrument_ids.length ? p.instrument_ids.join(', ') : <span className="muted">none named</span>}</dd>
@@ -147,7 +147,7 @@ export function ProposalTypedFields({ p }: { p: Proposal }) {
         <dd>
           {w ? (
             <>
-              <Timestamp ns={w.from_ns} nsStr={nsStrOf(w, 'from_ns')} never="—" /> to <Timestamp ns={w.to_ns} nsStr={nsStrOf(w, 'to_ns')} never="—" />
+              <Timestamp ns={w.from_ns} nsStr={nsStrOf(w, 'from_ns')} reason="NOT_REPORTED" /> to <Timestamp ns={w.to_ns} nsStr={nsStrOf(w, 'to_ns')} reason="NOT_REPORTED" />
             </>
           ) : (
             <span className="muted">none</span>
@@ -369,7 +369,7 @@ function SpendPanel({ d }: { d: JobDetail }) {
             <Timestamp
               ns={env?.deadline_ns ?? d.job.deadline_ns}
               nsStr={env?.deadline_ns !== null && env?.deadline_ns !== undefined ? nsStrOf(env, 'deadline_ns') : nsStrOf(d.job, 'deadline_ns')}
-              never="—"
+              reason="NOT_REPORTED"
             />
           </dd>
           <dt>Output schema</dt>
@@ -483,7 +483,7 @@ export function JobDetailView({ jobId }: { jobId: string }) {
                     </dd>
                     <dt>Deadline</dt>
                     <dd>
-                      <Timestamp ns={d.job.deadline_ns} nsStr={nsStrOf(d.job, 'deadline_ns')} never="—" />
+                      <Timestamp ns={d.job.deadline_ns} nsStr={nsStrOf(d.job, 'deadline_ns')} reason="NOT_REPORTED" />
                     </dd>
                     <dt>Delivery</dt>
                     <dd>
@@ -524,7 +524,7 @@ export function JobDetailView({ jobId }: { jobId: string }) {
                     <dd>{d.request?.fields?.length ? d.request.fields.join(', ') : <span className="muted">{d.request?.issuer_ids.length ? 'server default set' : '—'}</span>}</dd>
                     <dt>Evidence as of</dt>
                     <dd>
-                      <Timestamp ns={d.evidence?.selection?.as_of_ns} nsStr={nsStrOf(d.evidence?.selection, 'as_of_ns')} never="—" />
+                      <Timestamp ns={d.evidence?.selection?.as_of_ns} nsStr={nsStrOf(d.evidence?.selection, 'as_of_ns')} reason="NOT_REPORTED" />
                     </dd>
                     <dt>Entities</dt>
                     <dd>{d.evidence?.selection?.entity_ids.join(', ') || <span className="muted">—</span>}</dd>

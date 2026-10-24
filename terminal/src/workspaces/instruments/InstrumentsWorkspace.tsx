@@ -1,7 +1,8 @@
 /**
  * Instruments: the instrument master (GET /api/instruments) with tick rules, multiplier, settlement
- * cycle, provider mappings and attributes; fixture instruments are flagged FIXTURE. The latest quote
- * (GET /api/quotes, live process state, polled) always shows its source and age.
+ * cycle, provider mappings and attributes. Only real securities are listed: an instrument the core marks as a fixture
+ * is refused (counted as an error, its detail shows an error, never its data). The latest quote (GET /api/quotes, live
+ * process state, polled) always shows its source and age; a fixture quote is an error.
  * Route: `#/instruments` (list) and `#/instruments/<instrument_id>` (detail).
  */
 import { useEffect, useMemo, useState } from 'react';
@@ -9,7 +10,8 @@ import { exactJson, nsStrOf } from '../../api/nsStrings';
 import type { Instrument, Position, Quote } from '../../api/types';
 import { useQuery } from '../../state/react';
 import { DataTable, type Column } from '../../ui/DataTable';
-import { Age, Badge, FixtureBadge, Money, Qty, StatusPill, Timestamp } from '../../ui/primitives';
+import { Age, Badge, FixtureRefused, Money, Qty, StatusPill, Timestamp } from '../../ui/primitives';
+import { NoValue } from '../../ui/unavailable';
 import { QueryError, WorkspaceFrame } from '../../ui/WorkspaceFrame';
 import type { WorkspaceProps } from '../types';
 import '../operations/ops.css';
@@ -18,16 +20,16 @@ import { attributeEntries, instrumentFlags, isFixture, mappingRows, matchInstrum
 const QUOTE_POLL_MS = 2000;
 
 function QuoteView({ q, fetchedAtMs, staleAfterMs, compact }: { q: Quote | undefined; fetchedAtMs: number | null; staleAfterMs?: number; compact?: boolean }) {
-  if (!q) return <span className="muted">no quote</span>;
+  if (!q) return <NoValue reason="NOT_REPORTED" detail="The core holds no quote for this instrument." />;
+  if (q.fixture) return <FixtureRefused label="Quote" detail={`The quote from ${q.source} is not real market data.`} />;
   return (
     <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: compact ? 'nowrap' : 'wrap' }}>
-      <Money amount={q.bid} currency={q.currency} kind="marked" unavailable="no bid" />
+      <Money amount={q.bid} currency={q.currency} kind="marked" unavailable="The quote has no bid." />
       <span className="muted">×</span>
-      <Money amount={q.ask} currency={q.currency} unavailable="no ask" />
+      <Money amount={q.ask} currency={q.currency} unavailable="The quote has no ask." />
       <span className="muted">
         {q.source} · <Age ageMs={q.age_ms} observedAtMs={fetchedAtMs} staleAfterMs={staleAfterMs} />
       </span>
-      {q.fixture ? <FixtureBadge title="Quote from the fixture market: generated for simulation, not market data" /> : null}
       {q.delayed ? <Badge tone="warn">delayed</Badge> : null}
     </span>
   );
@@ -89,7 +91,10 @@ function InstrumentList({
   const [text, setText] = useState('');
   const [assetClass, setAssetClass] = useState('');
   const classes = useMemo(() => [...new Set(rows.map((i) => i.asset_class))].sort(), [rows]);
-  const shown = useMemo(() => rows.filter((i) => (!assetClass || i.asset_class === assetClass) && matchInstrument(i, text)), [rows, text, assetClass]);
+  const shown = useMemo(
+    () => rows.filter((i) => !isFixture(i) && (!assetClass || i.asset_class === assetClass) && matchInstrument(i, text)),
+    [rows, text, assetClass],
+  );
   const fixtures = rows.filter(isFixture).length;
 
   const columns: Column<Instrument>[] = [
@@ -203,8 +208,14 @@ function InstrumentList({
         </div>
         <span className="spacer" />
         <span className="ops-hint">
-          {rows.length} instrument{rows.length === 1 ? '' : 's'}
-          {fixtures ? ` · ${fixtures} FIXTURE (simulation only)` : ''} · quotes polled every {QUOTE_POLL_MS / 1000} s
+          {rows.length - fixtures} instrument{rows.length - fixtures === 1 ? '' : 's'} · quotes polled every {QUOTE_POLL_MS / 1000} s
+          {fixtures ? (
+            <>
+              {' · '}
+              <FixtureRefused detail={`${fixtures} instrument${fixtures === 1 ? '' : 's'} marked FIXTURE (not real securities) not listed.`} />{' '}
+              {fixtures} refused
+            </>
+          ) : null}
         </span>
       </div>
       <section className="panel">
@@ -323,8 +334,8 @@ function InstrumentDetail({
           </span>
         </header>
         {isFixture(i) ? (
-          <div className="panel-note" style={{ color: 'var(--warn)' }}>
-            FIXTURE: registered for simulation only. Its reference data and quotes are generated, not market data.
+          <div className="panel-note" role="alert" style={{ color: 'var(--alert)' }}>
+            <FixtureRefused label="Instrument" /> This instrument is marked as FIXTURE (test) data, not a real security.
           </div>
         ) : null}
         <div className="panel-body">
@@ -416,7 +427,7 @@ function InstrumentDetail({
                     <dd>
                       {k === 'fixture' && (v === true || v === 'true') ? (
                         <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                          <FixtureBadge /> true: simulation only
+                          <FixtureRefused /> true: not a real security
                         </span>
                       ) : typeof v === 'object' && v !== null ? (
                         <span className="cmd-id">{exactJson(v)}</span>
@@ -479,7 +490,7 @@ function InstrumentDetail({
                 numeric: true,
                 sortKind: 'decimal',
                 sortValue: (p) => p.market_value,
-                cell: (p) => <Money amount={p.market_value} currency={p.currency} kind="marked" unavailable="no quote" />,
+                cell: (p) => (p.mark_fixture ? <FixtureRefused /> : <Money amount={p.market_value} currency={p.currency} kind="marked" unavailable="No quote for this instrument." />),
               },
               {
                 id: 'unreal',
@@ -487,7 +498,7 @@ function InstrumentDetail({
                 numeric: true,
                 sortKind: 'decimal',
                 sortValue: (p) => p.unrealized,
-                cell: (p) => <Money amount={p.unrealized} currency={p.currency} kind="unrealized" signed unavailable="no quote" />,
+                cell: (p) => (p.mark_fixture ? <FixtureRefused /> : <Money amount={p.unrealized} currency={p.currency} kind="unrealized" signed unavailable="No quote for this instrument." />),
               },
               {
                 id: 'basis',
@@ -495,7 +506,7 @@ function InstrumentDetail({
                 wrap: true,
                 cell: (p) => (
                   <span>
-                    {p.mark_fixture ? <FixtureBadge /> : null} {p.mark_fixture ? p.mark_basis.replace(/ FIXTURE$/, '') : p.mark_basis}
+                    {p.mark_fixture ? <FixtureRefused detail={p.mark_basis} /> : p.mark_basis}
                   </span>
                 ),
               },

@@ -46,7 +46,7 @@ export interface MarkedEstimate {
   /** systemValue - authorized_total; null when incomplete. */
   pnl: string | null;
   stale: StaleMark[];
-  /** At least one mark used came from fixture (simulation-only) quotes. */
+  /** At least one mark used came from fixture (test) quotes: the estimate is refused (an error), never shown. */
   fixture: boolean;
 }
 
@@ -183,7 +183,7 @@ export interface ExposureLine {
   symbol: string | null;
   basis: ExposureBasis;
   value: string;
-  /** The bid behind `value` came from fixture (simulation-only) quotes. */
+  /** The bid behind `value` came from fixture (test) quotes: refused, never shown as a value. */
   fixture: boolean;
 }
 

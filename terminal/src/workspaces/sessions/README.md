@@ -10,7 +10,7 @@
 | `GET /api/sessions/{id}` | Detail: row, mandate, balances by account code, orders, executions, settlements, timeline |
 | `GET /api/events?session=&after=&limit=` | Timeline events after the first 500 that the detail returns |
 | `GET /api/buckets` | Server-computed liquid value, available cash and holds for `session:<id>`, `protected:<id>` and `unallocated` |
-| `GET /api/positions` (polled every 5 s) | The session's holdings marked to bid, with source, age and the FIXTURE label |
+| `GET /api/positions` (polled every 5 s) | The session's holdings marked to bid, with source and age; a mark from a FIXTURE quote is an error, never a value |
 | `GET /api/policies`, `GET /api/policy/active` | Template defaults, loss triggers, fee envelope, wind-down and successor rules |
 | `GET /api/overview` | Control state for previews: stop, reconciliation, exceptions, ownership, active sessions |
 

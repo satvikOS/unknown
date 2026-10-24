@@ -11,7 +11,7 @@ import { entryState } from '../../controls/model';
 import { formatTimestampMs } from '../../format/time';
 import { useAuth, useNow, useQuery, useSendCommand, useTrackedCommand } from '../../state/react';
 import { routeHref } from '../../state/router';
-import { Money, Qty, ShortId, StatusPill } from '../../ui/primitives';
+import { FixtureRefused, Money, Qty, ShortId, StatusPill } from '../../ui/primitives';
 import { sessionStateTone } from '../../ui/tones';
 import { QueryError, WorkspaceFrame, WorkspaceLink } from '../../ui/WorkspaceFrame';
 import { decisionFromRejection, decisionFromTimeline, explainRejectionCode } from './decision';
@@ -73,7 +73,7 @@ function describedBy(field: TicketField, error: string | undefined, hint: string
 }
 
 function instrumentLabel(i: Instrument): string {
-  return `${i.symbol} · ${i.name} · ${i.instrument_id}${isFixtureInstrument(i) ? ' · FIXTURE' : ''}`;
+  return `${i.symbol} · ${i.name} · ${i.instrument_id}`;
 }
 
 function sessionLabel(s: Session): string {
@@ -90,7 +90,8 @@ export function TicketView({
   presetInstrumentId: string | null;
 }) {
   const instruments = inst.map;
-  const instrumentList = inst.list;
+  // A fixture instrument is not a real security: it is never offered (an existing order on one shows an error).
+  const instrumentList = useMemo(() => inst.list.filter((i) => !isFixtureInstrument(i)), [inst.list]);
   const sessionsQ = useQuery('/api/sessions');
   const quotesQ = useQuery('/api/quotes', undefined, { pollMs: 1000 });
   const overview = useQuery('/api/overview');
@@ -290,9 +291,9 @@ export function TicketView({
                 <FieldMessages field="limitPrice" error={err('limitPrice')} hint={hint('limitPrice')} />
               </div>
             </div>
-            {quote && (quote.bid || quote.ask) ? (
+            {quote && !quote.fixture && (quote.bid || quote.ask) ? (
               <div className="ord-inline ord-copy" role="group" aria-label="Copy a price from the current quote into the limit price">
-                <span className="muted ord-small">Copy into limit from the {quote.fixture ? 'FIXTURE ' : ''}quote:</span>
+                <span className="muted ord-small">Copy into limit from the quote:</span>
                 {quote.bid ? (
                   <button type="button" className="btn small" onClick={() => set('limitPrice', quote.bid ?? '')}>
                     bid {quote.bid}
@@ -498,8 +499,8 @@ function ReviewBlock({
         <dd className="muted">assigned when you send (own-…)</dd>
       </dl>
       {isFixtureInstrument(instrument) ? (
-        <p className="ord-small">
-          <strong>FIXTURE</strong> instrument: this is a simulation-only security priced by the fixture market.
+        <p className="ord-small" role="alert">
+          <FixtureRefused label="Instrument" /> This instrument is not a real security; the core will refuse the intent.
         </p>
       ) : null}
       <div className="ord-actions">

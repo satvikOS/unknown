@@ -7,6 +7,7 @@ import type { AccountMode } from '../api/types';
 import { currencyMinorUnits, formatDecimal, isDecimal, signOf } from '../format/decimal';
 import { formatAge, formatTimestampMs, formatTimestampNsExact, isNsString, isoFromMs, nsStringToMs, nsToMs } from '../format/time';
 import { useNow } from '../state/react';
+import { ErrorValue, NoValue, type Reason } from './unavailable';
 
 export type Tone = 'ok' | 'warn' | 'bad' | 'info' | 'neutral';
 
@@ -20,7 +21,7 @@ export interface BadgeProps {
   title?: string;
 }
 
-/** Small uppercase label (e.g. FIXTURE, SYSTEM). */
+/** Small uppercase label (e.g. SYSTEM, LIVE). */
 export function Badge({ children, tone = 'neutral', title }: BadgeProps) {
   return (
     <span className={`badge tone-${tone}`} title={title}>
@@ -29,13 +30,12 @@ export function Badge({ children, tone = 'neutral', title }: BadgeProps) {
   );
 }
 
-/** Marks values derived from fixture (simulation-only) inputs. */
-export function FixtureBadge({ title }: { title?: string }) {
-  return (
-    <Badge tone="warn" title={title ?? 'Fixture data: generated for simulation, not market data'}>
-      FIXTURE
-    </Badge>
-  );
+/** The error detail for a value the API marks as derived from fixture (test) data: refused, never displayed. */
+export const FIXTURE_REFUSED = 'Refused: derived from FIXTURE (test) data, which is not real data.';
+
+/** In place of a value the API marks as fixture-derived: an error, never the value. */
+export function FixtureRefused({ detail, label }: { detail?: string; label?: string }) {
+  return <ErrorValue reason="ERROR" detail={detail ? `${FIXTURE_REFUSED} ${detail}` : FIXTURE_REFUSED} label={label} />;
 }
 
 const MODE_VAR: Record<AccountMode, string> = {
@@ -104,7 +104,7 @@ export type MoneyKind =
   | 'marked';
 
 export interface MoneyProps {
-  /** Exact decimal string from the API. null/undefined renders the `unavailable` text. */
+  /** Exact decimal string from the API. null/undefined renders an em dash with `reason`. */
   amount: string | null | undefined;
   currency: string;
   /** Rendered as a label after the amount when `showKind` is set; always included in the tooltip. */
@@ -112,22 +112,24 @@ export interface MoneyProps {
   showKind?: boolean;
   /** P&L style: explicit "+" for gains, and sign colour as a supplement to the sign. */
   signed?: boolean;
-  /** Text when the amount is not available, e.g. "no quote". */
+  /** Why the amount is not available (machine-readable); default NOT_REPORTED. */
+  reason?: Reason;
+  /** Detail when the amount is not available, e.g. "no quote". */
   unavailable?: string;
 }
 
-export function Money({ amount, currency, kind, showKind, signed, unavailable = 'unavailable' }: MoneyProps) {
+export function Money({ amount, currency, kind, showKind, signed, reason, unavailable }: MoneyProps) {
   if (amount === null || amount === undefined) {
     return (
-      <span className="money muted" title={`${kind ? `${kind}: ` : ''}${unavailable}`}>
-        —<span className="sr-only"> {unavailable}</span>
+      <span className="money">
+        <NoValue reason={reason ?? 'NOT_REPORTED'} detail={unavailable} label={kind} />
       </span>
     );
   }
   if (!isDecimal(amount)) {
     return (
-      <span className="money" title="Value is not a decimal string; shown exactly as received">
-        {amount} <span className="ccy">{currency}</span> <Badge tone="bad">unparsed</Badge>
+      <span className="money">
+        <ErrorValue reason="ERROR" detail={`The API sent "${amount}" ${currency}, which is not a decimal amount.`} label={kind} />
       </span>
     );
   }
@@ -156,11 +158,13 @@ export interface QtyProps {
   value: string | null | undefined;
   /** Optional unit suffix, e.g. "sh". */
   unit?: string;
+  /** Why the quantity is not available; default NOT_REPORTED. */
+  reason?: Reason;
 }
 
-export function Qty({ value, unit }: QtyProps) {
-  if (value === null || value === undefined) return <span className="num muted">—</span>;
-  if (!isDecimal(value)) return <span className="num">{value}</span>;
+export function Qty({ value, unit, reason }: QtyProps) {
+  if (value === null || value === undefined) return <NoValue reason={reason ?? 'NOT_REPORTED'} />;
+  if (!isDecimal(value)) return <ErrorValue reason="ERROR" detail={`The API sent "${value}", which is not a decimal quantity.`} />;
   return (
     <span className="num" title={value}>
       {formatDecimal(value)}
@@ -185,14 +189,16 @@ export interface TimestampProps {
   withMs?: boolean;
   /** All nine fraction digits (needs `nsStr`). */
   withNs?: boolean;
-  /** Text when absent. */
+  /** Text when absent, for a state that is a fact (e.g. "not finished"). */
   never?: string;
+  /** When absent the time is a missing value: an em dash with this reason instead of the `never` text. */
+  reason?: Reason;
 }
 
-export function Timestamp({ ns, nsStr, ms, zone = 'utc', withMs = false, withNs = false, never = 'never' }: TimestampProps) {
+export function Timestamp({ ns, nsStr, ms, zone = 'utc', withMs = false, withNs = false, never = 'never', reason }: TimestampProps) {
   const exact = isNsString(nsStr) ? nsStr : null;
   const at = ms ?? (exact !== null ? nsStringToMs(exact) : ns !== null && ns !== undefined ? nsToMs(ns) : null);
-  if (at === null || at === undefined) return <span className="muted">{never}</span>;
+  if (at === null || at === undefined) return reason ? <NoValue reason={reason} /> : <span className="muted">{never}</span>;
   const other = zone === 'utc' ? 'local' : 'utc';
   return (
     <time className="num" dateTime={isoFromMs(at)} title={exact !== null ? formatTimestampNsExact(exact, other) : formatTimestampMs(at, other, true)}>
@@ -222,7 +228,7 @@ export function Age({ sinceNs, ageMs, observedAtMs, clockOffsetMs = 0, staleAfte
   } else if (sinceNs !== null && sinceNs !== undefined) {
     age = now + clockOffsetMs - nsToMs(sinceNs);
   }
-  if (age === null) return <span className="muted">unknown age</span>;
+  if (age === null) return <NoValue reason="NOT_REPORTED" detail="The age of this value is not known." />;
   const stale = staleAfterMs !== undefined && age > staleAfterMs;
   return (
     <span className={`num${stale ? ' tone-warn' : ''}`} style={stale ? { color: 'var(--warn)' } : undefined}>

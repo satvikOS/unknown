@@ -54,7 +54,6 @@ export function PerformancePanel({ body, formulas }: { body: Rec; formulas: Map<
         <AsOf body={body} />
       </header>
       <div className="panel-body">
-        <FixtureNote body={body} />
         {t.reason ? (
           <div className="callout pf-gap" role="status" style={{ ['--tone' as string]: 'var(--warn)' }}>
             <strong>No time-weighted return.</strong> {t.reason}
@@ -185,7 +184,6 @@ export function PnlPanel({ body, formulas }: { body: Rec; formulas: Map<string, 
         ) : null}
       </header>
       <div className="panel-body">
-        <FixtureNote body={body} />
         <div className="pf-kpis">
           <Kpi k="Total P&L" v={money(totals.pnl)} s="NAV change minus external flows" />
           <Kpi k="Unrealized change" v={money(totals.unrealized_change)} />
@@ -266,6 +264,8 @@ export function PerformanceTab({ bar, scope, setScope, options, formulas }: { ba
       </Toolbar>
       <QueryError what="Performance" error={perfQ.error} />
       <QueryError what="P&L" error={pnlQ.error} />
+      <FixtureNote data={perfQ.data} what="Performance" />
+      <FixtureNote data={pnlQ.data} what="P&L" />
       {perfWhy ? <Unavailable what="Performance" reason={perfWhy} /> : perf ? <PerformancePanel body={perf} formulas={formulas} /> : perfQ.status === 'loading' ? <p className="muted">Loading performance…</p> : null}
       {pnlWhy ? (perfWhy ? null : <Unavailable what="P&L" reason={pnlWhy} />) : pnl ? <PnlPanel body={pnl} formulas={formulas} /> : null}
     </PortfolioFrame>

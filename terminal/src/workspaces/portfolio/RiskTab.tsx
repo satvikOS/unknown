@@ -6,7 +6,7 @@
  */
 import { useState, type ReactNode } from 'react';
 import { DataTable, type Column } from '../../ui/DataTable';
-import { FixtureBadge, Money, StatusPill } from '../../ui/primitives';
+import { FixtureRefused, Money, StatusPill } from '../../ui/primitives';
 import { QueryError } from '../../ui/WorkspaceFrame';
 import { Segmented } from '../operations/parts';
 import { usePluginQuery } from '../plugin-api/hooks';
@@ -29,7 +29,6 @@ function ExposurePanel({ body, formulas }: { body: Rec; formulas: Map<string, Fo
       </header>
       <div className="panel-body">
         <QuoteSnapshotNote body={body} />
-        <FixtureNote body={body} />
         {per.length === 0 ? <p className="muted">No positions in this scope: no exposure.</p> : null}
         {per.map((c) => {
           const ccy = str(c.currency) ?? '';
@@ -126,7 +125,6 @@ function VarPanel({ body, formulas }: { body: Rec; formulas: Map<string, Formula
       </header>
       <div className="panel-body">
         <QuoteSnapshotNote body={body} />
-        <FixtureNote body={body} />
         <div className="callout pf-gap" role="note" style={{ ['--tone' as string]: 'var(--info)' }}>
           {str(body.statement) ?? 'VaR does not represent the worst-case loss'}. Confidence {str(body.alpha) ?? '?'}, horizon {num(body.horizon_days) ?? '?'} day(s), up to{' '}
           {num(body.lookback_scenarios) ?? '?'} scenarios from {num(hist.valuation_dates_visible) ?? 0} visible valuation date(s). Figures are statistical estimates (floats), loss positive.
@@ -192,13 +190,18 @@ function BacktestFixtureNote({ fixtureRuns, hasDays }: { fixtureRuns: boolean | 
     return <p className="pf-hint">The backtest response does not say whether its valuation snapshots used FIXTURE data, and the snapshot list could not be read.</p>;
   }
   return (
-    <div className="pf-note">
-      <FixtureBadge /> <span>Computed from valuation snapshots that include FIXTURE quotes: test data, not market data.</span>
+    <div className="callout pf-gap" role="alert" style={{ ['--tone' as string]: 'var(--alert)' }}>
+      <FixtureRefused label="VaR backtest" detail="Its valuation snapshots include FIXTURE quotes." />{' '}
+      <span>
+        <strong>VaR backtest not shown.</strong> Its valuation snapshots include FIXTURE (test) quotes, which are not real market data.
+      </span>
     </div>
   );
 }
 
 export function BacktestPanel({ body, formulas, fixtureRuns }: { body: Rec; formulas: Map<string, FormulaDef>; fixtureRuns?: boolean | null }) {
+  // Read from snapshots that include FIXTURE quotes: refused, only the error is shown.
+  if (fixtureRuns === true) return <BacktestFixtureNote fixtureRuns hasDays />;
   const ccy = str(body.currency) ?? '';
   const days = backtestDays(body);
   const verdict = kupiecVerdict(body.kupiec);
@@ -219,7 +222,6 @@ export function BacktestPanel({ body, formulas, fixtureRuns }: { body: Rec; form
         </span>
       </header>
       <div className="panel-body">
-        <FixtureNote body={body} />
         <BacktestFixtureNote fixtureRuns={fixtureRuns} hasDays={days.length > 0} />
         {verdict ? (
           <div className="callout pf-gap" role="status" style={{ ['--tone' as string]: `var(--${verdict.tone === 'neutral' ? 'info' : verdict.tone})` }}>
@@ -304,6 +306,9 @@ export function RiskTab({ bar, scope, setScope, options, formulas }: { bar: Reac
       <QueryError what="Exposure" error={expoQ.error} />
       <QueryError what="VaR" error={varQ.error} />
       <QueryError what="VaR backtest" error={btQ.error} />
+      <FixtureNote data={expoQ.data} what="Exposure" />
+      <FixtureNote data={varQ.data} what="VaR" />
+      <FixtureNote data={btQ.data} what="VaR backtest" />
       {expo ? <ExposurePanel body={expo} formulas={formulas} /> : expoQ.status === 'loading' ? <p className="muted">Loading exposure…</p> : null}
       {v ? <VarPanel body={v} formulas={formulas} /> : null}
       {btWhy ? <Unavailable what="VaR backtest" reason={btWhy} /> : bt ? <BacktestPanel body={bt} formulas={formulas} fixtureRuns={fixtureRuns} /> : null}
