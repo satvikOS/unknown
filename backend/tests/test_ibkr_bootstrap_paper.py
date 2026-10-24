@@ -113,3 +113,15 @@ class BootstrapPaperTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BootstrapClientIdTest(unittest.TestCase):
+    def test_the_bootstrap_session_never_reuses_the_core_market_data_client_id(self):
+        # The core runs first (runbook) and holds the configured id; IBKR refuses a second connection with it (326).
+        from unknown.broker.ibkr.bootstrap_paper import BOOTSTRAP_CLIENT_ID, bootstrap_md_config
+        from unknown.broker.ibkr.marketdata import MarketDataConfig
+        core = MarketDataConfig(client_id=18)
+        self.assertEqual(bootstrap_md_config(core, BOOTSTRAP_CLIENT_ID).client_id, 91)
+        self.assertEqual(core.client_id, 18)
+        with self.assertRaises(ValueError):
+            bootstrap_md_config(core, 18)

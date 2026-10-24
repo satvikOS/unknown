@@ -20,6 +20,7 @@ passphrase is checked first (step-up). ``--dry-run`` only resolves and prints wh
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import getpass
 import json
 import secrets
@@ -123,6 +124,18 @@ def bootstrap(client, resolver, *, account: str, deployment: str, universe: list
     return report
 
 
+BOOTSTRAP_CLIENT_ID = 91   # the connectivity check uses 90; the core's market-data session uses its configured id
+
+
+def bootstrap_md_config(md, client_id: int):
+    """The bootstrap's market-data session config: the owner's, with its own client id. The runbook starts the core
+    (whose market-data session holds the configured id) before the bootstrap, so reusing that id is refused by IBKR
+    (error 326, client id already in use)."""
+    if client_id == md.client_id:
+        raise ValueError(f"bootstrap client id {client_id} is the core's market-data session id; choose another")
+    return dataclasses.replace(md, client_id=client_id)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--account", required=True, help="internal account key, e.g. IBKR-PAPER-1")
@@ -133,6 +146,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dry-run", action="store_true", help="resolve and print only; no command is sent")
     ap.add_argument("--home", default=None)
     ap.add_argument("--config", default=None, help="IBKR config (default ~/.unknown/ibkr.json)")
+    ap.add_argument("--client-id", type=int, default=BOOTSTRAP_CLIENT_ID,
+                    help=f"API client id for the bootstrap's own market-data session (default {BOOTSTRAP_CLIENT_ID}); "
+                         "must differ from the running core's market-data session")
     args = ap.parse_args(argv)
     universe = parse_universe(args.universe)
     paths = Paths(Path(args.home).expanduser()) if args.home else Paths.default()
@@ -148,7 +164,8 @@ def main(argv: list[str] | None = None) -> int:
     attest = args.attest_no_other_deployment
     if not attest and not args.dry_run:
         attest = input("Does any OTHER deployment trade this paper account? Type 'no' to attest: ").strip().lower() == "no"
-    session = IbkrMarketDataSession(load_config(args.config), load_market_data_config(paths.root))
+    md = bootstrap_md_config(load_market_data_config(paths.root), args.client_id)
+    session = IbkrMarketDataSession(load_config(args.config), md)
     state = session.connect()
     if not state.get("verified_paper"):
         print(f"market-data connection not verified: {state.get('reason')}", file=sys.stderr)
