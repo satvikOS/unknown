@@ -30,6 +30,36 @@ Only the owner can do the actions below. Each step names the command and the doc
 8. Open the terminal and review preflight. Press **green start** only when every blocker is clear.
 9. Work through the evidence checklist in `docs/integrations/ibkr.md` section 5. A capability moves to `paper-verified` only when its item passes. Item 4 now matters more: the core holds an IBKR **Inactive** order as UNKNOWN with its reservation (a held buy is canceled automatically). Record which real sequences produce Inactive.
 
+## 1a. Run the platform against IBKR paper (real data only, ADR-0020)
+
+The platform has no demo, sample or generated data. Until a real source is configured every value shows an em dash
+with a reason (`NO_SOURCE`, `NOT_CONNECTED`, ...; `docs/design/unavailable-values.md`). The simulated core
+(`python -m unknown.service.core`) has no quote source, so its simulated orders never fill and its health says
+`NO_SOURCE`. To see real data and real streams, run all three processes against the IBKR paper account (IB Gateway
+logged in by you on port 4002, `~/.unknown/ibkr.json` and `~/.unknown/config/ibkr_marketdata.json` written as in
+`docs/integrations/ibkr.md` and `docs/integrations/ibkr-marketdata.md`):
+
+```bash
+cd backend
+PY=~/.unknown/venvs/ibkr/bin/python                       # the IBKR adapter needs the venv with ibapi
+# 1. Core with the IBKR PAPER adapter; its read-only market-data session publishes real quotes into the core.
+PYTHONPATH=src $PY -m unknown.broker.ibkr.serve --account IBKR-PAPER-1 --deployment mac-dev &
+# 2. Bootstrap: resolve the universe first without sending anything, then for real.
+PYTHONPATH=src $PY -m unknown.broker.ibkr.bootstrap_paper --account IBKR-PAPER-1 --deployment mac-dev --universe AAPL:NASDAQ,MSFT:NASDAQ --dry-run
+PYTHONPATH=src $PY -m unknown.broker.ibkr.bootstrap_paper --account IBKR-PAPER-1 --deployment mac-dev --universe AAPL:NASDAQ,MSFT:NASDAQ
+# 3. Live stream for the terminal: give the API's market-data bus the IBKR source, with its own client id
+#    (different from the order adapter's and from the core's market-data session) and its share of your lines.
+cat > ~/.unknown/config/marketdata.json <<'EOF'
+{"sources": {"IBKR": {"enabled": true, "client_id": 19, "lines": 40}},
+ "routes": [{"match": "*", "sources": ["IBKR"]}]}
+EOF
+# 4. API (same interpreter, because the bus imports the IBKR source), then open http://127.0.0.1:8765.
+PYTHONPATH=src $PY -m unknown.api.server --account IBKR-PAPER-1 --port 8765 &
+```
+
+The stream labels each quote with the type IBKR delivered (REALTIME only after IBKR reports live data; DELAYED until
+market-data sharing from step 3 is in effect). `GET /api/marketdata/sources` shows the configured sources and lines.
+
 ## 2. Terminal on this Mac
 
 ```bash

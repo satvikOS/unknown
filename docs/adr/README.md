@@ -27,3 +27,4 @@ Evidence classes follow the book's reading guide: verified external fact (linked
 | [0017](0017-strategy-artifacts-promotion-and-runtime.md) | Strategy artifacts, promotion gate and strategy runtime | proposed |
 | [0018](0018-market-data-bus.md) | Broker-agnostic live market-data bus | proposed |
 | [0019](0019-live-news-and-filings.md) | Live news and filings: poller process, news store and SSE delivery | proposed |
+| [0020](0020-real-data-only.md) | Real data only; unavailable values are an em dash with a reason | accepted (owner rule) |

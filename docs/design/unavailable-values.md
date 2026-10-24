@@ -37,11 +37,20 @@ missing values.
 
 ## What the API does today
 
-* Positions: `mark`, `market_value` and `unrealized` are `null` with `mark_reason` (`NO_SOURCE`, `STALE`) when no
-  usable quote exists.
+* Positions (`GET /api/positions`): `mark`, `market_value` and `unrealized` are `null` with `mark_reason`
+  (`NOT_CONNECTED` when the core's quote book cannot be read, `NO_DATA` when no quote with a bid has arrived).
+* Quotes (`GET /api/quotes`): an unreachable core is HTTP 503 with `reason: NOT_CONNECTED`, never an empty book.
 * Market data (`/api/marketdata/*`): `available: false` responses carry `reason`; bars, series, gaps and contracts
-  never serve FIXTURE rows (there is no `include_fixture` option).
-* Live bus: without `config/marketdata.json` there is no source; every key is `NO_SOURCE`.
-* Charts: without a configured bar source the response is `null` bars with `reason: NO_SOURCE`.
+  never serve FIXTURE rows (there is no `include_fixture` option); quote analytics without a quote carry
+  `analytics_reason`.
+* Live bus: without `config/marketdata.json` there is no source; every key's status is `UNAVAILABLE` with
+  `code: NO_SOURCE`. Status events carry `code` (`docs/design/marketdata-stream-contract.md`).
+* Charts: without a configured bar source that covers the security there are no bars and `reason: NO_SOURCE`; every
+  source failing is `ERROR`; an empty range is `NO_DATA`.
+* Research: a missing registry is `reason: NO_DATA`; FIXTURE-flagged rows are never served.
+* Performance statistics: an unconfigured risk-free rate is `risk_free.annual: null` with `reason: NO_SOURCE`.
 * Simulated execution: without a configured real quote source nothing fills and the core's health reports
   `sim_execution.reason = NO_SOURCE`.
+
+Not yet swept field by field: the remaining analytics outputs (holdings, exposure, VaR, stress, allocation) keep
+their existing `status`/`missing_reason` fields; mapping them to `<field>_reason` is follow-up work (ADR-0020).

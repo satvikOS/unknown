@@ -256,10 +256,13 @@ The shadow envelope (ADR-0017 #2, book ch. 20 "automatic promotion only for arti
 
 Tests: `test_research_shadow` (9).
 
-## Fixture study and report
+## Fixture study and report (test-only since ADR-0020)
+
+The study runs on generated series, so it is no longer product code: it lives in `backend/tests/support/research_study.py`
+and runs from the test tree. Its report below is evidence about the research machinery, not about any market.
 
 ```bash
-cd backend && PYTHONPATH=src python3 -m unknown.research.study --out ../docs/research/reports --study-id FS-20261022-R2
+cd backend/tests && PYTHONPATH=../src python3 -m support.research_study --out ../../docs/research/reports --study-id FS-20261022-R2
 ```
 
 The command writes the report to the registry and to `docs/research/reports/FS-20261022-R2-report.json`. The registry is `~/.unknown/research/experiments.sqlite` unless `--registry` says otherwise. Each kind uses 750 sessions, 2 instruments, development 70% / holdout 30%, a 6-point grid (fast 5/10/20 × slow 40/80), the spec's purge of 2 sessions, and protocol `FIXTURE_PROTOCOL`. The protocol was approved by a *fixture* owner principal; it is an illustration, not an owner decision. The run takes about 25 s.

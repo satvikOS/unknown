@@ -13,16 +13,18 @@ in-memory `QuoteBook` for valuation and pre-trade checks; that path is authorita
 ## Decision
 
 1. **Sources are adapters behind one interface** (`backend/src/unknown/marketdata/source.py`). A source declares its
-   capabilities (quotes, trades, depth, tick-by-tick, delayed), its data type (REALTIME, DELAYED, FROZEN, SYNTHETIC; a
+   capabilities (quotes, trades, depth, tick-by-tick, delayed), its data type (REALTIME, DELAYED, FROZEN; a
    source can also label each event, as IBKR does with the type it delivered) and its line budget. Adapters live with
    their provider (`broker/ibkr/mdsource.py`, `broker/alpaca/stream.py`) and are loaded by dotted factory path only
    when enabled, so the bus never imports a broker package.
 2. **A source is chosen per key by configuration** (`<UNKNOWN_HOME>/config/marketdata.json`, outside git): ordered
    routes of key patterns to source lists. A key refused by a source (line budget, entitlement, coverage) falls back to
    the next; an entitlement error after subscribing fails the key over the same way. Every event carries `source`.
-3. **SYNTHETIC** is deterministic and labelled. It is the only source when no configuration exists (development and
+3. ~~**SYNTHETIC** is deterministic and labelled. It is the only source when no configuration exists (development and
    the demo) and the configuration loader refuses it alongside any real source, so it is never used when a real
-   source is configured.
+   source is configured.~~ **Superseded by ADR-0020 (2026-10-23):** there is no SYNTHETIC source. Without a
+   configuration there is no source and every key is `UNAVAILABLE` with code `NO_SOURCE`; tests inject a `TEST` double
+   in code.
 4. **The bus runs inside the API process**, on its own threads, created on first use. Reasons: the stream is an
    owner-session route like every other (no second authentication surface or proxy hop); the measured cost is small
    (500 keys at 4 Hz: bus-to-client p99 about 2 ms on the development machine, `tests/test_marketdata_perf.py`); and a
@@ -49,6 +51,7 @@ in-memory `QuoteBook` for valuation and pre-trade checks; that path is authorita
 - Adding a provider is one adapter plus a factory entry; the terminal shows it by `source` and `data_type` without
   code changes.
 - Two IBKR sessions (core marks, bus) consume lines from one allocation; the owner's configuration must split them.
-- The monitor can show SYNTHETIC data in the demo, always labelled; a configured real source disables it entirely.
+- ~~The monitor can show SYNTHETIC data in the demo, always labelled.~~ Superseded by ADR-0020: the monitor shows only
+  real data; without a source each row is an em dash with `NO_SOURCE`.
 - Not decided here: consolidated-tape licensing (CAP-MKT-02), historical tick backfill (CAP-MKT-03 reqHistoricalTicks),
   per-row polling for keys beyond the line budget (CAP-MKT-08 acceptance criterion).
