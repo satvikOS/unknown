@@ -66,6 +66,7 @@ from .envelope import EnvelopeError, JobEnvelope
 from .gate import DataUseGate, GateError, load_provider_policies
 from .jobstore import MAX_START_ATTEMPTS, JobStore, StateConflict, default_jobs_path, store_state_for
 from .pit_evidence import EMPTY, Evidence, EvidenceError, EvidenceSelection, derive, manifest_matches, task_names_instruments
+from .processes.scheduler import ProcessScheduler
 from .prompts import agent_principal_id, proposal_command_id
 from .providers.anthropic import AnthropicAdapter
 from .providers.base import CircuitBreaker, ProviderAdapter, RetryPolicy, SendRefused
@@ -156,6 +157,8 @@ class Worker:
         self._lock_fd: int | None = None
         self._delivery_errors: dict[str, str] = {}
         self._unfinished: dict[str, _Outcome] = {}
+        # AI processes (agents/processes): briefs, summaries, explainers and the approval queue, stepped after research jobs.
+        self.processes = ProcessScheduler(self)
 
     # ------------------------------------------------------------------ lifecycle
     def start(self) -> list[dict]:
@@ -169,10 +172,11 @@ class Worker:
             os.close(fd)
             raise WorkerError(f"another model worker holds {lock}; one worker runs per UNKNOWN_HOME") from None
         self._lock_fd = fd
-        return self.recover()
+        actions = self.recover()
+        return actions + self.processes.recover()
 
     def close(self) -> None:
-        for closer in (self.jobs.close, self.audit.close, self._ledger.close if self._ledger else None):
+        for closer in (self.jobs.close, self.audit.close, self.processes.close, self._ledger.close if self._ledger else None):
             if closer is not None:
                 try:
                     closer()
@@ -302,10 +306,18 @@ class Worker:
         else:
             job = self.jobs.claim_next(self.worker_id, max_global=1, max_per_role=None)
         if job is None:
-            return worked
+            return self._process_step() or worked
         self._run_claimed(job, policy, problem)
         self._deliver_due()
         return True
+
+    def _process_step(self) -> bool:
+        """At most one AI process run (agents/processes) when no research job was claimed; never raises."""
+        try:
+            return self.processes.step()
+        except Exception:
+            log.exception("AI process step failed; retrying next cycle")
+            return False
 
     def _run_claimed(self, job: dict, policy: OwnerPolicy | None, problem: str | None) -> None:
         jid = job["job_id"]
@@ -670,6 +682,9 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--once", action="store_true", help="exit when no job is queued and no delivery is due")
     ap.add_argument("--check", action="store_true", help="print what a live job needs on this machine, then exit (no network)")
     ap.add_argument("--worker-id", default=None)
+    ap.add_argument("--run-brief", action="store_true",
+                    help="queue one on-demand morning brief (last 24 hours) before running; needs brief.enabled in "
+                         "ai_processes.json")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     paths = Paths(Path(args.home).expanduser()) if args.home else Paths.default()
@@ -687,6 +702,9 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(2) from None
     for ok, text in worker.readiness():
         (log.info if ok else log.warning)("readiness: %s", text)
+    if args.run_brief:
+        run = worker.processes.request_brief(requested_by="owner-cli")
+        log.info("queued on-demand morning brief %s", run["run_id"])
     stop = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     signal.signal(signal.SIGINT, lambda *_: stop.set())
