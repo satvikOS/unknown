@@ -2,8 +2,7 @@
 
 One SQLite file at ``<UNKNOWN_HOME>/marketdata/ticks.sqlite`` (never the core's event-sourced database). Trades are
 appended by a writer thread in batches; retention is bounded by age (``retention_s``) and by rows per key
-(``max_rows_per_key``), pruned every ``prune_every_s``. Every row keeps its source and data type, so SYNTHETIC prints
-stay labelled in history too. Rows are display data for the owner; the provider's storage terms apply (see
+(``max_rows_per_key``), pruned every ``prune_every_s``. Every row keeps its source and data type. Rows are display data for the owner; the provider's storage terms apply (see
 config/providers).
 """
 from __future__ import annotations

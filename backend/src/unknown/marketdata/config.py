@@ -11,8 +11,8 @@ the fallback order::
 The first route whose ``match`` (fnmatch) fits the key wins; its sources are tried in order, so a key refused by the
 first (not entitled, line budget, coverage) falls back to the next. Every event names the source that served it.
 
-Without the file, the only source is SYNTHETIC (development and the demo). SYNTHETIC is refused in a configuration
-that enables any real source, so generated data is never used when a real source is configured.
+Without the file there is no source: every key is unavailable with reason ``NO_SOURCE`` (ADR-0020). There is no
+generated, sample or demo source in product code; tests inject their TEST double programmatically.
 
 Adapters are referenced by dotted factory path (``module:function``) and imported only when enabled, so this package
 never imports a broker package (tests/test_ibkr_adapter.py enforces that for IBKR).
@@ -31,9 +31,9 @@ from .source import MarketDataSource, UnavailableSource
 log = logging.getLogger("unknown.marketdata")
 
 LOCAL_CONFIG_NAME = "marketdata.json"
-SYNTHETIC = "SYNTHETIC"
+# Source ids product configuration may never name: generated data is not a source (ADR-0020).
+REFUSED_IDS = frozenset({"SYNTHETIC", "TEST", "FIXTURE", "DEMO", "MOCK", "FAKE", "SAMPLE"})
 FACTORIES = {
-    "SYNTHETIC": "unknown.marketdata.synthetic_factory:build",
     "IBKR": "unknown.broker.ibkr.mdsource:build",
     "ALPACA": "unknown.broker.alpaca.stream:build",
 }
@@ -53,13 +53,13 @@ class Route:
 class BusConfig:
     sources: dict = field(default_factory=dict)     # source id -> options dict (enabled ones only)
     routes: tuple[Route, ...] = ()
-    origin: str = "default"                         # "default" (no local file) or the file path
+    origin: str = "none"                            # "none" (no local file) or the file path
     trade_buffer: int = 8192                        # per-client queued events before trades overflow
     coalesce_ms: int = 50
 
     @property
     def real_sources(self) -> list[str]:
-        return [s for s in self.sources if s != SYNTHETIC]
+        return list(self.sources)
 
     def sources_for(self, key: str) -> tuple[str, ...]:
         for route in self.routes:
@@ -68,7 +68,7 @@ class BusConfig:
         return ()
 
 
-DEFAULT = {"sources": {SYNTHETIC: {"enabled": True, "hz": 4}}, "routes": [{"match": "*", "sources": [SYNTHETIC]}]}
+NO_SOURCE_ORIGIN = "none: no config/marketdata.json, so no market-data source (NO_SOURCE)"
 
 
 def config_from_dict(data: dict, origin: str = "dict") -> BusConfig:
@@ -83,13 +83,13 @@ def config_from_dict(data: dict, origin: str = "dict") -> BusConfig:
             raise MarketDataConfigError(f"source id {sid!r} must be upper-case letters, digits or '_'")
         if not isinstance(opts, dict):
             raise MarketDataConfigError(f"{sid}: options must be an object")
+        if sid in REFUSED_IDS:
+            raise MarketDataConfigError(f"{sid}: not a market-data source; the platform shows only real data "
+                                        "(ADR-0020)")
         if opts.get("enabled", True):
             if sid not in FACTORIES and "factory" not in opts:
                 raise MarketDataConfigError(f"{sid}: unknown source; give a 'factory' (module:function)")
             sources[sid] = dict(opts)
-    if SYNTHETIC in sources and len(sources) > 1:
-        raise MarketDataConfigError("SYNTHETIC cannot be enabled together with a real source: generated data is never "
-                                    "used when a real source is configured")
     routes = []
     for i, r in enumerate(data.get("routes") or [{"match": "*", "sources": list(sources)}]):
         if not isinstance(r, dict) or not isinstance(r.get("match"), str) or not isinstance(r.get("sources"), list):
@@ -109,7 +109,7 @@ def load_config(home: Path) -> BusConfig:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return config_from_dict(DEFAULT, "default: no config/marketdata.json, SYNTHETIC only")
+        return BusConfig({}, (), NO_SOURCE_ORIGIN)
     except json.JSONDecodeError as exc:
         raise MarketDataConfigError(f"{path} is not valid JSON: {exc}") from None
     return config_from_dict(data, str(path))

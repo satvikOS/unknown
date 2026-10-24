@@ -17,12 +17,12 @@ as strings when they exceed 2^53.
 - `quote`: `{"key", "seq", "bid", "ask", "bid_size", "ask_size", "last", "last_size", "volume", "open", "high",
   "low", "prev_close", "currency", "source", "data_type", "ts_source_ns", "ts_recv_ns", "ts_pub_ns"}`
   - Fields the source did not send are `null`, never zero.
-  - `source` is the provider id (`IBKR`, `SYNTHETIC`, ...).
-  - `data_type` is `REALTIME`, `DELAYED`, `FROZEN` or `SYNTHETIC`. A SYNTHETIC quote is never shown without its
-    label.
+  - `source` is the provider id (`IBKR`, `ALPACA`, ...). There is no generated source (ADR-0020); test doubles use
+    `TEST` and exist only under backend/tests.
+  - `data_type` is `REALTIME`, `DELAYED` or `FROZEN`.
   - Quotes are coalesced per key: at most one event per key every 50 ms, always the latest state.
   - Additive fields (2026-10-23, ADR-0018): `feed` names the provider feed and its consolidation (e.g. `alpaca:iex`
-    single venue, `alpaca:sip` consolidated, `ibkr:live`, `synthetic`); `size_unit` is `shares`, `round_lots` or
+    single venue, `alpaca:sip` consolidated, `ibkr:live`); `size_unit` is `shares`, `round_lots` or
     `null` when the source does not state it. Clients ignore fields they do not know.
 - `trade`: `{"key", "seq", "price", "size", "exchange", "conditions", "ts_source_ns", "ts_recv_ns", "ts_pub_ns",
   "source", "data_type"}` (plus the additive `feed`). Trades are never coalesced and never silently dropped: when a
@@ -30,8 +30,10 @@ as strings when they exceed 2^53.
   the trades remain in the tick store (`GET /api/marketdata/trades?key=&before_ns=&limit=`, newest first).
 - `depth`: `{"key", "seq", "side", "levels": [{"price", "size", "mm"}], "source", "data_type", "ts_recv_ns"}`.
   Each event is a full snapshot of that side, not a delta.
-- `status`: `{"key", "state", "reason"}`. `state` is one of `SUBSCRIBED`, `UNAVAILABLE`, `NOT_ENTITLED`,
-  `LINE_BUDGET`, `STALE` or `ENDED`.
+- `status`: `{"key", "state", "reason", "code"}`. `state` is one of `SUBSCRIBED`, `UNAVAILABLE`, `NOT_ENTITLED`,
+  `LINE_BUDGET`, `STALE` or `ENDED`. `code` (additive, 2026-10-23, ADR-0020) is the unavailable-reason code
+  (docs/design/unavailable-values.md: `NO_SOURCE`, `NOT_ENTITLED`, `STALE`, `PENDING`, ...) or `null` for a
+  subscription that is delivering. Without `config/marketdata.json` every key is `UNAVAILABLE` / `NO_SOURCE`.
 - `heartbeat`: `{"ts_pub_ns"}`, sent every 5 s.
 
 `seq` increases per key and per event type. A gap means the client must re-read the snapshot from

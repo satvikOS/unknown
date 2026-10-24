@@ -1,4 +1,4 @@
-"""Performance: 500 keys at 4 Hz SYNTHETIC through the bus and the real API server to an SSE client on localhost.
+"""Performance: 500 keys at 4 Hz from the TEST feed double through the bus and the real API server to an SSE client on localhost.
 
 The client runs in a separate process (its own interpreter, so its JSON parsing does not share the server's GIL) and
 measures bus-to-client latency = client receipt time - ts_pub_ns for every quote and trade.
@@ -25,7 +25,7 @@ from unknown.api.server import ApiContext, make_server
 from unknown.marketdata import config as C
 from unknown.marketdata.bus import MarketDataBus
 from unknown.marketdata.store import TickStore
-from unknown.marketdata.synthetic import SyntheticSource
+from support.fake_marketdata import FeedDouble, bus_config
 from unknown.service.paths import Paths
 
 PASSPHRASE = "market data perf test passphrase"
@@ -79,8 +79,8 @@ class StreamPerformanceTest(unittest.TestCase):
             paths.token("api", create=True)
             write_owner_record(paths.secrets / "owner.json", PASSPHRASE)
             ctx = ApiContext(paths, "SIM-PERF", None, None, False)
-            cfg = C.config_from_dict(C.DEFAULT, "perf")
-            ctx.marketdata = MarketDataBus(cfg, {"SYNTHETIC": SyntheticSource(hz=HZ, currency_for=C.currency_for)},
+            cfg = bus_config(hz=HZ)
+            ctx.marketdata = MarketDataBus(cfg, {"TEST": FeedDouble(hz=HZ, currency_for=C.currency_for)},
                                            store=TickStore(Path(tmp) / "ticks.sqlite"))
             ctx.marketdata.start()
             server = make_server(ctx, "127.0.0.1", 0)
@@ -100,7 +100,7 @@ class StreamPerformanceTest(unittest.TestCase):
                 self.assertEqual(out.returncode, 0, out.stderr[-2000:])
                 res = json.loads(out.stdout)
                 server_side = ctx.marketdata.latency.report()
-                print(f"\n[marketdata perf] {KEYS} keys x {HZ:g} Hz SYNTHETIC, {MEASURE_S:g}s measured: "
+                print(f"\n[marketdata perf] {KEYS} keys x {HZ:g} Hz TEST feed, {MEASURE_S:g}s measured: "
                       f"bus->client p50 {res['p50'] / 1e6:.2f} ms, p99 {res['p99'] / 1e6:.2f} ms, "
                       f"max {res['max'] / 1e6:.2f} ms over {res['n']} events; events {res['counts']}; "
                       f"server recv->pub p99 {server_side['recv_to_pub']['p99_ns'] / 1e6:.2f} ms; "

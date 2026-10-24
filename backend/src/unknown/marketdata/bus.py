@@ -386,7 +386,7 @@ class MarketDataBus:
                     client.keys.discard(key)
             refusals.append(out if out.reason.startswith(sid) else Outcome(False, out.state, f"{sid}: {out.reason}"))
         if not refusals:
-            refusals.append(Outcome(False, "UNAVAILABLE", "no configured source serves this key "
+            refusals.append(Outcome(False, "UNAVAILABLE", "NO_SOURCE: no configured source serves this key "
                                                           "(<UNKNOWN_HOME>/config/marketdata.json routes)"))
         states = [r.state for r in refusals]
         state = "LINE_BUDGET" if "LINE_BUDGET" in states else refusals[0].state
@@ -456,8 +456,8 @@ class MarketDataBus:
                 elif st is not None:
                     status.append(st.status or status_event(key, "SUBSCRIBED", f"{st.reason}; no data yet"))
                 else:
-                    status.append(status_event(key, "UNAVAILABLE", "not streaming: open /api/marketdata/stream with "
-                                                                   "this key first"))
+                    status.append(status_event(key, "UNAVAILABLE", "PENDING: not streaming: open /api/marketdata/stream "
+                                                                   "with this key first"))
         return {"quotes": quotes, "status": status, "ts_pub_ns": ns(self._time_ns())}
 
     def describe(self) -> dict:
