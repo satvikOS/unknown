@@ -1,0 +1,27 @@
+/* Export control (ui/ExportButton.tsx): a disclosure with three format actions and a polite status line. */
+.xp {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  position: relative;
+}
+
+.xp-menu {
+  display: inline-flex;
+  gap: 4px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.xp-status {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  max-width: 48ch;
+}
+
+.xp-status:empty {
+  display: none;
+}
