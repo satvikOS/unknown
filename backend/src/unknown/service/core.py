@@ -117,7 +117,7 @@ def _increases_exposure(req: dict) -> bool:
 
 class CoreService:
     def __init__(self, *, paths: Paths, account_key: str, deployment_id: str, broker: BrokerPort,
-                 clock: Clock | None = None, intervals: Intervals | None = None, fixture_market=None,
+                 clock: Clock | None = None, intervals: Intervals | None = None, sim_execution=None,
                  quotes: QuoteBook | None = None):
         self.paths = paths
         self.quotes = quotes   # a market-data adapter publishing into the desk's book (None: the desk makes one)
@@ -126,7 +126,8 @@ class CoreService:
         self.broker = broker
         self.clock = clock or SystemClock()
         self.intervals = intervals or Intervals()
-        self.fixture_market = fixture_market
+        # Simulated broker only: fills priced from the configured real quote source, or nothing (ADR-0020).
+        self.sim_execution = sim_execution
         self.requests: queue.Queue[tuple[dict, frozenset[str], Future]] = queue.Queue(maxsize=1000)
         self.stop_event = threading.Event()
         self.desk: Desk | None = None
@@ -424,7 +425,8 @@ class CoreService:
                         "detail": h.detail, "now_ns": self.clock.now_ns(), "cycle_errors": self.cycle_errors,
                         "provider": self.broker_provider(), "account_mode": h.broker_account_mode,
                         "memory_latch": self.memory_latch.view() if self.memory_latch is not None else None,
-                        "event_journal": self.journal.status() if self.journal is not None else None}
+                        "event_journal": self.journal.status() if self.journal is not None else None,
+                        "sim_execution": self.sim_execution.status() if self.sim_execution is not None else None}
             if name == "preflight":
                 if "OWNER" not in roles:
                     raise PermissionError("preflight dry run requires the owner token")
@@ -643,8 +645,8 @@ class CoreService:
     def run(self) -> None:
         self.desk = self.open_desk()
         self._load_latch_file()   # a stop an earlier process latched in memory but never recorded (BR-SES-13)
-        if self.fixture_market is not None:
-            self.fixture_market.quotes = self.desk.quotes
+        if self.sim_execution is not None:
+            self.sim_execution.quotes = self.desk.quotes
         # Every broker event is journaled before it is applied; the reconciler's runner uses the same journal.
         self._open_journal()
         tokens = {self.paths.token(name, create=True): roles for name, roles in SOCKET_ROLES.items()}
@@ -668,8 +670,8 @@ class CoreService:
                 registered = bool(self.desk.store.query("SELECT 1 FROM accounts WHERE account_key=?", (self.account_key,)))
                 if registered:
                     self._sync_connectivity()
-                    if self.fixture_market is not None:
-                        self.fixture_market.step()
+                    if self.sim_execution is not None:
+                        self.sim_execution.step()
                     runner.pump()
                     now = time.monotonic()
                     ctl = json.loads(self.desk.store.query("SELECT row FROM control WHERE account_key=?", (self.account_key,))[0]["row"])
@@ -751,7 +753,6 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--broker", choices=["simulated"], default="simulated",
                     help="this entry point runs the simulator; the IBKR PAPER service is "
                          "'python -m unknown.broker.ibkr.serve' (the core never imports the GPL adapter, ADR-0014)")
-    ap.add_argument("--fixture-market", action="store_true", help="run the deterministic FIXTURE market (simulated broker only)")
     ap.add_argument("--sim-cash", default="300.00")
     ap.add_argument("--home", default=None, help="runtime root (default ~/.unknown or $UNKNOWN_HOME)")
     add_journal_retention_argument(ap)
@@ -760,17 +761,11 @@ def main(argv: list[str] | None = None) -> None:
     paths = Paths(Path(args.home).expanduser()) if args.home else Paths.default()
     clock = SystemClock()
     broker = _simulated_broker(clock, args.sim_cash)
-    market = None
-    if args.fixture_market:
-        from ..domain.fixed import Fixed
-        from ..market.quotes import QuoteBook
-        from .fixture_market import FixtureInstrument, FixtureMarket
-        market = FixtureMarket(clock, broker, QuoteBook(), [
-            FixtureInstrument("FIX-EQ-1", Fixed.parse("10.00"), Fixed.parse("0.02"), Fixed.parse("0.01")),
-            FixtureInstrument("FIX-EQ-2", Fixed.parse("42.00"), Fixed.parse("0.04"), Fixed.parse("0.01")),
-        ])
+    # This entry point has no quote source: the simulator fills nothing and says why (NO_SOURCE, ADR-0020). Paper
+    # trading priced by real quotes is the IBKR PAPER service (docs/status/OWNER_NEXT_STEPS.md).
+    from .sim_execution import SimulatedExecution
     svc = CoreService(paths=paths, account_key=args.account, deployment_id=args.deployment, broker=broker, clock=clock,
-                      fixture_market=market, intervals=journal_intervals(args))
+                      sim_execution=SimulatedExecution(broker, clock, source=None), intervals=journal_intervals(args))
     serve(svc)
 
 

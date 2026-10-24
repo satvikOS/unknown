@@ -35,7 +35,6 @@ from unknown.domain.fixed import Fixed, Rounding  # noqa: E402
 from unknown.domain.ids import validate_id  # noqa: E402
 from unknown.domain.instruments import AssetClass, Instrument, TickRule  # noqa: E402
 from unknown.domain.principal import ARTIFACT_ID, Principal, Role  # noqa: E402
-from unknown.market.quotes import QuoteBook  # noqa: E402
 from unknown.research.bars import DatasetView, record_bars  # noqa: E402
 from unknown.research.engine import BacktestConfig, Sizing, run_backtest  # noqa: E402
 from unknown.research.fixtures import fixture_instrument, manual_bar, synthetic_bars  # noqa: E402
@@ -46,7 +45,7 @@ from unknown.research.spec import parse_spec  # noqa: E402
 from unknown.research.strategies import TrendDailyV1, trend_spec  # noqa: E402
 from unknown.research.study import FIXTURE_PROTOCOL  # noqa: E402
 from unknown.service.core import CoreService, Intervals, _simulated_broker  # noqa: E402
-from unknown.service.fixture_market import FixtureInstrument, FixtureMarket  # noqa: E402
+from support.fake_market import TestFeedExecution, e2e_instruments  # noqa: E402  (TEST quote feed double)
 from unknown.service.ipc import CoreClient  # noqa: E402
 from unknown.service.paths import Paths  # noqa: E402
 from unknown.store.db import Tx, connect  # noqa: E402
@@ -622,12 +621,11 @@ class RealCoreCase(unittest.TestCase):
     def start_core(self) -> None:
         clock = SystemClock()
         broker = _simulated_broker(clock, "300.00")
-        market = FixtureMarket(clock, broker, QuoteBook(), [
-            FixtureInstrument("FIX-EQ-1", Fixed.parse("10.00"), Fixed.parse("0.02"), Fixed.parse("0.01")),
-            FixtureInstrument("FIX-EQ-2", Fixed.parse("42.00"), Fixed.parse("0.04"), Fixed.parse("0.01"))], step_bps=0)
+        market = TestFeedExecution(clock, broker, e2e_instruments())
+        market.feed.step_bps = 0
         self.svc = CoreService(paths=self.paths, account_key=ACCOUNT, deployment_id="test", broker=broker, clock=clock,
                                intervals=Intervals(loop_s=0.05, valuation_s=0.5, reconcile_s=2.0, reconcile_retry_s=0.2,
-                                                   heartbeat_s=1.0), fixture_market=market)
+                                                   heartbeat_s=1.0), sim_execution=market)
         self.thread = threading.Thread(target=self.svc.run, daemon=True)
         self.thread.start()
         self.assertTrue(self.svc.ready.wait(30), "core did not start")
