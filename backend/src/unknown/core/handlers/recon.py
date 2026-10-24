@@ -225,8 +225,11 @@ def reconciliation_result(ctx: Context, p: dict) -> dict:
             resolved.append({**case, "status": "RESOLVED", "resolution": {"by": ctx.principal.id, "at_ns": ctx.now_ns,
                                                                            "note": f"clean reconciliation {run_id}"}})
     seq_at_completion = ctx.tx.one("SELECT MAX(seq) AS s FROM events")["s"] or 0
+    # A broker settled figure the adapter DERIVED (ADR-0012 amendment 2026-10-24) is named on the run's event.
+    settled_sources = {c["currency"]: c["settled_source"] for c in snap["cash"] if c.get("settled_source")}
     ctx.emit("ReconciliationCompleted", {"run_id": run_id, "status": status, "differences": differences,
-                                         "settlements_confirmed": [r["settlement_id"] for r in settled_rows]},
+                                         "settlements_confirmed": [r["settlement_id"] for r in settled_rows],
+                                         **({"settled_sources": settled_sources} if settled_sources else {})},
              {"reconciliations": [_run_row(ctx, key, run_id, status, differences, settled_rows, p, seq_at_start,
                                            sorted(broker_open), seq_at_completion)],
               "exceptions": exceptions + resolved, "control": [new_ctl]}, account_key=key)

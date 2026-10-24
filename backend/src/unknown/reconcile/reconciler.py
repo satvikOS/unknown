@@ -100,7 +100,9 @@ class Reconciler:
             payload = {
                 "account_key": key, "run_id": run_id, "executions_complete": executions_complete, "watermark": watermark,
                 "snapshot": {"as_of_ns": snapshot.as_of_ns, "complete": snapshot.complete, "server_time_ns": snapshot.server_time_ns,
-                             "cash": [{"currency": c.currency, "settled": c.settled.to_str(), "total": c.total.to_str()} for c in snapshot.cash],
+                             "cash": [{"currency": c.currency, "settled": c.settled.to_str(), "total": c.total.to_str(),
+                                       **({"settled_source": c.settled_source} if c.settled_source else {})}
+                                      for c in snapshot.cash],
                              "positions": [{"instrument_id": p.instrument_id, "provider_ref": p.provider_ref,
                                             "quantity": p.quantity.to_str(),
                                             "average_cost": p.average_cost.to_str() if p.average_cost is not None else None,

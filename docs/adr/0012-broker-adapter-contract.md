@@ -46,3 +46,24 @@ Implemented on `impl/foundation` at 8b98d00 (book-review findings BR-ORD-20, BR-
 What the journal does not cover: an event the adapter had received but the gateway had not yet appended when the process died. Such an event is recovered only by reconciliation (executions inside the broker's history window, statuses through the open-order list and lookups).
 
 **`INACTIVE` is not a terminal broker status.** `TERMINAL_BROKER_STATUSES` no longer includes it. The core holds such an order as `UNKNOWN` with its reservations (ADR-0009 amendment).
+
+## Amendment (2026-10-24): settled cash derived from TotalCashValue only with broker evidence
+
+Raised by a read-only probe of the owner's IBKR paper account on 2026-10-24: `reqAccountSummary("All", "AccountType,NetLiquidation,TotalCashValue,SettledCash,AvailableFunds")` returned `AccountType=INDIVIDUAL` and USD `TotalCashValue`, `NetLiquidation` and `AvailableFunds`, but no `SettledCash` row at all. Every snapshot was therefore incomplete, every reconciliation was `ReconciliationIncomplete`, and preflight could never pass.
+
+**Decision.** `CashBalance.settled` stays broker-confirmed settled cash. When the broker sends no settled-cash row for a currency but does send its total cash, the IBKR adapter may report settled = TotalCashValue for that currency only if broker evidence shows no unsettled activity:
+
+1. `reqExecutions` with `ExecutionFilter(acctCode=<account>, lastNDays=7)` ends with `execDetailsEnd` and returns no execution. The paper policy settles US equities T+1 on `XNYS`, so the window must cover the previous business day and today. No exchange-holiday calendar has been verified, so the adapter asks for the SDK maximum of 7 days. That covers the previous business day across any weekend or holiday. In the installed TWS API 10.51.01, `lastNDays` needs server version 200 or later. Below that, the SDK reports `error(reqId, UPDATE_TWS)` and the evidence is incomplete.
+2. `reqAllOpenOrders` (all clients and TWS) ends with `openOrderEnd` and lists no open order. An order the adapter cannot read also counts as open.
+
+Any execution in the window, any open order, or any query that does not complete keeps the snapshot incomplete. The reason names the cause, for example `SettledCash not reported for USD; settled cannot be derived from TotalCashValue: 1 execution(s) in the settlement window (reqExecutions lastNDays=7)`. A `SettledCash` row whose value is unset (IBKR's max double) is never replaced. A snapshot that includes `SettledCash` makes no extra requests and behaves as before. The executions this query returns are booked like any other (R5) and never discarded.
+
+**Recording.** A derived balance carries `CashBalance.settled_source = "TotalCashValue (no executions in settlement window)"` (default `None` means the broker's own field). The snapshot's raw data holds `settled_source` per currency and the `settlement_evidence` (filter, counts, completeness). The reconciler passes the source through, and `ReconciliationCompleted` names it under `settled_sources`, so reconciliation and the terminal can show that settled cash was derived. Payloads without a derived source are unchanged.
+
+**Limits (open, owner decision).**
+- Whether IB Gateway honours `lastNDays` is unverified (R5, `docs/integrations/ibkr.md`). If it returns only executions since midnight, an empty answer does not prove there was no execution on the previous business day. Item 7 of the evidence runner must record this after a real buy.
+- Because the window is 7 days, any trade blocks the derivation for up to a week. On an account that never reports `SettledCash`, reconciliation then stays incomplete until the window is clear.
+
+**Live check (read-only, 2026-10-24, IB Gateway paper, server version 226).** In the evidence runner, item 7 now passes: `AccountType 'INDIVIDUAL', 1 cash row(s), 0 position(s), USD settled = TotalCashValue (no executions in settlement window)`. The `lastNDays=7` request completed with no executions and no open orders. This shows only that the request is accepted. It does not show that older days are returned.
+
+Implemented on `fix/ibkr-settled-cash` (adapter `account_snapshot`/`_settlement_evidence`; tests in `backend/tests/test_ibkr_adapter.py` `SnapshotTests` and `backend/tests/test_reconciliation.py` `test_derived_settled_cash_reconciles_and_the_run_names_its_source`).

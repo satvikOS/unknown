@@ -56,6 +56,10 @@ Status words follow ADR-0001. No capability is `paper-verified` or `live-verifie
   - an execution redelivered under the same id with changed content is recorded but not booked until the owner resolves the case (ADR-0009);
   - a late effect never restates a completion; the owner disposes of any residue with a DISPOSAL sell (ADR-0008);
   - a stop the database cannot record is held in memory and in a file, and buys are canceled at the broker directly (ADR-0010).
+- **IBKR settled cash without a SettledCash row (ADR-0012 amendment 2026-10-24).** The owner's paper account sends no `SettledCash` row, so every snapshot was incomplete and preflight could never pass. The adapter now reports settled = TotalCashValue only when `reqExecutions` (account, `lastNDays=7`) completes with zero executions and `reqAllOpenOrders` completes with no open order. The figure is recorded as `settled_source` on the snapshot and on `ReconciliationCompleted`. To confirm or change:
+  - this rule itself;
+  - the 7-day window, which is used because no verified holiday calendar exists, and blocks the derivation for up to a week after any trade;
+  - reliance on IB Gateway honouring `lastNDays`, which is unverified (R5).
 
 ## Owner decisions recorded (2026-10-22)
 

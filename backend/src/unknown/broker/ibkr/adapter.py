@@ -74,7 +74,17 @@ MAX_SUMMARY_SUBSCRIPTIONS = 2              # R6: "only two active summary subscr
 CASH_SEMANTICS = ("IBKR accountSummary: settled = SettledCash ('cash recognized at the time of settlement - purchases "
                   "at the time of trade - commissions - taxes - fees'); total = TotalCashValue ('total cash balance "
                   "recognized at the time of trade + futures PNL'); refreshed on IBKR's fixed ~3-minute cadence (R6). "
-                  "AvailableFunds/NetLiquidation are not cash and appear only in raw.")
+                  "AvailableFunds/NetLiquidation are not cash and appear only in raw. When IBKR sends no SettledCash "
+                  "row for a currency, settled = TotalCashValue ONLY if reqExecutions (lastNDays covering the "
+                  "settlement window) ended with zero executions and reqAllOpenOrders ended with no open order; "
+                  "settled_source then records the derivation (ADR-0012 amendment 2026-10-24).")
+# ADR-0012 amendment 2026-10-24. US T+1 (the only market in the cash-equity policy) needs the previous business day
+# and today; with no verified exchange-holiday calendar the evidence asks for ExecutionFilter.lastNDays = 7 (the
+# maximum, see config.execution_last_n_days), which covers the previous business day across any weekend and holiday.
+# ibapi/server_versions.py (TWS API 10.51.01): lastNDays needs server version >= 200; below that the SDK answers
+# error(reqId, UPDATE_TWS) and the evidence is incomplete.
+SETTLEMENT_EVIDENCE_LAST_N_DAYS = 7
+SETTLED_DERIVED_SOURCE = "TotalCashValue (no executions in settlement window)"
 PACING_SOURCE = "https://www.interactivebrokers.com/docs/tws-api/doc/pacing-limitations/introduction.md"
 INSTALL_HELP = ("Install the official TWS API from https://download2.interactivebrokers.com/installers/tws-api/ "
                 "(Latest 1051.01 includes the Python client), then `pip install protobuf==5.29.5` and "
@@ -265,6 +275,7 @@ class _Live:
 @dataclass
 class _ExecRequest:
     req_id: int
+    rows: int = 0          # execDetails callbacks for this request id (any execution, representable or not)
     end: bool = False
     error: str | None = None
 
@@ -943,15 +954,29 @@ class IbkrAdapter:
         if cfg.expected_account_type is not None and account_type != cfg.expected_account_type:
             # R11: an AccountType other than the expected one is a blocking mismatch.
             reasons.append(f"ACCOUNT_TYPE_MISMATCH: reported {account_type!r}, expected {cfg.expected_account_type!r}")
-        cash = []
+        cash, settled_source, evidence = [], {}, None
         for ccy in sorted({c for (t, c) in values if t in ("TotalCashValue", "SettledCash") and c}):
             settled = M.summary_value_to_fixed(values.get(("SettledCash", ccy)))
             total = M.summary_value_to_fixed(values.get(("TotalCashValue", ccy)))
+            if total is not None and ("SettledCash", ccy) not in values:
+                # IBKR sent no SettledCash row at all (observed on a paper INDIVIDUAL account, 2026-10-24).
+                if evidence is None:
+                    try:
+                        evidence = self._settlement_evidence()
+                    except IbkrNotReady as exc:
+                        evidence = {"blocking": f"settlement evidence not collected ({exc})"}
+                if evidence["blocking"]:
+                    reasons.append(f"SettledCash not reported for {ccy}; settled cannot be derived from "
+                                   f"TotalCashValue: {evidence['blocking']}")
+                    continue
+                settled_source[ccy] = SETTLED_DERIVED_SOURCE
+                cash.append(CashBalance(ccy, total, total, CASH_SEMANTICS, settled_source=SETTLED_DERIVED_SOURCE))
+                continue
             if settled is None or total is None:
                 reasons.append(f"SettledCash/TotalCashValue missing or unset for {ccy}")
                 continue
             cash.append(CashBalance(ccy, settled, total, CASH_SEMANTICS))
-        if not cash:
+        if not any(t in ("TotalCashValue", "SettledCash") and c for (t, c) in values):
             reasons.append("no SettledCash/TotalCashValue rows received")
         position_rows = []
         for account, con_id, ccy, symbol, quantity, avg_cost in positions:
@@ -971,9 +996,64 @@ class IbkrAdapter:
                "account_type": account_type,
                "summary": {f"{t}:{c}" if c else t: v for (t, c), v in sorted(values.items())},
                "incomplete_reasons": reasons, "cash_semantics": CASH_SEMANTICS}
+        if evidence is not None:
+            raw["settled_source"], raw["settlement_evidence"] = settled_source, evidence
         return AccountSnapshot(as_of_ns=self._clock.now_ns(), cash=tuple(cash),
                                positions=tuple(sorted(position_rows, key=lambda p: p.provider_ref)),
                                complete=not reasons, server_time_ns=None, raw=raw)
+
+    def _settlement_evidence(self) -> dict:
+        """Broker evidence that no activity is unsettled: every execution for the account over the settlement
+        window (reqExecutions to execDetailsEnd) and every open order of every client (reqAllOpenOrders to
+        openOrderEnd). ``blocking`` is empty only when both completed and both are empty."""
+        last_n = SETTLEMENT_EVIDENCE_LAST_N_DAYS
+        out = {"execution_filter": {"acctCode": self._cfg.masked_account(), "lastNDays": last_n},
+               "executions_complete": False, "executions": None, "open_orders_complete": False,
+               "open_orders": None, "blocking": ""}
+        with self._req_lock:
+            client = self._client_checked()
+            req = _ExecRequest(self._new_req_id())
+            with self._cv:
+                self._exec_reqs[req.req_id] = req
+            try:
+                exec_filter = self._sdk.ExecutionFilter()
+                exec_filter.acctCode = self._cfg.expected_account_id
+                exec_filter.lastNDays = last_n
+                err = self._send("reconcile", client.reqExecutions, req.req_id, exec_filter)
+                if err is None:
+                    with self._cv:
+                        self._cv.wait_for(lambda: req.end or req.error is not None or not self._socket_up,
+                                          timeout=self._cfg.request_timeout_s)
+                        err = req.error or (None if req.end else "execDetailsEnd not received within the timeout")
+            finally:
+                with self._cv:
+                    self._exec_reqs.pop(req.req_id, None)
+                    executions = req.rows
+            out["executions"] = executions
+            if err:
+                out["blocking"] = f"executions query for the settlement window incomplete ({err})"
+                return out
+            out["executions_complete"] = True
+            if executions:
+                out["blocking"] = (f"{executions} execution(s) in the settlement window "
+                                   f"(reqExecutions lastNDays={last_n})")
+                return out
+            collected, complete = self._collect_open_orders(client, (client.reqAllOpenOrders,))
+        open_rows = unreadable = 0
+        for snap in collected.values():
+            row = self._open_row(snap)
+            if row is None:
+                unreadable += 1
+            elif row is not _EXCLUDED:
+                open_rows += 1
+        out["open_orders"] = open_rows + unreadable
+        if not complete:
+            out["blocking"] = "open-order query incomplete (openOrderEnd not received)"
+        elif open_rows or unreadable:
+            out["blocking"] = f"{open_rows + unreadable} open order(s) (reqAllOpenOrders)"
+        else:
+            out["open_orders_complete"] = True
+        return out
 
     def _cancel_lingering_summaries(self, client) -> None:
         with self._cv:
@@ -1578,6 +1658,9 @@ class IbkrAdapter:
 
     def _on_execDetails(self, req_id, contract, execution) -> None:
         with self._cv:
+            exec_req = self._exec_reqs.get(req_id)
+            if exec_req is not None:
+                exec_req.rows += 1   # counted before deduplication: settlement evidence needs every execution
             exec_id = execution.execId
             if exec_id in self._exec_by_id:
                 self._cv.notify_all()
