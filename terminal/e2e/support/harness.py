@@ -26,7 +26,9 @@ api: the API's step-up window is the active policy's reauth_max_age_s (900 s in 
     simulated policy), or 15 minutes without a policy. The suite caps it with
     server.STEP_UP_MAX_AGE_NS, which can only shorten the window, so the HTTP 428 -> passphrase ->
     same-command-id retry path can be exercised in seconds. The core's own policy check
-    (reauth_max_age_s) is untouched.
+    (reauth_max_age_s) is untouched. The API's live market-data bus is built with the TEST feed
+    double (``support.fake_marketdata``, source id ``TEST``) in place of the owner's
+    config/marketdata.json sources, so the stream, monitor and charts have test data to show.
 
 md-status: the IBKR market-data status file (<UNKNOWN_HOME>/run/ibkr-marketdata-status.json) is written
     only by a running IbkrMarketDataSession, and the suite never connects to IBKR. This writes one with the
@@ -93,8 +95,21 @@ def register_instruments() -> None:
 
 
 def run_api(window_s: int, argv: list[str]) -> None:
+    sys.path.insert(0, str(BACKEND_TESTS))
+    from support.fake_marketdata import FeedDouble, bus_config  # TEST-only feed double
     from unknown.api import server
+    from unknown.marketdata import config as md_config
+    from unknown.marketdata.bus import MarketDataBus
+    from unknown.marketdata.store import TickStore
 
+    def test_bus(cls, home: Path) -> MarketDataBus:
+        bus = cls(bus_config(), {"TEST": FeedDouble(currency_for=md_config.currency_for)},
+                  store=TickStore(Path(home) / "marketdata" / "ticks.sqlite"))
+        bus.start()
+        print("[e2e harness] API market-data bus uses the TEST feed double", flush=True)
+        return bus
+
+    MarketDataBus.from_home = classmethod(test_bus)
     server.STEP_UP_MAX_AGE_NS = window_s * 1_000_000_000
     print(f"[e2e harness] API step-up window set to {window_s} s for this test run", flush=True)
     server.main(argv)

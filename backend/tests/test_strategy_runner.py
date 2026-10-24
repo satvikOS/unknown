@@ -804,7 +804,7 @@ class LiveRunnerTest(RealCoreCase):
         self.assertEqual(rec1["observation_time_ns"], decision_instant(self.day, CLOCK_UTC))
         self.assertRegex(rec1["inputs_digest"], r"^[0-9a-f]{64}$")
         self.assertIsNotNone(rec1["score"])
-        wait_for(lambda: self.orders(a)[0]["state"] == "FILLED", what="the FIXTURE market to fill the intent")
+        wait_for(lambda: self.orders(a)[0]["state"] == "FILLED", what="the TEST quote feed to fill the intent")
 
         # restart: a new process decides nothing again
         with self.runner("A", "live") as r2:
