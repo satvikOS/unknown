@@ -18,7 +18,7 @@ from unknown.domain.calendar import WEEKDAYS_ONLY, load_calendar  # noqa: E402
 from unknown.domain.clock import NS_PER_S, ManualClock, utc_ns  # noqa: E402
 from unknown.domain.fixed import Fixed  # noqa: E402
 from unknown.research import execution, sizing as research_sizing  # noqa: E402
-from unknown.research.fixtures import fixture_instrument  # noqa: E402
+from support.research_fixtures import fixture_instrument  # noqa: E402
 from unknown.research.spec import parse_spec  # noqa: E402
 from unknown.service.paths import Paths  # noqa: E402
 from unknown.strategy import artifacts, runner as runner_module, sizing as runtime_sizing  # noqa: E402

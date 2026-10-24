@@ -123,7 +123,7 @@ async function waitFor(what: string, check: () => Promise<boolean> | boolean, ti
 
 function coreArgs(home: string): string[] {
   return [HARNESS, 'core', '--broker-state', join(home, 'sim-broker.pickle'), '--',
-    '--account', ACCOUNT, '--deployment', DEPLOYMENT, '--fixture-market'];
+    '--account', ACCOUNT, '--deployment', DEPLOYMENT];
 }
 
 /** True once the core's socket answers a health query with the API token. */
@@ -197,7 +197,9 @@ export async function setUp(): Promise<RunState> {
     { cwd: join(REPO_DIR, 'backend'), env: env(home) },
   );
   await startCore(s);
-  writeFileSync(join(home, 'bootstrap.log'), cli(home, 'bootstrap-sim', '--account', ACCOUNT, '--deployment', DEPLOYMENT));
+  // Test instruments come from the test-only harness; the product bootstrap registers none (ADR-0020).
+  const instruments = execFileSync(python(), [HARNESS, 'test-instruments'], { cwd: join(REPO_DIR, 'backend'), env: env(home), encoding: 'utf8' });
+  writeFileSync(join(home, 'bootstrap.log'), instruments + cli(home, 'bootstrap-sim', '--account', ACCOUNT, '--deployment', DEPLOYMENT));
 
   s.pids.api = spawnLogged(home, 'api.log', [HARNESS, 'api', '--step-up-window-s', String(STEP_UP_WINDOW_S), '--',
     '--account', ACCOUNT, '--port', String(port), '--static', s.dist]);

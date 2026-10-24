@@ -11,7 +11,6 @@ Modules
 common      errors, formula registry (formula id@version), stable hashing
 spec        strict strategy specification schema (RES-01, BR-DAT-08)
 bars        bars with availability times, point-in-time views, PIT-store bridge
-fixtures    SYNTHETIC fixture series (trend, mean-reverting, random walk)
 costs       IBKR-like fee schedules, spread/slippage/impact cost model (CAP-RES-05)
 engine      causal event-driven daily-bar backtester (CAP-RES-04)
 sizing      algorithm A15 with the fee-inclusive risk term, shared with the strategy runner (BR-DAT-04)
@@ -24,7 +23,6 @@ manifest    reproducibility manifests and replay comparison (CAP-RES-11)
 registry    pre-registered experiments and the complete trial registry (CAP-RES-10)
 promotion   artifact registry, status lifecycle, owner approvals, selection policy (CAP-RES-12, AUT-03)
 core_replay second validation path through the real core (RES-05)
-study       end-to-end evaluation on synthetic fixtures with a report artifact
 
 Statistical quantities (returns, volatility, Sharpe, VaR/ES, bootstrap) are
 Python floats; every function that returns one documents its convention, and

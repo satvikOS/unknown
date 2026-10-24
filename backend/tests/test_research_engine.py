@@ -23,7 +23,7 @@ from unknown.research.common import CausalityError, HoldoutError, LookaheadError
 from unknown.research.costs import CostModel, IbkrFixedUS
 from unknown.research.engine import (BacktestConfig, ExecutionModel, OrderRequest, Sizing, StrategyDecision,
                                      implementation_shortfall, run_backtest, simulate_fill)
-from unknown.research.fixtures import fixture_instrument, manual_bar, session_times, synthetic_bars
+from support.research_fixtures import fixture_instrument, manual_bar, session_times, synthetic_bars
 
 F = Fixed.parse
 A, B = "FIX-A-1", "FIX-B-1"
@@ -430,7 +430,7 @@ class EngineReviewTest(unittest.TestCase):
             run_backtest(Scripted(), view(flat_bars(A)), {A: t2}, config())
 
     def test_a_fixture_recipe_regenerates_non_default_generators(self):
-        from unknown.research.fixtures import from_recipe, recipe
+        from support.research_fixtures import from_recipe, recipe
         kw = dict(start=date(2022, 1, 3), sessions=30, seed=4, start_price=20.0)
         bars = synthetic_bars("random_walk", A, sigma=0.05, mean_volume=5_000.0, **kw)
         r = recipe("random_walk", A, sigma=0.05, mean_volume=5_000.0, **kw)

@@ -1,4 +1,4 @@
-"""SYNTHETIC fixture series for research tests and the fixture study.
+"""TEST-ONLY SYNTHETIC fixture series for research tests and the fixture study (ADR-0020: never product code).
 
 Every bar produced here is labelled ``fixture=True`` with a source of the form
 ``FIXTURE:synthetic/<kind>@v1;seed=<n>``. These are not market data, carry no
@@ -26,11 +26,11 @@ import math
 import random
 from datetime import date, datetime, time, timedelta, timezone
 
-from ..domain.calendar import WEEKDAYS_ONLY, BusinessCalendar
-from ..domain.fixed import Fixed
-from ..domain.instruments import AssetClass, Instrument, TickRule
-from .bars import Bar
-from .common import NS_PER_S
+from unknown.domain.calendar import WEEKDAYS_ONLY, BusinessCalendar
+from unknown.domain.fixed import Fixed
+from unknown.domain.instruments import AssetClass, Instrument, TickRule
+from unknown.research.bars import Bar
+from unknown.research.common import NS_PER_S
 
 KINDS = ("trend", "mean_reverting", "random_walk")
 FIXTURE_START_UTC = time(14, 30)
@@ -130,7 +130,7 @@ def recipe(kind: str, instrument_id: str, *, start: date, sessions: int, seed: i
 
     Every generator argument that changes the bars is recorded (review fix 2026-10-22: ``sigma`` and
     ``mean_volume`` were not, so a non-default fixture could not be regenerated from its recipe)."""
-    return {"generator": f"unknown.research.fixtures.synthetic_bars@{GENERATOR_VERSION}", "kind": kind,
+    return {"generator": f"support.research_fixtures.synthetic_bars@{GENERATOR_VERSION}", "kind": kind,
             "instrument_id": instrument_id, "start": start.isoformat(), "sessions": sessions, "seed": seed,
             "start_price": start_price, "sigma": sigma, "mean_volume": mean_volume,
             "calendar": WEEKDAYS_ONLY.calendar_id + "@" + WEEKDAYS_ONLY.version, "label": "FIXTURE"}

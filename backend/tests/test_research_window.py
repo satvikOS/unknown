@@ -18,7 +18,7 @@ from unknown.research.common import SpecError
 from unknown.research.costs import CostModel, IbkrFixedUS
 from unknown.research.engine import BacktestConfig, ExecutionModel, OrderRequest, Sizing, StrategyDecision, run_backtest
 from unknown.research.execution import SessionHoursUnknown, SubmissionWindow, transmission_limit, window_times
-from unknown.research.fixtures import fixture_instrument, manual_bar
+from support.research_fixtures import fixture_instrument, manual_bar
 from unknown.research.spec import parse_spec
 from unknown.research.strategies import trend_spec
 

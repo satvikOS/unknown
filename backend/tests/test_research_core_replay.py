@@ -17,7 +17,7 @@ from unknown.research.bars import BarSeries, DatasetView
 from unknown.research.core_replay import replay_through_core
 from unknown.research.costs import CostModel, IbkrFixedUS
 from unknown.research.engine import (BacktestConfig, ExecutionModel, OrderRequest, Sizing, StrategyDecision, run_backtest)
-from unknown.research.fixtures import fixture_instrument, manual_bar, synthetic_bars
+from support.research_fixtures import fixture_instrument, manual_bar, synthetic_bars
 from unknown.research.strategies import build, trend_spec
 
 F = Fixed.parse

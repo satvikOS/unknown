@@ -17,7 +17,7 @@ from unknown.research.manifest import build_manifest
 from unknown.research.promotion import STATUSES, PromotionService
 from unknown.research.registry import ResearchRegistry
 from unknown.research.strategies import trend_spec
-from unknown.research.study import FIXTURE_PROTOCOL
+from support.research_study import FIXTURE_PROTOCOL
 
 A = "FIX-PRO-1"
 DEV, HOLD = (date(2021, 1, 4), date(2022, 12, 30)), (date(2023, 1, 2), date(2023, 12, 29))

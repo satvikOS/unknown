@@ -10,9 +10,12 @@ Writes, under <home>/research/ (the files the API opens read-only per request):
                       - a FIXTURE Treasury par curve on two dates (the second without the 1.5M tenor) and FIXTURE ECB
                         reference rates, both through the real ``treasury.ingest`` / ``ecb.ingest`` parsers with a stub
                         fetcher;
-  experiments.sqlite  the research registry, populated by the fixture study (``unknown.research.study``).
+  experiments.sqlite  the research registry, populated by the test-only fixture study
+                      (backend/tests/support/research_study.py), recorded unflagged so the product routes, which
+                      never serve fixture-flagged rows (ADR-0020), show it in this test home.
 
-Every value is synthetic and labelled FIXTURE. Prints one JSON line with what it wrote."""
+Every value is synthetic test data in a temporary home; product code generates none. Prints one JSON line with
+what it wrote."""
 from __future__ import annotations
 
 import argparse
@@ -30,7 +33,7 @@ from test_company_fixtures import ISSUERS, ingest_issuer  # noqa: E402  (SYNTHET
 from unknown.data.http import Response  # noqa: E402
 from unknown.data.pit import ResearchStore  # noqa: E402
 from unknown.data.sources import ecb, treasury  # noqa: E402
-from unknown.research.study import main as study_main  # noqa: E402
+from support.research_study import main as study_main  # noqa: E402  (TEST-only study)
 
 # FIXTURE par yields (percent), synthetic: an inverted front end and a positive 10Y-2Y slope.
 CURVE_1 = {"BC_1MONTH": "4.31", "BC_1_5MONTH": "4.30", "BC_2MONTH": "4.28", "BC_3MONTH": "4.24", "BC_4MONTH": "4.20",
@@ -88,7 +91,7 @@ def seed(home: Path, sessions: int, core_replay_sessions: int) -> dict:
         store.close()
     out = research / "study-out"
     study_main(["--registry", str(research / "experiments.sqlite"), "--out", str(out), "--sessions", str(sessions),
-                "--core-replay-sessions", str(core_replay_sessions)])
+                "--core-replay-sessions", str(core_replay_sessions), "--record-unflagged"])
     return {"issuers": [i[0] for i in ISSUERS], "treasury": {k: tr[k] for k in ("curve_dates", "first_date", "last_date", "NEW")},
             "ecb": {k: ec[k] for k in ("currencies", "rows", "first_date", "last_date")},
             "registry": str(research / "experiments.sqlite")}

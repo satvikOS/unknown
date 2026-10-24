@@ -37,13 +37,13 @@ from unknown.domain.instruments import AssetClass, Instrument, TickRule  # noqa:
 from unknown.domain.principal import ARTIFACT_ID, Principal, Role  # noqa: E402
 from unknown.research.bars import DatasetView, record_bars  # noqa: E402
 from unknown.research.engine import BacktestConfig, Sizing, run_backtest  # noqa: E402
-from unknown.research.fixtures import fixture_instrument, manual_bar, synthetic_bars  # noqa: E402
+from support.research_fixtures import fixture_instrument, manual_bar, synthetic_bars  # noqa: E402
 from unknown.research.manifest import build_manifest  # noqa: E402
 from unknown.research.promotion import STATUSES, PromotionService  # noqa: E402
 from unknown.research.registry import ResearchRegistry  # noqa: E402
 from unknown.research.spec import parse_spec  # noqa: E402
 from unknown.research.strategies import TrendDailyV1, trend_spec  # noqa: E402
-from unknown.research.study import FIXTURE_PROTOCOL  # noqa: E402
+from support.research_study import FIXTURE_PROTOCOL  # noqa: E402
 from unknown.service.core import CoreService, Intervals, _simulated_broker  # noqa: E402
 from support.fake_market import TestFeedExecution, e2e_instruments  # noqa: E402  (TEST quote feed double)
 from unknown.service.ipc import CoreClient  # noqa: E402
