@@ -237,5 +237,6 @@ def post_ai(ctx, parts: list[str], body: dict, session) -> dict:
     raise LookupError("unknown AI endpoint")
 
 
-ROUTES = [(("ai",), get_ai)]
-POST_ROUTES = [(("ai",), post_ai)]
+# Specific sub-paths: routes/ai.py (the analyst) owns the rest of /api/ai, and the most specific prefix wins.
+ROUTES = [(("ai", sub), get_ai) for sub in ("notes", "runs", "approvals", "dashboard", "config")]
+POST_ROUTES = [(("ai", sub), post_ai) for sub in ("explain", "holdings", "approvals")]
