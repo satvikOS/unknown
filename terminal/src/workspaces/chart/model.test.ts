@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { findWorkspace } from '../registry';
 import { loadAnnotations, newAnnotation, saveAnnotations, type KeyValueStore } from './annotations';
 import { eventSourceFeed, parseStreamMessage } from './feed';
-import { addDecimal, applyTick, commonStart, parseBarsResponse, percentFrom, sourceLabel, SYNTHETIC_TEXT, type ChartBar, type Tick } from './model';
+import { addDecimal, applyTick, commonStart, parseBarsResponse, percentFrom, sourceLabel, type ChartBar, type Tick } from './model';
 
 const S = 1_000_000_000n;
 const T0 = 1_792_000_000n * S; // fixture instant
@@ -43,11 +43,16 @@ describe('parseBarsResponse', () => {
     expect(sourceLabel(r)).toBe('BROKERX · DELAYED');
   });
 
-  it('never shows synthetic data without its label, and fails closed on an unknown data type', () => {
-    expect(sourceLabel(parseBarsResponse(raw({ source: 'SYNTHETIC', data_type: 'SYNTHETIC' }))!)).toBe(SYNTHETIC_TEXT);
-    const odd = parseBarsResponse(raw({ data_type: 'MYSTERY' }))!;
-    expect(odd.dataType).toBe('SYNTHETIC');
-    expect(odd.label).toBe(SYNTHETIC_TEXT);
+  it('refuses bars whose data type is not real market data, failing closed on an unknown or missing type', () => {
+    for (const dt of ['SYNTHETIC', 'MYSTERY', null]) {
+      const r = parseBarsResponse(raw({ source: 'X', data_type: dt }))!;
+      expect(r.bars).toEqual([]);
+      expect(r.available).toBe(false);
+      expect(r.dataType).toBeNull();
+      expect(r.refused).toBe(`Refused bars from X: data type ${dt ?? 'missing'} is not real market data.`);
+      expect(sourceLabel(r)).toBe('ERR · X');
+    }
+    expect(parseBarsResponse(raw({ data_type: null, bars: [], available: false }))!.refused).toBeNull();
   });
 });
 
@@ -75,7 +80,8 @@ describe('applyTick (stream contract trade/quote events)', () => {
     expect(applyTick(bars, r.live, 'DELAYED', tick('11', T0 + 5000n * S)).needsRefetch).toBe(true);
     expect(applyTick(bars, r.live, 'DELAYED', tick('11', T0 - S)).changed).toBe(false);
     expect(applyTick(bars, r.live, 'DELAYED', tick('11', T0 + 400n * S, { dataType: 'SYNTHETIC' })).changed).toBe(false);
-    expect(applyTick(bars, r.live, 'SYNTHETIC', tick('11', T0 + 400n * S)).changed).toBe(false);
+    expect(applyTick(bars, r.live, 'DELAYED', tick('11', T0 + 400n * S, { dataType: '' })).changed).toBe(false);
+    expect(applyTick(bars, r.live, null, tick('11', T0 + 400n * S)).changed).toBe(false);
     expect(applyTick(bars, r.live, 'DELAYED', tick('11', T0 + 5000n * S, { kind: 'quote' })).needsRefetch).toBe(false);
   });
 

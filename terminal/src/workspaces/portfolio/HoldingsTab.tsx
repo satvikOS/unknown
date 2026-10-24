@@ -5,7 +5,8 @@
  */
 import { useState, type ReactNode } from 'react';
 import { DataTable, type Column } from '../../ui/DataTable';
-import { Age, Badge, FixtureBadge, Money, Qty, StatusPill } from '../../ui/primitives';
+import { Age, Badge, FixtureRefused, Money, Qty, StatusPill } from '../../ui/primitives';
+import { NoValue } from '../../ui/unavailable';
 import { QueryError, WorkspaceLink } from '../../ui/WorkspaceFrame';
 import { Segmented } from '../operations/parts';
 import type { QueryResult } from '../../state/react';
@@ -65,7 +66,7 @@ export function CashLadder({ ladder, scope }: { ladder: readonly Rec[]; scope: s
                 <Money amount={dec(c.unallocated_available)} currency={ccy} kind="available" />
               </dd>
               <dt>Broker settled cash</dt>
-              <dd>{dec(c.broker_settled_cash) ? <Money amount={dec(c.broker_settled_cash)} currency={ccy} /> : <span className="pf-hint">{str(c.broker_settled_cash_reason) ?? '—'}</span>}</dd>
+              <dd>{dec(c.broker_settled_cash) ? <Money amount={dec(c.broker_settled_cash)} currency={ccy} /> : <span className="pf-hint">{str(c.broker_settled_cash_reason) ?? <NoValue reason="NOT_REPORTED" />}</span>}</dd>
             </dl>
           );
         })}
@@ -107,13 +108,13 @@ export function HoldingsTab({ bar, q, scope, setScope, basis, setBasis, options,
       ),
       sortValue: (o) => str(o.owner) ?? '',
     },
-    { id: 'kind', header: 'Kind', cell: (o) => str(o.kind) ?? '—', sortValue: (o) => str(o.kind) ?? '' },
+    { id: 'kind', header: 'Kind', cell: (o) => str(o.kind) ?? <NoValue reason="NOT_REPORTED" />, sortValue: (o) => str(o.kind) ?? '' },
     { id: 'settled', header: 'Settled cash', numeric: true, cell: (o) => <Money amount={dec(isRec(o.cash) ? o.cash.settled_cash : null)} currency={str(o.currency) ?? ''} kind="settled" /> },
     { id: 'available', header: 'Available', numeric: true, description: 'Settled cash minus active holds; unsettled sale proceeds add nothing', cell: (o) => <Money amount={dec(isRec(o.cash) ? o.cash.available_cash : null)} currency={str(o.currency) ?? ''} kind="available" /> },
     { id: 'mv', header: 'Market value (fresh)', numeric: true, cell: (o) => <Money amount={dec(o.market_value_fresh)} currency={str(o.currency) ?? ''} kind="marked" /> },
-    { id: 'navm', header: 'NAV (marked)', numeric: true, description: 'Uses last marks, stale ones flagged; null when any position is unpriced', cell: (o) => <Money amount={dec(o.nav_marked)} currency={str(o.currency) ?? ''} unavailable="unpriced position" />, sortValue: (o) => dec(o.nav_marked), sortKind: 'decimal' },
-    { id: 'navf', header: 'NAV (fresh)', numeric: true, description: 'Published only when every position has a fresh mark', cell: (o) => <Money amount={dec(o.nav_fresh)} currency={str(o.currency) ?? ''} unavailable="not fresh" /> },
-    { id: 'status', header: 'Valuation', cell: (o) => <StatusPill label={str(o.valuation_status) ?? '?'} tone={statusTone(str(o.valuation_status))} compact /> },
+    { id: 'navm', header: 'NAV (marked)', numeric: true, description: 'Uses last marks, stale ones flagged; null when any position is unpriced', cell: (o) => <Money amount={dec(o.nav_marked)} currency={str(o.currency) ?? ''} unavailable="A position is unpriced." />, sortValue: (o) => dec(o.nav_marked), sortKind: 'decimal' },
+    { id: 'navf', header: 'NAV (fresh)', numeric: true, description: 'Published only when every position has a fresh mark', cell: (o) => <Money amount={dec(o.nav_fresh)} currency={str(o.currency) ?? ''} reason="STALE" unavailable="Published only when every position has a fresh mark." /> },
+    { id: 'status', header: 'Valuation', cell: (o) => <StatusPill label={str(o.valuation_status) ?? 'NOT REPORTED'} tone={statusTone(str(o.valuation_status))} compact /> },
   ];
 
   const posCols: Column<Rec>[] = [
@@ -127,7 +128,7 @@ export function HoldingsTab({ bar, q, scope, setScope, basis, setBasis, options,
             <span className="cmd-id">{str(p.instrument_id)}</span>
           </WorkspaceLink>
           <span className="muted">{str(p.symbol)}</span>
-          {p.fixture === true || p.instrument_fixture === true ? <FixtureBadge /> : null}
+          {p.fixture === true || p.instrument_fixture === true ? <FixtureRefused detail="The instrument is not a real security." /> : null}
         </span>
       ),
       sortValue: (p) => str(p.instrument_id) ?? '',
@@ -141,17 +142,18 @@ export function HoldingsTab({ bar, q, scope, setScope, basis, setBasis, options,
       description: 'Price at the chosen basis from the core quote book, its status, source and age at valuation',
       cell: (p) => {
         const m = isRec(p.mark) ? p.mark : {};
+        if (p.fixture === true || p.instrument_fixture === true) return <FixtureRefused />;
         return (
           <span className="pf-label" title={str(m.reason) ?? str(m.source) ?? undefined}>
-            <Money amount={dec(m.price)} currency={str(p.currency) ?? ''} unavailable={str(m.reason) ?? 'no mark'} />
-            <StatusPill label={str(m.status) ?? '?'} tone={statusTone(str(m.status))} compact detail={str(m.reason) ?? undefined} />
+            <Money amount={dec(m.price)} currency={str(p.currency) ?? ''} reason={str(m.status) ?? 'NOT_REPORTED'} unavailable={str(m.reason) ?? undefined} />
+            <StatusPill label={str(m.status) ?? 'NOT REPORTED'} tone={statusTone(str(m.status))} compact detail={str(m.reason) ?? undefined} />
             {num(m.age_ms) !== null ? <Age ageMs={num(m.age_ms)} /> : null}
           </span>
         );
       },
     },
-    { id: 'mv', header: 'Market value', numeric: true, cell: (p) => <Money amount={dec(p.market_value)} currency={str(p.currency) ?? ''} kind="marked" unavailable="unpriced: not valued at zero" />, sortValue: (p) => dec(p.market_value), sortKind: 'decimal' },
-    { id: 'unrl', header: 'Unrealized', numeric: true, cell: (p) => <Money amount={dec(p.unrealized)} currency={str(p.currency) ?? ''} kind="unrealized" signed unavailable="unpriced" /> },
+    { id: 'mv', header: 'Market value', numeric: true, cell: (p) => (p.fixture === true || p.instrument_fixture === true ? <FixtureRefused /> : <Money amount={dec(p.market_value)} currency={str(p.currency) ?? ''} kind="marked" unavailable="Unpriced: never valued at zero." />), sortValue: (p) => dec(p.market_value), sortKind: 'decimal' },
+    { id: 'unrl', header: 'Unrealized', numeric: true, cell: (p) => (p.fixture === true || p.instrument_fixture === true ? <FixtureRefused /> : <Money amount={dec(p.unrealized)} currency={str(p.currency) ?? ''} kind="unrealized" signed unavailable="Unpriced position." />) },
     {
       id: 'weight',
       header: weightBasis === 'scope_nav' ? 'Weight of scope NAV' : 'Weight of owner NAV',
@@ -187,13 +189,13 @@ export function HoldingsTab({ bar, q, scope, setScope, basis, setBasis, options,
         <span className="spacer" />
         {mp ? (
           <span className="pf-hint">
-            Marks: {str(mp.basis)} from {str(mp.source)}; fresh within {num(mp.max_age_ms)?.toLocaleString('en-US') ?? '?'} ms (policy budget)
+            Marks: {str(mp.basis)} from {str(mp.source)}; fresh within {num(mp.max_age_ms)?.toLocaleString('en-US') ?? <NoValue reason="NOT_REPORTED" />} ms (policy budget)
           </span>
         ) : null}
       </Toolbar>
       <QueryError what="Holdings" error={q.error} />
       <QuoteSnapshotNote body={body} />
-      <FixtureNote body={body} />
+      <FixtureNote data={q.data} what="Holdings" />
       {body ? (
         <>
           <div className="pf-kpis">
@@ -207,7 +209,7 @@ export function HoldingsTab({ bar, q, scope, setScope, basis, setBasis, options,
                   </div>
                   <div className="s">
                     fresh: <Money amount={dec(t.nav_fresh)} currency={ccy} unavailable="not all marks fresh" /> ·{' '}
-                    <StatusPill label={str(t.valuation_status) ?? '?'} tone={statusTone(str(t.valuation_status))} compact />
+                    <StatusPill label={str(t.valuation_status) ?? 'NOT REPORTED'} tone={statusTone(str(t.valuation_status))} compact />
                   </div>
                 </div>
               );
@@ -221,7 +223,7 @@ export function HoldingsTab({ bar, q, scope, setScope, basis, setBasis, options,
                     <Money amount={dec(t.available_cash)} currency={ccy} />
                   </div>
                   <div className="s">
-                    liquid <Money amount={dec(t.liquid_value)} currency={ccy} /> · {num(t.owners) ?? '?'} owner(s)
+                    liquid <Money amount={dec(t.liquid_value)} currency={ccy} /> · {num(t.owners) ?? <NoValue reason="NOT_REPORTED" />} owner(s)
                   </div>
                 </div>
               );

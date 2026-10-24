@@ -1,3 +1,4 @@
+import { asText } from '../../ui/unavailable';
 import { describe, expect, it } from 'vitest';
 import { cleanParams, apiPath } from './api';
 import { cumulativeReturns, extent, labelIndices, linePath, linear, maxDrawdown, niceTicks, segments } from './chartMath';
@@ -133,14 +134,14 @@ describe('float statistics', () => {
     expect(formatStat(524)).toBe('524');
     expect(formatStat(1e-9)).toBe('1.000e-9');
     expect(formatStat(0)).toBe('0');
-    expect(formatStat(null)).toBe('—');
+    expect(asText(formatStat(null))).toBe('not reported');
   });
 
   it('formats fractions as percentages', () => {
     expect(formatFractionPct(0.35073660373999993)).toBe('35.07 %');
     expect(formatFractionPct(-0.0723)).toBe('-7.23 %');
     expect(formatFractionPct(-0.00001)).toBe('0.00 %');
-    expect(formatFractionPct(undefined)).toBe('—');
+    expect(asText(formatFractionPct(undefined))).toBe('not reported');
   });
 
   it('says when a list was cut short instead of showing the total alone', () => {

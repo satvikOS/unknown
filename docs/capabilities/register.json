@@ -4400,7 +4400,7 @@
           "terminal/src/workspaces/marketdata/model.test.ts::presentation > never presents a non-consolidated feed as the national best bid/offer",
           "terminal/src/workspaces/marketdata/model.test.ts::presentation > shows the delivered type and flags a difference from the requested type",
           "terminal/src/workspaces/marketdata/render.test.ts::subscription detail: quote analytics > shows mid and spread with the quote currency",
-          "terminal/e2e/03-portfolio-agents.spec.ts::market data: no session, then FIXTURE status with delivered types, consolidation and entitlement errors"
+          "terminal/e2e/03-portfolio-agents.spec.ts::market data: no session, then a test status file with delivered types, consolidation and entitlement errors"
         ],
         "evidence": [
           "A read-only L1 session on its own client id feeds the core's quote book with delivered type, source, receipt time and null reasons; GET /api/marketdata/status adds age and staleness with formula ids.",
@@ -5415,7 +5415,7 @@
           "terminal/src/workspaces/chart/studies.test.ts::studies (chart.studies@1) > ATR uses true range from the previous close and Wilder smoothing",
           "terminal/src/workspaces/chart/studies.test.ts::studies (chart.studies@1) > Bollinger uses the population standard deviation",
           "terminal/src/workspaces/chart/studies.test.ts::studies (chart.studies@1) > VWAP is cumulative per session and resets",
-          "terminal/src/workspaces/chart/model.test.ts::parseBarsResponse > never shows synthetic data without its label, and fails closed on an unknown data type",
+          "terminal/src/workspaces/chart/model.test.ts::parseBarsResponse > refuses bars whose data type is not real market data, failing closed on an unknown or missing type",
           "terminal/src/workspaces/chart/model.test.ts::applyTick (stream contract trade/quote events) > updates the last bar exactly and adds trade volume",
           "terminal/src/workspaces/chart/model.test.ts::applyTick (stream contract trade/quote events) > opens the next session-anchored bucket from a trade and marks it in progress",
           "terminal/src/workspaces/chart/model.test.ts::comparison rebasing > rebases both series to percent from the common start",
@@ -5581,11 +5581,11 @@
           "backend/tests/test_marketdata_bus.py::BusTests.test_refusal_falls_back_and_every_event_names_its_source",
           "backend/tests/test_marketdata_bus.py::ApiTests.test_stream_snapshot_latency_sources_and_trades",
           "terminal/src/workspaces/monitor/model.test.ts::monitor model > edits watchlists and refuses duplicates and invalid keys",
-          "terminal/src/workspaces/monitor/render.test.ts::monitor rendering > shows quotes with change, sizes and the SYNTHETIC label, and line-budget refusals per row",
+          "terminal/src/workspaces/monitor/render.test.ts::monitor rendering > shows quotes with change, sizes and the source/data-type badge, and line-budget refusals per row",
           "terminal/src/state/marketdata.test.ts::market-data client > resyncs from the snapshot on a quote seq gap and ignores older quotes"
         ],
         "evidence": [
-          "Watchlists hold security keys (SYMBOL.MIC), not broker ids, and are edited and persisted in the browser; each row shows last, change, %change (exact decimals), bid/ask with sizes, volume, time and a source/data-type badge; SYNTHETIC is always labelled.",
+          "Watchlists hold security keys (SYMBOL.MIC), not broker ids, and are edited and persisted in the browser; each row shows last, change, %change (exact decimals), bid/ask with sizes, volume, time and a source/data-type badge; a missing cell is an em dash with its reason, and an event of a non-market data type is an error, never data.",
           "The bus enforces each source's line budget before subscribing; a key no source can take shows LINE_BUDGET, NOT_ENTITLED or UNAVAILABLE with the reason in its row."
         ],
         "gaps": [
@@ -19085,7 +19085,7 @@
           "backend/tests/test_ibkr_adapter.py::MappingTests.test_status_table",
           "backend/tests/test_ibkr_adapter.py::StatusEventTests.test_identical_status_messages_produce_one_event [IBKR venv]",
           "terminal/src/workspaces/orders/model.test.ts::order states and cancel > classifies open and terminal states like the core",
-          "terminal/e2e/01-flow.spec.ts::a BUY at the FIXTURE ask + 0.02 is accepted and shows FILLED in the blotter",
+          "terminal/e2e/01-flow.spec.ts::a BUY at the TEST ask + 0.02 is accepted and shows FILLED in the blotter",
           "backend/tests/test_core_lifecycle_transitions.py::TableTests.test_table_never_leaves_a_terminal_state_and_names_only_real_states",
           "backend/tests/test_core_lifecycle_transitions.py::TableTests.test_a_full_lifecycle_records_only_declared_transitions",
           "backend/tests/test_core_lifecycle_transitions.py::EnforcementTests.test_undeclared_transition_is_refused_recorded_as_an_anomaly_and_latches",
@@ -21088,7 +21088,7 @@
           "backend/tests/test_policy_mandate.py::PublishActivateTests.test_live_policy_publishes_but_activation_is_refused",
           "backend/tests/test_quote_consolidation.py::QuoteConsolidationTests.test_non_consolidated_quote_validates_paper_but_not_live",
           "backend/tests/test_ibkr_adapter.py::ExecutionTests.test_live_execution_and_commission_rows [IBKR venv]",
-          "terminal/e2e/01-flow.spec.ts::overview shows SIMULATED in text and colour, and labels fixture data FIXTURE"
+          "terminal/e2e/01-flow.spec.ts::overview shows SIMULATED in text and colour, and names the simulated broker"
         ],
         "evidence": [
           "Account mode SIMULATED/PAPER/LIVE is part of the account record, the policy and preflight; LIVE is refused; every IBKR execution, commission and status raw record carries evidence_level BROKER_PAPER; the simulated broker fills only from a configured real quote source and otherwise reports NO_SOURCE (ADR-0020, service/sim_execution.py)."
@@ -22897,10 +22897,10 @@
           "terminal/src/format/exact.test.ts::exact decimal arithmetic > adds and subtracts without float error",
           "terminal/src/workspaces/risk/riskModel.test.ts::marked P&L estimate > fails closed on a stale, delayed or missing bid, like the core",
           "terminal/src/ui/ui-logic.test.ts::table sorting > sorts decimal strings exactly and keeps empty values last in both directions",
-          "terminal/e2e/01-flow.spec.ts::overview shows SIMULATED in text and colour, and labels fixture data FIXTURE"
+          "terminal/e2e/01-flow.spec.ts::overview shows SIMULATED in text and colour, and names the simulated broker"
         ],
         "evidence": [
-          "Decimal strings are formatted and compared exactly (no floats); missing marks fail closed; SIMULATED mode and FIXTURE data are labelled in text.",
+          "Decimal strings are formatted and compared exactly (no floats); missing marks fail closed; SIMULATED mode is labelled in text; an unavailable value is an em dash with a machine-readable reason, and a fixture-derived value is refused as an error.",
           "Terminal on 2026-10-22: typecheck clean, 259 vitest unit tests pass, production build succeeds; the Playwright suite (31 tests, Chromium 1243, headless, audio disabled) passes against a real core and API with the FIXTURE market. CI runs the typecheck, unit tests and build; the Playwright suite runs only locally."
         ],
         "gaps": [

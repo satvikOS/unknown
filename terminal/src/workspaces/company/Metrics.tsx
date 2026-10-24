@@ -12,6 +12,7 @@ import { ErrorNotice, ExtLink, Flags, IsoTime, KV, Loading, Section, StatusTag, 
 import { IssuerFrame, type IssuerContext } from './CompanyWorkspace';
 import { isUnavailable, priceParams, type BridgeItem, type ExplainInput, type MetricExplain, type MetricRow, type MetricsResponse, type PriceInputJson, type UnavailableBody } from './model';
 import { CellDetail } from './Statements';
+import { NoValue } from '../../ui/unavailable';
 
 export function MetricsView({ ctx }: { ctx: IssuerContext }) {
   const params = { as_of: ctx.opts.as_of, ...priceParams(ctx.opts) };
@@ -93,7 +94,7 @@ function MetricsTable({ data, selected, onSelect }: { data: MetricsResponse; sel
       header: 'Reason (verbatim)',
       wrap: true,
       width: '34%',
-      cell: (m) => (m.reason ? <span className="rx-reason">{m.reason}</span> : <span className="muted">—</span>),
+      cell: (m) => (m.reason ? <span className="rx-reason">{m.reason}</span> : <NoValue reason="NOT_REPORTED" />),
     },
     { id: 'period', header: 'Period · basis', sortValue: (m) => m.period, cell: (m) => <span title={m.basis}><span className="mono">{m.period}</span></span> },
     { id: 'flags', header: 'Flags', wrap: true, width: '18%', cell: (m) => <Flags flags={m.flags} /> },

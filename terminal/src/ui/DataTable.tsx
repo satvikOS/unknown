@@ -2,10 +2,12 @@
  * Accessible data table: semantic <table> with column headers, sortable headers with aria-sort,
  * a sticky header, roving-focus keyboard row navigation (arrows, Home/End, PageUp/PageDown,
  * Enter to activate), right-aligned monospace numeric columns, and windowed rendering above
- * `virtualizeAbove` rows (aria-rowcount / aria-rowindex keep the full size announced).
+ * `virtualizeAbove` rows (aria-rowcount / aria-rowindex keep the full size announced). A cell renderer shows a
+ * missing value with <NoValue reason> (ui/unavailable.tsx): inside the table the focused row shows every reason.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { sortRows, visibleRange, type SortDirection, type SortKind, type SortValue } from './tableSort';
+import { InGridProvider } from './unavailable';
 
 export interface Column<T> {
   id: string;
@@ -214,6 +216,7 @@ export function DataTable<T>({
             })}
           </tr>
         </thead>
+        <InGridProvider>
         <tbody onKeyDown={onKeyDown}>
           {total === 0 ? (
             <tr>
@@ -260,6 +263,7 @@ export function DataTable<T>({
             </tr>
           ) : null}
         </tbody>
+        </InGridProvider>
       </table>
     </div>
   );

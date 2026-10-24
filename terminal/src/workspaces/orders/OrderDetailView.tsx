@@ -17,6 +17,7 @@ import { decisionFromTimeline } from './decision';
 import { executionColumns } from './ExecutionsView';
 import { cancelAvailability, cancelStateLabel, isOpenOrder, summarizeEventInfo, summarizeHolds, type OrderDetailRecord } from './model';
 import { DecisionTable, HoldValue, InstrumentCell, QuoteLine, SideText, type InstrumentData } from './parts';
+import { NoValue } from '../../ui/unavailable';
 
 const holdColumns: Column<OrderHoldFull>[] = [
   { id: 'id', header: 'Hold', sortValue: (h) => h.hold_id, cell: (h) => <span className="cmd-id">{h.hold_id}</span> },
@@ -72,7 +73,7 @@ const timelineColumns: Column<EventRecord>[] = [
   { id: 'type', header: 'Event', sortValue: (e) => e.type, cell: (e) => <code className="mono">{e.type}</code> },
   { id: 'principal', header: 'Principal', sortValue: (e) => e.principal_id, cell: (e) => <span className="cmd-id">{e.principal_id}</span> },
   { id: 'command', header: 'Command', sortValue: (e) => e.command_id, cell: (e) => <ShortId value={e.command_id} head={22} /> },
-  { id: 'info', header: 'Recorded detail', wrap: true, cell: (e) => summarizeEventInfo(e) || <span className="muted">—</span> },
+  { id: 'info', header: 'Recorded detail', wrap: true, cell: (e) => summarizeEventInfo(e) || <NoValue reason="NOT_REPORTED" /> },
   { id: 'changed', header: 'Changed', wrap: true, cell: (e) => <span className="muted">{e.changed_sections.join(', ')}</span> },
 ];
 

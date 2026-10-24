@@ -1,8 +1,9 @@
 /**
  * Chart (CAP-MKT-07): bars from GET /api/charts/bars for the linked security, drawn with TradingView Lightweight
  * Charts, with studies (studies.ts), a % comparison, annotations kept in this browser, and the last bar rolled
- * forward from the market-data stream (feed.ts). The header always names the source and data type; SYNTHETIC
- * data is never shown without its warning.
+ * forward from the market-data stream (feed.ts). The header always names the source and data type. Only real data is
+ * drawn: bars or ticks of any other data type are refused and shown as an error. With no security linked or in the
+ * route, the chart asks for one; it never shows an example security.
  *
  * Route: `#/chart` (follows the linked security) or `#/chart/<KEY>` (e.g. `#/chart/SAP.XETR`).
  */
@@ -32,6 +33,7 @@ import { charKeysEnabled } from '../../ui/charKeys';
 import { isTypingTarget } from '../../ui/keys';
 import { useLinkedSecurity } from '../../ui/link';
 import { Badge, type Tone } from '../../ui/primitives';
+import { ErrorValue, NoValue } from '../../ui/unavailable';
 import { QueryError, WorkspaceFrame } from '../../ui/WorkspaceFrame';
 import { usePluginQuery } from '../plugin-api/hooks';
 import type { WorkspaceProps } from '../types';
@@ -54,7 +56,6 @@ import {
 import { STUDIES, STUDY_VERSION, atr, bollinger, ema, macd, rsi, sma, vwap, type Series, type StudyId } from './studies';
 import './chart.css';
 
-export const DEFAULT_KEY = 'IBM.XNYS';
 export const ATTRIBUTION_NOTICE = 'TradingView Lightweight Charts™ Copyright (c) 2026 TradingView, Inc.';
 export const ATTRIBUTION_URL = 'https://www.tradingview.com/';
 const CHART_TYPES = ['candles', 'ohlc', 'line', 'area'] as const;
@@ -62,7 +63,7 @@ type ChartType = (typeof CHART_TYPES)[number];
 const KEY_RE = /^[A-Za-z0-9][A-Za-z0-9._\-/]{0,63}$/;
 
 
-const TYPE_TONE: Record<DataType, Tone> = { REALTIME: 'ok', DELAYED: 'info', FROZEN: 'warn', SYNTHETIC: 'warn' };
+const TYPE_TONE: Record<DataType, Tone> = { REALTIME: 'ok', DELAYED: 'info', FROZEN: 'warn' };
 
 function cssVar(name: string, fallback: string): string {
   try {
@@ -100,7 +101,43 @@ interface Legend {
 export function ChartWorkspace({ route, navigate }: WorkspaceProps) {
   const linked = useLinkedSecurity();
   const routeKey = route.rest[0] && KEY_RE.test(route.rest[0]) ? route.rest[0] : null;
-  const key = routeKey ?? linked ?? DEFAULT_KEY;
+  const key = routeKey ?? linked ?? null;
+  if (!key) return <ChartEmpty navigate={navigate} />;
+  return <ChartView securityKey={key} navigate={navigate} />;
+}
+
+/** No security in the route and none linked: ask for one (never chart an example security). */
+function ChartEmpty({ navigate }: { navigate: WorkspaceProps['navigate'] }) {
+  const [keyDraft, setKeyDraft] = useState('');
+  const [invalid, setInvalid] = useState<string | null>(null);
+  return (
+    <WorkspaceFrame title="Chart" description="Price chart for the linked security: bars from the configured source, studies, comparison and annotations.">
+      <div className="chart-ws">
+        <div className="chart-ws-bar" role="toolbar" aria-label="Chart controls">
+          <form
+            className="chart-ws-key"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const k = keyDraft.trim().toUpperCase();
+              if (KEY_RE.test(k)) navigate('chart', k);
+              else setInvalid(keyDraft.trim());
+              setKeyDraft('');
+            }}
+          >
+            <strong>No security</strong>
+            <input aria-label="Open security" placeholder="SYMBOL.MIC" value={keyDraft} onChange={(e) => setKeyDraft(e.target.value)} />
+          </form>
+        </div>
+        <p className="chart-ws-empty" role="status">
+          No security is linked. Enter a security key (SYMBOL.MIC) above, or link a security from another panel, to chart its bars.
+          {invalid !== null ? ` "${invalid}" is not a security key.` : ''}
+        </p>
+      </div>
+    </WorkspaceFrame>
+  );
+}
+
+function ChartView({ securityKey: key, navigate }: { securityKey: string; navigate: WorkspaceProps['navigate'] }) {
   const [interval, setInterval_] = useState<IntervalCode>('1d');
   const [chartType, setChartType] = useState<ChartType>('candles');
   const [showVolume, setShowVolume] = useState(true);
@@ -191,7 +228,6 @@ export function ChartWorkspace({ route, navigate }: WorkspaceProps) {
     extraRef.current = [];
     linesRef.current = [];
     markersRef.current = null;
-    const synthetic = data?.dataType === 'SYNTHETIC';
     const gapTimes = new Set((data?.gaps ?? []).map((g) => Number(BigInt(g.startNs) / 1_000_000_000n)));
     const whitespace = [...gapTimes].filter((t) => !bars.some((b) => b.time === t)).map((t) => ({ time: ts(t) }));
     const byTime = <T extends { time: UTCTimestamp }>(rows: (T | { time: UTCTimestamp })[]) =>
@@ -216,7 +252,7 @@ export function ChartWorkspace({ route, navigate }: WorkspaceProps) {
       const rows = bars.map((b) => ({ time: ts(b.time), value: Number(b.close) }));
       main =
         chartType === 'line'
-          ? chart.addSeries(LineSeries, { color: synthetic ? p.warn : p.accent, lineWidth: 2 })
+          ? chart.addSeries(LineSeries, { color: p.accent, lineWidth: 2 })
           : chart.addSeries(AreaSeries, { lineColor: p.accent, topColor: `${p.accent}55`, bottomColor: `${p.accent}05` });
       main.setData(byTime([...rows, ...whitespace]));
     }
@@ -262,7 +298,7 @@ export function ChartWorkspace({ route, navigate }: WorkspaceProps) {
     // Comparison: both series rebased to % from their common start, on the left scale.
     const cmpBars = cmp ? toOhlcv(cmp.bars) : [];
     const t0 = commonStart(ohlcv, cmpBars);
-    if (compareKey && cmp && t0 !== null && cmp.dataType !== null && (cmp.dataType === 'SYNTHETIC') === synthetic) {
+    if (compareKey && cmp && t0 !== null && cmp.dataType !== null && !cmp.refused) {
       for (const [rows, color, title] of [
         [percentFrom(ohlcv, t0), p.accent, `${key} %`],
         [percentFrom(cmpBars, t0), p.warn, `${compareKey} %`],
@@ -390,8 +426,7 @@ export function ChartWorkspace({ route, navigate }: WorkspaceProps) {
     });
 
   const shown = legend?.bar ?? lastBar ?? null;
-  const fmt = (v: string | null) => (v === null ? '—' : formatDecimal(v));
-  const synthetic = data?.dataType === 'SYNTHETIC';
+  const fmt = (v: string | null) => (v === null ? <NoValue reason="NOT_REPORTED" /> : formatDecimal(v));
 
   return (
     <WorkspaceFrame
@@ -412,7 +447,6 @@ export function ChartWorkspace({ route, navigate }: WorkspaceProps) {
             }}
           >
             <strong title="Security key (SYMBOL.MIC)">{key}</strong>
-            {!routeKey && !linked ? <span className="chart-ws-muted">(no linked security: example)</span> : null}
             <input aria-label="Open security" placeholder="SYMBOL.MIC" value={keyDraft} onChange={(e) => setKeyDraft(e.target.value)} />
           </form>
           <div className="chart-ws-seg" role="group" aria-label="Interval">
@@ -435,7 +469,7 @@ export function ChartWorkspace({ route, navigate }: WorkspaceProps) {
         </div>
         <div className="chart-ws-bar" aria-label="Data status">
           {data ? (
-            <Badge tone={data.dataType ? TYPE_TONE[data.dataType] : 'neutral'} title={data.sources.map((s) => `${s.source}: ${s.reason}${s.error ? ` (error: ${s.error})` : ''}`).join('\n')}>
+            <Badge tone={data.refused ? 'bad' : data.dataType ? TYPE_TONE[data.dataType] : 'neutral'} title={data.sources.map((s) => `${s.source}: ${s.reason}${s.error ? ` (error: ${s.error})` : ''}`).join('\n')}>
               {sourceLabel(data)}
             </Badge>
           ) : null}
@@ -449,9 +483,9 @@ export function ChartWorkspace({ route, navigate }: WorkspaceProps) {
             </Badge>
           ) : null}
         </div>
-        {synthetic ? (
-          <p className="chart-ws-synthetic" role="status">
-            {data?.label ?? 'SYNTHETIC: generated demo data, not market data'}. No real bar source is configured for {key}.
+        {data?.refused ? (
+          <p className="chart-ws-refused" role="alert">
+            <ErrorValue reason="ERROR" detail={data.refused} label="Bars" /> {data.refused} Nothing is drawn for {key}.
           </p>
         ) : null}
         <div className="chart-ws-legend" aria-live="off">
@@ -492,8 +526,10 @@ export function ChartWorkspace({ route, navigate }: WorkspaceProps) {
               </button>
             ) : null}
           </form>
-          {compareKey && cmp && cmp.dataType && (cmp.dataType === 'SYNTHETIC') !== synthetic ? (
-            <span className="chart-ws-muted">not compared: one series is SYNTHETIC</span>
+          {compareKey && cmp?.refused ? (
+            <span className="chart-ws-muted">
+              <ErrorValue reason="ERROR" detail={cmp.refused} label={compareKey} /> not compared: {cmp.refused}
+            </span>
           ) : null}
         </div>
         <div className="chart-ws-bar" role="group" aria-label="Annotations">

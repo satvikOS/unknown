@@ -10,6 +10,7 @@ import { formatDecimal, isDecimal } from '../../format/decimal';
 import { Badge, Money, ShortId, StatusPill, Timestamp, type Tone } from '../../ui/primitives';
 import { extractCommands, isCurrencyCode, isoToMs, populateCommands, ratioAsPercent } from './format';
 import './research.css';
+import { NoValue } from '../../ui/unavailable';
 
 export function Section({
   title,
@@ -199,7 +200,7 @@ export function UnitValue({
 
 /** A rate the API writes as a decimal fraction ("0.0825"): the exact value and its exact percentage (8.25 %). */
 export function RateValue({ value }: { value: string | null | undefined }) {
-  if (value === null || value === undefined) return <span className="muted">—</span>;
+  if (value === null || value === undefined) return <NoValue reason="NOT_REPORTED" />;
   const pct = isDecimal(value) ? ratioAsPercent(value) : null;
   return (
     <span className="num" title={`${value} as a decimal fraction`}>

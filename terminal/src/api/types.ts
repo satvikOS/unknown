@@ -175,8 +175,11 @@ export interface Position {
   mark: Decimal | null;
   market_value: Decimal | null;
   unrealized: Decimal | null;
-  /** Human-readable basis, e.g. "bid from fixture-market age 252 ms FIXTURE" or "unavailable: no quote". */
+  /** Human-readable basis, e.g. "bid from IBKR age 252 ms" or "unavailable: no quote". */
   mark_basis: string;
+  /** Why mark, market_value and unrealized are null (e.g. NOT_CONNECTED, NO_DATA); null when they are present. */
+  mark_reason?: string | null;
+  /** The mark came from a FIXTURE (test) quote: the terminal refuses it and shows an error, never the value. */
   mark_fixture?: boolean;
 }
 
@@ -628,6 +631,16 @@ export interface CoreHealth {
   cycle_errors: number;
   provider: string;
   account_mode: AccountMode;
+  /** Simulated-broker pricing: fills only from a real configured quote source; reason NO_SOURCE when none. */
+  sim_execution?: SimExecutionStatus | null;
+}
+
+export interface SimExecutionStatus {
+  pricing: 'REAL_QUOTES' | 'UNAVAILABLE' | string;
+  source: string | null;
+  reason: string | null;
+  detail: string;
+  fills?: number;
 }
 
 /** GET /api/health */

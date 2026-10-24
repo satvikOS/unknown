@@ -1,7 +1,7 @@
 /**
  * Monitor (CAP-MKT-08 watchlists, CAP-MKT-03 time & sales, CAP-MKT-06 depth): live quotes from the broker-agnostic
- * market-data bus (GET /api/marketdata/stream; ADR-0018). Every row shows its source and data type; SYNTHETIC data
- * (the default when no real source is configured) is always labelled. Panels follow useLinkedSecurity().
+ * market-data bus (GET /api/marketdata/stream; ADR-0018). Every row shows its source and data type; a cell with no
+ * value shows an em dash with its reason, and data of any non-market type is an error. Panels follow useLinkedSecurity().
  *
  * Watchlists are kept in this browser (localStorage); they hold security keys, never broker ids.
  */
@@ -10,6 +10,7 @@ import { useQuery } from '../../state/react';
 import { useStreamHealth } from '../../state/marketdata';
 import { useLinkedSecurity } from '../../ui/link';
 import { Badge } from '../../ui/primitives';
+import { NoValue } from '../../ui/unavailable';
 import { WorkspaceFrame } from '../../ui/WorkspaceFrame';
 import type { WorkspaceProps } from '../types';
 import { addKey, defaultState, loadState, moveKey, removeKey, saveState, type MonitorState, type Watchlist } from './model';
@@ -19,15 +20,18 @@ import './monitor.css';
 function useMonitorState(): [MonitorState, (s: MonitorState) => void] {
   const instruments = useQuery('/api/instruments');
   const [state, setState] = useState<MonitorState>(() => loadState() ?? defaultState());
-  const demoKeys = useMemo(
-    () => (instruments.data ?? []).filter((i) => i.symbol && i.venue_mic).map((i) => `${i.symbol}.${i.venue_mic}`),
+  const coreKeys = useMemo(
+    () =>
+      (instruments.data ?? [])
+        .filter((i) => i.symbol && i.venue_mic && i.attributes?.fixture !== true)
+        .map((i) => `${i.symbol}.${i.venue_mic}`),
     [instruments.data],
   );
   useEffect(() => {
-    // Add the core's demo instruments once, as their own list, when the owner has not stored lists yet.
-    if (!demoKeys.length || loadState() || state.lists.some((l) => l.id === 'demo')) return;
-    setState(defaultState(demoKeys));
-  }, [demoKeys, state.lists]);
+    // Add the core's instruments once, as their own list, when the owner has not stored lists yet.
+    if (!coreKeys.length || loadState() || state.lists.some((l) => l.id === 'core')) return;
+    setState(defaultState(coreKeys));
+  }, [coreKeys, state.lists]);
   const update = (s: MonitorState) => {
     setState(s);
     saveState(s);
@@ -43,13 +47,13 @@ export function StreamHealthLine() {
       <Badge tone={tone}>{`stream ${h.state}`}</Badge>
       <span>{h.keys} keys</span>
       {Object.entries(h.sources).map(([src, types]) => (
-        <Badge key={src} tone={types.includes('SYNTHETIC') ? 'info' : types.includes('REALTIME') ? 'ok' : 'warn'}>
-          {types.includes('SYNTHETIC') && src === 'SYNTHETIC' ? 'SYNTHETIC data: not market data' : `${src}: ${types.join(', ')}`}
+        <Badge key={src} tone={types.includes('REALTIME') ? 'ok' : 'warn'}>
+          {`${src}: ${types.join(', ')}`}
         </Badge>
       ))}
       <span title="Browser receipt minus bus publish time over recent quotes and trades">
-        latency p50 {h.receiptP50Ms === null ? '—' : `${h.receiptP50Ms.toFixed(1)} ms`} / p99{' '}
-        {h.receiptP99Ms === null ? '—' : `${h.receiptP99Ms.toFixed(1)} ms`}
+        latency p50 {h.receiptP50Ms === null ? <NoValue reason="NOT_REPORTED" detail="No quote or trade received yet." /> : `${h.receiptP50Ms.toFixed(1)} ms`} / p99{' '}
+        {h.receiptP99Ms === null ? <NoValue reason="NOT_REPORTED" detail="No quote or trade received yet." /> : `${h.receiptP99Ms.toFixed(1)} ms`}
       </span>
       {h.gaps ? <span>{h.gaps} gaps, {h.resyncs} resyncs</span> : null}
       {h.overflows ? <Badge tone="warn">{`${h.overflows} trade overflow notices`}</Badge> : null}

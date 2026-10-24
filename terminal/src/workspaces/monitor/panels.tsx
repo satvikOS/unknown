@@ -2,24 +2,35 @@
  * Monitor panels: flashing cells, the watchlist grid, time & sales, depth and the exported TickerTape.
  * All read the shared market-data client (state/marketdata.ts); none assumes a broker.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { formatDecimal } from '../../format/decimal';
 import { formatTimestampMs } from '../../format/time';
 import { useMarketData, useMarketDataKeys, type Trade } from '../../state/marketdata';
 import { setLinkedSecurity } from '../../ui/link';
 import { Badge } from '../../ui/primitives';
-import { cumulative, direction, rowFor, sourceBadge, splitKey, statusTone, type Watchlist } from './model';
+import { ErrorValue, InGridProvider, NoValue, StaleValue } from '../../ui/unavailable';
+import { cumulative, direction, rowFor, rowMiss, sourceBadge, splitKey, statusTone, type RowMiss, type Watchlist } from './model';
 import './monitor.css';
 
-const DASH = '—';
-
-export function fmt(v: string | null, places?: number): string {
-  if (v === null) return DASH;
+/** A decimal for display; null only when the value is absent (callers render <NoValue> then). */
+export function fmt(v: string | null, places?: number): string | null {
+  if (v === null) return null;
   return formatDecimal(v, { minFraction: places ?? 0 });
 }
 
+/**
+ * One watchlist value: the error when the key is in error (never a cached value), the em dash with the row's
+ * reason when absent, the value with its age when the key is stale, else the value.
+ */
+export function valueOrReason(text: string | null, miss: RowMiss, label?: string): ReactNode {
+  if (miss.reason === 'ERROR') return <ErrorValue reason="ERROR" detail={miss.detail} label={label} />;
+  if (text === null) return <NoValue reason={miss.reason} detail={miss.detail} label={label} />;
+  if (miss.staleAgeMs !== undefined) return <StaleValue ageMs={miss.staleAgeMs}>{text}</StaleValue>;
+  return text;
+}
+
 /** A value cell that flashes up/down when its value changes (CSS animation restarted by a key change). */
-export function FlashCell({ value, text, className }: { value: string | null; text: string; className?: string }) {
+export function FlashCell({ value, text, className }: { value: string | null; text: ReactNode; className?: string }) {
   const prev = useRef<string | null>(value);
   const [flash, setFlash] = useState<{ dir: -1 | 1; n: number } | null>(null);
   useEffect(() => {
@@ -72,11 +83,17 @@ export function WatchlistGrid({ list, selected, onRemove, onMove }: WatchlistGri
             <th scope="col"><span className="mon-sr">Actions</span></th>
           </tr>
         </thead>
+        <InGridProvider>
         <tbody>
           {list.keys.map((key, i) => {
             const q = client.quote(key);
             const st = client.status(key);
             const r = rowFor(key, q);
+            const miss = rowMiss(q, st, r.tsMs, Date.now());
+            const v = (x: string | null, places?: number, suffix = '') => {
+              const t = fmt(x, places);
+              return valueOrReason(t === null ? null : `${t}${suffix}`, miss);
+            };
             const problem = st && st.state !== 'SUBSCRIBED' ? st : null;
             return (
               <tr
@@ -89,17 +106,21 @@ export function WatchlistGrid({ list, selected, onRemove, onMove }: WatchlistGri
                   <span className="mon-sym">{splitKey(key)?.symbol ?? key}</span>
                   <span className="mon-mic">{splitKey(key)?.mic ?? ''}</span>
                 </th>
-                <FlashCell value={r.last} text={fmt(r.last)} />
-                <td className={`mon-num ${signTone(r.chg)}`}>{fmt(r.chg)}</td>
-                <td className={`mon-num ${signTone(r.pct)}`}>{r.pct === null ? DASH : `${fmt(r.pct, 2)}%`}</td>
-                <FlashCell value={r.bid} text={fmt(r.bid)} />
-                <FlashCell value={r.ask} text={fmt(r.ask)} />
-                <td className="mon-num">{fmt(r.bidSize)}</td>
-                <td className="mon-num">{fmt(r.askSize)}</td>
-                <td className="mon-num">{fmt(r.volume)}</td>
-                <td className="mon-time">{r.tsMs === null ? DASH : formatTimestampMs(r.tsMs, 'utc', true).slice(11)}</td>
+                <FlashCell value={r.last} text={v(r.last)} />
+                <td className={`mon-num ${signTone(r.chg)}`}>{v(r.chg)}</td>
+                <td className={`mon-num ${signTone(r.pct)}`}>{v(r.pct, 2, '%')}</td>
+                <FlashCell value={r.bid} text={v(r.bid)} />
+                <FlashCell value={r.ask} text={v(r.ask)} />
+                <td className="mon-num">{v(r.bidSize)}</td>
+                <td className="mon-num">{v(r.askSize)}</td>
+                <td className="mon-num">{v(r.volume)}</td>
+                <td className="mon-time">
+                  {r.tsMs === null ? <NoValue reason={miss.reason} detail={miss.detail} /> : formatTimestampMs(r.tsMs, 'utc', true).slice(11)}
+                </td>
                 <td>
-                  {problem ? (
+                  {problem?.state === 'ERROR' ? (
+                    <ErrorValue reason="ERROR" detail={problem.reason} />
+                  ) : problem ? (
                     <Badge tone={statusTone(problem.state)} title={problem.reason}>
                       {problem.state.replace('_', ' ')}
                     </Badge>
@@ -129,6 +150,7 @@ export function WatchlistGrid({ list, selected, onRemove, onMove }: WatchlistGri
             );
           })}
         </tbody>
+        </InGridProvider>
       </table>
     </div>
   );
@@ -139,6 +161,7 @@ export function TimeAndSales({ securityKey, limit = 60 }: { securityKey: string;
   useMarketDataKeys([securityKey]);
   const trades: readonly Trade[] = client.tradesFor(securityKey).slice(0, limit);
   const q = client.quote(securityKey);
+  const st = client.status(securityKey);
   return (
     <section className="mon-panel" aria-label={`Time and sales ${securityKey}`}>
       <header className="mon-panel-head">
@@ -148,7 +171,11 @@ export function TimeAndSales({ securityKey, limit = 60 }: { securityKey: string;
           {sourceBadge(q).text}
         </Badge>
       </header>
-      {trades.length === 0 ? (
+      {st?.state === 'ERROR' ? (
+        <p className="mon-empty" role="alert">
+          <ErrorValue reason="ERROR" detail={st.reason} /> {st.reason}
+        </p>
+      ) : trades.length === 0 ? (
         <p className="mon-empty">No prints received for {securityKey} yet.</p>
       ) : (
         <div className="mon-scroll mon-tape">
@@ -169,11 +196,11 @@ export function TimeAndSales({ securityKey, limit = 60 }: { securityKey: string;
                 const ts = t.ts_source_ns ?? t.ts_recv_ns;
                 return (
                   <tr key={t.seq}>
-                    <td className="mon-time">{ts === null ? DASH : formatTimestampMs(Number(ts) / 1e6, 'utc', true).slice(11)}</td>
+                    <td className="mon-time">{ts === null ? <NoValue reason="NOT_REPORTED" /> : formatTimestampMs(Number(ts) / 1e6, 'utc', true).slice(11)}</td>
                     <td className={`mon-num ${d === 1 ? 'mon-up' : d === -1 ? 'mon-down' : ''}`}>{fmt(t.price)}</td>
-                    <td className="mon-num">{fmt(t.size)}</td>
-                    <td>{t.exchange ?? DASH}</td>
-                    <td className="mon-cond">{t.conditions.join(' ') || DASH}</td>
+                    <td className="mon-num">{fmt(t.size) ?? <NoValue reason="NOT_REPORTED" />}</td>
+                    <td>{t.exchange ?? <NoValue reason="NOT_REPORTED" />}</td>
+                    <td className="mon-cond">{t.conditions.join(' ') || <NoValue reason="NOT_REPORTED" detail="The print carries no condition codes." />}</td>
                   </tr>
                 );
               })}
@@ -195,6 +222,8 @@ export function DepthPanel({ securityKey }: { securityKey: string }) {
   const cumAsk = cumulative(asks.map((l) => l.size));
   const rows = Math.max(bids.length, asks.length);
   const src = book.bid ?? book.ask;
+  const st = client.status(securityKey);
+  const sizeOrDash = (x: string | null | undefined) => (x === undefined ? '' : (fmt(x) ?? <NoValue reason="NOT_REPORTED" />));
   return (
     <section className="mon-panel" aria-label={`Depth ${securityKey}`}>
       <header className="mon-panel-head">
@@ -206,7 +235,11 @@ export function DepthPanel({ securityKey }: { securityKey: string }) {
           </Badge>
         ) : null}
       </header>
-      {rows === 0 ? (
+      {st?.state === 'ERROR' ? (
+        <p className="mon-empty" role="alert">
+          <ErrorValue reason="ERROR" detail={st.reason} /> {st.reason}
+        </p>
+      ) : rows === 0 ? (
         <p className="mon-empty">
           No depth for {securityKey}: the serving source does not provide it, or it is not entitled (see the source
           status in the watchlist).
@@ -226,12 +259,12 @@ export function DepthPanel({ securityKey }: { securityKey: string }) {
           <tbody>
             {Array.from({ length: rows }, (_, i) => (
               <tr key={i}>
-                <td className="mon-num mon-muted">{cumBid[i] ? fmt(cumBid[i]) : ''}</td>
-                <td className="mon-num">{bids[i] ? fmt(bids[i].size) : ''}</td>
+                <td className="mon-num mon-muted">{bids[i] ? fmt(cumBid[i] ?? null) : ''}</td>
+                <td className="mon-num">{bids[i] ? sizeOrDash(bids[i].size) : ''}</td>
                 <td className="mon-num mon-up">{bids[i] ? fmt(bids[i].price) : ''}</td>
                 <td className="mon-num mon-down">{asks[i] ? fmt(asks[i].price) : ''}</td>
-                <td className="mon-num">{asks[i] ? fmt(asks[i].size) : ''}</td>
-                <td className="mon-num mon-muted">{cumAsk[i] ? fmt(cumAsk[i]) : ''}</td>
+                <td className="mon-num">{asks[i] ? sizeOrDash(asks[i].size) : ''}</td>
+                <td className="mon-num mon-muted">{asks[i] ? fmt(cumAsk[i] ?? null) : ''}</td>
               </tr>
             ))}
           </tbody>

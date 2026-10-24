@@ -245,7 +245,7 @@ export function buildIntentPayload(
 
 /** The purpose the core derives when the intent names none (BUY opens, SELL reduces). */
 export function derivedPurpose(side: Side | ''): string {
-  return side === 'BUY' ? 'ENTRY' : side === 'SELL' ? 'EXIT' : '—';
+  return side === 'BUY' ? 'ENTRY' : side === 'SELL' ? 'EXIT' : 'choose a side first';
 }
 
 /** Default session for the ticket: the first RUNNING session, else the first session listed. */

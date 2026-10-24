@@ -6,13 +6,14 @@
  */
 import { useState, type ReactNode } from 'react';
 import { DataTable, type Column } from '../../ui/DataTable';
-import { FixtureBadge, Money, StatusPill } from '../../ui/primitives';
+import { FixtureRefused, Money, StatusPill } from '../../ui/primitives';
 import { QueryError } from '../../ui/WorkspaceFrame';
 import { Segmented } from '../operations/parts';
 import { usePluginQuery } from '../plugin-api/hooks';
 import { BacktestChart, BarList } from './charts';
 import { SNAPSHOT_STORE_QUERY, backtestDays, dec, fmtFloatMoney, fmtNum, fmtPct, isRec, kupiecVerdict, num, ofKind, recs, str, unavailableReason, weightPct, type BacktestDay, type Rec, type ScopeOption } from './model';
 import { PortfolioFrame, AsOf, FixtureNote, Lineage, QuoteSnapshotNote, ScopeSelect, Toolbar, Unavailable, type FormulaDef } from './parts';
+import { asText, NoValue } from '../../ui/unavailable';
 
 type Group = 'by_instrument' | 'by_owner' | 'by_sector';
 
@@ -29,7 +30,6 @@ function ExposurePanel({ body, formulas }: { body: Rec; formulas: Map<string, Fo
       </header>
       <div className="panel-body">
         <QuoteSnapshotNote body={body} />
-        <FixtureNote body={body} />
         {per.length === 0 ? <p className="muted">No positions in this scope: no exposure.</p> : null}
         {per.map((c) => {
           const ccy = str(c.currency) ?? '';
@@ -40,7 +40,7 @@ function ExposurePanel({ body, formulas }: { body: Rec; formulas: Map<string, Fo
           const rows = recs(c[group]);
           const cols: Column<Rec>[] = [
             { id: 'k', header: group === 'by_instrument' ? 'Instrument' : group === 'by_owner' ? 'Owner' : 'Sector (SIC division)', cell: (r) => <span className="cmd-id">{str(r[keyOf])}</span>, wrap: true },
-            { id: 'n', header: 'Positions', numeric: true, cell: (r) => num(r.positions) ?? '—' },
+            { id: 'n', header: 'Positions', numeric: true, cell: (r) => num(r.positions) ?? <NoValue reason="NOT_REPORTED" /> },
             { id: 'long', header: 'Long', numeric: true, cell: (r) => <Money amount={dec(r.long)} currency={ccy} /> },
             { id: 'short', header: 'Short', numeric: true, cell: (r) => <Money amount={dec(r.short)} currency={ccy} /> },
             { id: 'gross', header: 'Gross', numeric: true, cell: (r) => <Money amount={dec(r.gross)} currency={ccy} />, sortValue: (r) => dec(r.gross), sortKind: 'decimal' },
@@ -70,16 +70,16 @@ function ExposurePanel({ body, formulas }: { body: Rec; formulas: Map<string, Fo
                   <div className="v">{fmtNum(num(conc.hhi), 3)}</div>
                   <div className="s">
                     effective N {fmtNum(num(conc.effective_n), 1)}
-                    {topKey ? ` · ${topKey.replace(/_/g, ' ')} ${fmtPct(num(conc[topKey]), 1)}` : ''}
+                    {topKey ? ` · ${topKey.replace(/_/g, ' ')} ${asText(fmtPct(num(conc[topKey]), 1))}` : ''}
                   </div>
                 </div>
                 <div className="pf-kpi">
                   <div className="k">Coverage</div>
                   <div className="v">
-                    {num(cov.priced_positions) ?? 0} priced · {num(cov.unpriced_positions) ?? 0} unpriced
+                    {num(cov.priced_positions) ?? <NoValue reason="NOT_REPORTED" />} priced · {num(cov.unpriced_positions) ?? <NoValue reason="NOT_REPORTED" />} unpriced
                   </div>
                   <div className="s">
-                    {num(cov.stale_marked_positions) ?? 0} stale-marked · sector-classified {weightPct(dec(cov.sector_classified_share_of_gross))} of gross
+                    {num(cov.stale_marked_positions) ?? <NoValue reason="NOT_REPORTED" />} stale-marked · sector-classified {weightPct(dec(cov.sector_classified_share_of_gross))} of gross
                   </div>
                 </div>
               </div>
@@ -96,7 +96,7 @@ function ExposurePanel({ body, formulas }: { body: Rec; formulas: Map<string, Fo
                 />
                 <span className="pf-hint">{str(conc.basis)}</span>
               </div>
-              {rows.length ? <BarList items={rows.map((r) => ({ key: str(r[keyOf]) ?? '?', label: str(r[keyOf]) ?? '?', value: dec(r.gross), currency: ccy, note: `${weightPct(dec(r.share_of_gross))} of gross` }))} label={`Gross exposure ${group.replace('_', ' ')}, ${ccy}`} /> : null}
+              {rows.length ? <BarList items={rows.map((r) => ({ key: str(r[keyOf]) ?? '?', label: str(r[keyOf]) ?? '?', value: dec(r.gross), currency: ccy, note: `${asText(weightPct(dec(r.share_of_gross)))} of gross` }))} label={`Gross exposure ${group.replace('_', ' ')}, ${ccy}`} /> : null}
               <DataTable caption={`Exposure ${group.replace('_', ' ')}, ${ccy}`} captionHidden columns={cols} rows={rows} rowKey={(r) => str(r[keyOf]) ?? '?'} emptyText="No priced positions." maxHeight="300px" />
               {recs(c.unpriced).length ? (
                 <p className="pf-hint">
@@ -107,7 +107,7 @@ function ExposurePanel({ body, formulas }: { body: Rec; formulas: Map<string, Fo
           );
         })}
         <p className="pf-hint" style={{ margin: 0 }}>
-          Sector scheme: {str(cls.scheme) ?? '—'}. Unclassified names fall into “{str(cls.unclassified_bucket) ?? 'unknown'}”, never a default sector. No FX conversion is applied between currencies.
+          Sector scheme: {str(cls.scheme) ?? <NoValue reason="NOT_REPORTED" />}. Unclassified names fall into “{str(cls.unclassified_bucket) ?? 'unknown'}”, never a default sector. No FX conversion is applied between currencies.
         </p>
         <Lineage body={body} formulas={formulas} />
       </div>
@@ -126,10 +126,9 @@ function VarPanel({ body, formulas }: { body: Rec; formulas: Map<string, Formula
       </header>
       <div className="panel-body">
         <QuoteSnapshotNote body={body} />
-        <FixtureNote body={body} />
         <div className="callout pf-gap" role="note" style={{ ['--tone' as string]: 'var(--info)' }}>
-          {str(body.statement) ?? 'VaR does not represent the worst-case loss'}. Confidence {str(body.alpha) ?? '?'}, horizon {num(body.horizon_days) ?? '?'} day(s), up to{' '}
-          {num(body.lookback_scenarios) ?? '?'} scenarios from {num(hist.valuation_dates_visible) ?? 0} visible valuation date(s). Figures are statistical estimates (floats), loss positive.
+          {str(body.statement) ?? 'VaR does not represent the worst-case loss'}. Confidence {str(body.alpha) ?? <NoValue reason="NOT_REPORTED" />}, horizon {num(body.horizon_days) ?? <NoValue reason="NOT_REPORTED" />} day(s), up to{' '}
+          {num(body.lookback_scenarios) ?? <NoValue reason="NOT_REPORTED" />} scenarios from {num(hist.valuation_dates_visible) ?? <NoValue reason="NOT_REPORTED" />} visible valuation date(s). Figures are statistical estimates (floats), loss positive.
         </div>
         {str(hist.unavailable_reason) ? <Unavailable what="Return history" reason={str(hist.unavailable_reason) as string} /> : null}
         {by.map(([ccy, v]) => (
@@ -138,23 +137,23 @@ function VarPanel({ body, formulas }: { body: Rec; formulas: Map<string, Formula
               <div className="pf-kpi">
                 <div className="k">VaR, {ccy}</div>
                 <div className="v">{fmtFloatMoney(num(v.var), ccy)}</div>
-                <div className="s">{num(v.var) === null ? str(v.reason) : `${fmtPct(num(v.var_pct_of_scope_nav), 2)} of scope NAV; scenario ${str(v.var_scenario_date) ?? '?'}`}</div>
+                <div className="s">{num(v.var) === null ? str(v.reason) : `${asText(fmtPct(num(v.var_pct_of_scope_nav), 2))} of scope NAV; scenario ${str(v.var_scenario_date) ?? '?'}`}</div>
               </div>
               <div className="pf-kpi">
                 <div className="k">Expected shortfall, {ccy}</div>
                 <div className="v">{fmtFloatMoney(num(v.es), ccy)}</div>
-                <div className="s">{num(v.es_tail_mean_ibkr_form) !== null ? `IBKR tail-mean form ${fmtFloatMoney(num(v.es_tail_mean_ibkr_form), ccy)}` : 'quantile-integral definition'}</div>
+                <div className="s">{num(v.es_tail_mean_ibkr_form) !== null ? `IBKR tail-mean form ${asText(fmtFloatMoney(num(v.es_tail_mean_ibkr_form), ccy))}` : 'quantile-integral definition'}</div>
               </div>
               <div className="pf-kpi">
                 <div className="k">Worst scenario loss</div>
                 <div className="v">{fmtFloatMoney(num(v.worst_loss), ccy)}</div>
                 <div className="s">
-                  {num(v.scenarios) ?? 0} scenarios{isRec(v.scenario_dates) && str(v.scenario_dates.first) ? `, ${str(v.scenario_dates.first)} to ${str(v.scenario_dates.last)}` : ''}
+                  {num(v.scenarios) ?? <NoValue reason="NOT_REPORTED" />} scenarios{isRec(v.scenario_dates) && str(v.scenario_dates.first) ? `, ${str(v.scenario_dates.first)} to ${str(v.scenario_dates.last)}` : ''}
                 </div>
               </div>
               <div className="pf-kpi">
                 <div className="k">Coverage</div>
-                <div className="v">{v.coverage_complete === true ? 'complete' : v.coverage_complete === false ? 'partial' : '—'}</div>
+                <div className="v">{v.coverage_complete === true ? 'complete' : v.coverage_complete === false ? 'partial' : <NoValue reason="NOT_REPORTED" />}</div>
                 <div className="s">{str(v.partial_note) ?? (recs(v.uncovered).length ? `${recs(v.uncovered).length} position(s) without history` : 'every position covered')}</div>
               </div>
             </div>
@@ -192,8 +191,11 @@ function BacktestFixtureNote({ fixtureRuns, hasDays }: { fixtureRuns: boolean | 
     return <p className="pf-hint">The backtest response does not say whether its valuation snapshots used FIXTURE data, and the snapshot list could not be read.</p>;
   }
   return (
-    <div className="pf-note">
-      <FixtureBadge /> <span>Computed from valuation snapshots that include FIXTURE quotes: test data, not market data.</span>
+    <div className="callout pf-gap" role="alert" style={{ ['--tone' as string]: 'var(--alert)' }}>
+      <FixtureRefused label="VaR backtest" detail="Its valuation snapshots include FIXTURE quotes." />{' '}
+      <span>
+        <strong>VaR backtest not shown.</strong> Its valuation snapshots include FIXTURE (test) quotes, which are not real market data.
+      </span>
     </div>
   );
 }
@@ -201,6 +203,8 @@ function BacktestFixtureNote({ fixtureRuns, hasDays }: { fixtureRuns: boolean | 
 export function BacktestPanel({ body, formulas, fixtureRuns }: { body: Rec; formulas: Map<string, FormulaDef>; fixtureRuns?: boolean | null }) {
   const ccy = str(body.currency) ?? '';
   const days = backtestDays(body);
+  // Days read from snapshots that include FIXTURE quotes: refused, only the error is shown.
+  if (fixtureRuns === true && days.length > 0) return <BacktestFixtureNote fixtureRuns hasDays />;
   const verdict = kupiecVerdict(body.kupiec);
   const exceptions = days.filter((d) => d.exception);
   const cols: Column<BacktestDay>[] = [
@@ -215,11 +219,10 @@ export function BacktestPanel({ body, formulas, fixtureRuns }: { body: Rec; form
         <h2 id="pf-bt-h">VaR backtest</h2>
         <span className="pf-label">
           <StatusPill label={`${exceptions.length} exception(s)`} tone={exceptions.length ? 'warn' : 'neutral'} compact />
-          <span className="pf-hint">confidence {str(body.alpha) ?? '?'}, window {num(body.window) ?? '?'}</span>
+          <span className="pf-hint">confidence {str(body.alpha) ?? <NoValue reason="NOT_REPORTED" />}, window {num(body.window) ?? <NoValue reason="NOT_REPORTED" />}</span>
         </span>
       </header>
       <div className="panel-body">
-        <FixtureNote body={body} />
         <BacktestFixtureNote fixtureRuns={fixtureRuns} hasDays={days.length > 0} />
         {verdict ? (
           <div className="callout pf-gap" role="status" style={{ ['--tone' as string]: `var(--${verdict.tone === 'neutral' ? 'info' : verdict.tone})` }}>
@@ -229,7 +232,7 @@ export function BacktestPanel({ body, formulas, fixtureRuns }: { body: Rec; form
         {days.length ? <BacktestChart days={days} currency={ccy} /> : <p className="muted">No backtest day yet: each forecast needs enough return history at the prior valuation.</p>}
         {exceptions.length ? (
           <p className="pf-hint">
-            Exceptions: {exceptions.map((d) => `${d.date} (loss ${fmtFloatMoney(d.realized, ccy)} vs VaR ${fmtFloatMoney(d.forecast, ccy)})`).join('; ')}
+            Exceptions: {exceptions.map((d) => `${d.date} (loss ${asText(fmtFloatMoney(d.realized, ccy))} vs VaR ${asText(fmtFloatMoney(d.forecast, ccy))})`).join('; ')}
           </p>
         ) : null}
         <p className="pf-hint" style={{ margin: 0 }}>
@@ -304,6 +307,9 @@ export function RiskTab({ bar, scope, setScope, options, formulas }: { bar: Reac
       <QueryError what="Exposure" error={expoQ.error} />
       <QueryError what="VaR" error={varQ.error} />
       <QueryError what="VaR backtest" error={btQ.error} />
+      <FixtureNote data={expoQ.data} what="Exposure" />
+      <FixtureNote data={varQ.data} what="VaR" />
+      <FixtureNote data={btQ.data} what="VaR backtest" />
       {expo ? <ExposurePanel body={expo} formulas={formulas} /> : expoQ.status === 'loading' ? <p className="muted">Loading exposure…</p> : null}
       {v ? <VarPanel body={v} formulas={formulas} /> : null}
       {btWhy ? <Unavailable what="VaR backtest" reason={btWhy} /> : bt ? <BacktestPanel body={bt} formulas={formulas} fixtureRuns={fixtureRuns} /> : null}

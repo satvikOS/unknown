@@ -14,6 +14,7 @@ import { usePluginQuery } from '../plugin-api/hooks';
 import { WeightBar } from './charts';
 import { arr, sentence, ALLOCATION_METHODS, allocationParamErrors, fmtNum, fmtPct, isRec, num, ofKind, recs, str, weightRows, dec, type Rec, type ScopeOption, type WeightRow } from './model';
 import { PortfolioFrame, AsOf, FixtureNote, Lineage, QuoteSnapshotNote, ResultLabel, ScopeSelect, Unavailable, type FormulaDef } from './parts';
+import { asText, NoValue } from '../../ui/unavailable';
 
 interface Params {
   cash_reserve: string;
@@ -46,7 +47,7 @@ export function TradeList({ name, label, tl }: { name: string; label: string; tl
   const totals = isRec(tl.totals) ? tl.totals : {};
   const cols: Column<Rec>[] = [
     { id: 'i', header: 'Instrument', cell: (t) => <span className="cmd-id">{str(t.instrument_id)}</span> },
-    { id: 's', header: 'Side', cell: (t) => str(t.side) ?? '—' },
+    { id: 's', header: 'Side', cell: (t) => str(t.side) ?? <NoValue reason="NOT_REPORTED" /> },
     { id: 'q', header: 'Quantity', numeric: true, cell: (t) => <Qty value={dec(t.quantity)} /> },
     { id: 'tq', header: 'Target quantity', numeric: true, cell: (t) => <Qty value={dec(t.target_quantity)} /> },
     { id: 'p', header: 'Sizing price', numeric: true, cell: (t) => <Money amount={dec(t.sizing_price)} currency={ccy} /> },
@@ -183,6 +184,7 @@ export function AllocationTab({ bar, scope, setScope, options, formulas }: { bar
         </div>
       </form>
       <QueryError what="Allocation" error={q.error} />
+      <FixtureNote data={q.data} what="Allocation" />
       {body ? (
         <>
           <ResultLabel kind="proposal" text={str(body.label)} />
@@ -191,7 +193,6 @@ export function AllocationTab({ bar, scope, setScope, options, formulas }: { bar
             <span>scope {str(body.scope)}</span>
           </div>
           <QuoteSnapshotNote body={body} />
-          <FixtureNote body={body} />
           {str(body.history_unavailable_reason) ? <Unavailable what="Return history" reason={str(body.history_unavailable_reason) as string} /> : null}
           <section className="panel pf-section" aria-labelledby="pf-w-h">
             <header>
@@ -208,8 +209,8 @@ export function AllocationTab({ bar, scope, setScope, options, formulas }: { bar
                   if (!isRec(res)) return <li key={m.id}>{m.label}: not computed.</li>;
                   return (
                     <li key={m.id}>
-                      {m.label}: {str(res.status) ?? '—'}
-                      {num(res.cash_weight) !== null ? `, cash ${fmtPct(num(res.cash_weight), 2)}` : ''}
+                      {m.label}: {str(res.status) ?? <NoValue reason="NOT_REPORTED" />}
+                      {num(res.cash_weight) !== null ? `, cash ${asText(fmtPct(num(res.cash_weight), 2))}` : ''}
                       {str(res.reason) ? ` (${str(res.reason)})` : ''}
                     </li>
                   );
@@ -231,18 +232,18 @@ export function AllocationTab({ bar, scope, setScope, options, formulas }: { bar
             <section className="panel pf-section" aria-labelledby="pf-mv-h">
               <header>
                 <h2 id="pf-mv-h">Mean-variance diagnostics</h2>
-                <StatusPill label={str(mv.status) ?? '?'} tone={str(mv.status)?.startsWith('optimal') ? 'ok' : 'warn'} compact />
+                <StatusPill label={str(mv.status) ?? 'NOT REPORTED'} tone={str(mv.status)?.startsWith('optimal') ? 'ok' : 'warn'} compact />
               </header>
               <div className="panel-body">
                 <dl className="kv">
                   <dt>Expected returns</dt>
-                  <dd>{isRec(mv.expected_returns) ? str(mv.expected_returns.source) : '—'}</dd>
+                  <dd>{isRec(mv.expected_returns) ? str(mv.expected_returns.source) : <NoValue reason="NOT_REPORTED" />}</dd>
                   <dt>Portfolio volatility</dt>
                   <dd className="num">{fmtPct(num(mv.portfolio_volatility), 3)} per period</dd>
                   <dt>Turnover (L1 / half)</dt>
                   <dd className="num">
                     {fmtPct(num(mv.turnover_l1), 2)} / {fmtPct(num(mv.turnover_half_l1), 2)}
-                    {num(mv.turnover_limit) !== null ? ` · limit ${fmtPct(num(mv.turnover_limit), 2)}` : ''}
+                    {num(mv.turnover_limit) !== null ? ` · limit ${asText(fmtPct(num(mv.turnover_limit), 2))}` : ''}
                   </dd>
                   <dt>KKT residual</dt>
                   <dd className="num">{fmtNum(num(mv.kkt_residual), 12)}</dd>
@@ -250,7 +251,7 @@ export function AllocationTab({ bar, scope, setScope, options, formulas }: { bar
                     <>
                       <dt>Covariance</dt>
                       <dd>
-                        Ledoit-Wolf shrinkage toward {str(cov.target)}, intensity {fmtNum(num(cov.intensity), 3)}, {num(cov.observations) ?? '?'} observations; condition number{' '}
+                        Ledoit-Wolf shrinkage toward {str(cov.target)}, intensity {fmtNum(num(cov.intensity), 3)}, {num(cov.observations) ?? <NoValue reason="NOT_REPORTED" />} observations; condition number{' '}
                         {fmtNum(num(cov.condition_number_before), 1)} → {fmtNum(num(cov.condition_number_after), 1)}; {cov.psd === true ? 'positive semidefinite' : 'not PSD'}
                       </dd>
                     </>

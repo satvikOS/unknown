@@ -5,6 +5,8 @@
  * `shiftDecimal` only moves the decimal point. Research statistics arrive as JSON floats (the research
  * engine documents them as float statistics); `formatStat` and `formatFractionPct` format those, and say so.
  */
+import type { ReactElement } from 'react';
+import { missingNumber, noValue } from '../../ui/unavailable';
 import { formatDecimal, parseDecimal } from '../../format/decimal';
 
 /** Multiply a decimal string by 10^places exactly: ("0.3878787879", 2) -> "38.78787879". Null if not a decimal. */
@@ -131,8 +133,8 @@ export function populateCommands(reason: string | null | undefined, documented: 
  * A float statistic for display, with `digits` significant digits ("0.1297", "-0.00006447"). Research
  * metrics are floats by design; never use this for money or for API decimal strings.
  */
-export function formatStat(x: number | null | undefined, digits = 4): string {
-  if (x === null || x === undefined) return '—';
+export function formatStat(x: number | null | undefined, digits = 4): string | ReactElement {
+  if (x === null || x === undefined) return noValue('NOT_REPORTED');
   if (!Number.isFinite(x)) return String(x);
   if (x === 0) return '0';
   const abs = Math.abs(x);
@@ -144,8 +146,9 @@ export function formatStat(x: number | null | undefined, digits = 4): string {
 }
 
 /** A float fraction as a percentage with fixed decimals: 0.35073 -> "35.07 %". */
-export function formatFractionPct(x: number | null | undefined, decimals = 2): string {
-  if (x === null || x === undefined || !Number.isFinite(x)) return '—';
+export function formatFractionPct(x: number | null | undefined, decimals = 2): string | ReactElement {
+  const missing = missingNumber(x);
+  if (missing || x === null || x === undefined) return missing ?? noValue('NOT_REPORTED');
   const v = x * 100;
   const s = v.toFixed(decimals);
   return `${/^-0\.?0*$/.test(s) ? s.slice(1) : s} %`;

@@ -43,6 +43,7 @@ import {
 import { FilingsView, PeersView } from './Peers';
 import { StatementsView } from './Statements';
 import { TearsheetView } from './Tearsheet';
+import { NoValue } from '../../ui/unavailable';
 
 const DESCRIPTION =
   'Issuers from SEC filings and EU ESEF annual reports in the research store: point-in-time statements, metrics, DCF, peers and tearsheet.';
@@ -182,7 +183,7 @@ function SearchResults({ data, open, opts }: { data: SearchResponse; open: (c: S
           </span>
         ) : c.kind === 'eu_instrument' ? (
           <span>
-            {c.mic} · CFI {c.cfi ?? '—'} · {c.currency ?? 'no currency'} · issuer {c.issuer_lei ?? 'unknown'}
+            {c.mic} · CFI {c.cfi ?? <NoValue reason="NOT_REPORTED" />} · {c.currency ?? 'no currency'} · issuer {c.issuer_lei ?? 'unknown'}
           </span>
         ) : c.kind === 'instrument' ? (
           <span>
@@ -190,7 +191,7 @@ function SearchResults({ data, open, opts }: { data: SearchResponse; open: (c: S
           </span>
         ) : (
           <span>
-            {c.ticker ?? '—'} {c.exch_code ?? ''} · {c.security_type ?? '—'} · {c.mapping_status} · <span className="muted">{c.status_note}</span>
+            {c.ticker ?? <NoValue reason="NOT_REPORTED" />} {c.exch_code ?? ''} · {c.security_type ?? <NoValue reason="NOT_REPORTED" />} · {c.mapping_status} · <span className="muted">{c.status_note}</span>
           </span>
         ),
     },

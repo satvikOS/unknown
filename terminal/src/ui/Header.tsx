@@ -10,8 +10,9 @@ import { formatClock } from '../format/time';
 import { BrandMark } from './AuthScreens';
 import { Icon } from './Icon';
 import { MOD_LABEL } from './keys';
-import { FixtureBadge, ModeBadge, StatusPill, type Tone } from './primitives';
+import { Badge, ModeBadge, StatusPill, type Tone } from './primitives';
 import { nextTheme, setTheme, useTheme } from './theme';
+import { describeReason, NoValue } from './unavailable';
 
 function isCoreHealth(core: HealthResponse['core'] | undefined): core is CoreHealth {
   return !!core && !('error' in core);
@@ -28,6 +29,8 @@ function HealthPills() {
     return <StatusPill label="CORE DOWN" tone="bad" detail={core.error} />;
   }
   const brokerOk = core.broker_connected && core.broker_authenticated;
+  // The simulated broker prices only from a real configured quote source; the badge appears only when it cannot.
+  const sim = core.provider === 'simulated' ? (core.sim_execution ?? null) : null;
   const brokerLabel = !core.broker_connected ? 'BROKER DOWN' : !core.broker_authenticated ? 'BROKER AUTH' : 'BROKER OK';
   const coreTone: Tone = core.cycle_errors > 0 ? 'warn' : 'ok';
   return (
@@ -37,8 +40,16 @@ function HealthPills() {
         tone={coreTone}
         detail={`Core answered; ${core.cycle_errors} loop errors; disk free ${core.disk_free_mb} MB`}
       />
-      <StatusPill label={brokerLabel} tone={brokerOk ? 'ok' : 'bad'} detail={`${core.provider}: ${core.detail}`} />
-      {core.provider === 'simulated' ? <FixtureBadge title={`Simulated broker (${core.detail}); quotes and fills are fixtures`} /> : null}
+      <StatusPill
+        label={brokerLabel}
+        tone={brokerOk ? 'ok' : 'bad'}
+        detail={`${core.provider}: ${core.detail}${sim ? `; simulated fills priced from ${sim.source ?? 'no quote source'}` : ''}`}
+      />
+      {sim?.reason ? (
+        <Badge tone="warn" title={`Simulated broker: ${sim.detail}. ${describeReason(sim.reason)}`}>
+          {`SIM ${sim.reason.replace(/_/g, ' ')}`}
+        </Badge>
+      ) : null}
     </>
   );
 }
@@ -54,7 +65,7 @@ function StreamPill() {
     <span className="topbar-group" title={detail}>
       <StatusPill label={label} tone={tone} detail={detail} />
       <span className="num muted">
-        seq <span style={{ color: 'var(--text)' }}>{s.seq ?? '—'}</span>
+        seq <span style={{ color: 'var(--text)' }}>{s.seq ?? <NoValue reason="NOT_REPORTED" />}</span>
       </span>
     </span>
   );
@@ -94,7 +105,7 @@ export function Header({ onOpenPalette }: { onOpenPalette: () => void }) {
         <div className="topbar-group account-mode">
           <span className="account-id">
             <span className="label">Account</span>
-            <span className="mono">{account?.account_key ?? '—'}</span>
+            <span className="mono">{account?.account_key ?? <NoValue reason="NOT_REPORTED" />}</span>
           </span>
           <ModeBadge mode={account?.mode ?? coreMode} />
           {modeMismatch ? <StatusPill label="MODE MISMATCH" tone="bad" detail={`Ledger says ${account?.mode}, core broker says ${coreMode}`} /> : null}

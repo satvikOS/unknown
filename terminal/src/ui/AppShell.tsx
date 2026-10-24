@@ -230,7 +230,8 @@ function usePaletteItems(open: boolean, openHelp: () => void, openFunctions: () 
         group: 'Instruments',
         label: `${i.symbol} ${i.name}`,
         hint: i.instrument_id,
-        keywords: `instrument ${i.instrument_id} ${i.venue_mic} ${i.attributes.fixture ? 'fixture' : ''}`,
+        keywords: `instrument ${i.instrument_id} ${i.venue_mic}`,
+        ...(i.attributes?.fixture === true ? { hint: `${i.instrument_id} · ERR: not a real security` } : {}),
         run: () => router.navigate('instruments', i.instrument_id),
       });
     }

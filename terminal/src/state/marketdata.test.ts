@@ -1,5 +1,5 @@
 /** Market-data client: one EventSource, ref-counted keys, frame-batched notifications, seq-gap resync, health.
- * Every price is a SYNTHETIC test fixture. */
+ * Every price is test-only data (source TEST, data type REALTIME). */
 import { describe, expect, it } from 'vitest';
 import { MarketDataClient, type Quote } from './marketdata';
 import type { EventSourceLike } from './stream';
@@ -25,8 +25,8 @@ class FakeES implements EventSourceLike {
 function quote(key: string, seq: number, over: Partial<Quote> = {}): Quote {
   return {
     key, seq, bid: '10.00', ask: '10.02', bid_size: '100', ask_size: '200', last: '10.01', last_size: '100',
-    volume: '1000', open: null, high: null, low: null, prev_close: '9.00', currency: 'USD', source: 'SYNTHETIC',
-    data_type: 'SYNTHETIC', ts_source_ns: null, ts_recv_ns: '1700000000000000000', ts_pub_ns: '1700000000000000000',
+    volume: '1000', open: null, high: null, low: null, prev_close: '9.00', currency: 'USD', source: 'TEST',
+    data_type: 'REALTIME', ts_source_ns: null, ts_recv_ns: '1700000000000000000', ts_pub_ns: '1700000000000000000',
     ...over,
   };
 }
@@ -89,7 +89,7 @@ describe('market-data client', () => {
     t.runFrames();
     expect(calls).toEqual([['AAPL.XNAS', 'MSFT.XNAS']]);
     expect(t.client.quote('AAPL.XNAS')?.bid).toBe('10.01');
-    expect(t.client.health().sources).toEqual({ SYNTHETIC: ['SYNTHETIC'] });
+    expect(t.client.health().sources).toEqual({ TEST: ['REALTIME'] });
   });
 
   it('resyncs from the snapshot on a quote seq gap and ignores older quotes', async () => {
@@ -116,7 +116,7 @@ describe('market-data client', () => {
     t.runTimers();
     const es = t.sources[0] as FakeES;
     const trade = (seq: number) => ({ key: 'AAPL.XNAS', seq, price: '10.00', size: '1', exchange: 'X', conditions: [],
-      source: 'SYNTHETIC', data_type: 'SYNTHETIC', ts_source_ns: null, ts_recv_ns: '1', ts_pub_ns: '1' });
+      source: 'TEST', data_type: 'REALTIME', ts_source_ns: null, ts_recv_ns: '1', ts_pub_ns: '1' });
     es.emit('trade', trade(1));
     es.emit('trade', trade(2));
     expect(t.client.tradesFor('AAPL.XNAS').map((x) => x.seq)).toEqual([2, 1]);
@@ -129,6 +129,33 @@ describe('market-data client', () => {
     es.emit('status', { key: 'AAPL.XNAS', state: 'STALE', reason: '3 trade(s) not delivered: buffer full' });
     expect(t.client.health().overflows).toBe(1);
     expect(t.client.status('AAPL.XNAS')?.state).toBe('STALE');
+  });
+
+  it('never stores an event of a non-market data type: the key is in ERROR until real data arrives', async () => {
+    const t = setup();
+    t.client.subscribe(['AAPL.XNAS', 'MSFT.XNAS'], () => undefined);
+    t.runTimers();
+    const es = t.sources[0] as FakeES;
+    es.emit('quote', quote('AAPL.XNAS', 1, { source: 'GEN', data_type: 'SYNTHETIC' as never }));
+    expect(t.client.quote('AAPL.XNAS')).toBeUndefined();
+    expect(t.client.status('AAPL.XNAS')).toEqual({
+      key: 'AAPL.XNAS', state: 'ERROR', reason: 'Refused quote from GEN: data type SYNTHETIC is not real market data.',
+    });
+    es.emit('trade', { key: 'MSFT.XNAS', seq: 1, price: '1', size: '1', exchange: null, conditions: [], source: 'GEN', ts_recv_ns: '1' });
+    expect(t.client.tradesFor('MSFT.XNAS')).toEqual([]);
+    expect(t.client.status('MSFT.XNAS')?.reason).toBe('Refused trade from GEN: data type missing is not real market data.');
+    expect(t.client.health().sources).toEqual({});
+    es.emit('quote', quote('AAPL.XNAS', 2));
+    expect(t.client.quote('AAPL.XNAS')?.data_type).toBe('REALTIME');
+    expect(t.client.status('AAPL.XNAS')).toBeUndefined();
+    // A snapshot resync refuses the same way.
+    t.setSnapshot({ quotes: [quote('AAPL.XNAS', 9, { bid: '11.00', data_type: 'FIXTURE' as never })] });
+    es.emit('quote', quote('AAPL.XNAS', 5));
+    t.runFrames();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(t.client.quote('AAPL.XNAS')?.bid).toBe('10.00');
+    expect(t.client.status('AAPL.XNAS')?.state).toBe('ERROR');
   });
 
   it('reports stream state and heartbeats through the health provider', () => {

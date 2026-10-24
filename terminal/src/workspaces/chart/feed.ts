@@ -38,7 +38,8 @@ export function parseStreamMessage(
   if (!d || typeof d !== 'object' || typeof d.key !== 'string') return null;
   const ts = (typeof d.ts_source_ns === 'string' || typeof d.ts_source_ns === 'number' ? d.ts_source_ns : d.ts_recv_ns) ?? null;
   const tsNs = ts === null ? null : String(ts);
-  const dataType = typeof d.data_type === 'string' ? d.data_type : 'SYNTHETIC';
+  // A missing data type is not a real one: applyTick refuses the tick.
+  const dataType = typeof d.data_type === 'string' ? d.data_type : '';
   const source = typeof d.source === 'string' ? d.source : null;
   if (type === 'trade' && typeof d.price === 'string' && tsNs) {
     return { kind: 'tick', key: d.key, source, tick: { kind: 'trade', price: d.price, size: typeof d.size === 'string' ? d.size : null, tsNs, dataType } };

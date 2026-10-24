@@ -11,7 +11,7 @@ import { entryState } from '../../controls/model';
 import { formatTimestampMs } from '../../format/time';
 import { useAuth, useNow, useQuery, useSendCommand, useTrackedCommand } from '../../state/react';
 import { routeHref } from '../../state/router';
-import { Money, Qty, ShortId, StatusPill } from '../../ui/primitives';
+import { FixtureRefused, Money, Qty, ShortId, StatusPill } from '../../ui/primitives';
 import { sessionStateTone } from '../../ui/tones';
 import { QueryError, WorkspaceFrame, WorkspaceLink } from '../../ui/WorkspaceFrame';
 import { decisionFromRejection, decisionFromTimeline, explainRejectionCode } from './decision';
@@ -31,6 +31,7 @@ import {
   type TicketField,
   type TicketInput,
 } from './ticket';
+import { NoValue } from '../../ui/unavailable';
 
 interface SentIntent {
   commandId: string;
@@ -73,7 +74,8 @@ function describedBy(field: TicketField, error: string | undefined, hint: string
 }
 
 function instrumentLabel(i: Instrument): string {
-  return `${i.symbol} · ${i.name} · ${i.instrument_id}${isFixtureInstrument(i) ? ' · FIXTURE' : ''}`;
+  // A fixture instrument is not a real security; the option says so (the review step shows the error marker).
+  return `${i.symbol} · ${i.name} · ${i.instrument_id}${isFixtureInstrument(i) ? ' · ERR: not a real security' : ''}`;
 }
 
 function sessionLabel(s: Session): string {
@@ -290,9 +292,9 @@ export function TicketView({
                 <FieldMessages field="limitPrice" error={err('limitPrice')} hint={hint('limitPrice')} />
               </div>
             </div>
-            {quote && (quote.bid || quote.ask) ? (
+            {quote && !quote.fixture && (quote.bid || quote.ask) ? (
               <div className="ord-inline ord-copy" role="group" aria-label="Copy a price from the current quote into the limit price">
-                <span className="muted ord-small">Copy into limit from the {quote.fixture ? 'FIXTURE ' : ''}quote:</span>
+                <span className="muted ord-small">Copy into limit from the quote:</span>
                 {quote.bid ? (
                   <button type="button" className="btn small" onClick={() => set('limitPrice', quote.bid ?? '')}>
                     bid {quote.bid}
@@ -403,7 +405,7 @@ export function TicketView({
                       </span>
                     </>
                   ) : (
-                    <span className="muted">{session ? 'no cash bucket for this session' : '—'}</span>
+                    <span className="muted">{session ? 'no cash bucket for this session' : <NoValue reason="NOT_APPLICABLE" detail="Choose a session first." />}</span>
                   )}
                 </dd>
                 <dt>Session position</dt>
@@ -411,7 +413,7 @@ export function TicketView({
                   {sessionPosition ? (
                     <Qty value={sessionPosition.quantity} unit={instrument?.symbol ?? sessionPosition.instrument_id} />
                   ) : (
-                    <span className="muted">{input.instrumentId && session ? 'none in this instrument' : '—'}</span>
+                    <span className="muted">{input.instrumentId && session ? 'none in this instrument' : <NoValue reason="NOT_APPLICABLE" detail="Choose a session and an instrument first." />}</span>
                   )}
                 </dd>
                 {limits ? (
@@ -498,8 +500,8 @@ function ReviewBlock({
         <dd className="muted">assigned when you send (own-…)</dd>
       </dl>
       {isFixtureInstrument(instrument) ? (
-        <p className="ord-small">
-          <strong>FIXTURE</strong> instrument: this is a simulation-only security priced by the fixture market.
+        <p className="ord-small" role="alert">
+          <FixtureRefused label="Instrument" /> This instrument is marked FIXTURE: it is not a real security, and no figure derived from it is market data.
         </p>
       ) : null}
       <div className="ord-actions">

@@ -35,6 +35,7 @@ import {
   type SpendReservation,
 } from './model';
 import './jobs.css';
+import { NoValue } from '../../ui/unavailable';
 
 export function ModelOutput({ p, context }: { p: Proposal; context: string }) {
   return (
@@ -137,7 +138,7 @@ export function ProposalTypedFields({ p }: { p: Proposal }) {
       <dl className="kv">
         <dt>As of</dt>
         <dd>
-          <Timestamp ns={p.as_of_ns} nsStr={nsStrOf(p, 'as_of_ns')} never="—" />
+          <Timestamp ns={p.as_of_ns} nsStr={nsStrOf(p, 'as_of_ns')} reason="NOT_REPORTED" />
         </dd>
         <dt>Instruments</dt>
         <dd>{p.instrument_ids.length ? p.instrument_ids.join(', ') : <span className="muted">none named</span>}</dd>
@@ -147,7 +148,7 @@ export function ProposalTypedFields({ p }: { p: Proposal }) {
         <dd>
           {w ? (
             <>
-              <Timestamp ns={w.from_ns} nsStr={nsStrOf(w, 'from_ns')} never="—" /> to <Timestamp ns={w.to_ns} nsStr={nsStrOf(w, 'to_ns')} never="—" />
+              <Timestamp ns={w.from_ns} nsStr={nsStrOf(w, 'from_ns')} reason="NOT_REPORTED" /> to <Timestamp ns={w.to_ns} nsStr={nsStrOf(w, 'to_ns')} reason="NOT_REPORTED" />
             </>
           ) : (
             <span className="muted">none</span>
@@ -330,7 +331,7 @@ function SpendPanel({ d }: { d: JobDetail }) {
     { id: 'reserved', header: 'Reserved', numeric: true, cell: (r) => <Money amount={r.reserved} currency={r.currency} kind="held" /> },
     { id: 'actual', header: 'Actual', numeric: true, cell: (r) => <Money amount={r.actual} currency={r.currency} unavailable="not settled" /> },
     { id: 'state', header: 'State', cell: (r) => <StatusPill label={r.state} tone={r.state === 'SETTLED' ? 'ok' : r.state === 'UNCONFIRMED' ? 'warn' : 'neutral'} compact /> },
-    { id: 'note', header: 'Note', cell: (r) => r.note || <span className="muted">—</span>, wrap: true },
+    { id: 'note', header: 'Note', cell: (r) => r.note || <NoValue reason="NOT_REPORTED" />, wrap: true },
   ];
   return (
     <section className="panel" aria-labelledby="rj-spend-h">
@@ -359,22 +360,22 @@ function SpendPanel({ d }: { d: JobDetail }) {
             )}
           </dd>
           <dt>Token cap</dt>
-          <dd className="num">{env?.token_cap?.toLocaleString('en-US') ?? '—'}</dd>
+          <dd className="num">{env?.token_cap?.toLocaleString('en-US') ?? <NoValue reason="NOT_REPORTED" />}</dd>
           <dt>Turns / retries / tools</dt>
           <dd className="num">
-            {env?.max_turns ?? '—'} / {env?.retry_budget ?? '—'} / {env?.max_tool_calls ?? '—'}
+            {env?.max_turns ?? <NoValue reason="NOT_REPORTED" />} / {env?.retry_budget ?? <NoValue reason="NOT_REPORTED" />} / {env?.max_tool_calls ?? <NoValue reason="NOT_REPORTED" />}
           </dd>
           <dt>Deadline</dt>
           <dd>
             <Timestamp
               ns={env?.deadline_ns ?? d.job.deadline_ns}
               nsStr={env?.deadline_ns !== null && env?.deadline_ns !== undefined ? nsStrOf(env, 'deadline_ns') : nsStrOf(d.job, 'deadline_ns')}
-              never="—"
+              reason="NOT_REPORTED"
             />
           </dd>
           <dt>Output schema</dt>
           <dd>
-            {env?.output_schema ?? '—'} v{env?.schema_version ?? '?'}
+            {env?.output_schema ?? <NoValue reason="NOT_REPORTED" />} v{env?.schema_version ?? <NoValue reason="NOT_REPORTED" />}
           </dd>
         </dl>
         {use ? (
@@ -462,10 +463,10 @@ export function JobDetailView({ jobId }: { jobId: string }) {
                   <p style={{ marginTop: 0 }}>{stateExplanation(d.job)}</p>
                   <dl className="kv">
                     <dt>Outcome</dt>
-                    <dd>{d.job.outcome || <span className="muted">—</span>}</dd>
+                    <dd>{d.job.outcome || <NoValue reason="NOT_REPORTED" />}</dd>
                     <dt>Reason</dt>
                     <dd>
-                      {d.job.reason ? <span className="rj-text">{d.job.reason}</span> : <span className="muted">—</span>}
+                      {d.job.reason ? <span className="rj-text">{d.job.reason}</span> : <NoValue reason="NOT_REPORTED" />}
                       {d.job.reason ? <span className="rj-hint"> ({reasonSource(d.job, d.events)})</span> : null}
                     </dd>
                     <dt>Submitted</dt>
@@ -483,7 +484,7 @@ export function JobDetailView({ jobId }: { jobId: string }) {
                     </dd>
                     <dt>Deadline</dt>
                     <dd>
-                      <Timestamp ns={d.job.deadline_ns} nsStr={nsStrOf(d.job, 'deadline_ns')} never="—" />
+                      <Timestamp ns={d.job.deadline_ns} nsStr={nsStrOf(d.job, 'deadline_ns')} reason="NOT_REPORTED" />
                     </dd>
                     <dt>Delivery</dt>
                     <dd>
@@ -521,13 +522,13 @@ export function JobDetailView({ jobId }: { jobId: string }) {
                     <dt>Instruments</dt>
                     <dd>{d.request?.instrument_ids.length ? d.request.instrument_ids.join(', ') : <span className="muted">none named</span>}</dd>
                     <dt>Concepts</dt>
-                    <dd>{d.request?.fields?.length ? d.request.fields.join(', ') : <span className="muted">{d.request?.issuer_ids.length ? 'server default set' : '—'}</span>}</dd>
+                    <dd>{d.request?.fields?.length ? d.request.fields.join(', ') : <span className="muted">{d.request?.issuer_ids.length ? 'server default set' : <NoValue reason="NOT_REPORTED" />}</span>}</dd>
                     <dt>Evidence as of</dt>
                     <dd>
-                      <Timestamp ns={d.evidence?.selection?.as_of_ns} nsStr={nsStrOf(d.evidence?.selection, 'as_of_ns')} never="—" />
+                      <Timestamp ns={d.evidence?.selection?.as_of_ns} nsStr={nsStrOf(d.evidence?.selection, 'as_of_ns')} reason="NOT_REPORTED" />
                     </dd>
                     <dt>Entities</dt>
-                    <dd>{d.evidence?.selection?.entity_ids.join(', ') || <span className="muted">—</span>}</dd>
+                    <dd>{d.evidence?.selection?.entity_ids.join(', ') || <NoValue reason="NOT_REPORTED" />}</dd>
                   </dl>
                   {d.evidence && d.evidence.spans.length ? (
                     <details className="rj-details" style={{ marginTop: 8 }}>

@@ -29,6 +29,7 @@ import {
   type Subscription,
 } from './model';
 import './md.css';
+import { NoValue } from '../../ui/unavailable';
 
 export const STATUS_POLL_MS = 5000;
 
@@ -70,7 +71,7 @@ function SessionPanel({ st }: { st: MarketDataStatus }) {
           <dt>State</dt>
           <dd>{conn.detail}</dd>
           <dt>Connected</dt>
-          <dd>{c?.connected === null || c === null ? '—' : c.connected ? 'yes' : 'no'}</dd>
+          <dd>{c?.connected === null || c === null ? <NoValue reason="NOT_REPORTED" /> : c.connected ? 'yes' : 'no'}</dd>
           <dt>Paper identity</dt>
           <dd>{c?.verified_paper ? 'verified' : 'not verified'}</dd>
           {c?.reason ? (
@@ -86,12 +87,12 @@ function SessionPanel({ st }: { st: MarketDataStatus }) {
           </dd>
           <dt>Host / client</dt>
           <dd className="num">
-            {c?.host ?? '—'} · client {c?.client_id ?? '—'}
+            {c?.host ?? <NoValue reason="NOT_REPORTED" />} · client {c?.client_id ?? <NoValue reason="NOT_REPORTED" />}
           </dd>
           <dt>Account</dt>
-          <dd className="num">{c?.account ?? '—'}</dd>
+          <dd className="num">{c?.account ?? <NoValue reason="NOT_REPORTED" />}</dd>
           <dt>Requested type</dt>
-          <dd>{st.requested_market_data_type ?? '—'} <span className="md-hint">(IBKR reports the delivered type per subscription)</span></dd>
+          <dd>{st.requested_market_data_type ?? <NoValue reason="NOT_REPORTED" />} <span className="md-hint">(IBKR reports the delivered type per subscription)</span></dd>
           <dt>Status file</dt>
           <dd>
             written <Timestamp ns={st.written_at_ns} nsStr={nsStrOf(st, 'written_at_ns')} />{' '}
@@ -105,7 +106,7 @@ function SessionPanel({ st }: { st: MarketDataStatus }) {
           <dt>Evidence</dt>
           <dd>{st.evidence_level ?? 'unknown evidence level'}</dd>
           <dt>Storage</dt>
-          <dd className="md-hint">{st.storage ?? '—'}</dd>
+          <dd className="md-hint">{st.storage ?? <NoValue reason="NOT_REPORTED" />}</dd>
         </dl>
       </div>
     </section>
@@ -189,15 +190,15 @@ function CapacityPanel({ st }: { st: MarketDataStatus }) {
         <dl className="kv">
           <dt>In use / capacity</dt>
           <dd className="num">
-            {lb?.in_use ?? '—'} / {lb?.capacity ?? '—'} <span className="md-hint">({lb?.lines ?? '—'} allocated, {lb?.tws_reserved_lines ?? '—'} reserved for TWS)</span>
+            {lb?.in_use ?? <NoValue reason="NOT_REPORTED" />} / {lb?.capacity ?? <NoValue reason="NOT_REPORTED" />} <span className="md-hint">({lb?.lines ?? <NoValue reason="NOT_REPORTED" />} allocated, {lb?.tws_reserved_lines ?? <NoValue reason="NOT_REPORTED" />} reserved for TWS)</span>
           </dd>
           <dt>Headroom</dt>
-          <dd className="num">{lb?.headroom ?? '—'}</dd>
+          <dd className="num">{lb?.headroom ?? <NoValue reason="NOT_REPORTED" />}</dd>
           <dt>Refused locally</dt>
-          <dd className="num">{lb?.refused_locally ?? '—'}</dd>
+          <dd className="num">{lb?.refused_locally ?? <NoValue reason="NOT_REPORTED" />}</dd>
           <dt>Pacing</dt>
           <dd className="num">
-            {p ? `${p.in_window ?? '?'} in window · max ${p.max_per_second ?? '?'}/s · ${p.reserved ?? '?'} reserved` : '—'}
+            {p ? `${p.in_window ?? '?'} in window · max ${p.max_per_second ?? '?'}/s · ${p.reserved ?? '?'} reserved` : <NoValue reason="NOT_REPORTED" />}
           </dd>
           <dt>Freshness budgets</dt>
           <dd className="num">
@@ -238,22 +239,22 @@ export function SubscriptionDetail({ s }: { s: Subscription }) {
             <TypeCell s={s} />
           </dd>
           <dt>Source label</dt>
-          <dd className="cmd-id">{s.source ?? '—'}</dd>
+          <dd className="cmd-id">{s.source ?? <NoValue reason="NOT_REPORTED" />}</dd>
           <dt>Consolidation</dt>
           <dd>
             <ConsolidationCell c={s.consolidation} /> <span className="md-hint">{consolidationText(s.consolidation).detail}</span>
           </dd>
           <dt>Feed label</dt>
           <dd>
-            {s.feed?.label ?? '—'}
+            {s.feed?.label ?? <NoValue reason="NOT_REPORTED" />}
             {s.feed?.evidence ? <div className="md-hint">Evidence: {s.feed.evidence}{s.feed.observed_on ? ` (observed ${s.feed.observed_on})` : ''}</div> : null}
           </dd>
           <dt>Contract</dt>
-          <dd className="num">conId {s.con_id ?? '—'} · req {s.req_id ?? '—'}</dd>
+          <dd className="num">conId {s.con_id ?? <NoValue reason="NOT_REPORTED" />} · req {s.req_id ?? <NoValue reason="NOT_REPORTED" />}</dd>
           <dt>Quote state</dt>
-          <dd>{s.quote_state ?? '—'}</dd>
+          <dd>{s.quote_state ?? <NoValue reason="NOT_REPORTED" />}</dd>
           <dt>Last tick</dt>
-          <dd>{s.age_ms !== null ? `${formatAge(s.age_ms)} before the status was written` : 'no tick'} · {s.ticks ?? 0} ticks</dd>
+          <dd>{s.age_ms !== null ? `${formatAge(s.age_ms)} before the status was written` : 'no tick'} · {s.ticks ?? <NoValue reason="NOT_REPORTED" />} ticks</dd>
           {s.unavailable ? (
             <>
               <dt>Unavailable</dt>
@@ -282,8 +283,8 @@ export function SubscriptionDetail({ s }: { s: Subscription }) {
           <dd>
             {a ? (
               <span className="num">
-                mid {a.mid !== null ? `${formatDecimal(a.mid)} ${quoteCcy}` : '—'} · spread {a.spread !== null ? `${formatDecimal(a.spread)} ${quoteCcy}` : '—'} ({a.spread_bps ?? '—'} bps) · age{' '}
-                {a.age_ms !== null ? formatAge(a.age_ms) : '—'}
+                mid {a.mid !== null ? `${formatDecimal(a.mid)} ${quoteCcy}` : <NoValue reason="NOT_REPORTED" />} · spread {a.spread !== null ? `${formatDecimal(a.spread)} ${quoteCcy}` : <NoValue reason="NOT_REPORTED" />} ({a.spread_bps ?? <NoValue reason="NOT_REPORTED" />} bps) · age{' '}
+                {a.age_ms !== null ? formatAge(a.age_ms) : <NoValue reason="NOT_REPORTED" />}
                 {a.stale ? ` · stale for ${Object.entries(a.stale).filter(([, v]) => v).map(([k]) => k).join(', ') || 'no use'}` : ''}
                 {a.missing_reason ? ` · ${a.missing_reason}` : ''}
               </span>
@@ -310,7 +311,7 @@ export function SubscriptionDetail({ s }: { s: Subscription }) {
                 <ul className="md-fields">
                   {s.errors.map((e, i) => (
                     <li key={i}>
-                      <span className="num">{e.code ?? '?'}</span> {e.text}
+                      <span className="num">{e.code ?? <NoValue reason="NOT_REPORTED" />}</span> {e.text}
                     </li>
                   ))}
                 </ul>
@@ -369,8 +370,8 @@ export function MarketDataWorkspace({ route, navigate }: WorkspaceProps) {
           <span className="muted">ok</span>
         ),
     },
-    { id: 'state', header: 'Quote state', cell: (s) => s.quote_state ?? <span className="muted">—</span> },
-    { id: 'age', header: 'Tick age at write', numeric: true, description: 'Receipt-time age of the latest tick when the session wrote the status file (see the file age above)', cell: (s) => (s.age_ms !== null ? formatAge(s.age_ms) : '—'), sortValue: (s) => s.age_ms ?? -1, sortKind: 'number' },
+    { id: 'state', header: 'Quote state', cell: (s) => s.quote_state ?? <NoValue reason="NOT_REPORTED" /> },
+    { id: 'age', header: 'Tick age at write', numeric: true, description: 'Receipt-time age of the latest tick when the session wrote the status file (see the file age above)', cell: (s) => (s.age_ms !== null ? formatAge(s.age_ms) : <NoValue reason="NOT_REPORTED" />), sortValue: (s) => s.age_ms ?? -1, sortKind: 'number' },
     { id: 'ticks', header: 'Ticks', numeric: true, cell: (s) => s.ticks ?? 0, sortValue: (s) => s.ticks ?? 0, sortKind: 'number' },
   ];
 

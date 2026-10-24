@@ -3,7 +3,7 @@
  * Decimals stay strings; arithmetic uses BigInt scaled integers (never floats).
  */
 import { parseDecimal } from '../../format/decimal';
-import type { DataType, Quote, StatusState } from '../../state/marketdata';
+import { isRealDataType, refusedStatus, type DataType, type KeyStatus, type Quote, type StatusState } from '../../state/marketdata';
 
 export const DEFAULT_KEYS = ['AAPL.XNAS', 'MSFT.XNAS', 'NVDA.XNAS', 'AMZN.XNAS', 'GOOGL.XNAS', 'META.XNAS', 'JPM.XNYS'];
 
@@ -21,7 +21,7 @@ export interface MonitorState {
 
 export function defaultState(extraKeys: readonly string[] = []): MonitorState {
   const lists: Watchlist[] = [{ id: 'us-large', name: 'US large caps', keys: [...DEFAULT_KEYS] }];
-  if (extraKeys.length) lists.push({ id: 'demo', name: 'Demo instruments', keys: [...extraKeys] });
+  if (extraKeys.length) lists.push({ id: 'core', name: 'Core instruments', keys: [...extraKeys] });
   return { version: 1, lists, active: 'us-large' };
 }
 
@@ -184,15 +184,19 @@ export interface SourceBadge {
   title: string;
 }
 
-/** Every row shows its source and data type; SYNTHETIC is never shown without its label. */
+/**
+ * Every row shows its source and data type. A type that is not real market data (REALTIME, DELAYED, FROZEN) is an
+ * error badge; the client never stores such a quote, so this is a second line of defence.
+ */
 export function sourceBadge(q: Pick<Quote, 'source' | 'data_type' | 'feed'> | undefined): SourceBadge {
-  if (!q) return { text: 'NO DATA', tone: 'neutral', title: 'No quote received yet' };
-  const tone: Record<DataType, SourceBadge['tone']> = { REALTIME: 'ok', DELAYED: 'warn', FROZEN: 'warn', SYNTHETIC: 'info' };
-  const text = q.data_type === 'SYNTHETIC' ? 'SYNTHETIC' : `${q.source} ${q.data_type}`;
-  const title = q.data_type === 'SYNTHETIC'
-    ? 'SYNTHETIC: generated for development and the demo; not market data'
-    : `Source ${q.source}, ${q.data_type.toLowerCase()}${q.feed ? `, feed ${q.feed}` : ''}`;
-  return { text, tone: tone[q.data_type] ?? 'neutral', title };
+  if (!q) return { text: 'NO DATA', tone: 'neutral', title: 'NOT_REPORTED: no quote received yet' };
+  if (!isRealDataType(q.data_type)) {
+    return { text: 'ERR', tone: 'bad', title: refusedStatus('', 'quote', q.source, q.data_type).reason };
+  }
+  const tone: Record<DataType, SourceBadge['tone']> = { REALTIME: 'ok', DELAYED: 'warn', FROZEN: 'warn' };
+  const text = `${q.source} ${q.data_type}`;
+  const title = `Source ${q.source}, ${q.data_type.toLowerCase()}${q.feed ? `, feed ${q.feed}` : ''}`;
+  return { text, tone: tone[q.data_type], title };
 }
 
 export function statusTone(state: StatusState | undefined): SourceBadge['tone'] {
@@ -205,10 +209,27 @@ export function statusTone(state: StatusState | undefined): SourceBadge['tone'] 
     case 'NOT_ENTITLED':
     case 'UNAVAILABLE':
     case 'ENDED':
+    case 'ERROR':
       return 'bad';
     default:
       return 'neutral';
   }
+}
+
+/** Why a watchlist row's values are missing (or in error, or stale): from the key's stream status and its quote. */
+export interface RowMiss {
+  /** NOT_ENTITLED, ERROR, NOT_REPORTED, or the stream's own state verbatim (e.g. UNAVAILABLE, LINE_BUDGET). */
+  reason: string;
+  detail: string | null;
+  /** Set when the key is STALE: the age of the last quote (null when unknown). */
+  staleAgeMs?: number | null;
+}
+
+export function rowMiss(q: Quote | undefined, st: KeyStatus | undefined, tsMs: number | null, nowMs: number): RowMiss {
+  if (st && st.state === 'STALE') return { reason: 'STALE', detail: st.reason || null, staleAgeMs: tsMs === null ? null : Math.max(0, nowMs - tsMs) };
+  if (st && st.state !== 'SUBSCRIBED') return { reason: st.state, detail: st.reason || null };
+  if (!q) return { reason: 'NOT_REPORTED', detail: 'No quote received yet.' };
+  return { reason: 'NOT_REPORTED', detail: null };
 }
 
 export interface Row {

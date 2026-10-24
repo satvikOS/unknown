@@ -114,15 +114,16 @@ describe('VaR backtest panel: exceptions', () => {
     expect(html).toContain('1 day(s) skipped');
   });
 
-  it('labels a backtest read from FIXTURE snapshots, which its own response does not flag', () => {
+  it('refuses a backtest read from FIXTURE snapshots, which its own response does not flag', () => {
     // var.backtest returns no fixture_data; the snapshot runs carry the flag (sqlite integer 0/1).
     const runs = { kind: 'snapshots', available: true, runs: [{ run_id: 'r1', fixture: 0 }, { run_id: 'r2', fixture: 1 }] };
     expect(snapshotsIncludeFixture(runs)).toBe(true);
     expect(snapshotsIncludeFixture({ ...runs, runs: [{ run_id: 'r1', fixture: 0 }] })).toBe(false);
     expect(snapshotsIncludeFixture({ kind: 'snapshots', available: false, reason: 'no snapshots' })).toBeNull();
     const html = renderToStaticMarkup(createElement(BacktestPanel, { body, formulas, fixtureRuns: true }));
-    expect(html).toContain('FIXTURE');
-    expect(html).toContain('valuation snapshots that include FIXTURE quotes');
+    expect(html).toContain('>ERR<');
+    expect(html).toContain('VaR backtest not shown.');
+    expect(html).not.toContain('<table');
     expect(renderToStaticMarkup(createElement(BacktestPanel, { body, formulas, fixtureRuns: false }))).not.toContain('FIXTURE');
     expect(renderToStaticMarkup(createElement(BacktestPanel, { body, formulas, fixtureRuns: null }))).toContain('could not be read');
   });

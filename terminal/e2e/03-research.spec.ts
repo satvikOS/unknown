@@ -3,14 +3,14 @@
  *
  * 1. Before any research data exists, each workspace shows the API's unavailable reason verbatim and the command
  *    that would populate it (never placeholder data); the formula registry (served from code) is available.
- * 2. `support/seed_research.py` then fills this run's research store (the SYNTHETIC SEC issuers of the backend
- *    fixtures, a FIXTURE Treasury curve and ECB rates) and research registry (the fixture study), exactly where
- *    the API reads them.
+ * 2. `support/seed_research.py` then fills this run's research store (the backend tests' SEC issuers, a test
+ *    Treasury curve and ECB rates) and research registry (the test-only study, recorded unflagged), exactly where
+ *    the API reads them. Product code generates none of it.
  * 3. Company: search, tearsheet blocks, point-in-time statements (a restatement is invisible before its filing),
  *    MISSING / NO_PRICE / INCOMPLETE reasons verbatim, show-calculation with the EV bridge, the DCF recipe, an
  *    UNAVAILABLE risk-free rate with its command, a REFUSED model, and peers.
  *    Macro: curve with a missing tenor, a comparison date, a past "as of" that hides later data, ECB rates and crosses.
- *    Research: experiments with FIXTURE labels and the holdout log, trials, a trial's return chart and manifest,
+ *    Research: experiments (none refused as FIXTURE) and the holdout log, trials, a trial's return chart and manifest,
  *    artifacts with status history and gate verdicts, reports, specifications and formulas.
  * 4. Accessibility checks (support/a11y.ts) on every new view in both themes, and no sideways scroll at 390 px.
  *
@@ -27,7 +27,7 @@ test.describe.configure({ mode: 'serial' });
 
 const CIK = 9000001;
 const AS_OF = '2026-10-22T12:00:00Z';
-const PRICE = { price: '50.00', currency: 'USD', source: 'FIXTURE price (e2e)', time: '2026-10-21T20:00:00Z' };
+const PRICE = { price: '50.00', currency: 'USD', source: 'TEST price (e2e)', time: '2026-10-21T20:00:00Z' };
 
 function main(page: Page) {
   return page.locator('#main');
@@ -182,7 +182,7 @@ test('company: search, tearsheet, point-in-time statements, metrics, DCF and pee
   const calc = page.getByRole('heading', { name: 'Show calculation · ev_standard' });
   await expect(calc).toBeVisible();
   await expect(main(page).getByRole('table', { name: /Components and their contribution/ })).toContainText('NOT_REPORTED');
-  await expect(main(page).getByText('FIXTURE price (e2e)').first()).toBeVisible();
+  await expect(main(page).getByText(PRICE.source).first()).toBeVisible();
 
   // DCF: the recipe, then an unavailable risk-free rate (with its command), then a refusal.
   await page.getByRole('tab', { name: 'DCF' }).click();
@@ -294,13 +294,15 @@ test('research: experiments, trials, artifacts with gate verdicts, reports, spec
   await expect(page).toHaveURL(/#\/research$/);
   await settle(page);
   await expect(page.getByRole('tab', { name: /Experiments\s*3/ })).toBeVisible();
-  const row = page.getByRole('row', { name: new RegExp(`${s.experiment}.*FIXTURE`) });
+  // The seeded study is recorded unflagged, so nothing is refused: no ERR marker, no FIXTURE label.
+  const row = page.getByRole('row', { name: new RegExp(s.experiment) });
   await expect(row).toBeVisible();
+  await expect(row.locator('.nv-error')).toHaveCount(0);
   await row.dblclick();
   await expect(page).toHaveURL(new RegExp(`#/research/experiments/${s.experiment}`));
   await settle(page);
   await expect(main(page).getByRole('heading', { name: 'Pre-registration' })).toBeVisible();
-  await expect(main(page).locator('.rx-identity')).toContainText('FIXTURE');
+  await expect(main(page).locator('.nv-error')).toHaveCount(0);
   await expect(main(page).getByRole('heading', { name: 'Holdout access log · 1' })).toBeVisible();
   await expect(main(page).getByText('single pre-registered holdout evaluation')).toBeVisible();
   await expect(main(page).getByText('Trials, all statuses (M)')).toBeVisible();
@@ -328,12 +330,11 @@ test('research: experiments, trials, artifacts with gate verdicts, reports, spec
   await expect(main(page).locator('li', { hasText: 'REPLAY_EXACT' }).first()).toContainText('PASS');
 
   await open(page, `#/research/reports/${s.report}`);
-  await expect(main(page).locator('.rx-identity')).toContainText('TREND_DAILY_V1 versus baselines on SYNTHETIC fixture series');
-  await expect(main(page).locator('.rx-identity')).toContainText('FIXTURE');
-  await expect(main(page).getByText(/not market data, not evidence of profitability/).first()).toBeVisible();
+  await expect(main(page).locator('.rx-identity')).toContainText(/TREND_DAILY_V1 versus baselines/);
+  await expect(main(page).locator('.nv-error')).toHaveCount(0);
 
   await open(page, `#/research/strategies/${s.spec}`);
-  await expect(main(page).getByText('FIXTURE DATA ALLOWED')).toBeVisible();
+  await expect(main(page).getByRole('heading', { name: 'Full specification' })).toBeVisible();
   await open(page, '#/research/formulas');
   await page.getByLabel('Filter formulas').fill('deflated');
   await expect(page.getByRole('row', { name: /dsr@1 deflated Sharpe ratio/ })).toBeVisible();
@@ -347,7 +348,7 @@ function views(): string[] {
     `#/company/search/q=Fixture`,
     `#/company/${CIK}/tearsheet/as_of=${AS_OF}`,
     `#/company/${CIK}/statements/as_of=${AS_OF}`,
-    `#/company/${CIK}/metrics/as_of=${AS_OF}/price=${PRICE.price}/price_currency=USD/price_source=FIXTURE price (e2e)/price_time=${PRICE.time}`,
+    `#/company/${CIK}/metrics/as_of=${AS_OF}/price=${PRICE.price}/price_currency=USD/price_source=${PRICE.source}/price_time=${PRICE.time}`,
     `#/company/${CIK}/dcf/as_of=${AS_OF}`,
     `#/company/${CIK}/peers/as_of=${AS_OF}`,
     `#/company/${CIK}/filings/as_of=${AS_OF}`,

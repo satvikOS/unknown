@@ -1,8 +1,10 @@
 /**
  * Portfolio, Market data and Research jobs against the real core and API started by global setup.
- * Runs after 01-flow (which leaves a session, a filled FIXTURE position and a STOP/START history);
- * the portfolio checks that need a session say so and skip without one. Backend steps the terminal
- * cannot take itself (recording a valuation snapshot, writing a FIXTURE market-data status file,
+ * Runs after 01-flow (which leaves a session, a filled position priced by the TEST feed and a STOP/START history);
+ * the portfolio checks that need a session say so and skip without one. Only real data is shown: an answer the API
+ * marks as computed from FIXTURE data (the harness may flag its test instruments so) is refused with an error, and
+ * each check accepts that refusal in place of the view. Backend steps the terminal
+ * cannot take itself (recording a valuation snapshot, writing a market-data status file,
  * writing the owner policy, running the model worker once) are in support/plugins.ts.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
@@ -33,6 +35,18 @@ function money2(v: string): string {
 
 function main(): Locator {
   return page.locator('#main');
+}
+
+/**
+ * Waits for the view or for its refusal ("<what> not shown." with an ERR marker: the answer was computed from data the
+ * API marks FIXTURE). Returns true when refused.
+ */
+async function shownOrRefused(view: Locator, what: string): Promise<boolean> {
+  const refusal = main().getByText(`${what} not shown.`, { exact: true });
+  await expect(view.or(refusal).first()).toBeVisible({ timeout: 30_000 });
+  if (!(await refusal.isVisible())) return false;
+  await expect(main().locator('.nv-error').first()).toBeVisible();
+  return true;
 }
 
 async function refresh(): Promise<void> {
@@ -69,6 +83,10 @@ test('portfolio holdings show owners and cash exactly as the API computes them',
   const unalloc = h.owners.find((o) => o.owner === 'unallocated');
   expect(unalloc, 'the bootstrap authorizes capital into unallocated').toBeTruthy();
   const owners = main().getByRole('table', { name: 'Holdings by owner' });
+  if (await shownOrRefused(owners, 'Holdings')) {
+    expect(h.fixture_data, 'only a FIXTURE answer is refused').toBe(true);
+    return;
+  }
   const row = owners.getByRole('row').filter({ hasText: /^unallocated/ });
   await expect(row).toContainText(`${money2(unalloc!.cash.settled_cash)}USD`);
   await expect(row).toContainText('system');
@@ -78,7 +96,6 @@ test('portfolio holdings show owners and cash exactly as the API computes them',
     const positions = main().getByRole('table', { name: 'Positions with marks' });
     await expect(positions.getByRole('row').filter({ hasText: h.positions[0]!.instrument_id })).toBeVisible();
   }
-  if (h.fixture_data) await expect(main().locator('.pf-note').getByText('FIXTURE', { exact: true })).toBeVisible();
   // Scope to one owner: only that owner's row remains.
   await main().getByLabel('Scope').selectOption('owner:unallocated');
   await expect(owners.getByRole('row')).toHaveCount(2); // header + unallocated
@@ -93,22 +110,25 @@ test('performance and snapshots: the no-history reason, then one recorded snapsh
   await refresh();
   const runs = main().getByRole('table', { name: 'Valuation snapshot runs' });
   await expect(runs.getByRole('row')).toHaveCount(2);
-  await expect(runs).toContainText('FIXTURE');
+  // The Data column says "market", or ERR when the run valued quotes the API marks FIXTURE; never a FIXTURE label.
+  await expect(runs.locator('tbody tr').first()).toContainText(/market|ERR/);
   await main().getByRole('tab', { name: 'Performance' }).click();
   await expect(page).toHaveURL(/#\/portfolio\/performance$/);
-  await expect(main().getByText('No time-weighted return.')).toBeVisible();
+  if (await shownOrRefused(main().getByText('No time-weighted return.'), 'Performance')) return;
   await expect(main().getByText(/fewer than two complete valuations/)).toBeVisible();
   await expect(main().getByText('Fewer than two complete snapshots: no day to decompose.')).toBeVisible();
 });
 
 test('exposure and VaR state their basis; the backtest says it has no day yet', async () => {
   await page.goto(`${baseUrl()}/#/portfolio/risk`);
-  await expect(main().getByText(/VaR does not represent the worst-case loss/)).toBeVisible();
-  await expect(main().getByRole('heading', { name: 'Exposure' })).toBeVisible();
-  const h = await api<{ positions: unknown[] }>('/api/portfolio/holdings?scope=account');
-  if (h.positions.length) await expect(main().getByText(/^Gross \/ net, USD$/)).toBeVisible();
-  else await expect(main().getByText('No positions in this scope: no exposure.')).toBeVisible();
+  const varRefused = await shownOrRefused(main().getByText(/VaR does not represent the worst-case loss/), 'VaR');
+  if (!(await shownOrRefused(main().getByRole('heading', { name: 'Exposure' }), 'Exposure'))) {
+    const h = await api<{ positions: unknown[] }>('/api/portfolio/holdings?scope=account');
+    if (h.positions.length) await expect(main().getByText(/^Gross \/ net, USD$/)).toBeVisible();
+    else await expect(main().getByText('No positions in this scope: no exposure.')).toBeVisible();
+  }
   await expect(main().getByText(/No backtest day yet/)).toBeVisible();
+  if (varRefused) return;
   await main().getByRole('button', { name: '95%' }).click();
   await expect(main().getByText(/Confidence 0\.95/)).toBeVisible();
 });
@@ -119,13 +139,13 @@ test('stress: a hypothetical overnight gap computed on a private copy of the cor
   await expect(main().getByText('A shock must be greater than -1 (a fall of less than 100%).')).toBeVisible();
   await expect(main().getByRole('button', { name: 'Run scenario' })).toBeDisabled();
   await main().getByLabel(/^Gap/).fill('-0.10');
-  // Compare the table with the response the page itself received: FIXTURE quotes move every step, so a
+  // Compare the table with the response the page itself received: TEST quotes move every step, so a
   // second request would value the positions at other prices and could cross a threshold differently.
   const shown = page.waitForResponse((r) => r.url().includes('/api/portfolio/stress/overnight_gap') && r.request().method() === 'GET');
   await main().getByRole('button', { name: 'Run scenario' }).click();
   const response = await shown;
   expect(response.status()).toBe(200);
-  await expect(main().getByText('HYPOTHETICAL', { exact: true })).toBeVisible({ timeout: 30_000 });
+  if (await shownOrRefused(main().getByText('HYPOTHETICAL', { exact: true }), 'Stress')) return;
   await expect(main().getByText(/computed on a private copy/i).first()).toBeVisible();
   await expect(main().getByText(/on core seq \d+/).first()).toBeVisible();
   const h = await api<{ positions: unknown[] }>('/api/portfolio/holdings?scope=account');
@@ -156,7 +176,10 @@ test('what-if evaluates an intent through the real gate and creates no order', a
   await main().getByLabel('Quantity').fill('1');
   await main().getByLabel('Limit price').fill(ask);
   await main().getByRole('button', { name: 'Evaluate (read-only)' }).click();
-  await expect(main().getByText('HYPOTHETICAL', { exact: true })).toBeVisible({ timeout: 30_000 });
+  if (await shownOrRefused(main().getByText('HYPOTHETICAL', { exact: true }), 'What-if')) {
+    expect((await api<unknown[]>('/api/orders')).length, 'a what-if never creates an order').toBe(ordersBefore);
+    return;
+  }
   await expect(main().locator('.pill-text').filter({ hasText: /^would be (approved|refused)/ })).toBeVisible();
   await expect(main().getByRole('heading', { name: 'Pretrade decision (hypothetical)' })).toBeVisible();
   await expect(main().getByRole('table', { name: /Pretrade checks for the hypothetical intent/ })).toBeVisible();
@@ -166,15 +189,16 @@ test('what-if evaluates an intent through the real gate and creates no order', a
 test('allocation proposals are labelled PROPOSAL ONLY and offer no way to send them', async () => {
   await page.goto(`${baseUrl()}/#/portfolio/allocation`);
   if (run.sessionId) await main().getByLabel('Scope').selectOption(`owner:session:${run.sessionId}`);
-  await expect(main().getByText('PROPOSAL ONLY', { exact: true })).toBeVisible({ timeout: 30_000 });
-  await expect(main().getByRole('table', { name: 'Current and proposed weights' })).toBeVisible();
+  if (!(await shownOrRefused(main().getByText('PROPOSAL ONLY', { exact: true }), 'Allocation'))) {
+    await expect(main().getByRole('table', { name: 'Current and proposed weights' })).toBeVisible();
+  }
   const buttons = await main().getByRole('button').allInnerTexts();
   expect(buttons.filter((b) => /send|place|submit|execute|buy|sell/i.test(b)), 'no control can turn a proposal into an order').toEqual([]);
 });
 
 // ------------------------------------------------------------------ market data
 
-test('market data: no session, then FIXTURE status with delivered types, consolidation and entitlement errors', async () => {
+test('market data: no session, then a test status file with delivered types, consolidation and entitlement errors', async () => {
   await page.goto(`${baseUrl()}/#/marketdata`);
   await expect(page.getByRole('heading', { name: 'Market data', level: 1 })).toBeVisible();
   await expect(main().getByText('No market-data session status.')).toBeVisible();

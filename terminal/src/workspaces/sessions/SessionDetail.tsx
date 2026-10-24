@@ -3,13 +3,13 @@
  * observed, wind-down, reconciliation, completion, settlement), balances by bucket and account
  * code, positions, orders, executions, settlements and the event timeline.
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { ApiError, encodePathSegment } from '../../api/client';
 import { exactJson, nsStrOf } from '../../api/nsStrings';
 import type { BalanceRow, Bucket, EventRecord, Execution, Order, Position, SessionDetail as Detail, Settlement } from '../../api/types';
 import { useQuery } from '../../state/react';
 import { DataTable, type Column } from '../../ui/DataTable';
-import { Age, Badge, FixtureBadge, Money, Qty, ShortId, StatusPill, Timestamp, YesNo, type Tone } from '../../ui/primitives';
+import { Age, Badge, FixtureRefused, Money, Qty, ShortId, StatusPill, Timestamp, YesNo, type Tone } from '../../ui/primitives';
 import { orderStateTone, sessionStateTone } from '../../ui/tones';
 import { QueryError, WorkspaceFrame, WorkspaceLink } from '../../ui/WorkspaceFrame';
 import { isDecimal, isZero } from '../../format/decimal';
@@ -31,6 +31,7 @@ import { BlockerList, FundingExplanationBlock, Pct, SessionLink } from './parts'
 import { readSessionPolicy } from './policy';
 import { SessionActions } from './SessionActions';
 import './sessions.css';
+import { NoValue } from '../../ui/unavailable';
 
 const MILESTONE_LOOK: Record<Milestone['state'], { glyph: string; tone: Tone; text: string }> = {
   done: { glyph: '✓', tone: 'ok', text: 'done' },
@@ -280,11 +281,13 @@ function ResultPanel({
   const ccy = session.currency;
   const pnl = sessionPnl(session, bucket, positions);
   const holdingCount = positions?.length ?? 0;
+  // A figure marked with fixture (test) quotes is not real data: refused, shown as an error.
+  const marked = (el: ReactNode) => (pnl.fixtureMarks ? <FixtureRefused detail="Holdings are marked with FIXTURE quotes." /> : el);
   return (
     <section className="panel" aria-labelledby="ses-result-h">
       <header>
         <h2 id="ses-result-h">Result</h2>
-        {pnl.fixtureMarks ? <FixtureBadge title="Marks come from fixture quotes generated for simulation" /> : null}
+        {pnl.fixtureMarks ? <FixtureRefused label="Marks" detail="Holdings are marked with FIXTURE quotes." /> : null}
       </header>
       <div className="panel-body">
         {pnl.basis === 'unfunded' ? (
@@ -329,14 +332,14 @@ function ResultPanel({
               <div>
                 <dt>Marked equity</dt>
                 <dd>
-                  <Money amount={pnl.markedEquity} currency={ccy} kind="marked" unavailable={pnl.unmarked.length ? 'holding without a mark' : 'unavailable'} />
+                  {marked(<Money amount={pnl.markedEquity} currency={ccy} kind="marked" unavailable={pnl.unmarked.length ? 'A holding has no mark.' : undefined} />)}
                   <span className="sub">liquid value + holdings at bid</span>
                 </dd>
               </div>
               <div>
                 <dt>Change vs seed</dt>
                 <dd>
-                  <Money amount={pnl.changeVsSeed} currency={ccy} signed unavailable="needs every mark" />
+                  {marked(<Money amount={pnl.changeVsSeed} currency={ccy} signed unavailable="Needs a mark for every holding." />)}
                   <span className="sub">realized + unrealized</span>
                 </dd>
               </div>
@@ -350,7 +353,7 @@ function ResultPanel({
               <div>
                 <dt>Unrealized</dt>
                 <dd>
-                  <Money amount={pnl.unrealized} currency={ccy} kind="unrealized" signed unavailable="needs every mark" />
+                  {marked(<Money amount={pnl.unrealized} currency={ccy} kind="unrealized" signed unavailable="Needs a mark for every holding." />)}
                   <span className="sub">
                     {holdingCount} holding{holdingCount === 1 ? '' : 's'} at bid
                     {positionsFetchedAtMs !== null ? (
@@ -364,7 +367,7 @@ function ResultPanel({
               <div>
                 <dt>Still to target</dt>
                 <dd>
-                  <Money amount={pnl.toTarget} currency={ccy} kind="marked" unavailable="needs every mark" />
+                  {marked(<Money amount={pnl.toTarget} currency={ccy} kind="marked" unavailable="Needs a mark for every holding." />)}
                   <span className="sub">target − marked equity; not a forecast</span>
                 </dd>
               </div>
@@ -572,7 +575,7 @@ const balanceColumns: Column<BalanceRow>[] = [
       </span>
     ),
   },
-  { id: 'inst', header: 'Instrument', sortValue: (r) => r.instrument_id, cell: (r) => (r.instrument_id ? <WorkspaceLink to="instruments" rest={[r.instrument_id]}>{r.instrument_id}</WorkspaceLink> : <span className="muted">—</span>) },
+  { id: 'inst', header: 'Instrument', sortValue: (r) => r.instrument_id, cell: (r) => (r.instrument_id ? <WorkspaceLink to="instruments" rest={[r.instrument_id]}>{r.instrument_id}</WorkspaceLink> : <NoValue reason="NOT_REPORTED" />) },
   {
     id: 'amount',
     header: 'Ledger balance',
@@ -645,21 +648,16 @@ function PositionsPanel({ positions, fetchedAtMs }: { positions: Position[]; fet
       numeric: true,
       sortKind: 'decimal',
       sortValue: (p) => p.mark,
-      cell: (p) => (
-        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-          {p.mark_fixture ? <FixtureBadge /> : null}
-          <Money amount={p.mark} currency={p.currency} kind="marked" unavailable="no quote" />
-        </span>
-      ),
+      cell: (p) => (p.mark_fixture ? <FixtureRefused detail={p.mark_basis} /> : <Money amount={p.mark} currency={p.currency} kind="marked" reason={p.mark_reason ?? undefined} unavailable={p.mark_basis} />),
     },
-    { id: 'mv', header: 'Market value', numeric: true, sortKind: 'decimal', sortValue: (p) => p.market_value, cell: (p) => <Money amount={p.market_value} currency={p.currency} kind="marked" unavailable="no quote" /> },
+    { id: 'mv', header: 'Market value', numeric: true, sortKind: 'decimal', sortValue: (p) => p.market_value, cell: (p) => (p.mark_fixture ? <FixtureRefused /> : <Money amount={p.market_value} currency={p.currency} kind="marked" reason={p.mark_reason ?? undefined} unavailable={p.mark_basis} />) },
     {
       id: 'unreal',
       header: 'Unrealized P&L',
       numeric: true,
       sortKind: 'decimal',
       sortValue: (p) => p.unrealized,
-      cell: (p) => <Money amount={p.unrealized} currency={p.currency} kind="unrealized" signed unavailable="no quote" />,
+      cell: (p) => (p.mark_fixture ? <FixtureRefused /> : <Money amount={p.unrealized} currency={p.currency} kind="unrealized" signed reason={p.mark_reason ?? undefined} unavailable={p.mark_basis} />),
     },
     {
       id: 'basis',
@@ -887,7 +885,7 @@ const timelineColumns: Column<TimelineRow>[] = [
           <ShortId value={e.order_id} head={12} />
         </WorkspaceLink>
       ) : (
-        <span className="muted">—</span>
+        <NoValue reason="NOT_REPORTED" />
       ),
   },
   { id: 'cmd', header: 'Command', cell: (e) => <ShortId value={e.command_id} head={18} /> },

@@ -8,7 +8,9 @@
  */
 import { compareDecimal, formatDecimal, formatMoney, isDecimal } from '../../format/decimal';
 import { ratioBps, toScaled } from '../../format/exact';
+import type { ReactElement } from 'react';
 import type { Tone } from '../../ui/primitives';
+import { missingNumber, noValue } from '../../ui/unavailable';
 import type { QueryOptions } from '../../state/react';
 import { PORTFOLIO_TABS, type PortfolioTab } from './tabs';
 
@@ -43,8 +45,18 @@ export const recs = (v: unknown): Rec[] => arr(v).filter(isRec);
  * The body when it is an object of the expected `kind`; null otherwise. A route that has no history
  * answers `{kind, available: false, reason}`, which is returned as is (callers show the reason).
  */
+/**
+ * The body of an answer of `kind`, or null. An answer computed from FIXTURE (test) data is refused here, so no tab
+ * can display it as data; <FixtureNote data> shows the refusal as an error instead.
+ */
 export function ofKind(body: unknown, kind: string): Rec | null {
-  return isRec(body) && body.kind === kind ? body : null;
+  return isRec(body) && body.kind === kind && body.fixture_data !== true ? body : null;
+}
+
+/** The refusal text when an answer was computed from FIXTURE (test) data, else null. */
+export function fixtureRefusal(body: unknown): string | null {
+  if (!isRec(body) || body.fixture_data !== true) return null;
+  return str(body.fixture_note) ?? 'Computed from FIXTURE (test) data.';
 }
 
 /** `{available: false, reason}` answers (no snapshot store yet). */
@@ -123,8 +135,9 @@ export function valuationTone(s: string | null): Tone {
 // ------------------------------------------------------------------ statistical formatting
 
 /** A statistical fraction as a percentage ("0.0081" -> "+0.81%"). Display only. */
-export function fmtPct(x: number | null | undefined, digits = 2, signed = false): string {
-  if (x === null || x === undefined || !Number.isFinite(x)) return '—';
+export function fmtPct(x: number | null | undefined, digits = 2, signed = false): string | ReactElement {
+  const missing = missingNumber(x);
+  if (missing || x === null || x === undefined) return missing ?? noValue('NOT_REPORTED');
   const v = (x * 100).toFixed(digits);
   const neg = v.startsWith('-');
   const body = neg ? v.slice(1) : v;
@@ -148,23 +161,26 @@ export function sentences(parts: readonly (string | null | undefined)[]): string
     .join(' ');
 }
 
-export function fmtNum(x: number | null | undefined, digits = 4): string {
-  if (x === null || x === undefined || !Number.isFinite(x)) return '—';
+export function fmtNum(x: number | null | undefined, digits = 4): string | ReactElement {
+  const missing = missingNumber(x);
+  if (missing || x === null || x === undefined) return missing ?? noValue('NOT_REPORTED');
   const v = x.toFixed(digits);
   return v.startsWith('-') ? `−${v.slice(1)}` : v;
 }
 
 /** A float amount in a currency (VaR, ES): statistical, rounded for display, labelled by the caller. */
-export function fmtFloatMoney(x: number | null | undefined, currency: string, digits = 2): string {
-  if (x === null || x === undefined || !Number.isFinite(x)) return '—';
-  return `${fmtNum(x, digits)} ${currency}`;
+export function fmtFloatMoney(x: number | null | undefined, currency: string, digits = 2): string | ReactElement {
+  const missing = missingNumber(x);
+  if (missing || x === null || x === undefined) return missing ?? noValue('NOT_REPORTED');
+  return `${fmtNum(x, digits) as string} ${currency}`;
 }
 
 /** A decimal-string weight (8 places) as a percentage with two decimals, exactly. */
-export function weightPct(w: string | null | undefined): string {
-  if (!isDecimal(w)) return '—';
+export function weightPct(w: string | null | undefined): string | ReactElement {
+  if (w === null || w === undefined) return noValue('NOT_REPORTED');
+  if (!isDecimal(w)) return noValue('ERROR', `The API sent "${w}", which is not a decimal weight.`);
   const bps = ratioBps(w, '1', 'half-even');
-  if (bps === null) return '—';
+  if (bps === null) return noValue('ERROR', `The weight "${w}" could not be converted.`);
   const neg = bps < 0n;
   const abs = neg ? -bps : bps;
   return `${neg ? '−' : ''}${(abs / 100n).toString()}.${(abs % 100n).toString().padStart(2, '0')}%`;

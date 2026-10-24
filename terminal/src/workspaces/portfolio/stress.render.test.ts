@@ -107,7 +107,7 @@ describe('stale quotes: fresh NAV before and after', () => {
     };
     const t = text(renderToStaticMarkup(createElement(ScenarioDetails, { body, scenario: 'stale_quote', instrumentCurrency: () => 'USD' })));
     expect(t).toContain('Fresh NAV, USD');
-    expect(t).toMatch(/1,000\.00 USD → — not every mark fresh/);
+    expect(t).toMatch(/1,000\.00 USD → —.*STALE: .*Not every mark is fresh\./);
     expect(t).toContain('after a -0.05 haircut 95.00 USD');
     expect(scenarioParams(body)).toBe('delay_s 900, haircut -0.05, order_freshness_budget_ms 5000');
   });

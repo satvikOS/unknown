@@ -6,6 +6,9 @@
  * linked security (its symbol is sent as the issuer; the API resolves it to a CIK through the SEC ticker snapshot).
  */
 
+import type { ReactElement } from 'react';
+import { noValue } from '../../ui/unavailable';
+
 export interface NewsEntity {
   scheme: string;
   value: string;
@@ -193,8 +196,8 @@ export function publishedLabel(item: Pick<NewsItem, 'published' | 'published_pre
   return `${item.published.slice(0, 19).replace('T', ' ')} UTC`;
 }
 
-export function shortTime(iso: string | null): string {
-  return iso ? iso.slice(11, 19) : '—';
+export function shortTime(iso: string | null): string | ReactElement {
+  return iso ? iso.slice(11, 19) : noValue('NOT_REPORTED');
 }
 
 export interface SnippetPart {

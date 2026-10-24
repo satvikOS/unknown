@@ -257,6 +257,43 @@
   }
 }
 
+/* ---- unavailable values (ui/unavailable.tsx): em dash + reason, ERR, stale age ---- */
+.nv {
+  /* Positioned so the visually hidden reason is clipped with its cell (a scrolling grid or the ticker tape). */
+  position: relative;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.nv-missing {
+  color: var(--text-muted);
+}
+.nv-error {
+  color: var(--alert);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.nv-stale {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.nv-stale .nv-age {
+  color: var(--warn);
+  font-size: 0.85em;
+}
+.nv[tabindex='0']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* The focused row (or a focused marker) shows each reason code inline; the tooltip carries the sentence. */
+tr:focus .nv-missing[data-reason]::after,
+.nv-missing[tabindex='0']:focus::after {
+  content: ' ' attr(data-reason);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+}
+
 /* ---- data-type badges ---- */
 .src-badge.src-realtime {
   --tone: var(--src-realtime);
@@ -266,10 +303,6 @@
 }
 .src-badge.src-frozen {
   --tone: var(--src-frozen);
-}
-.src-badge.src-synthetic {
-  --tone: var(--src-synthetic);
-  border-style: dashed;
 }
 .price-cell .src-badge {
   height: 14px;

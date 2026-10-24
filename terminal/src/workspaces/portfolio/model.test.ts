@@ -1,4 +1,5 @@
 /** Portfolio model. Shapes follow GET /api/portfolio/*; every number below is a TEST FIXTURE. */
+import { asText } from '../../ui/unavailable';
 import { describe, expect, it } from 'vitest';
 import {
   allocationParamErrors,
@@ -77,7 +78,8 @@ describe('statistical formatting (display only)', () => {
     expect(fmtPct(-0.004020100502512563)).toBe('−0.40%');
     expect(fmtPct(0)).toBe('0.00%');
     expect(fmtPct(-0.00001)).toBe('0.00%');
-    expect(fmtPct(null)).toBe('—');
+    expect(asText(fmtPct(null))).toBe('not reported');
+    expect(asText(fmtPct(Number.NaN))).toBe('not applicable');
     expect(fmtNum(1.7199374787803063, 2)).toBe('1.72');
     expect(fmtNum(-0.5, 1)).toBe('−0.5');
     expect(fmtFloatMoney(0.4017543859649123, 'USD')).toBe('0.40 USD');
@@ -93,7 +95,8 @@ describe('statistical formatting (display only)', () => {
   it('formats exact decimal weights without floats', () => {
     expect(weightPct('0.15276851')).toBe('15.28%');
     expect(weightPct('-166.08791209')).toBe('−16608.79%');
-    expect(weightPct(null)).toBe('—');
+    expect(asText(weightPct(null))).toBe('not reported');
+    expect(asText(weightPct('abc'))).toBe('error');
   });
 });
 

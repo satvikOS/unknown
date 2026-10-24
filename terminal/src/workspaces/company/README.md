@@ -30,4 +30,4 @@ Registered as `company` (`g e`, nav order 110). It reads `GET /api/company` (bac
 
 - Without a research store, `/api/company/search` answers with the core instrument source only. It lists no `research.issuers` entry with a reason, so the view infers it from the missing SEC sources (`searchedIssuers` in `model.ts`) and says NOT_SEARCHED in its own words. The issuer routes say it themselves (`UNAVAILABLE` with the ingest command).
 - Ticker aliases are valid from their retrieval time. An issuer ingested "later" than the as-of time is found by name or CIK but not by ticker.
-- The tearsheet response is large (about 640 KB for the fixture issuer), because it embeds three full statements with every source. Like every terminal query, it is refetched on each state-stream version bump, although research data does not change with core events.
+- The tearsheet response is large (about 640 KB for a large filer), because it embeds three full statements with every source. Like every terminal query, it is refetched on each state-stream version bump, although research data does not change with core events.

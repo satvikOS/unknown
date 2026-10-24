@@ -8,7 +8,8 @@ import { useControl } from '../../controls/ControlProvider';
 import { entryState } from '../../controls/model';
 import { useQuery } from '../../state/react';
 import { DataTable, type Column } from '../../ui/DataTable';
-import { Age, Badge, FixtureBadge, Money, Qty, ShortId, StatusPill, Timestamp, YesNo } from '../../ui/primitives';
+import { Age, Badge, FixtureRefused, Money, Qty, ShortId, StatusPill, Timestamp, YesNo } from '../../ui/primitives';
+import { NoValue } from '../../ui/unavailable';
 import { reconciliationTone, sessionStateTone, severityTone } from '../../ui/tones';
 import { QueryError, WorkspaceFrame, WorkspaceLink } from '../../ui/WorkspaceFrame';
 import type { WorkspaceProps } from '../types';
@@ -128,12 +129,7 @@ function positionColumns(fetchedAtMs: number | null): Column<Position>[] {
       numeric: true,
       sortKind: 'decimal',
       sortValue: (p) => p.mark,
-      cell: (p) => (
-        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-          {p.mark_fixture ? <FixtureBadge /> : null}
-          <Money amount={p.mark} currency={p.currency} kind="marked" unavailable="no quote" />
-        </span>
-      ),
+      cell: (p) => (p.mark_fixture ? <FixtureRefused detail={p.mark_basis} /> : <Money amount={p.mark} currency={p.currency} kind="marked" reason={p.mark_reason ?? undefined} unavailable={p.mark_basis} />),
     },
     {
       id: 'mv',
@@ -141,7 +137,7 @@ function positionColumns(fetchedAtMs: number | null): Column<Position>[] {
       numeric: true,
       sortKind: 'decimal',
       sortValue: (p) => p.market_value,
-      cell: (p) => <Money amount={p.market_value} currency={p.currency} kind="marked" unavailable="no quote" />,
+      cell: (p) => (p.mark_fixture ? <FixtureRefused /> : <Money amount={p.market_value} currency={p.currency} kind="marked" reason={p.mark_reason ?? undefined} unavailable={p.mark_basis} />),
     },
     {
       id: 'unreal',
@@ -149,7 +145,7 @@ function positionColumns(fetchedAtMs: number | null): Column<Position>[] {
       numeric: true,
       sortKind: 'decimal',
       sortValue: (p) => p.unrealized,
-      cell: (p) => <Money amount={p.unrealized} currency={p.currency} kind="unrealized" signed unavailable="no quote" />,
+      cell: (p) => (p.mark_fixture ? <FixtureRefused /> : <Money amount={p.unrealized} currency={p.currency} kind="unrealized" signed reason={p.mark_reason ?? undefined} unavailable={p.mark_basis} />),
     },
     {
       id: 'basis',
@@ -346,9 +342,9 @@ export function OverviewWorkspace(_props: WorkspaceProps) {
                 </>
               ) : null}
               <dt>Resume hold</dt>
-              <dd>{control ? (control.resume_requires_owner ? `owner required (${control.resume_reason ?? 'no reason'})` : 'none') : '—'}</dd>
+              <dd>{control ? (control.resume_requires_owner ? `owner required (${control.resume_reason ?? 'no reason'})` : 'none') : <NoValue reason="NOT_REPORTED" detail="The core has not reported its control state." />}</dd>
               <dt>Reconciliation</dt>
-              <dd>{control ? (control.needs_reconciliation ? 'required' : `current (epoch ${control.reconciled_epoch})`) : '—'}</dd>
+              <dd>{control ? (control.needs_reconciliation ? 'required' : `current (epoch ${control.reconciled_epoch})`) : <NoValue reason="NOT_REPORTED" detail="The core has not reported its control state." />}</dd>
               <dt>Broker (recorded)</dt>
               <dd>
                 {control ? (
@@ -358,7 +354,7 @@ export function OverviewWorkspace(_props: WorkspaceProps) {
                     compact
                   />
                 ) : (
-                  '—'
+                  <NoValue reason="NOT_REPORTED" detail="The core has not reported its control state." />
                 )}
               </dd>
               <dt>Last start</dt>

@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState, type RefCallback } from 'react';
 import { formatMoney } from '../../format/decimal';
 import { exactBars, fmtFloatMoney, linePath, type BacktestDay } from './model';
+import { asText } from '../../ui/unavailable';
 
 /**
  * The rendered width of the chart's container, so the SVG viewBox is drawn at 1:1 and its text stays at
@@ -196,7 +197,7 @@ export function BacktestChart({ days, currency, height = 170 }: { days: readonly
           const y0 = y(0);
           return (
             <rect key={d.date} x={xc(i) - bw / 2} y={Math.min(yr, y0)} width={bw} height={Math.max(Math.abs(y0 - yr), 0.5)} rx="1" className="pf-fill-neutral">
-              <title>{`${d.date}: realized loss ${fmtFloatMoney(d.realized, currency)}, VaR ${fmtFloatMoney(d.forecast, currency)}${d.exception ? ' (exception)' : ''}`}</title>
+              <title>{`${d.date}: realized loss ${asText(fmtFloatMoney(d.realized, currency))}, VaR ${asText(fmtFloatMoney(d.forecast, currency))}${d.exception ? ' (exception)' : ''}`}</title>
             </rect>
           );
         })}
@@ -204,7 +205,7 @@ export function BacktestChart({ days, currency, height = 170 }: { days: readonly
         {days.map((d, i) =>
           d.exception && d.realized !== null ? (
             <path key={`x-${d.date}`} d={`M${xc(i)} ${y(d.realized) - 9} l5 -8 l-10 0 z`} className="pf-exception">
-              <title>{`${d.date}: exception, loss ${fmtFloatMoney(d.realized, currency)} above VaR ${fmtFloatMoney(d.forecast, currency)}`}</title>
+              <title>{`${d.date}: exception, loss ${asText(fmtFloatMoney(d.realized, currency))} above VaR ${asText(fmtFloatMoney(d.forecast, currency))}`}</title>
             </path>
           ) : null,
         )}

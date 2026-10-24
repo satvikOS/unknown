@@ -5,7 +5,8 @@
 import { useMemo, useState } from 'react';
 import { exactJson, nsStrOf } from '../../api/nsStrings';
 import { DataTable, type Column } from '../../ui/DataTable';
-import { Badge, FixtureBadge, StatusPill } from '../../ui/primitives';
+import { Badge, FixtureRefused, StatusPill } from '../../ui/primitives';
+import { asText, NoValue } from '../../ui/unavailable';
 import { apiPath, useApi } from '../research-common/api';
 import { formatStat } from '../research-common/format';
 import { Hash, JsonTree, KV, Section, StatusTag } from '../research-common/parts';
@@ -74,7 +75,7 @@ export function StrategyView({ ctx, hash }: { ctx: ResearchCtx; hash: string }) 
                 <a href="#/research/strategies">All specifications</a>
                 <span className="rx-name mono">{`${text(b.strategy_id)} v${text(b.version)}`}</span>
                 {prov.fixture_data_allowed ? (
-                  <Badge tone="warn" title="The specification's data requirements allow FIXTURE (synthetic) data">
+                  <Badge tone="bad" title="The specification's data requirements allow FIXTURE (test) data; anything derived from it is refused, never shown">
                     FIXTURE DATA ALLOWED
                   </Badge>
                 ) : null}
@@ -100,11 +101,11 @@ export function StrategyView({ ctx, hash }: { ctx: ResearchCtx; hash: string }) 
                           ))}
                         </ul>
                       ) : (
-                        '—'
+                        <NoValue reason="NOT_REPORTED" />
                       ),
                     ],
                     ['Parameters', <span className="mono">{Object.entries((b.parameters ?? {}) as Record<string, unknown>).map(([k, v]) => `${k}=${text(v)}`).join(', ')}</span>],
-                    ['Promotion evidence', <span className="mono">{Array.isArray(b.promotion_evidence) ? (b.promotion_evidence as unknown[]).map(text).join(', ') : '—'}</span>],
+                    ['Promotion evidence', <span className="mono">{Array.isArray(b.promotion_evidence) ? (b.promotion_evidence as unknown[]).map(text).join(', ') : <NoValue reason="NOT_REPORTED" />}</span>],
                   ]}
                 />
                 <h3 className="rx-h3">Full specification</h3>
@@ -132,7 +133,7 @@ export function ReportList({ ctx }: { ctx: ResearchCtx }) {
           <a href={`#/research/reports/${encodeURIComponent(r.report_id)}`} tabIndex={-1}>
             <strong>{r.report_id}</strong>
           </a>
-          {truthy(r.fixture) ? <FixtureBadge /> : null}
+          {truthy(r.fixture) ? <FixtureRefused detail="Derived from a FIXTURE (test) experiment: not shown." /> : null}
         </span>
       ),
     },
@@ -222,7 +223,7 @@ export function ReportView({ ctx, id }: { ctx: ResearchCtx; id: string }) {
                       res.experiment_id ? ['Experiment', <a href={`#/research/experiments/${encodeURIComponent(res.experiment_id)}`}>{res.experiment_id}</a>] : null,
                       ['Failing gates', res.failing_gates?.length ? <span className="mono">{res.failing_gates.join(', ')}</span> : <span className="muted">none</span>],
                       res.selected?.artifact_hash ? ['Selected artifact', <a href={`#/research/artifacts/${res.selected.artifact_hash}`}>{res.selected.artifact_hash.slice(0, 16)}…</a>] : null,
-                      ...studyStatLines(res, formatStat).map(
+                      ...studyStatLines(res, (x) => asText(formatStat(x))).map(
                         (l) =>
                           [
                             l.label,
@@ -248,7 +249,7 @@ export function ReportView({ ctx, id }: { ctx: ResearchCtx; id: string }) {
                             <span className="label">
                               <StatusPill label={e.passed ? 'PASS' : 'FAIL'} tone={e.passed ? 'ok' : 'bad'} compact /> <span className="mono">{e.kind}</span>
                             </span>
-                            <span>{e.reasons.length ? <span className="rx-reason">{e.reasons.join('; ')}</span> : <span className="muted">—</span>}</span>
+                            <span>{e.reasons.length ? <span className="rx-reason">{e.reasons.join('; ')}</span> : <NoValue reason="NOT_REPORTED" />}</span>
                           </li>
                         ))}
                       </ul>

@@ -4,14 +4,27 @@
  * A flash restarts a CSS animation on the element through a ref (no state, no re-render of the tree around it), so
  * a grid of hundreds of cells can tick without React re-rendering the grid. Decimals arrive as exact strings
  * (docs/design/marketdata-stream-contract.md) and are compared exactly, never through floats. A missing value
- * renders as a dash, never as zero. A SYNTHETIC value always carries its label.
+ * renders as an em dash with its reason (ui/unavailable.tsx), never as zero. Only real data types exist: REALTIME,
+ * DELAYED and FROZEN. A value of any other data type is an error and is never displayed as data.
  */
 import { memo, useLayoutEffect, useRef, type RefObject } from 'react';
+import { ErrorValue, NoValue, StaleValue, type Reason } from './unavailable';
 
-export type DataType = 'REALTIME' | 'DELAYED' | 'FROZEN' | 'SYNTHETIC';
+export type DataType = 'REALTIME' | 'DELAYED' | 'FROZEN';
 export type TickDirection = 'up' | 'down' | 'unch';
 
-export const DATA_TYPES: readonly DataType[] = ['REALTIME', 'DELAYED', 'FROZEN', 'SYNTHETIC'];
+export const DATA_TYPES: readonly DataType[] = ['REALTIME', 'DELAYED', 'FROZEN'];
+
+/** True only for the real market-data types; anything else (including a missing type) is refused. */
+export function isDataType(x: unknown): x is DataType {
+  return typeof x === 'string' && (DATA_TYPES as readonly string[]).includes(x);
+}
+
+/** The error detail for a value whose data type is not a real market-data type. */
+export function refusedTypeDetail(dataType: unknown, source?: string | null): string {
+  const t = typeof dataType === 'string' && dataType ? dataType : 'missing';
+  return `Refused: data type ${t}${source ? ` from ${source}` : ''} is not real market data.`;
+}
 
 const DECIMAL_RE = /^([+-])?(\d+)(?:\.(\d+))?$/;
 
@@ -75,16 +88,19 @@ export function useTickFlash<T extends HTMLElement = HTMLElement>(value: string 
   return target;
 }
 
-const SHORT: Record<DataType, string> = { REALTIME: 'RT', DELAYED: 'DLY', FROZEN: 'FRZ', SYNTHETIC: 'SYN' };
+const SHORT: Record<DataType, string> = { REALTIME: 'RT', DELAYED: 'DLY', FROZEN: 'FRZ' };
 const LONG: Record<DataType, string> = {
   REALTIME: 'Real-time data',
   DELAYED: 'Delayed data',
   FROZEN: 'Frozen data: the last value from a closed session',
-  SYNTHETIC: 'Synthetic data: generated, not from any market',
 };
 
-/** Source / data-type label. `compact` uses the short form (DLY, FRZ, SYN); the full word is in the tooltip. */
-export function DataTypeBadge({ type, source, compact }: { type: DataType; source?: string | null; compact?: boolean }) {
+/**
+ * Source / data-type label. `compact` uses the short form (RT, DLY, FRZ); the full word is in the tooltip. A type
+ * that is not a real market-data type renders as an error, never as a label.
+ */
+export function DataTypeBadge({ type, source, compact }: { type: DataType | string; source?: string | null; compact?: boolean }) {
+  if (!isDataType(type)) return <ErrorValue reason="ERROR" detail={refusedTypeDetail(type, source)} />;
   const text = compact ? SHORT[type] : type;
   const title = `${LONG[type]}${source ? ` from ${source}` : ''}`;
   return (
@@ -95,36 +111,57 @@ export function DataTypeBadge({ type, source, compact }: { type: DataType; sourc
 }
 
 export interface PriceCellProps {
-  /** Exact decimal string from the stream; null or undefined renders a dash. */
+  /** Exact decimal string from the stream; null or undefined renders an em dash with `reason`. */
   value: string | null | undefined;
-  /** Data type of the value; anything but REALTIME shows a compact label. SYNTHETIC is always labelled. */
-  dataType?: DataType | null;
+  /** Why the value is missing (shown with the dash); default NOT_REPORTED. */
+  reason?: Reason;
+  /** Extra detail for the reason (e.g. the stream status message). */
+  reasonDetail?: string | null;
+  /** Data type of the value; DELAYED/FROZEN show a compact label. Any other type is an error, never a value. */
+  dataType?: DataType | string | null;
   source?: string | null;
-  /** 'none' hides the DELAYED/FROZEN label where a column header already says it; SYNTHETIC is still shown. */
+  /** 'none' hides the DELAYED/FROZEN label where a column header already says it. */
   badge?: 'auto' | 'none';
-  /** The value is stale (no update within the expected interval): dimmed and marked. */
+  /** The value is stale (no update within the expected interval): kept, with its age in the warning token. */
   stale?: boolean;
+  /** Age of a stale value (ms). */
+  ageMs?: number | null;
   /** Accessible name, e.g. "AAPL.XNAS last". */
   label?: string;
   className?: string;
 }
 
 /** One live number: tabular digits, flash on change, direction glyph (colour is never the only cue). */
-export const PriceCell = memo(function PriceCell({ value, dataType, source, badge = 'auto', stale, label, className }: PriceCellProps) {
-  const ref = useTickFlash<HTMLSpanElement>(value ?? null);
-  const showBadge = !!dataType && dataType !== 'REALTIME' && (badge === 'auto' || dataType === 'SYNTHETIC');
-  return (
-    <span className={`price-cell num${stale ? ' is-stale' : ''}${className ? ` ${className}` : ''}`}>
-      {label ? <span className="sr-only">{label} </span> : null}
-      <span ref={ref} className="price-value" data-dir="unch">
-        {value ?? '—'}
+export const PriceCell = memo(function PriceCell({ value, reason, reasonDetail, dataType, source, badge = 'auto', stale, ageMs, label, className }: PriceCellProps) {
+  const refused = dataType !== null && dataType !== undefined && !isDataType(dataType);
+  const shown = refused ? null : (value ?? null);
+  const ref = useTickFlash<HTMLSpanElement>(shown);
+  const cls = `price-cell num${stale ? ' is-stale' : ''}${className ? ` ${className}` : ''}`;
+  if (refused) {
+    return (
+      <span className={cls}>
+        <ErrorValue reason="ERROR" detail={refusedTypeDetail(dataType, source)} label={label} />
       </span>
-      {stale ? (
-        <span className="stale-mark" title="Stale: no update within the expected interval">
-          STALE
-        </span>
-      ) : null}
-      {showBadge && dataType ? <DataTypeBadge type={dataType} source={source} compact /> : null}
+    );
+  }
+  if (shown === null) {
+    return (
+      <span className={cls}>
+        <NoValue reason={reason ?? 'NOT_REPORTED'} detail={reasonDetail} label={label} />
+      </span>
+    );
+  }
+  const showBadge = isDataType(dataType) && dataType !== 'REALTIME' && badge === 'auto';
+  const number = (
+    <span ref={ref} className="price-value" data-dir="unch">
+      {shown}
+    </span>
+  );
+  return (
+    <span className={cls}>
+      {label ? <span className="sr-only">{label} </span> : null}
+      {stale ? <StaleValue ageMs={ageMs}>{number}</StaleValue> : number}
+      {showBadge && isDataType(dataType) ? <DataTypeBadge type={dataType} source={source} compact /> : null}
     </span>
   );
 });

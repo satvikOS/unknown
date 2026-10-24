@@ -20,6 +20,8 @@
 .mon-table tbody tr { cursor: pointer; }
 .mon-table tbody tr:hover { background: var(--surface-2); }
 .mon-selected { background: var(--surface-3); box-shadow: inset 2px 0 0 var(--accent); }
+/* A tinted badge on the selected row's surface falls below 4.5:1 in the light theme: the row keeps the text colour only. */
+.mon-selected .badge { background: transparent; }
 .mon-num { text-align: right !important; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .mon-time, .mon-cond { font-family: var(--font-mono); color: var(--text-muted); }
 .mon-key { font-weight: 600; }

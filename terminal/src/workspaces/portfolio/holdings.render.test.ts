@@ -52,8 +52,7 @@ function holdings(scope: string): Rec {
       },
     ],
     authorized_total: '1000.000000',
-    fixture_data: true,
-    fixture_note: 'contains FIXTURE quotes or instruments: test data, not market data',
+    fixture_data: false,
   };
 }
 
@@ -63,6 +62,18 @@ function render(body: Rec, scope: string): string {
     createElement(HoldingsTab, { bar: null, q, scope, setScope: () => {}, basis: 'bid', setBasis: () => {}, options: [], formulas: new Map() }),
   );
 }
+
+describe('holdings: fixture data is refused', () => {
+  it('never renders an answer computed from FIXTURE data: it shows an error instead', () => {
+    const body = { ...holdings('owner:session:S1'), fixture_data: true, fixture_note: 'contains FIXTURE quotes' };
+    const html = render(body, 'owner:session:S1');
+    expect(html).toContain('>ERR<');
+    expect(html).toContain('Holdings not shown.');
+    expect(html).toContain('contains FIXTURE quotes');
+    expect(html).not.toContain('unpriced_positions');
+    expect(html).not.toContain('910.00');
+  });
+});
 
 describe('holdings: valuation status tones', () => {
   it('marks an owner and a total with an unpriced position as bad, never neutral', () => {

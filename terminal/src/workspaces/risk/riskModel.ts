@@ -46,7 +46,7 @@ export interface MarkedEstimate {
   /** systemValue - authorized_total; null when incomplete. */
   pnl: string | null;
   stale: StaleMark[];
-  /** At least one mark used came from fixture (simulation-only) quotes. */
+  /** At least one mark used came from fixture (test) quotes: the estimate is refused (an error), never shown. */
   fixture: boolean;
 }
 
@@ -183,7 +183,7 @@ export interface ExposureLine {
   symbol: string | null;
   basis: ExposureBasis;
   value: string;
-  /** The bid behind `value` came from fixture (simulation-only) quotes. */
+  /** The bid behind `value` came from fixture (test) quotes: refused, never shown as a value. */
   fixture: boolean;
 }
 
@@ -270,8 +270,9 @@ export interface Concentration {
   instrument_id: string;
   value: string;
   basis: ExposureBasis;
-  sessionEquity: string;
-  /** value / session equity in bps (rounded up); null when equity is not positive. */
+  /** null when the session's bucket balance is not known (never assumed zero). */
+  sessionEquity: string | null;
+  /** value / session equity in bps (rounded up); null when equity is unknown or not positive. */
   bps: bigint | null;
 }
 
@@ -290,8 +291,9 @@ export function concentrations(positions: readonly Position[], buckets: readonly
     byOwner.set(p.owner, [...(byOwner.get(p.owner) ?? []), p]);
   }
   for (const [owner, list] of byOwner) {
-    const liquid = buckets.find((b) => b.owner === owner && b.currency === currency)?.liquid_value ?? '0';
-    const equity = sumDecimals([isDecimal(liquid) ? liquid : '0', ...list.map((p) => valueOf(p).value)]);
+    // A session without a (decimal) bucket balance has no equity estimate: never assume zero liquidity.
+    const liquid = buckets.find((b) => b.owner === owner && b.currency === currency)?.liquid_value;
+    const equity = liquid !== undefined && isDecimal(liquid) ? sumDecimals([liquid, ...list.map((p) => valueOf(p).value)]) : null;
     for (const p of list) {
       const v = valueOf(p);
       out.push({
@@ -301,7 +303,7 @@ export function concentrations(positions: readonly Position[], buckets: readonly
         value: v.value,
         basis: v.basis,
         sessionEquity: equity,
-        bps: ratioBps(v.value, equity, 'ceil'),
+        bps: equity === null ? null : ratioBps(v.value, equity, 'ceil'),
       });
     }
   }

@@ -10,6 +10,7 @@ import { usePluginQuery } from '../plugin-api/hooks';
 import type { WorkspaceProps } from '../types';
 import { JOB_STATES, NEW_SEGMENT, deliveryTone, needsPolling, parseJobList, shortQuestion, stateTone, type JobSummary } from './model';
 import './jobs.css';
+import { NoValue } from '../../ui/unavailable';
 
 type Filter = 'ALL' | (typeof JOB_STATES)[number];
 const FILTERS: readonly { value: Filter; label: string }[] = [{ value: 'ALL', label: 'All' }, ...JOB_STATES.map((s) => ({ value: s, label: s.charAt(0) + s.slice(1).toLowerCase() }))];
@@ -57,7 +58,7 @@ export function JobListView({ navigate }: Pick<WorkspaceProps, 'navigate'>) {
     },
     { id: 'question', header: 'Question', cell: (j) => <a href={routeHref('research-jobs', j.job_id)}>{shortQuestion(j.question)}</a>, wrap: true, sortValue: (j) => j.question ?? '' },
     { id: 'role', header: 'Role', cell: (j) => j.role, sortValue: (j) => j.role },
-    { id: 'outcome', header: 'Outcome', description: 'Fine-grained runner or worker outcome', cell: (j) => j.outcome || <span className="muted">—</span>, sortValue: (j) => j.outcome },
+    { id: 'outcome', header: 'Outcome', description: 'Fine-grained runner or worker outcome', cell: (j) => j.outcome || <NoValue reason="NOT_REPORTED" />, sortValue: (j) => j.outcome },
     { id: 'proposal', header: 'Proposal', description: 'Advisory proposal recorded by the core, if any', cell: (j) => <ProposalCell j={j} /> },
     {
       id: 'delivery',
@@ -66,7 +67,7 @@ export function JobListView({ navigate }: Pick<WorkspaceProps, 'navigate'>) {
       cell: (j) => <StatusPill label={j.delivery} tone={deliveryTone(j.delivery)} compact />,
       sortValue: (j) => j.delivery,
     },
-    { id: 'finished', header: 'Finished', cell: (j) => <Timestamp ns={j.finished_ns} nsStr={nsStrOf(j, 'finished_ns')} never="—" />, sortValue: (j) => j.finished_ns ?? 0, sortKind: 'number' },
+    { id: 'finished', header: 'Finished', cell: (j) => <Timestamp ns={j.finished_ns} nsStr={nsStrOf(j, 'finished_ns')} reason="NOT_REPORTED" />, sortValue: (j) => j.finished_ns ?? 0, sortKind: 'number' },
     { id: 'id', header: 'Job id', cell: (j) => <ShortId value={j.job_id} head={14} /> },
   ];
 

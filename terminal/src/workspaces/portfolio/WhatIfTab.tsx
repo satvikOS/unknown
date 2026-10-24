@@ -7,13 +7,14 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { formatMoney, formatQuantity } from '../../format/decimal';
 import { useQuery } from '../../state/react';
-import { Money, Qty, StatusPill } from '../../ui/primitives';
+import { FixtureRefused, Money, Qty, StatusPill } from '../../ui/primitives';
 import { QueryError, WorkspaceLink } from '../../ui/WorkspaceFrame';
 import { parseDecision } from '../orders/decision';
 import { DecisionTable } from '../orders/parts';
 import { usePluginGetOnce } from '../plugin-api/hooks';
 import { sentence, sentences, dec, fmtNum, isRec, num, ofKind, str, weightPct, whatIfErrors, type Rec, type WhatIfInput } from './model';
 import { PortfolioFrame, AsOf, FixtureNote, Lineage, QuoteSnapshotNote, ResultLabel, SnapshotStale, type FormulaDef } from './parts';
+import { NoValue } from '../../ui/unavailable';
 
 const EMPTY: WhatIfInput = { session: '', instrument: '', side: 'BUY', quantity: '', limit: '' };
 
@@ -86,7 +87,7 @@ export function Impact({ body }: { body: Rec }) {
                 dec(head.owned_quantity) ? `unreserved quantity ${formatQuantity(dec(head.owned_quantity) as string)}` : null,
               ]
                 .filter(Boolean)
-                .join(' · ') || '—'}
+                .join(' · ') || <NoValue reason="NOT_REPORTED" />}
             </dd>
           </dl>
           <p className="pf-hint" style={{ marginBottom: 0 }}>
@@ -234,6 +235,7 @@ export function WhatIfTab({ bar, formulas }: { bar: ReactNode; formulas: Map<str
         again.
       </p>
       <QueryError what="What-if" error={once.error} />
+      <FixtureNote data={once.data} what="What-if" />
       {isRec(once.data) && once.data.kind === 'whatif' && str(once.data.fault) ? (
         <div className="callout pf-gap" role="alert" style={{ ['--tone' as string]: 'var(--bad)' }}>
           <strong>No decision.</strong> {str(once.data.reason)} ({str(once.data.fault)})
@@ -249,16 +251,19 @@ export function WhatIfTab({ bar, formulas }: { bar: ReactNode; formulas: Map<str
           <div className="pf-note">
             <StatusPill label={body.approved === true ? 'would be approved' : `would be refused: ${str(body.code) ?? '?'}`} tone={body.approved === true ? 'ok' : 'bad'} />
             {str(body.message) ? <span>{str(body.message)}</span> : null}
-            <span>evaluated as deployment {str(body.evaluated_as_deployment) ?? '?'}</span>
+            <span>evaluated as deployment {str(body.evaluated_as_deployment) ?? <NoValue reason="NOT_REPORTED" />}</span>
             <AsOf body={body} />
           </div>
           <QuoteSnapshotNote body={body} />
-          <FixtureNote body={body} />
-          {quote ? (
+          {quote && quote.fixture === true ? (
+            <p className="pf-hint" role="alert">
+              <FixtureRefused label="Quote evaluated" /> The quote evaluated is marked FIXTURE (test) data and is not shown.
+            </p>
+          ) : quote ? (
             <p className="pf-hint">
-              Quote evaluated: bid {str(quote.bid) ?? '—'} / ask {str(quote.ask) ?? '—'} {str(quote.currency)}, source {str(quote.source)}, age {num(quote.age_ms) ?? '?'} ms,
-              market-data type {str(quote.market_data_type) ?? '?'}, consolidation {str(quote.consolidation) ?? '?'}
-              {quote.fixture === true ? ' (FIXTURE)' : ''}.
+              Quote evaluated: bid {str(quote.bid) ?? <NoValue reason="NOT_REPORTED" />} / ask {str(quote.ask) ?? <NoValue reason="NOT_REPORTED" />} {str(quote.currency)}, source {str(quote.source)}, age {num(quote.age_ms) ?? <NoValue reason="NOT_REPORTED" />} ms,
+              market-data type {str(quote.market_data_type) ?? <NoValue reason="NOT_REPORTED" />}, consolidation {str(quote.consolidation) ?? <NoValue reason="NOT_REPORTED" />}
+              .
             </p>
           ) : null}
           {Array.isArray(body.reservation_preview) && body.reservation_preview.length ? (

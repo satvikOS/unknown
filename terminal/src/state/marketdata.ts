@@ -9,12 +9,28 @@
  * - A seq gap (per key and event type) triggers a snapshot resync (quotes) or a time & sales re-read (trades).
  * - Stream health (state, heartbeat age, gaps, resyncs, browser receipt latency, sources seen) is exposed for the
  *   header and the monitor through useStreamHealth() / MarketDataProvider.
+ * - Only real data is kept: a quote, trade or depth event whose data_type is not REALTIME, DELAYED or FROZEN is never
+ *   stored or shown as data. The key's status becomes ERROR with the reason, and the UI renders an error.
  */
 import { createContext, createElement, useContext, useSyncExternalStore, type ReactNode } from 'react';
 import type { EventSourceFactory, EventSourceLike } from './stream';
 
-export type DataType = 'REALTIME' | 'DELAYED' | 'FROZEN' | 'SYNTHETIC';
-export type StatusState = 'SUBSCRIBED' | 'UNAVAILABLE' | 'NOT_ENTITLED' | 'LINE_BUDGET' | 'STALE' | 'ENDED';
+export type DataType = 'REALTIME' | 'DELAYED' | 'FROZEN';
+export type StatusState = 'SUBSCRIBED' | 'UNAVAILABLE' | 'NOT_ENTITLED' | 'LINE_BUDGET' | 'STALE' | 'ENDED' | 'ERROR';
+
+/** The only data types the terminal displays. */
+export const REAL_DATA_TYPES: readonly DataType[] = ['REALTIME', 'DELAYED', 'FROZEN'];
+
+export function isRealDataType(x: unknown): x is DataType {
+  return typeof x === 'string' && (REAL_DATA_TYPES as readonly string[]).includes(x);
+}
+
+/** The ERROR status for a key whose event carried a data type that is not real market data. */
+export function refusedStatus(key: string, kind: string, source: unknown, dataType: unknown): KeyStatus {
+  const t = typeof dataType === 'string' && dataType ? dataType : 'missing';
+  const src = typeof source === 'string' && source ? ` from ${source}` : '';
+  return { key, state: 'ERROR', reason: `Refused ${kind}${src}: data type ${t} is not real market data.` };
+}
 type NsValue = string | number | null;
 
 export interface Quote {
@@ -92,7 +108,7 @@ export interface StreamHealth {
   /** Browser receipt minus ts_pub_ns over the most recent quotes and trades (ms; same-host clocks assumed). */
   receiptP50Ms: number | null;
   receiptP99Ms: number | null;
-  /** Data types seen per source, e.g. { SYNTHETIC: ['SYNTHETIC'], IBKR: ['REALTIME', 'DELAYED'] }. */
+  /** Data types seen per source, e.g. { IBKR: ['REALTIME', 'DELAYED'] }. Refused events are not counted. */
   sources: Record<string, DataType[]>;
 }
 
@@ -297,6 +313,12 @@ export class MarketDataClient {
     const ev = data as { key?: string; seq?: number; ts_pub_ns?: NsValue; source?: string; data_type?: DataType };
     const key = ev.key;
     if (typeof key !== 'string') return;
+    if ((name === 'quote' || name === 'trade' || name === 'depth') && !isRealDataType(ev.data_type)) {
+      this.statuses.set(key, refusedStatus(key, name, ev.source, ev.data_type));
+      this.setHealth(patch, false);
+      this.markDirty(key);
+      return;
+    }
     if (name === 'quote' || name === 'trade' || name === 'depth') {
       const seqKey = `${name === 'depth' ? `depth:${(data as DepthEvent).side}` : name}|${key}`;
       const seq = ev.seq ?? 0;
@@ -308,6 +330,8 @@ export class MarketDataClient {
       }
       if (last !== undefined && seq <= last && name === 'quote') return;   // stale (a resync already moved past it)
       this.lastSeq.set(seqKey, seq);
+      // Real data again after a refused event: the refusal no longer describes the key.
+      if (this.statuses.get(key)?.state === 'ERROR') this.statuses.delete(key);
       if (ev.source && ev.data_type) patch.sources = this.withSource(ev.source, ev.data_type);
       const pubMs = nsToMs(ev.ts_pub_ns ?? null);
       if (pubMs !== null && name !== 'depth') this.recordLatency(now - pubMs);
@@ -360,7 +384,12 @@ export class MarketDataClient {
     if (kind === 'trade') {
       void this.fetchJson(`/api/marketdata/trades?key=${encodeURIComponent(key)}&limit=200`)
         .then((body) => {
-          const rows = (body as { trades?: Trade[] }).trades ?? [];
+          const all = (body as { trades?: Trade[] }).trades ?? [];
+          const rows = all.filter((r) => isRealDataType(r.data_type));
+          if (rows.length < all.length) {
+            const bad = all.find((r) => !isRealDataType(r.data_type));
+            this.statuses.set(key, refusedStatus(key, 'trade', bad?.source, bad?.data_type));
+          }
           this.pushTrades(key, rows.map((r) => ({ ...r, seq: Number(r.seq) })));
           this.markDirty(key);
         })
@@ -375,6 +404,11 @@ export class MarketDataClient {
       void this.fetchJson(`/api/marketdata/snapshot?keys=${keys.map(encodeURIComponent).join(',')}`)
         .then((body) => {
           for (const q of (body as { quotes?: Quote[] }).quotes ?? []) {
+            if (!isRealDataType(q.data_type)) {
+              this.statuses.set(q.key, refusedStatus(q.key, 'quote', q.source, q.data_type));
+              this.markDirty(q.key);
+              continue;
+            }
             const cur = this.quotes.get(q.key);
             if (!cur || q.seq >= cur.seq) {
               this.quotes.set(q.key, q);

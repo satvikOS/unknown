@@ -223,4 +223,9 @@ describe('concentration', () => {
     expect(c[0]).toMatchObject({ session_id: 'ses-1', sessionEquity: '100.000000', basis: 'bid', bps: 4950n });
     expect(c[1]).toMatchObject({ basis: 'cost', value: '41.24', bps: 4124n });
   });
+
+  it('never assumes zero liquidity: without the session bucket the share is unknown', () => {
+    const c = concentrations([position(SES, 'FIX-EQ-1', '49.500000')], [], 'USD');
+    expect(c[0]).toMatchObject({ sessionEquity: null, bps: null });
+  });
 });
