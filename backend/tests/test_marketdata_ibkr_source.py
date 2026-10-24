@@ -118,6 +118,24 @@ class IbkrSourceTests(unittest.TestCase):
         listener(info(instrument_id="MSFT.XNAS"))            # not this source's key
         self.assertEqual(self.rec.ev[-1][2], "STALE")
 
+    def test_the_bus_never_calls_a_subscription_realtime_before_ibkr_reports_the_type(self):
+        """FIXED (ADR-0020): the status read 'IBKR (REALTIME): requested' before IBKR reported the delivered type."""
+        from unknown.marketdata.bus import MarketDataBus
+        src = IbkrSource(self.session, lines=40, venue_lookup=C.venue, run_thread=False)
+        self.assertIsNone(src.data_type)
+        cfg = C.BusConfig({"IBKR": {}}, (C.Route("*", ("IBKR",)),), "test")
+        bus = MarketDataBus(cfg, {"IBKR": src})
+        bus.start()
+        try:
+            client = bus.open_client(["AAPL.XNAS"])
+            status = next(ev for n, ev in client.drain(1.0) if n == "status")
+        finally:
+            bus.stop()
+        self.assertEqual(status["state"], "SUBSCRIBED")
+        self.assertNotIn("REALTIME", status["reason"])
+        self.assertIn("IBKR (delivered type not yet reported): requested", status["reason"])
+        self.assertIsNone(src.describe()["data_type"])
+
     def test_no_trades_or_depth_unless_configured(self):
         src = self.source()
         self.assertFalse(src.capabilities.trades or src.capabilities.depth)

@@ -42,7 +42,7 @@ REFUSAL_STATES = ("NOT_ENTITLED", "UNAVAILABLE")
 class _KeyState:
     key: str
     source: str
-    data_type: str
+    data_type: str | None
     refs: int = 0
     reason: str = ""
     fields: dict = field(default_factory=lambda: {f: None for f in QUOTE_FIELDS})
@@ -375,7 +375,9 @@ class MarketDataBus:
                 out = Outcome(False, "UNAVAILABLE", f"{sid}: {type(exc).__name__}: {exc}")
             with self._lock:
                 if out.ok:
-                    st.reason = f"{prior}{sid} ({src.data_type}): {out.reason}".strip()
+                    # Never claim a data type the provider has not reported (IBKR reports it per subscription).
+                    kind = src.data_type or "delivered type not yet reported"
+                    st.reason = f"{prior}{sid} ({kind}): {out.reason}".strip()
                     ev = status_event(key, "SUBSCRIBED", st.reason)
                     for client in self._fanout(key):
                         client.put("status", ev)

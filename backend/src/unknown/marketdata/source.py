@@ -54,7 +54,7 @@ class Sink(Protocol):
 
 class MarketDataSource(ABC):
     source_id: str = ""
-    data_type: str = "REALTIME"
+    data_type: str | None = "REALTIME"   # None: the provider reports the delivered type per event (e.g. IBKR)
     capabilities: Capabilities = Capabilities()
 
     def line_budget(self) -> int | None:

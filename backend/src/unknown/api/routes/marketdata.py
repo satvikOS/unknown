@@ -19,8 +19,9 @@ Live bus (ADR-0018; wire format docs/design/marketdata-stream-contract.md; the S
 * ``/api/marketdata/trades?key=&before_ns=&limit=``: time & sales history from the tick store (newest first).
 * ``/api/marketdata/sources``: configured sources, capabilities, data types, line budgets and lines in use, routes.
 
-When the source is absent, every endpoint returns an explicit ``unavailable_reason``, never placeholder data.
-FIXTURE rows are excluded unless ``include_fixture=1`` and are always labelled.
+When the source is absent, every endpoint returns an explicit ``unavailable_reason`` and a ``reason`` code
+(docs/design/unavailable-values.md), never placeholder data. Rows flagged FIXTURE (test data) are never served: there
+is no option to include them (ADR-0020).
 
 This module never imports the IBKR adapter package or ``ibapi`` (tests/test_ibkr_adapter.py enforces that outside
 ``broker/ibkr``). It reads only the files that package writes: the status file name and the table names below
@@ -35,13 +36,13 @@ import time
 from pathlib import Path
 
 from ...domain.fixed import Fixed, Rounding
+from ...domain.unavailable import classify
 
 STATUS_FILE_NAME = "ibkr-marketdata-status.json"
 STATUS_STALE_AFTER_MS = 60_000          # the owning service rewrites the file on every maintain() cycle
 RESEARCH_DB = ("research", "research.sqlite")
 OPEN_END = 2 ** 62
 MAX_LIMIT = 10_000
-FIXTURE_LABEL = "FIXTURE: synthetic test data, not market data"
 
 FORMULAS = {
     "mid": "mkt.mid@1 = (ask + bid) / 2 [quote currency per share] (book eq. 2.1; CAP-MKT-01)",
@@ -128,6 +129,7 @@ def quote_analytics(quote: dict, budgets: dict, now_ns: int) -> dict:
                   "one_sided": "one side missing"}.get(state, "non-positive bid")
         out["mid"] = out["spread"] = out["spread_bps"] = None
         out["missing_reason"] = reason
+        out["reason"] = "NOT_APPLICABLE" if state == "crossed" else "NO_DATA"
     receipt = quote.get("receipt_time_ns")
     out["age_ms"] = (now_ns - int(receipt)) // 1_000_000 if receipt is not None else None
     if budgets:
@@ -148,12 +150,12 @@ def status(ctx, q: dict) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return {**base, "available": False,
+        return {**base, "available": False, "reason": "NOT_CONNECTED",
                 "unavailable_reason": "the IBKR market-data session is not running: no status file has been written "
                                       "(it is written by IbkrMarketDataSession.maintain(); see "
                                       "docs/integrations/ibkr-marketdata.md)"}
     except (OSError, json.JSONDecodeError) as exc:
-        return {**base, "available": False, "unavailable_reason": f"status file unreadable: {exc}"}
+        return {**base, "available": False, "reason": "ERROR", "unavailable_reason": f"status file unreadable: {exc}"}
     written = int(data.get("written_at_ns") or 0)
     file_age_ms = (now - written) // 1_000_000
     file_stale = file_age_ms > STATUS_STALE_AFTER_MS
@@ -175,6 +177,7 @@ def status(ctx, q: dict) -> dict:
         quote = quotes.get(s.get("instrument_id")) if isinstance(quotes, dict) else None
         if not s.get("current", True):
             s["analytics"] = None
+            s["analytics_reason"] = "NOT_APPLICABLE"
             s["analytics_missing_reason"] = ("earlier subscription record of a re-subscribed instrument; the core "
                                              "quote belongs to the current record")
         elif quote is not None and str(quote.get("source", "")).startswith("ibkr:"):
@@ -184,6 +187,7 @@ def status(ctx, q: dict) -> dict:
                 s["analytics"]["live_reason"] = stale_reason
         else:
             s["analytics"] = None
+            s["analytics_reason"] = "ERROR" if quotes_reason else "PENDING"
             s["analytics_missing_reason"] = quotes_reason or ("no IBKR quote for this instrument in the core quote "
                                                               "book (session not wired to the core, or no data yet)")
         subs.append(s)
@@ -200,14 +204,15 @@ def status(ctx, q: dict) -> dict:
 def _with_research(ctx, fn):
     path = _research_db(ctx)
     if not path.exists():
-        return {"available": False, "unavailable_reason": f"research database {path} does not exist (no data "
+        return {"available": False, "reason": "NO_DATA", "unavailable_reason": f"research database {path} does not exist (no data "
                                                           "has been ingested on this machine)"}
     conn = _open_ro(path)
     try:
         return fn(conn)
     except sqlite3.OperationalError as exc:
         if "no such table" in str(exc):
-            return {"available": False, "unavailable_reason": f"no bars or contracts have been stored yet ({exc})"}
+            return {"available": False, "reason": "NO_DATA",
+                    "unavailable_reason": f"no bars or contracts have been stored yet ({exc})"}
         raise
     finally:
         conn.close()
@@ -223,8 +228,7 @@ def _bar_row(r: sqlite3.Row, t_ns: int) -> dict:
     d["adjustment_basis_ns"] = d["known_from_ns"]
     d["adjustment_basis_after_decision"] = d["adjustment"] != "unadjusted" and d["known_from_ns"] > t_ns
     d["current_version"] = d["known_to_ns"] == OPEN_END
-    if d["fixture"]:
-        d["label"] = FIXTURE_LABEL
+    d.pop("fixture", None)
     return d
 
 
@@ -240,7 +244,6 @@ def bars(ctx, q: dict) -> dict:
     cutoff = _int(q, "knowledge_cutoff_ns")
     start, end = _int(q, "start_ns"), _int(q, "end_ns")
     limit = min(MAX_LIMIT, max(1, _int(q, "limit", 1000)))
-    include_fixture = _bool(q, "include_fixture", False)
 
     def run(conn):
         sql = ("SELECT * FROM mkt_bar WHERE instrument_id=? AND bar_size=? AND what_to_show=? AND use_rth=? "
@@ -252,8 +255,7 @@ def bars(ctx, q: dict) -> dict:
         else:
             sql += " AND known_from_ns<=? AND known_to_ns>?"
             params += [cutoff, cutoff]
-        if not include_fixture:
-            sql += " AND fixture=0"
+        sql += " AND fixture=0"                  # test data is never served (ADR-0020)
         if start is not None:
             sql += " AND bar_start_ns>=?"
             params.append(start)
@@ -266,14 +268,11 @@ def bars(ctx, q: dict) -> dict:
         truncated = len(rows) > limit
         rows = rows[:limit]
         not_yet = conn.execute("SELECT COUNT(*) FROM mkt_bar WHERE instrument_id=? AND bar_size=? AND what_to_show=? "
-                               "AND use_rth=? AND known_to_ns=? AND available_time_ns>?" + (" AND fixture=0"
-                                                                                            if not include_fixture
-                                                                                            else ""),
+                               "AND use_rth=? AND known_to_ns=? AND available_time_ns>? AND fixture=0",
                                (instrument, bar_size, what, int(use_rth), OPEN_END, t_ns)).fetchone()[0]
         gaps = [dict(g) for g in conn.execute(
-            "SELECT * FROM mkt_bar_gap WHERE instrument_id=? AND bar_size=? AND what_to_show=? AND use_rth=?"
-            + ("" if include_fixture else " AND fixture=0") + " ORDER BY gap_id", (instrument, bar_size, what,
-                                                                                  int(use_rth)))]
+            "SELECT * FROM mkt_bar_gap WHERE instrument_id=? AND bar_size=? AND what_to_show=? AND use_rth=? "
+            "AND fixture=0 ORDER BY gap_id", (instrument, bar_size, what, int(use_rth)))]
         out = {"available": True, "instrument_id": instrument,
                "spec": {"bar_size": bar_size, "what_to_show": what, "use_rth": use_rth},
                "as_of_ns": t_ns, "mode": "audit" if cutoff is not None else "research",
@@ -292,47 +291,39 @@ def bars(ctx, q: dict) -> dict:
                 out["missing_reason"] = ("COVERAGE_GAP: IBKR cannot supply this series for the recorded ranges "
                                          f"({', '.join(sorted({g['reason'] for g in gaps}))}); see coverage_gaps")
             else:
-                out["missing_reason"] = ("no stored bars for this series (never fetched, or not permitted to be "
-                                         "stored)")
-        if include_fixture:
-            out["fixture_note"] = FIXTURE_LABEL
+                out["missing_reason"] = ("NO_DATA: no stored bars for this series (never fetched, or not permitted to "
+                                         "be stored)")
+            out["reason"] = classify(out["missing_reason"])
         return out
 
     return _with_research(ctx, run)
 
 
 def bar_series(ctx, q: dict) -> dict:
-    include_fixture = _bool(q, "include_fixture", False)
-
     def run(conn):
         rows = [dict(r) for r in conn.execute(
-            "SELECT instrument_id, bar_size, what_to_show, use_rth, dataset_id, bar_spec_version, adjustment, fixture, "
+            "SELECT instrument_id, bar_size, what_to_show, use_rth, dataset_id, bar_spec_version, adjustment, "
             "SUM(known_to_ns = ?) AS current_bars, COUNT(*) AS versions, MIN(bar_start_ns) AS first_bar_start_ns, "
-            "MAX(bar_start_ns) AS last_bar_start_ns, MAX(receipt_time_ns) AS last_receipt_ns FROM mkt_bar"
-            + ("" if include_fixture else " WHERE fixture=0") +
-            " GROUP BY instrument_id, bar_size, what_to_show, use_rth, dataset_id, bar_spec_version, adjustment, "
-            "fixture ORDER BY instrument_id, bar_size", (OPEN_END,))]
-        for r in rows:
-            if r["fixture"]:
-                r["label"] = FIXTURE_LABEL
+            "MAX(bar_start_ns) AS last_bar_start_ns, MAX(receipt_time_ns) AS last_receipt_ns FROM mkt_bar "
+            "WHERE fixture=0 GROUP BY instrument_id, bar_size, what_to_show, use_rth, dataset_id, bar_spec_version, "
+            "adjustment ORDER BY instrument_id, bar_size", (OPEN_END,))]
         return {"available": True, "series": rows, "count": len(rows),
-                **({} if rows else {"missing_reason": "no bars stored"})}
+                **({} if rows else {"reason": "NO_DATA", "missing_reason": "no bars stored"})}
 
     return _with_research(ctx, run)
 
 
 def bar_gaps(ctx, q: dict) -> dict:
     instrument = q.get("instrument")
-    include_fixture = _bool(q, "include_fixture", False)
 
     def run(conn):
-        sql, params = "SELECT * FROM mkt_bar_gap WHERE 1=1", []
+        sql, params = "SELECT * FROM mkt_bar_gap WHERE fixture=0", []
         if instrument:
             sql += " AND instrument_id=?"
             params.append(instrument)
-        if not include_fixture:
-            sql += " AND fixture=0"
         rows = [dict(r) for r in conn.execute(sql + " ORDER BY gap_id", tuple(params))]
+        for r in rows:
+            r.pop("fixture", None)
         return {"available": True, "gaps": rows, "count": len(rows)}
 
     return _with_research(ctx, run)
@@ -340,15 +331,13 @@ def bar_gaps(ctx, q: dict) -> dict:
 
 # ============================================================================ contracts
 def contracts(ctx, q: dict) -> dict:
-    include_fixture = _bool(q, "include_fixture", False)
-
     def run(conn):
         rows = conn.execute(
             "SELECT r.*, (SELECT MAX(v.resolved_at_ns) FROM ibkr_contract_resolution v WHERE v.instrument_id = "
             "r.instrument_id AND v.status = 'VERIFIED') AS last_verified_at_ns FROM ibkr_contract_resolution r JOIN "
             "(SELECT instrument_id, MAX(resolution_id) AS mx FROM ibkr_contract_resolution GROUP BY instrument_id) l "
             "ON r.resolution_id = l.mx"
-            + ("" if include_fixture else " WHERE r.fixture=0") + " ORDER BY r.instrument_id").fetchall()
+            " WHERE r.fixture=0 ORDER BY r.instrument_id").fetchall()
         table = []
         for r in rows:
             rec = json.loads(r["record"])
@@ -362,16 +351,14 @@ def contracts(ctx, q: dict) -> dict:
                    "last_verified_ns": r["last_verified_at_ns"],
                    "checks": rec.get("checks"), "reasons": rec.get("reasons"), "warnings": rec.get("warnings"),
                    "match_count": len(rec.get("matches") or []), "query": rec.get("query"),
-                   "resolution_version": rec.get("resolution_version"), "fixture": bool(r["fixture"])}
-            if r["fixture"]:
-                row["label"] = FIXTURE_LABEL
+                   "resolution_version": rec.get("resolution_version")}
             table.append(row)
         verified = sum(1 for t in table if t["status"] == "VERIFIED")
         return {"available": True, "contracts": table, "count": len(table),
                 "verification_pass_rate": {"value": f"{verified}/{len(table)}" if table else None,
                                            "formula": "ins.verification_pass_rate@1 = listings with all checks passed / "
                                                       "listings resolved (CAP-INS-04)"},
-                **({} if table else {"missing_reason": "no contract resolutions stored"})}
+                **({} if table else {"reason": "NO_DATA", "missing_reason": "no contract resolutions stored"})}
 
     return _with_research(ctx, run)
 
@@ -402,7 +389,7 @@ def live_trades(ctx, q: dict) -> dict:
     parse_key(key)                                   # ValueError -> 400
     bus = _bus(ctx)
     if bus.store is None:
-        return {"key": key, "trades": [], "unavailable_reason": "no tick store configured"}
+        return {"key": key, "trades": [], "reason": "NO_SOURCE", "unavailable_reason": "no tick store configured"}
     rows = bus.store.trades(key, before_ns=_int(q, "before_ns"), limit=_int(q, "limit", 500))
     return {"key": key, "trades": rows, "retention": bus.store.stats()}
 

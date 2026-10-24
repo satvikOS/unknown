@@ -91,6 +91,9 @@ def md_config(**over) -> dict:
     return data
 
 
+# Storage rights for bars a test stores as if fetched (unflagged): product routes never serve fixture-flagged rows.
+TEST_RIGHTS = H.StorageRights(True, "TEST.ibkr.historical_bars", "TEST: stored by a unit test", "test double")
+
 class FakeContract:
     """Stands in for ibapi.contract.Contract in the pure tests (same attribute names)."""
 
@@ -1320,31 +1323,38 @@ class RouteTests(SessionCase):
         self.assertIsNone(s["analytics"])
         self.assertIn("core unreachable", s["analytics_missing_reason"])
 
-    def test_bars_route_is_point_in_time_and_labels_fixtures(self):
+    def _store_bars(self, store, instrument, days, rights):
+        rule = H.SessionRule.from_calendar_file(XNYS)
+        req = H.HistoricalRequest(instrument, MD.ContractSpec(con_id=CON_A), "1 day", "5 D")
+        res = H.HistoricalResult(req, f"r-{instrument}", "COMPLETE", "test", receipt_ns=T0)
+        res.bars = [H.parse_bar(bar_row(d), req, receipt_ns=T0, settle_delay_ns=0, session_rule=rule) for d in days]
+        store.store(res, rights)
+
+    def test_bars_route_is_point_in_time_and_never_serves_fixtures(self):
         research = Paths(self.home).root / "research"
         research.mkdir(parents=True)
         store = H.BarStore(research / "research.sqlite")
         self.addCleanup(store.close)
-        rule = H.SessionRule.from_calendar_file(XNYS)
-        req = H.HistoricalRequest("INS-FXA", MD.ContractSpec(con_id=CON_A), "1 day", "5 D")
-        res = H.HistoricalResult(req, "r1", "COMPLETE", "fixture", receipt_ns=T0)
-        res.bars = [H.parse_bar(bar_row(d), req, receipt_ns=T0, settle_delay_ns=0, session_rule=rule)
-                    for d in ("20261020", "20261021")]
-        store.store(res, H.StorageRights.fixture_only())
-        self.assertEqual(self.get("bars", instrument="INS-FXA")["count"], 0)                 # fixtures hidden
+        self._store_bars(store, "INS-FXA", ("20261020", "20261021"), TEST_RIGHTS)
+        self._store_bars(store, "INS-FIX", ("20261020", "20261021"), H.StorageRights.fixture_only())
+        hidden = self.get("bars", instrument="INS-FIX", as_of_ns=utc_ns(2026, 10, 23))   # ADR-0020: never served
+        self.assertEqual((hidden["count"], hidden["reason"]), (0, "NO_DATA"))
+        self.assertFalse(hasattr(self.R, "FIXTURE_LABEL"))
         out = self.get("bars", instrument="INS-FXA", include_fixture=1, as_of_ns=utc_ns(2026, 10, 21, 12))
         self.assertEqual(out["count"], 1)
         self.assertEqual(out["excluded_not_yet_available"], 1)
         bar = out["bars"][0]
-        self.assertEqual((bar["bar_date"], bar["label"], bar["formula"], bar["units"]["price"]),
-                         ("2026-10-20", self.R.FIXTURE_LABEL, H.BAR_SPEC_VERSION, "USD"))
-        none = self.get("bars", instrument="INS-FXA", include_fixture=1, as_of_ns=utc_ns(2026, 10, 19))
+        self.assertEqual((bar["bar_date"], bar["formula"], bar["units"]["price"]), ("2026-10-20", H.BAR_SPEC_VERSION, "USD"))
+        self.assertNotIn("label", bar)
+        self.assertNotIn("fixture", bar)
+        none = self.get("bars", instrument="INS-FXA", as_of_ns=utc_ns(2026, 10, 19))
         self.assertTrue(none["missing_reason"].startswith("NOT_YET_PUBLISHED"))
-        audit = self.get("bars", instrument="INS-FXA", include_fixture=1, as_of_ns=utc_ns(2026, 10, 23),
-                         knowledge_cutoff_ns=T0 - 1)
+        self.assertEqual(none["reason"], "NOT_REPORTED")
+        audit = self.get("bars", instrument="INS-FXA", as_of_ns=utc_ns(2026, 10, 23), knowledge_cutoff_ns=T0 - 1)
         self.assertEqual((audit["mode"], audit["count"]), ("audit", 0))
-        series = self.get("bars", "series", include_fixture=1)["series"]
-        self.assertEqual((series[0]["current_bars"], series[0]["label"]), (2, self.R.FIXTURE_LABEL))
+        series = self.get("bars", "series")["series"]
+        self.assertEqual([(r["instrument_id"], r["current_bars"]) for r in series], [("INS-FXA", 2)])
+        self.assertNotIn("fixture", series[0])
 
     def test_contracts_route_shows_the_verification_table(self):
         research = Paths(self.home).root / "research"
@@ -1352,15 +1362,17 @@ class RouteTests(SessionCase):
         store = C.ContractStore(research / "research.sqlite")
         self.addCleanup(store.close)
         store.record("INS-FXA", C.evaluate(QUERY, [details()], rules={9001: RULE_9001}, instrument_id="INS-FXA",
-                                           now_ns=T0, settlement_days=1, fixture=True))
+                                           now_ns=T0, settlement_days=1))
         store.record("INS-FXB", C.evaluate(QUERY, [details(), details(con_id=CON_B)], rules={},
-                                           instrument_id="INS-FXB", now_ns=T0, settlement_days=1, fixture=True))
-        self.assertEqual(self.get("contracts")["count"], 0)
-        out = self.get("contracts", include_fixture=1)
+                                           instrument_id="INS-FXB", now_ns=T0, settlement_days=1))
+        store.record("INS-FIX", C.evaluate(QUERY, [details()], rules={9001: RULE_9001}, instrument_id="INS-FIX",
+                                           now_ns=T0, settlement_days=1, fixture=True))
+        out = self.get("contracts", include_fixture=1)          # the option no longer exists: fixtures never served
         rows = {r["instrument_id"]: r for r in out["contracts"]}
         self.assertEqual((rows["INS-FXA"]["status"], rows["INS-FXA"]["blocks_routing"], rows["INS-FXA"]["con_id"]),
                          ("VERIFIED", False, CON_A))
         self.assertEqual((rows["INS-FXB"]["status"], rows["INS-FXB"]["blocks_routing"]), ("AMBIGUOUS", True))
+        self.assertEqual(set(rows), {"INS-FXA", "INS-FXB"})
         self.assertEqual(out["verification_pass_rate"]["value"], "1/2")
 
     # ---------------------------------------------------------------- adversarial review regressions
@@ -1408,45 +1420,43 @@ class RouteTests(SessionCase):
         research.mkdir(parents=True)
         store = H.BarStore(research / "research.sqlite")
         self.addCleanup(store.close)
-        rule = H.SessionRule.from_calendar_file(XNYS)
-        req = H.HistoricalRequest("INS-FXA", MD.ContractSpec(con_id=CON_A), "1 day", "5 D")
-        res = H.HistoricalResult(req, "r1", "COMPLETE", "fixture", receipt_ns=T0)
-        res.bars = [H.parse_bar(bar_row(d), req, receipt_ns=T0, settle_delay_ns=0, session_rule=rule)
-                    for d in ("20261019", "20261020", "20261021")]
-        store.store(res, H.StorageRights.fixture_only())
+        self._store_bars(store, "INS-FXA", ("20261019", "20261020", "20261021"), TEST_RIGHTS)
         later = utc_ns(2026, 10, 23)
-        cut = self.get("bars", instrument="INS-FXA", include_fixture=1, as_of_ns=later, limit=2)
+        cut = self.get("bars", instrument="INS-FXA", as_of_ns=later, limit=2)
         self.assertEqual((cut["count"], cut["truncated"], [b["bar_date"] for b in cut["bars"]]),
                          (2, True, ["2026-10-19", "2026-10-20"]))
         self.assertIn("truncation_note", cut)
-        whole = self.get("bars", instrument="INS-FXA", include_fixture=1, as_of_ns=later, limit=3)
+        whole = self.get("bars", instrument="INS-FXA", as_of_ns=later, limit=3)
         self.assertEqual((whole["count"], whole["truncated"]), (3, False))
         gone = H.HistoricalRequest("INS-GONE", MD.ContractSpec(con_id=CON_B), "1 day", "5 D")
-        store.record_gap(gone, start_ns=None, end_ns=None, reason="IBKR_NO_SECURITY_DEFINITION", detail="fixture",
-                         recorded_ns=T0, request_id="r2", fixture=True)
-        empty = self.get("bars", instrument="INS-GONE", include_fixture=1, as_of_ns=later)
+        store.record_gap(gone, start_ns=None, end_ns=None, reason="IBKR_NO_SECURITY_DEFINITION", detail="test",
+                         recorded_ns=T0, request_id="r2")
+        empty = self.get("bars", instrument="INS-GONE", as_of_ns=later)
+        self.assertEqual(empty["reason"], "NO_DATA")
         self.assertTrue(empty["missing_reason"].startswith("COVERAGE_GAP"), empty["missing_reason"])
         self.assertIn("IBKR_NO_SECURITY_DEFINITION", empty["missing_reason"])
 
     def test_contracts_last_verified_is_the_last_passing_check_not_the_last_attempt(self):
-        """FIXED: 'last_verified_ns' showed the time of a later FAILED attempt; a fixture remap appeared unlabelled."""
+        """FIXED: 'last_verified_ns' showed the time of a later FAILED attempt; a fixture remap is never served."""
         research = Paths(self.home).root / "research"
         research.mkdir(parents=True)
         store = C.ContractStore(research / "research.sqlite")
         self.addCleanup(store.close)
         later = T0 + 86_400 * S
         ev = lambda iid, dets, at: C.evaluate(QUERY, dets, rules={9001: RULE_9001}, instrument_id=iid,  # noqa: E731
-                                              now_ns=at, settlement_days=1, fixture=True)
+                                              now_ns=at, settlement_days=1)
         store.record("INS-FXA", ev("INS-FXA", [details()], T0))
         store.record("INS-FXA", ev("INS-FXA", [details(isin="ZZ9999999999")], later))
         store.record("INS-FXB", ev("INS-FXB", [details(isin="ZZ9999999999")], later))
-        rows = {r["instrument_id"]: r for r in self.get("contracts", include_fixture=1)["contracts"]}
+        rows = {r["instrument_id"]: r for r in self.get("contracts")["contracts"]}
         a = rows["INS-FXA"]
         self.assertEqual((a["status"], a["last_resolved_ns"], a["last_verified_ns"]), ("CONFLICT", later, T0))
         self.assertIsNone(rows["INS-FXB"]["last_verified_ns"])
-        store.approve_remap("INS-FXA", CON_B, by="owner", note="fixture", now_ns=later)
-        self.assertEqual(self.get("contracts")["count"], 0)                 # fixture remap stays hidden
-        self.assertEqual(self.get("contracts", include_fixture=1)["contracts"][0]["label"], self.R.FIXTURE_LABEL)
+        store.record("INS-FIX", C.evaluate(QUERY, [details()], rules={9001: RULE_9001}, instrument_id="INS-FIX",
+                                           now_ns=T0, settlement_days=1, fixture=True))
+        store.approve_remap("INS-FIX", CON_B, by="owner", note="test", now_ns=later)
+        ids = [r["instrument_id"] for r in self.get("contracts")["contracts"]]
+        self.assertEqual(sorted(ids), ["INS-FXA", "INS-FXB"])               # a fixture remap inherits the flag: hidden
 
 
 # =============================================================================== official SDK
