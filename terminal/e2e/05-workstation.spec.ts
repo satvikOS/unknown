@@ -68,9 +68,11 @@ test('command line, linked panels, saved layouts, lock and recovery from a corru
   await expect(panels).toHaveCount(3);
   expect(await page.evaluate(() => window.localStorage.getItem('unknown.terminal.workstation.corrupt'))).toBe('{"schema":1,"draft":');
 
-  // Status bar: the market-data client is registered and names the stream state and the SYNTHETIC source.
+  // Status bar: the market-data client is registered and names the stream state and each source with its data type
+  // (the suite's TEST feed, REALTIME). Only real data types exist: nothing is labelled SYNTHETIC or FIXTURE.
   const bar = page.getByRole('contentinfo', { name: 'Status bar' });
   await expect(bar).toContainText(/MD (STREAMING|CONNECTING|STALE)/);
-  await expect(bar).toContainText('SYNTHETIC');
+  await expect(bar.locator('.src-badge', { hasText: 'TEST · REALTIME' })).toBeVisible();
+  await expect(bar).not.toContainText(/SYNTHETIC|FIXTURE/);
   expect(problems).toEqual([]);
 });

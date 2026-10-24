@@ -1,8 +1,8 @@
 /**
  * Instruments: the instrument master (GET /api/instruments) with tick rules, multiplier, settlement
- * cycle, provider mappings and attributes. Only real securities are listed: an instrument the core marks as a fixture
- * is refused (counted as an error, its detail shows an error, never its data). The latest quote (GET /api/quotes, live
- * process state, polled) always shows its source and age; a fixture quote is an error.
+ * cycle, provider mappings and attributes. An instrument the core marks as a fixture is not a real security: it carries
+ * the ERR flag everywhere it appears. The latest quote (GET /api/quotes, live process state, polled) always shows its
+ * source and age; a fixture quote or fixture-marked holding value is an error, never a value.
  * Route: `#/instruments` (list) and `#/instruments/<instrument_id>` (detail).
  */
 import { useEffect, useMemo, useState } from 'react';
@@ -92,7 +92,7 @@ function InstrumentList({
   const [assetClass, setAssetClass] = useState('');
   const classes = useMemo(() => [...new Set(rows.map((i) => i.asset_class))].sort(), [rows]);
   const shown = useMemo(
-    () => rows.filter((i) => !isFixture(i) && (!assetClass || i.asset_class === assetClass) && matchInstrument(i, text)),
+    () => rows.filter((i) => (!assetClass || i.asset_class === assetClass) && matchInstrument(i, text)),
     [rows, text, assetClass],
   );
   const fixtures = rows.filter(isFixture).length;
@@ -208,12 +208,12 @@ function InstrumentList({
         </div>
         <span className="spacer" />
         <span className="ops-hint">
-          {rows.length - fixtures} instrument{rows.length - fixtures === 1 ? '' : 's'} · quotes polled every {QUOTE_POLL_MS / 1000} s
+          {rows.length} instrument{rows.length === 1 ? '' : 's'} · quotes polled every {QUOTE_POLL_MS / 1000} s
           {fixtures ? (
             <>
               {' · '}
-              <FixtureRefused detail={`${fixtures} instrument${fixtures === 1 ? '' : 's'} marked FIXTURE (not real securities) not listed.`} />{' '}
-              {fixtures} refused
+              <FixtureRefused detail={`${fixtures} instrument${fixtures === 1 ? ' is' : 's are'} marked FIXTURE: not real securities.`} /> {fixtures} not
+              real
             </>
           ) : null}
         </span>
@@ -490,7 +490,7 @@ function InstrumentDetail({
                 numeric: true,
                 sortKind: 'decimal',
                 sortValue: (p) => p.market_value,
-                cell: (p) => (p.mark_fixture ? <FixtureRefused /> : <Money amount={p.market_value} currency={p.currency} kind="marked" unavailable="No quote for this instrument." />),
+                cell: (p) => (p.mark_fixture ? <FixtureRefused /> : <Money amount={p.market_value} currency={p.currency} kind="marked" reason={p.mark_reason ?? undefined} unavailable={p.mark_basis} />),
               },
               {
                 id: 'unreal',
@@ -498,7 +498,7 @@ function InstrumentDetail({
                 numeric: true,
                 sortKind: 'decimal',
                 sortValue: (p) => p.unrealized,
-                cell: (p) => (p.mark_fixture ? <FixtureRefused /> : <Money amount={p.unrealized} currency={p.currency} kind="unrealized" signed unavailable="No quote for this instrument." />),
+                cell: (p) => (p.mark_fixture ? <FixtureRefused /> : <Money amount={p.unrealized} currency={p.currency} kind="unrealized" signed reason={p.mark_reason ?? undefined} unavailable={p.mark_basis} />),
               },
               {
                 id: 'basis',

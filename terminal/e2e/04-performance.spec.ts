@@ -160,7 +160,7 @@ test('the capability register revalidates with its ETag: a refresh is a 304 and 
   expect(problems).toEqual([]);
 });
 
-const CIK = 9000001; // seeded by 03-research (SYNTHETIC SEC fixtures)
+const CIK = 9000001; // seeded by 03-research (the backend tests' SEC issuers)
 const AS_OF = '2026-10-22T12:00:00Z';
 
 /** Make the core write an event, as the owner CLI or another terminal would: a STOP (StopReasserted once latched). */

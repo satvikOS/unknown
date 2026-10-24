@@ -59,7 +59,7 @@ test('login rejects a wrong passphrase, then accepts the right one', async () =>
   await expect(page).toHaveURL(/#\/overview$/);
 });
 
-test('overview shows SIMULATED in text and colour, and labels fixture data FIXTURE', async () => {
+test('overview shows SIMULATED in text and colour, and names the simulated broker', async () => {
   await expect(page.getByRole('heading', { name: 'Overview', level: 1 })).toBeVisible();
   const badge = header(page).locator('.mode-badge');
   await expect(badge).toHaveText(/SIMULATED/);
@@ -82,8 +82,9 @@ test('overview shows SIMULATED in text and colour, and labels fixture data FIXTU
   expect(colours.badge).toBe(colours.mode);
   expect(colours.band).toBe(colours.mode);
   await expect(page.locator('.mode-band')).toHaveAttribute('data-mode', 'SIMULATED');
-  // The simulated broker and its quotes are fixtures.
-  await expect(header(page).locator('.badge', { hasText: 'FIXTURE' })).toBeVisible();
+  // The simulated broker is named, with the real-data rule: it prices only from a configured quote source (TEST here).
+  await expect(header(page).locator('.badge', { hasText: 'SIM BROKER' })).toBeVisible();
+  await expect(header(page).locator('.badge', { hasText: 'FIXTURE' })).toHaveCount(0);
   // The bootstrap leaves the account stopped until the owner presses START.
   await expectEntryState(page, 'STOPPED');
   await expect(page.getByRole('table', { name: 'Cash by owner bucket' })).toContainText(/300\.00\s*USD/);
@@ -145,7 +146,7 @@ test('create a session request: with entries permitted it is funded and starts',
   await expect(lifecycle.locator('header').getByText('RUNNING', { exact: true })).toBeVisible();
 });
 
-test('a BUY at the FIXTURE ask + 0.02 is accepted and shows FILLED in the blotter', async () => {
+test('a BUY at the TEST ask + 0.02 is accepted and shows FILLED in the blotter', async () => {
   await goKeys(page, 'b');
   await expect(page.getByRole('heading', { name: 'Orders', level: 1 })).toBeVisible();
   await page.locator('h1#ws-title').focus();
@@ -154,12 +155,13 @@ test('a BUY at the FIXTURE ask + 0.02 is accepted and shows FILLED in the blotte
   await page.getByLabel('Session', { exact: true }).selectOption(run.sessionId);
   await page.getByLabel('Instrument').selectOption('FIX-EQ-1');
   const quote = page.locator('section[aria-labelledby="tkt-quote-h"]');
-  await expect(quote.getByText('FIXTURE', { exact: true }).first()).toBeVisible();
-  await expect(quote).toContainText('fixture-market');
+  // The quote names its source (the suite's TEST feed) and is shown as data, never as FIXTURE or SYNTHETIC.
+  await expect(quote).toContainText(/source\s*TEST/);
+  await expect(quote).not.toContainText(/FIXTURE|SYNTHETIC/);
   await page.getByRole('radio', { name: 'BUY' }).check();
   await page.getByLabel(/^Quantity/).fill('1');
   await page.getByLabel(/^Deadline/).fill('300');
-  // Copy the live ask, then add 0.02 (exact decimal arithmetic) so the limit crosses the FIXTURE ask.
+  // Copy the live ask, then add 0.02 (exact decimal arithmetic) so the limit crosses the TEST ask.
   await dismissNotices(page);
   await page.getByRole('button', { name: /^ask / }).click();
   const ask = await page.getByLabel(/^Limit price/).inputValue();
@@ -177,16 +179,17 @@ test('a BUY at the FIXTURE ask + 0.02 is accepted and shows FILLED in the blotte
   await page.getByRole('radio', { name: 'All' }).check();
   const blotter = page.getByRole('table', { name: /^All orders/ });
   const row = blotter.locator('tbody tr', { hasText: run.orderId });
-  // The fixture market fills a BUY once its limit is at or above the ask; the quote can move away
+  // The simulated broker fills a BUY once its limit is at or above the TEST ask; the quote can move away
   // before the order reaches the simulated broker, so allow it time to come back.
   await expect(row.getByText('FILLED', { exact: true })).toBeVisible({ timeout: 90_000 });
 
-  // The position appears on the overview with a FIXTURE mark that states its source and age.
+  // The position appears on the overview with a mark that states its source (TEST) and age.
   await goKeys(page, 'o');
   const positions = page.getByRole('table', { name: 'Open positions by owner and instrument' });
   const pos = positions.locator('tbody tr', { hasText: 'FIX-EQ-1' });
   await expect(pos).toBeVisible();
-  await expect(pos.locator('.badge', { hasText: 'FIXTURE' })).toBeVisible();
+  await expect(pos).toContainText(/bid from TEST age \d+ ms/);
+  await expect(pos.locator('.nv-error')).toHaveCount(0);
 });
 
 test('red STOP shows its command id and progress, and a new BUY is rejected with STOP_LATCH', async () => {

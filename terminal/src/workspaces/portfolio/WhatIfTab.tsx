@@ -7,7 +7,7 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { formatMoney, formatQuantity } from '../../format/decimal';
 import { useQuery } from '../../state/react';
-import { Money, Qty, StatusPill } from '../../ui/primitives';
+import { FixtureRefused, Money, Qty, StatusPill } from '../../ui/primitives';
 import { QueryError, WorkspaceLink } from '../../ui/WorkspaceFrame';
 import { parseDecision } from '../orders/decision';
 import { DecisionTable } from '../orders/parts';
@@ -255,11 +255,15 @@ export function WhatIfTab({ bar, formulas }: { bar: ReactNode; formulas: Map<str
             <AsOf body={body} />
           </div>
           <QuoteSnapshotNote body={body} />
-          {quote ? (
+          {quote && quote.fixture === true ? (
+            <p className="pf-hint" role="alert">
+              <FixtureRefused label="Quote evaluated" /> The quote evaluated is marked FIXTURE (test) data and is not shown.
+            </p>
+          ) : quote ? (
             <p className="pf-hint">
               Quote evaluated: bid {str(quote.bid) ?? <NoValue reason="NOT_REPORTED" />} / ask {str(quote.ask) ?? <NoValue reason="NOT_REPORTED" />} {str(quote.currency)}, source {str(quote.source)}, age {num(quote.age_ms) ?? <NoValue reason="NOT_REPORTED" />} ms,
               market-data type {str(quote.market_data_type) ?? <NoValue reason="NOT_REPORTED" />}, consolidation {str(quote.consolidation) ?? <NoValue reason="NOT_REPORTED" />}
-              {quote.fixture === true ? ' (FIXTURE)' : ''}.
+              .
             </p>
           ) : null}
           {Array.isArray(body.reservation_preview) && body.reservation_preview.length ? (

@@ -129,7 +129,7 @@ function positionColumns(fetchedAtMs: number | null): Column<Position>[] {
       numeric: true,
       sortKind: 'decimal',
       sortValue: (p) => p.mark,
-      cell: (p) => (p.mark_fixture ? <FixtureRefused detail={p.mark_basis} /> : <Money amount={p.mark} currency={p.currency} kind="marked" unavailable="No quote for this instrument." />),
+      cell: (p) => (p.mark_fixture ? <FixtureRefused detail={p.mark_basis} /> : <Money amount={p.mark} currency={p.currency} kind="marked" reason={p.mark_reason ?? undefined} unavailable={p.mark_basis} />),
     },
     {
       id: 'mv',
@@ -137,7 +137,7 @@ function positionColumns(fetchedAtMs: number | null): Column<Position>[] {
       numeric: true,
       sortKind: 'decimal',
       sortValue: (p) => p.market_value,
-      cell: (p) => (p.mark_fixture ? <FixtureRefused /> : <Money amount={p.market_value} currency={p.currency} kind="marked" unavailable="No quote for this instrument." />),
+      cell: (p) => (p.mark_fixture ? <FixtureRefused /> : <Money amount={p.market_value} currency={p.currency} kind="marked" reason={p.mark_reason ?? undefined} unavailable={p.mark_basis} />),
     },
     {
       id: 'unreal',
@@ -145,7 +145,7 @@ function positionColumns(fetchedAtMs: number | null): Column<Position>[] {
       numeric: true,
       sortKind: 'decimal',
       sortValue: (p) => p.unrealized,
-      cell: (p) => (p.mark_fixture ? <FixtureRefused /> : <Money amount={p.unrealized} currency={p.currency} kind="unrealized" signed unavailable="No quote for this instrument." />),
+      cell: (p) => (p.mark_fixture ? <FixtureRefused /> : <Money amount={p.unrealized} currency={p.currency} kind="unrealized" signed reason={p.mark_reason ?? undefined} unavailable={p.mark_basis} />),
     },
     {
       id: 'basis',

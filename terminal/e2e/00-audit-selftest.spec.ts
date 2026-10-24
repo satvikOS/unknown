@@ -83,14 +83,14 @@ test('the header overlap check catches status items drawn over each other, and p
     <header class="topbar" style="display:flex;width:900px">
       <div class="topbar-status" style="display:flex;gap:10px;overflow:hidden;flex:1 1 auto;min-width:0">
         <div class="topbar-group" style="display:flex;gap:8px;min-width:0;width:${groupWidth}">
-          <span class="pill" style="flex:none">CORE OK</span><span class="badge" style="flex:none">FIXTURE</span>
+          <span class="pill" style="flex:none">CORE OK</span><span class="badge" style="flex:none">SIM BROKER</span>
         </div>
         <span class="pill" style="flex:none">STREAMING</span>
       </div>
       <button type="button">STOP</button>
     </header></body></html>`;
   await page.setContent(header('40px'));
-  expect((await headerOverlaps(page)).join('\n')).toMatch(/FIXTURE \/ STREAMING|CORE OK \/ STREAMING/);
+  expect((await headerOverlaps(page)).join('\n')).toMatch(/SIM BROKER \/ STREAMING|CORE OK \/ STREAMING/);
   await page.setContent(header('auto'));
   expect(await headerOverlaps(page)).toEqual([]);
 });

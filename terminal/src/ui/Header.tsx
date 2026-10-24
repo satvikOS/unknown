@@ -40,8 +40,11 @@ function HealthPills() {
       />
       <StatusPill label={brokerLabel} tone={brokerOk ? 'ok' : 'bad'} detail={`${core.provider}: ${core.detail}`} />
       {core.provider === 'simulated' ? (
-        <Badge tone="info" title={`Simulated broker (${core.detail}): fills are simulated at prices from a real configured quote source; with none it fills nothing. No order reaches a market.`}>
-          SIM BROKER
+        <Badge
+          tone={core.sim_execution?.reason ? 'warn' : 'info'}
+          title={`Simulated broker (${core.detail}): ${core.sim_execution?.detail ?? 'fills are simulated only at prices from a real configured quote source; with none it fills nothing'}. No order reaches a market.`}
+        >
+          {core.sim_execution?.reason ? `SIM BROKER · ${core.sim_execution.reason}` : core.sim_execution?.source ? `SIM BROKER · ${core.sim_execution.source}` : 'SIM BROKER'}
         </Badge>
       ) : null}
     </>

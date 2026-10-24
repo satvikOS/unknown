@@ -201,10 +201,10 @@ function BacktestFixtureNote({ fixtureRuns, hasDays }: { fixtureRuns: boolean | 
 }
 
 export function BacktestPanel({ body, formulas, fixtureRuns }: { body: Rec; formulas: Map<string, FormulaDef>; fixtureRuns?: boolean | null }) {
-  // Read from snapshots that include FIXTURE quotes: refused, only the error is shown.
-  if (fixtureRuns === true) return <BacktestFixtureNote fixtureRuns hasDays />;
   const ccy = str(body.currency) ?? '';
   const days = backtestDays(body);
+  // Days read from snapshots that include FIXTURE quotes: refused, only the error is shown.
+  if (fixtureRuns === true && days.length > 0) return <BacktestFixtureNote fixtureRuns hasDays />;
   const verdict = kupiecVerdict(body.kupiec);
   const exceptions = days.filter((d) => d.exception);
   const cols: Column<BacktestDay>[] = [

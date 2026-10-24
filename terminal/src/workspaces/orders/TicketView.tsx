@@ -74,7 +74,8 @@ function describedBy(field: TicketField, error: string | undefined, hint: string
 }
 
 function instrumentLabel(i: Instrument): string {
-  return `${i.symbol} · ${i.name} · ${i.instrument_id}`;
+  // A fixture instrument is not a real security; the option says so (the review step shows the error marker).
+  return `${i.symbol} · ${i.name} · ${i.instrument_id}${isFixtureInstrument(i) ? ' · ERR: not a real security' : ''}`;
 }
 
 function sessionLabel(s: Session): string {
@@ -91,8 +92,7 @@ export function TicketView({
   presetInstrumentId: string | null;
 }) {
   const instruments = inst.map;
-  // A fixture instrument is not a real security: it is never offered (an existing order on one shows an error).
-  const instrumentList = useMemo(() => inst.list.filter((i) => !isFixtureInstrument(i)), [inst.list]);
+  const instrumentList = inst.list;
   const sessionsQ = useQuery('/api/sessions');
   const quotesQ = useQuery('/api/quotes', undefined, { pollMs: 1000 });
   const overview = useQuery('/api/overview');
@@ -501,7 +501,7 @@ function ReviewBlock({
       </dl>
       {isFixtureInstrument(instrument) ? (
         <p className="ord-small" role="alert">
-          <FixtureRefused label="Instrument" /> This instrument is not a real security; the core will refuse the intent.
+          <FixtureRefused label="Instrument" /> This instrument is marked FIXTURE: it is not a real security, and no figure derived from it is market data.
         </p>
       ) : null}
       <div className="ord-actions">

@@ -282,7 +282,7 @@ export function SubmitView() {
                   {instrumentList.map((i) => (
                     <option key={i.instrument_id} value={i.instrument_id}>
                       {i.instrument_id} · {i.symbol}
-                      {i.attributes?.fixture === true ? ' (FIXTURE)' : ''}
+                      {i.attributes?.fixture === true ? ' · ERR: not a real security' : ''}
                     </option>
                   ))}
                 </select>
