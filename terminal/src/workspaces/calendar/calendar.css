@@ -1,0 +1,72 @@
+/* Events calendar (CAP-NEWS-10): design tokens only. */
+.cal-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: flex-end;
+  margin: 0 0 10px;
+}
+.cal-toolbar > label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  min-width: 0;
+}
+.cal-toolbar fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2px 8px 4px;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+}
+.cal-toolbar legend {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+.cal-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+}
+.cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0 0 8px;
+  font-size: var(--fs-sm);
+}
+.cal-legend div {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.cal-legend dd {
+  margin: 0;
+  color: var(--text-muted);
+}
+.cal-week h3 {
+  font-size: var(--fs-md);
+  margin: 12px 0 4px;
+}
+.cal-table td.cal-source {
+  white-space: normal;
+  min-width: 220px;
+}
+.cal-projected td {
+  color: var(--text-muted);
+}
+.cal-evidence {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  max-width: 60ch;
+}
+.cal-notes {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: var(--fs-sm);
+}

@@ -16,10 +16,12 @@
  *   news g n (115)
  *   ask g k (86)
  *   ai g l (87)
+ *   screener g x (111)   ownership g u (112)   calendar g v (116)
  */
 import { aiWorkspace } from './ai';
 import { askWorkspace } from './ask';
 import { auditWorkspace } from './audit';
+import { calendarWorkspace } from './calendar';
 import { capabilitiesWorkspace } from './capabilities';
 import { chartWorkspace } from './chart';
 import { companyWorkspace } from './company';
@@ -31,11 +33,13 @@ import { newsWorkspace } from './news';
 import { operationsWorkspace } from './operations';
 import { ordersWorkspace } from './orders';
 import { overviewWorkspace } from './overview';
+import { ownershipWorkspace } from './ownership';
 import { policyWorkspace } from './policy';
 import { researchWorkspace } from './research';
 import { portfolioWorkspace } from './portfolio';
 import { researchJobsWorkspace } from './research-jobs';
 import { riskWorkspace } from './risk';
+import { screenerWorkspace } from './screener';
 import { sessionsWorkspace } from './sessions';
 import { validateRegistry, type WorkspaceDefinition } from './types';
 
@@ -60,6 +64,9 @@ export const WORKSPACES: readonly WorkspaceDefinition[] = validateRegistry([
   newsWorkspace,
   chartWorkspace,
   portfolioWorkspace,
+  screenerWorkspace,
+  ownershipWorkspace,
+  calendarWorkspace,
 ]);
 
 export function findWorkspace(id: string): WorkspaceDefinition | undefined {

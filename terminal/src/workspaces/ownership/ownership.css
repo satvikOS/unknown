@@ -1,0 +1,75 @@
+/* Ownership workspace (CAP-CO-09): design tokens only. */
+.own-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: flex-end;
+  margin: 0 0 10px;
+}
+.own-toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  min-width: 0;
+}
+.own-toolbar input,
+.own-toolbar select {
+  max-width: 100%;
+}
+.own-head {
+  margin: 0 0 8px;
+}
+.own-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+.own-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px 12px;
+  margin: 0 0 10px;
+}
+.own-facts dt {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+.own-facts dd {
+  margin: 0;
+}
+.own-flow {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
+  margin: 0 0 10px;
+}
+.own-flow-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+}
+.own-flow-net {
+  font-size: var(--fs-lg, 1.1rem);
+  font-weight: 600;
+}
+.own-table td .badge,
+.own-table td [class*='badge'] {
+  margin-left: 4px;
+}
+.own-superseded td {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--border);
+}
+.own-empty {
+  padding: 8px 0;
+}
+.own-notes {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
