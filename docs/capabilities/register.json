@@ -18905,31 +18905,47 @@
           "backend/src/unknown/risk/pretrade.py",
           "backend/src/unknown/broker/ibkr/adapter.py",
           "config/policies/paper-default.v1.json",
-          "terminal/src/workspaces/orders/ticket.ts"
+          "terminal/src/workspaces/orders/ticket.ts",
+          "terminal/src/workspaces/orders/TicketView.tsx",
+          "terminal/src/workspaces/orders/preview.ts",
+          "terminal/src/workspaces/orders/PreviewPanel.tsx",
+          "terminal/src/workspaces/orders/ladder.ts",
+          "terminal/src/workspaces/orders/LadderView.tsx",
+          "terminal/src/workspaces/orders/index.ts",
+          "backend/src/unknown/api/routes/portfolio.py"
         ],
         "tests": [
           "backend/tests/test_policy_mandate.py::PolicyParsingTests.test_shipped_policies_parse_to_their_written_values",
           "backend/tests/test_policy_mandate.py::PolicyParsingTests.test_unreleased_capabilities_are_refused",
           "backend/tests/test_orders_lifecycle.py::PretradeLimitTests.test_price_collar_bounds_buy_and_sell_limits",
           "backend/tests/test_ibkr_adapter.py::SubmitTests.test_local_validation_rejects_without_transmitting [IBKR venv]",
-          "terminal/src/workspaces/orders/ticket.test.ts::validateTicket > reports every missing field as an error"
+          "terminal/src/workspaces/orders/ticket.test.ts::validateTicket > reports every missing field as an error",
+          "terminal/src/workspaces/orders/workstation.test.ts::ticket: time in force and trading session > offers the policy list and flags anything else for the core to refuse",
+          "terminal/src/workspaces/orders/workstation.test.ts::ticket: time in force and trading session > outside regular hours cannot be sent: it is an error and the payload builder refuses it",
+          "terminal/src/workspaces/orders/workstation.test.ts::pretrade preview > shows the fee envelope, the reservation and every check from the core, split exactly",
+          "terminal/src/workspaces/orders/workstation.test.ts::price ladder > uses depth when the source provides it, with our working orders at their prices",
+          "terminal/src/workspaces/orders/workstation.test.ts::price ladder > falls back to level 1, and says why when there is neither",
+          "terminal/src/workspaces/orders/workstation.test.ts::routes and functions > registers BUY, SELL, LADDER and BLOTTER, which only open views",
+          "backend/tests/test_analytics_routes.py::RouteTest.test_every_endpoint_answers_without_history_with_reasons"
         ],
         "evidence": [
           "The only order vocabulary is the policy's eligibility lists (order_types, time_in_force, venues); pretrade ORDER_TYPE and TIME_IN_FORCE checks refuse anything else before any outbox row exists. The shipped policies enable LMT/DAY only.",
-          "The terminal order ticket builds the exact submit_intent payload; the core makes the decision."
+          "The terminal order ticket builds the exact submit_intent payload; the core makes the decision.",
+          "Order-entry workstation (2026-10-24): the ticket has side, quantity, limit, time in force (the policy's list) and trading session (regular hours only; outside hours is refused in the terminal because the core has no flag for it). A live pretrade preview runs the core's own submit_intent path on a private copy (GET /api/portfolio/whatif, now with tif) and shows the fee envelope with its schedule, the reservation and every check with its result and reason before sending. A price ladder shows depth, else level 1, from the market-data client with our working orders; a click stages a limit order (sent on confirm) or opens the cancel. Functions BUY, SELL, LADDER, BLOTTER only open views."
         ],
         "gaps": [
           "no capability matrix keyed by (broker, account mode, product, venue, session, order type, TIF); eligibility is a flat list per policy",
           "no catalog of broker order types (native vs simulated), no in-place amendment rules (AC3), no Kite encoding (AC4)",
           "no paper round-trip evidence per enabled cell (AC2)",
-          "not paper-verified: no IBKR paper session has run (BRK-02)"
+          "not paper-verified: no IBKR paper session has run (BRK-02)",
+          "the ladder and preview are tested on pure logic offline (no browser end-to-end test, no orders placed)"
         ],
         "requirements": [
           "ORD-09",
           "RSK-01"
         ],
-        "updated": "2026-10-22",
-        "verified_against": "impl/foundation@73f7b03"
+        "updated": "2026-10-24",
+        "verified_against": "feat/order-workstation@52f9b71"
       }
     },
     {
@@ -19098,7 +19114,11 @@
           "docs/adr/0009-order-lifecycle-and-outbox.md",
           "terminal/src/workspaces/orders/BlotterView.tsx",
           "backend/src/unknown/core/order_machine.py",
-          "backend/src/unknown/core/desk.py"
+          "backend/src/unknown/core/desk.py",
+          "terminal/src/workspaces/orders/basket.ts",
+          "terminal/src/workspaces/orders/BasketView.tsx",
+          "terminal/src/workspaces/orders/replace.ts",
+          "terminal/src/workspaces/orders/ReplaceDialog.tsx"
         ],
         "tests": [
           "backend/tests/test_orders_lifecycle.py::ReservationTests.test_submit_pending_is_committed_before_the_broker_is_called",
@@ -19115,16 +19135,22 @@
           "backend/tests/test_core_lifecycle_transitions.py::TableTests.test_table_never_leaves_a_terminal_state_and_names_only_real_states",
           "backend/tests/test_core_lifecycle_transitions.py::TableTests.test_a_full_lifecycle_records_only_declared_transitions",
           "backend/tests/test_core_lifecycle_transitions.py::EnforcementTests.test_undeclared_transition_is_refused_recorded_as_an_anomaly_and_latches",
-          "backend/tests/test_core_lifecycle_transitions.py::InactiveOrderTests.test_inactive_buy_keeps_its_reservation_blocks_entries_and_is_canceled"
+          "backend/tests/test_core_lifecycle_transitions.py::InactiveOrderTests.test_inactive_buy_keeps_its_reservation_blocks_entries_and_is_canceled",
+          "terminal/src/workspaces/orders/workstation.test.ts::basket > parses one intent per line, validates each like the ticket, and names bad lines",
+          "terminal/src/workspaces/orders/workstation.test.ts::basket > each command keeps its own outcome; an unknown outcome stays UNKNOWN with its lookup",
+          "terminal/src/workspaces/orders/workstation.test.ts::cancel/replace > sends the replacement only after the cancel is confirmed with nothing filled",
+          "terminal/src/workspaces/orders/workstation.test.ts::cancel/replace > a fill, a refused cancel or an unknown outcome stops it"
         ],
         "evidence": [
           "Local states follow ADR-0009 with quantities, cancel_state and prev_state stored separately; the red stop cancels system orders one by one (no global cancel). The blotter shows the broker order id.",
-          "One published transition table (core/order_machine.py; ADR-0009 amendment) is enforced at Context.emit for every handler: an undeclared state change is refused and recorded as OrderTransitionRefused with a blocking ORDER_TRANSITION_REFUSED case and the stop latch, and a terminal state is never left. An IBKR Inactive order is held as UNKNOWN with every reservation (a buy is canceled) until a broker terminal report or the owner's close on evidence."
+          "One published transition table (core/order_machine.py; ADR-0009 amendment) is enforced at Context.emit for every handler: an undeclared state change is refused and recorded as OrderTransitionRefused with a blocking ORDER_TRANSITION_REFUSED case and the stop latch, and a terminal state is never left. An IBKR Inactive order is held as UNKNOWN with every reservation (a buy is canceled) until a broker terminal report or the owner's close on evidence.",
+          "Baskets (2026-10-24): each line is its own submit_intent with its own order id and command id, shown with its own outcome; an UNKNOWN outcome shows the stored-result lookup and is never resent. Cancel/replace in the blotter: request_cancel, then a new intent only once the core shows the order CANCELED with nothing filled since the request; a fill, refused cancel or unknown outcome stops it."
         ],
         "gaps": [
           "parent/child orders not implemented",
           "blotter shows no evidence-level column (AC6)",
-          "not paper-verified: no IBKR paper session has run (BRK-02)"
+          "not paper-verified: no IBKR paper session has run (BRK-02)",
+          "no native amend: replace is cancel then new order, so the replacement loses queue priority and can be refused by pretrade"
         ],
         "requirements": [
           "ORD-02",
@@ -19133,8 +19159,8 @@
           "ORD-05",
           "ORD-07"
         ],
-        "updated": "2026-10-22",
-        "verified_against": "impl/foundation@8b98d00"
+        "updated": "2026-10-24",
+        "verified_against": "feat/order-workstation@52f9b71"
       }
     },
     {
@@ -19290,7 +19316,8 @@
         "files": [
           "backend/src/unknown/risk/pretrade.py",
           "backend/src/unknown/core/handlers/orders.py",
-          "backend/src/unknown/policy/model.py"
+          "backend/src/unknown/policy/model.py",
+          "backend/src/unknown/risk/fee_schedule.py"
         ],
         "tests": [
           "backend/tests/test_orders_lifecycle.py::PretradeLimitTests.test_price_collar_bounds_buy_and_sell_limits",
@@ -19303,11 +19330,13 @@
           "backend/tests/test_analytics_whatif.py::SharedCodeTest.test_dry_run_equals_the_live_gate_over_random_states",
           "backend/tests/test_strategy_pending_exposure.py::PretradeWithPendingTest.test_concentration_counts_pending_buys_of_every_open_state",
           "backend/tests/test_strategy_pending_exposure.py::PretradeWithPendingTest.test_gross_exposure_counts_every_open_buy",
-          "backend/tests/test_core_lifecycle_executions.py::SelfCrossTests.test_buy_that_would_trade_against_our_working_sell_is_refused_self_cross"
+          "backend/tests/test_core_lifecycle_executions.py::SelfCrossTests.test_buy_that_would_trade_against_our_working_sell_is_refused_self_cross",
+          "backend/tests/test_fee_envelope.py::MissingScheduleTests.test_no_schedule_for_the_broker_refuses_the_buy_with_the_reason"
         ],
         "evidence": [
           "One pure evaluate() runs every check on one materialized snapshot and records all outcomes plus the first decisive code; the decision is stored with accepted and rejected intents (ORD-08).",
-          "CONCENTRATION and GROSS_EXPOSURE count pending buys of every open state, and SELF_CROSS refuses an order that would trade against our own working order; each is tested by a rejection against a passing control."
+          "CONCENTRATION and GROSS_EXPOSURE count pending buys of every open state, and SELF_CROSS refuses an order that would trade against our own working order; each is tested by a rejection against a passing control.",
+          "FEE_SCHEDULE (2026-10-24): a BUY no fee schedule covers is refused with the reason before any reservation."
         ],
         "gaps": [
           "order presets (instrument-type and ticker level) not implemented",
@@ -19320,8 +19349,8 @@
           "RSK-02",
           "ORD-08"
         ],
-        "updated": "2026-10-22",
-        "verified_against": "impl/foundation@8b98d00"
+        "updated": "2026-10-24",
+        "verified_against": "feat/order-workstation@52f9b71"
       }
     },
     {
@@ -20687,7 +20716,10 @@
           "backend/src/unknown/core/handlers/broker.py",
           "backend/src/unknown/research/costs.py",
           "backend/src/unknown/risk/fee_schedule.py",
-          "config/fees/ibkr-pro-tiered-us.json"
+          "config/fees/ibkr-pro-tiered-us.json",
+          "backend/src/unknown/core/handlers/orders.py",
+          "backend/src/unknown/risk/pretrade.py",
+          "docs/adr/0006-ledger-owner-dimension.md"
         ],
         "tests": [
           "backend/tests/test_orders_lifecycle.py::ReservationTests.test_buy_cash_hold_is_limit_notional_plus_fee_envelope",
@@ -20702,23 +20734,32 @@
           "backend/tests/test_fee_schedule.py::PretradeBoundTests.test_bound_is_never_below_a_charge",
           "backend/tests/test_fee_schedule.py::PretradeBoundTests.test_sizing_nets_the_minimum",
           "backend/tests/test_fee_schedule.py::PretradeBoundTests.test_the_policy_envelope_covers_tiered_within_the_policy_order_limit",
-          "backend/tests/test_fee_schedule.py::ScheduleFileValidationTests.test_every_verified_value_cites_a_recorded_source_and_quotes_it"
+          "backend/tests/test_fee_schedule.py::ScheduleFileValidationTests.test_every_verified_value_cites_a_recorded_source_and_quotes_it",
+          "backend/tests/test_fee_envelope.py::ScheduleEnvelopeTests.test_a_300_share_buy_at_1_reserves_at_least_the_schedule_bound",
+          "backend/tests/test_fee_envelope.py::ScheduleEnvelopeTests.test_the_envelope_follows_the_order_size",
+          "backend/tests/test_fee_envelope.py::ScheduleEnvelopeTests.test_a_whole_fill_estimates_its_fee_from_the_same_schedule_within_the_envelope",
+          "backend/tests/test_fee_envelope.py::ScheduleEnvelopeTests.test_replay_reproduces_the_envelope_and_is_deterministic",
+          "backend/tests/test_fee_envelope.py::MissingScheduleTests.test_no_schedule_for_the_broker_refuses_the_buy_with_the_reason",
+          "backend/tests/test_fee_envelope.py::MissingScheduleTests.test_a_schedule_that_does_not_cover_the_venue_refuses",
+          "backend/tests/test_fee_envelope.py::SimulatorTests.test_the_simulated_broker_keeps_the_policy_fee_model_and_says_so"
         ],
         "evidence": [
-          "Reservations use a conservative per-share/minimum/cap envelope from the policy; the broker commission report finalizes the fee; an overrun opens a blocking OVERCOMMITTED case. The research cost model reproduces the IBKR Fixed page examples (100 shares at USD 25 -> USD 1.00).",
-          "Versioned fee-schedule configuration config/fees/ibkr-pro-tiered-us.json (broker ibkr, plan IBKR_PRO_TIERED, market US, route SMART): tiered per-share rates, USD 0.35 minimum, 1% cap, exchange (NASDAQ/NYSE/ARCA remove-liquidity), NSCC/DTC clearing, NYSE and FINRA pass-through, FINRA CAT, SEC fee and FINRA TAF, each with its IBKR page, retrieval date 2026-10-23 and 'verified' only where the page states the number. risk/fee_schedule.py computes the expected charge and a conservative pretrade bound; a USD 100 and a USD 300 buy are charged the USD 0.35 minimum, A15 sizing nets it, and the paper policy's reservation envelope is tested to cover the Tiered bound up to its USD 100 max_order_notional (and shown not to above it)."
+          "Reservations: a BUY's fee envelope is the pretrade_bound of the fee schedule in config/fees for the account's broker, the order's venue, product and currency (ADR-0006 amendment 2026-10-24); the simulator keeps the policy's fee model. The broker commission report finalizes the fee; an overrun opens a blocking OVERCOMMITTED case. The research cost model reproduces the IBKR Fixed page examples (100 shares at USD 25 -> USD 1.00).",
+          "Versioned fee-schedule configuration config/fees/ibkr-pro-tiered-us.json (broker ibkr, plan IBKR_PRO_TIERED, market US, route SMART): tiered per-share rates, USD 0.35 minimum, 1% cap, exchange (NASDAQ/NYSE/ARCA remove-liquidity), NSCC/DTC clearing, NYSE and FINRA pass-through, FINRA CAT, SEC fee and FINRA TAF, each with its IBKR page, retrieval date 2026-10-23 and 'verified' only where the page states the number. risk/fee_schedule.py computes the expected charge and a conservative pretrade bound; a USD 100 and a USD 300 buy are charged the USD 0.35 minimum, A15 sizing nets it, and the paper policy's reservation envelope is tested to cover the Tiered bound up to its USD 100 max_order_notional (and shown not to above it).",
+          "Core fee envelope (2026-10-24): 300 shares at USD 1.00 on IBKR Pro Tiered US reserve USD 2.011672 (the old fixed policy envelope was USD 1.80 and under-reserved); a missing, ambiguous or unloadable schedule fails the new pretrade check FEE_SCHEDULE with the reason and reserves nothing; OrderAccepted records the schedule id and the sha256 of the file; replay reproduces the projections; fill-time estimates use the same schedule's charge, so a whole fill never exceeds its envelope. Every test asserts Harness.verify() == []."
         ],
         "gaps": [
-          "the core's pretrade reservation still uses the policy's own fee model (Fixed-shaped, USD 1.20 per buy), not the schedule file; it covers Tiered only within the paper policy's USD 100 order limit (tested)",
           "UNVERIFIED in the schedule: exchange fees of venues other than NASDAQ, NYSE and ARCA; FINRA TAF after 2026-12-31 (bounded at USD 0.000200/share); the plan switch itself (owner-reported 2026-10-23, no commission report yet)",
           "research costs.py and the schedule file are two copies of the tiered parameters (a drift test pins them equal)",
-          "no Kite charges (AC3); not paper-verified"
+          "no Kite charges (AC3); not paper-verified",
+          "the strategy runtime, research sizing and the what-if/allocation analytics still estimate fees with the policy model; against an IBKR account they can size a buy the core refuses with CASH (a refusal, never an under-reservation)",
+          "several partial fills each carry the per-order minimum in their provisional estimate and can exceed the envelope until the commission report arrives"
         ],
         "requirements": [
           "LED-07"
         ],
-        "updated": "2026-10-23",
-        "verified_against": "feat/ibkr-pro-readiness@9914972"
+        "updated": "2026-10-24",
+        "verified_against": "feat/order-workstation@52f9b71"
       }
     },
     {
