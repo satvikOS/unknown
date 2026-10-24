@@ -1,0 +1,69 @@
+/* Alerts workspace (AlertsWorkspace.tsx). Design tokens only. */
+.alr-engine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  margin: 0 0 8px;
+}
+
+.alr-warn,
+.alr-error,
+.alr-field-error {
+  color: var(--alert);
+}
+
+.alr-error {
+  margin: 4px 0 8px;
+}
+
+.alr-field-error {
+  font-size: var(--fs-xs);
+}
+
+.alr-latest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.alr-cell {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.alr-actions {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.alr-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: flex-end;
+}
+
+.alr-check {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: var(--fs-sm);
+}
+
+.alr-detail {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  word-break: break-word;
+}
