@@ -312,6 +312,34 @@ class CommandResultTests(LiveCase):
         status, got, _ = self.call("GET", f"/api/commands/ui.never.{_hex()}", cookie=cookie)
         self.assertEqual((status, got["source"], got["definitive"]), (404, "database", False))
 
+    def test_without_the_core_quotes_are_an_error_never_an_empty_book(self):
+        """ADR-0020: an unreachable core is an error with a reason, not an empty quote book."""
+        cookie, _ = self.login()
+        real = self.stack.ctx.core
+        self.stack.ctx.core = CoreClient(self.stack.tmp / "no-core.sock", "token")
+        self.addCleanup(setattr, self.stack.ctx, "core", real)
+        status, got, _ = self.call("GET", "/api/quotes", cookie=cookie)
+        self.assertEqual((status, got["code"], got["reason"]), (503, "CORE_UNAVAILABLE", "NOT_CONNECTED"))
+        status, _, _ = self.call("GET", "/api/positions", cookie=cookie)
+        self.assertEqual(status, 200)
+
+    def test_a_position_without_a_usable_quote_is_null_with_a_reason(self):
+        import sqlite3 as _sq
+        from unknown.api import queries
+        conn = _sq.connect(":memory:")
+        conn.row_factory = _sq.Row
+        conn.executescript("CREATE TABLE lots (account_key TEXT, row TEXT); CREATE TABLE instruments "
+                           "(instrument_id TEXT, symbol TEXT);")
+        lot = {"owner": "o", "instrument_id": "I1", "currency": "USD", "open_qty": "5", "open_cost": "50.00"}
+        conn.execute("INSERT INTO lots VALUES (?, ?)", (ACCOUNT, json.dumps(lot)))
+        cases = (({}, None, "NO_DATA"), ({}, "NOT_CONNECTED", "NOT_CONNECTED"),
+                 ({"I1": {"bid": None, "ask": "10.10", "source": "IBKR:live", "age_ms": 5}}, None, "NO_DATA"))
+        for quotes, why, reason in cases:
+            p = queries.positions(conn, ACCOUNT, quotes, quotes_reason=why)[0]
+            self.assertEqual((p["mark"], p["market_value"], p["unrealized"], p["mark_reason"]), (None, None, None, reason))
+        p = queries.positions(conn, ACCOUNT, {"I1": {"bid": "10.00", "source": "IBKR:live", "age_ms": 5}})[0]
+        self.assertEqual((p["mark"], p["market_value"], p["mark_reason"]), ("10.00", "50.000000", None))
+
     def test_a_lost_reply_is_504_outcome_unknown_and_the_lookup_resolves_it_without_resending(self):
         cookie, csrf = self.login()
         proxy = _LossyProxy(self.stack.paths.socket, self.stack.tmp / "lossy.sock")

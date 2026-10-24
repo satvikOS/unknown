@@ -316,7 +316,10 @@ def risk_statistics(returns: list[float], *, periods_per_year: int = 252, rf_ann
     """Volatility, Sharpe, Sortino and their sampling caveats (CAP-PORT-05)."""
     n = len(returns)
     out: dict = {"n": n, "periods_per_year": periods_per_year, "std_normalisation": "n-1",
-                 "risk_free": {"annual": rf_annual if rf_annual is not None else 0.0,
+                 # No configured rate is shown as null with a reason, never as a 0 rate (ADR-0020); the ratios then
+                 # measure excess over zero and say so.
+                 "risk_free": {"annual": rf_annual,
+                               "reason": None if rf_annual is not None else "NO_SOURCE",
                                "series_id": rf_series_id or ("caller-supplied constant rate; no series id given"
                                                              if rf_annual else
                                                              "none configured: Rf = 0 (Sharpe is excess over zero)")},

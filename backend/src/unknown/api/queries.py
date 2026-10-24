@@ -19,6 +19,7 @@ from ..core import ledger
 from ..domain.errors import Rejected
 from ..domain.fixed import Fixed, Rounding
 from ..domain.money import currency
+from ..domain.unavailable import NO_DATA
 from ..store.db import Tx
 
 NS_SUFFIX = "_ns"
@@ -146,7 +147,10 @@ def buckets(conn: sqlite3.Connection, account_key: str) -> list[dict]:
     return out
 
 
-def positions(conn: sqlite3.Connection, account_key: str, quotes: dict) -> list[dict]:
+def positions(conn: sqlite3.Connection, account_key: str, quotes: dict, *, quotes_reason: str | None = None) -> list[dict]:
+    """Positions with marks. A position without a usable quote has ``mark``, ``market_value`` and ``unrealized``
+    null with ``mark_reason`` (docs/design/unavailable-values.md): ``NOT_CONNECTED`` when the core's quote book could
+    not be read, ``NO_DATA`` when no quote with a bid has been received. Never zero."""
     agg: dict[tuple[str, str], dict] = {}
     for lot in _rows(conn, "SELECT row FROM lots WHERE account_key=?", (account_key,)):
         qty = Fixed.parse(lot["open_qty"])
@@ -165,10 +169,11 @@ def positions(conn: sqlite3.Connection, account_key: str, quotes: dict) -> list[
         scale = currency(a["currency"]).ledger_scale
         row = {"owner": owner, "instrument_id": inst, "symbol": symbols.get(inst), "currency": a["currency"],
                "quantity": a["quantity"].to_str(), "cost_basis": a["cost"].to_str(), "lots": a["lots"], "mark": None,
-               "market_value": None, "unrealized": None, "mark_basis": "unavailable: no quote"}
+               "market_value": None, "unrealized": None, "mark_reason": quotes_reason or NO_DATA,
+               "mark_basis": "unavailable: no quote" if q is None else "unavailable: the quote has no bid"}
         if q and q.get("bid") is not None:
             mv = (a["quantity"] * Fixed.parse(q["bid"])).rescale(scale, Rounding.FLOOR)
-            row.update(mark=q["bid"], market_value=mv.to_str(), unrealized=(mv - a["cost"]).to_str(),
+            row.update(mark=q["bid"], market_value=mv.to_str(), unrealized=(mv - a["cost"]).to_str(), mark_reason=None,
                        mark_basis=f"bid from {q['source']} age {q['age_ms']} ms" + (" FIXTURE" if q.get("fixture") else ""),
                        mark_fixture=bool(q.get("fixture")))
         out.append(row)
