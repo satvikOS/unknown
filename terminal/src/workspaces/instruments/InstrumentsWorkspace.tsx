@@ -10,6 +10,8 @@ import { exactJson, nsStrOf } from '../../api/nsStrings';
 import type { Instrument, Position, Quote } from '../../api/types';
 import { useQuery } from '../../state/react';
 import { DataTable, type Column } from '../../ui/DataTable';
+import { ExportButton } from '../../ui/ExportButton';
+import { instrumentsExport } from './exportTables';
 import { Age, Badge, FixtureRefused, Money, Qty, StatusPill, Timestamp } from '../../ui/primitives';
 import { NoValue } from '../../ui/unavailable';
 import { QueryError, WorkspaceFrame } from '../../ui/WorkspaceFrame';
@@ -207,6 +209,7 @@ function InstrumentList({
           </select>
         </div>
         <span className="spacer" />
+        <ExportButton disabled={shown.length === 0} table={() => instrumentsExport(shown, { find: text || '(none)', asset_class: assetClass || 'all' })} />
         <span className="ops-hint">
           {rows.length} instrument{rows.length === 1 ? '' : 's'} · quotes polled every {QUOTE_POLL_MS / 1000} s
           {fixtures ? (

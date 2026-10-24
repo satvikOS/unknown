@@ -142,6 +142,34 @@ _ALL = [
     Formula("alloc.lot_rounding", 1, "q_i = floor(w_i * NAV / (p_i * mult_i * lot_i)) * lot_i; zero quantity -> no trade "
             "(book eq 6.4 rule); constraints re-verified after rounding and fees", "units", ("CAP-PORT-13",), "book eq 6.4"),
     Formula("alloc.turnover", 1, "turnover = 0.5 * sum_i |w_i(new) - w_i(old)|", "decimal", ("CAP-PORT-13",), ""),
+    # ------------------------------------------------------------- market risk from stored real bars
+    Formula("mrisk.daily_return", 1, "r_t = C_t / C_{t-1} - 1 on consecutive stored daily closes (regular-session, "
+            "non-fixture, latest version available at the valuation instant); when two series are compared, only "
+            "session dates present in both are used and returns run between consecutive common dates",
+            "decimal", ("CAP-PORT-05", "CAP-PORT-03"), ""),
+    Formula("mrisk.hist_vol", 1, "sigma_ann = sample std (n-1) of the last N daily returns * sqrt(252); published only "
+            "when N >= min_obs", "decimal per year", ("CAP-PORT-05",), ""),
+    Formula("mrisk.beta", 1, "beta_i = Cov(r_i, r_b) / Var(r_b), sample (n-1) normalisation, on date-aligned daily "
+            "returns versus the benchmark ETF b; published only when n >= min_obs and Var(r_b) > 0",
+            "dimensionless", ("CAP-PORT-03", "CAP-PORT-05"), ""),
+    Formula("mrisk.correlation", 1, "rho_ij = Cov(r_i, r_j) / (sd_i sd_j) on date-aligned daily returns (sample "
+            "normalisation); null when either standard deviation is zero or n < min_obs", "dimensionless",
+            ("CAP-PORT-05",), ""),
+    Formula("mrisk.portfolio_beta", 1, "beta_p = sum_i w_i beta_i, w_i = MV_i / sum_j MV_j over the priced positions of "
+            "one currency; published only when every priced position has a beta (no position is assumed to be 1)",
+            "dimensionless", ("CAP-PORT-03",), ""),
+    Formula("mrisk.portfolio_vol", 1, "sigma_p = sample std of r_p,t = sum_i w_i r_i,t * sqrt(252), current weights "
+            "held constant over the dates common to every priced position; published only when every priced position "
+            "has returns on at least min_obs common dates", "decimal per year", ("CAP-PORT-05",), ""),
+    Formula("mrisk.scenario", 1, "uniform: dV_i = MV_i * s; beta: dV_i = MV_i * beta_i * m with beta_i rounded half-even "
+            "to 4 decimals; each dV_i rounded toward -infinity at the currency's ledger scale; a position without a "
+            "beta is listed as not in the scenario and never assumed to move with the market",
+            "currency (P&L signed)", ("CAP-PORT-11",), ""),
+    Formula("expo.issuer", 1, "issuer = the instrument's SEC CIK attribute; instruments without one form the explicit "
+            "'unknown issuer' bucket; grouped like expo.bucket_weight", "dimensionless",
+            ("CAP-PORT-03",), ""),
+    Formula("expo.owner_bucket", 1, "bucket = owner kind (unallocated, buffer, session, protected, exception, outside); "
+            "grouped like expo.bucket_weight", "dimensionless", ("CAP-PORT-03",), "ADR-0006"),
 ]
 
 FORMULAS: dict[str, Formula] = {f.formula_id: f for f in _ALL}

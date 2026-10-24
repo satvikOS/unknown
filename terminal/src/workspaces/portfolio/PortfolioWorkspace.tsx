@@ -11,6 +11,7 @@ import { usePluginQuery } from '../plugin-api/hooks';
 import type { WorkspaceProps } from '../types';
 import { AllocationTab } from './AllocationTab';
 import { HoldingsTab } from './HoldingsTab';
+import { MarketRiskTab } from './MarketRiskTab';
 import { ofKind, parsePortfolioRoute, PORTFOLIO_TABS, recs, scopeOptions, str, type PortfolioTab } from './model';
 import { useFormulas } from './parts';
 import { PerformanceTab } from './PerformanceTab';
@@ -41,6 +42,8 @@ export function PortfolioWorkspace({ route, navigate }: WorkspaceProps) {
       return <PerformanceTab {...common} />;
     case 'risk':
       return <RiskTab {...common} />;
+    case 'market':
+      return <MarketRiskTab {...common} />;
     case 'stress':
       return <StressTab {...common} />;
     case 'whatif':

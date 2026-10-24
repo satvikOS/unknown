@@ -14,11 +14,13 @@
  *   monitor g w (52)
  *   chart g h (57)
  *   news g n (115)
+ *   alerts g t (116)
  *   ask g k (86)
  *   ai g l (87)
  *   screener g x (111)   ownership g u (112)   calendar g v (116)
  */
 import { aiWorkspace } from './ai';
+import { alertsWorkspace } from './alerts';
 import { askWorkspace } from './ask';
 import { auditWorkspace } from './audit';
 import { calendarWorkspace } from './calendar';
@@ -62,6 +64,7 @@ export const WORKSPACES: readonly WorkspaceDefinition[] = validateRegistry([
   marketDataWorkspace,
   monitorWorkspace,
   newsWorkspace,
+  alertsWorkspace,
   chartWorkspace,
   portfolioWorkspace,
   screenerWorkspace,

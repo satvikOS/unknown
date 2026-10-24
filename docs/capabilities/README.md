@@ -24,14 +24,14 @@ call under the cited `describe` titles; `--run-tests` runs the cited backend tes
 Playwright end-to-end tests (`terminal/e2e`) and the tests marked IBKR venv run only locally. Passing offline tests is
 evidence of offline behaviour only.
 
-Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a5429dc` on 2026-10-24; `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-evidence-runner@50b6d50` on 2026-10-24; `feat/ibkr-pro-readiness@9914972` on 2026-10-23; `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data@77c16d1` on 2026-10-23; `feat/live-news@5e8a06c` on 2026-10-23; `feat/order-workstation@52f9b71` on 2026-10-24; `feat/screener-ownership-calendar@9522c3e` on 2026-10-24; `feat/workstation-shell@c052431` on 2026-10-23; `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d00` on 2026-10-22.
+Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a5429dc` on 2026-10-24; `feat/global-data@a0658d0` on 2026-10-23; `feat/ibkr-evidence-runner@50b6d50` on 2026-10-24; `feat/ibkr-pro-readiness@9914972` on 2026-10-23; `feat/live-charts@364aad5` on 2026-10-23; `feat/live-market-data@77c16d1` on 2026-10-23; `feat/live-news@5e8a06c` on 2026-10-23; `feat/order-workstation@52f9b71` on 2026-10-24; `feat/risk-alerts-export@fb86a3f` on 2026-10-24; `feat/screener-ownership-calendar@9522c3e` on 2026-10-24; `feat/workstation-shell@c052431` on 2026-10-23; `impl/foundation@73f7b03` on 2026-10-22; `impl/foundation@8b98d00` on 2026-10-22.
 
 ## Summary by area
 
 | Area | Capabilities | proposed | specified | implemented | tested | paper-verified | live-verified |
 |---|---|---|---|---|---|---|---|
 | instruments | 14 | 6 | 0 | 2 | 6 | 0 | 0 |
-| market-data | 13 | 3 | 0 | 5 | 5 | 0 | 0 |
+| market-data | 13 | 2 | 0 | 5 | 6 | 0 | 0 |
 | company-research | 14 | 2 | 0 | 2 | 10 | 0 | 0 |
 | news-documents | 14 | 7 | 0 | 1 | 6 | 0 | 0 |
 | macro-rates-fx | 14 | 10 | 0 | 2 | 2 | 0 | 0 |
@@ -39,14 +39,14 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a542
 | multiasset | 14 | 14 | 0 | 0 | 0 | 0 | 0 |
 | strategy-research | 14 | 2 | 0 | 3 | 9 | 0 | 0 |
 | execution-oms | 14 | 5 | 0 | 1 | 8 | 0 | 0 |
-| workspace-ux | 12 | 3 | 0 | 3 | 6 | 0 | 0 |
+| workspace-ux | 12 | 2 | 0 | 3 | 7 | 0 | 0 |
 | agent-operations | 14 | 1 | 0 | 3 | 10 | 0 | 0 |
 | ibkr-integration | 14 | 2 | 0 | 2 | 10 | 0 | 0 |
 | data-providers | 14 | 6 | 0 | 2 | 6 | 0 | 0 |
 | model-providers | 12 | 1 | 0 | 1 | 10 | 0 | 0 |
 | regulatory | 13 | 7 | 0 | 2 | 4 | 0 | 0 |
 | ops-aws | 14 | 7 | 0 | 4 | 3 | 0 | 0 |
-| **all** | 217 | 80 | 0 | 33 | 104 | 0 | 0 |
+| **all** | 217 | 78 | 0 | 33 | 106 | 0 | 0 |
 
 ## Capabilities
 
@@ -82,7 +82,7 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a542
 | CAP-MKT-06 | P2 | Market depth (Level 2) by price and by order, where entitled | Bloomberg B-PIPE, IBKR TWS, IBKR TWS API, LSEG Workspace / Data Library | implemented | 4 | no depth by order (only by price, with market maker where IBKR sends it) |
 | CAP-MKT-07 | P1 | Price charts with technical studies, comparisons and annotations | Bloomberg Terminal, IBKR TWS API, S&P Capital IQ Pro | tested | 28 | Studies are checked against hand-derived reference values, not yet against TA-Li |
 | CAP-MKT-08 | P0 | Watchlists / monitors with per-cell status, as-of dates and market-data line budgeting | Bloomberg Terminal, IBKR (all platforms), IBKR Web API, S&P Capital IQ Pro | implemented | 7 | rows beyond the budget are refused, not polled or served delayed (AC1) |
-| CAP-MKT-09 | P1 | Alerts on price, volume, time, study values, news and filings | Bloomberg Terminal, IBKR Web API, LSEG Workspace, S&P Capital IQ Pro | proposed |  | not yet implemented |
+| CAP-MKT-09 | P1 | Alerts on price, volume, time, study values, news and filings | Bloomberg Terminal, IBKR Web API, LSEG Workspace, S&P Capital IQ Pro | tested | 21 | no AND/OR combinations of conditions, no margin or trade conditions, no relative |
 | CAP-MKT-10 | P1 | Equity screening with point-in-time criteria, reproducible as-of runs and real-time scans | Bloomberg Terminal, Bloomberg Terminal (via MATLAB Datafeed Toolbox), IBKR TWS A | tested | 16 | universe is the issuers held in the research store, not an exchange listing: sur |
 | CAP-MKT-11 | P0 | Market-data entitlement, professional status, display vs non-display use and fee registry | Bloomberg B-PIPE, IBKR (all APIs), IBKR (all platforms) | implemented | 2 | no entitlement and fee registry with display vs non-display use, no cost report, |
 | CAP-MKT-12 | P1 | India equity market data (NSE and BSE): quotes, depth, candles, instruments and licensing | BSE India (via Deutsche Börse licensing), Zerodha Kite Connect, Zerodha Kite Con | proposed |  | not yet implemented |
@@ -123,7 +123,7 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a542
 | CAP-NEWS-10 | P1 | Scheduled corporate event calendar (earnings dates, calls, board meetings) | IBKR (TWS API), LSEG Workspace | tested | 9 | Wall Street Horizon via IBKR not integrated (the capability's primary source; no |
 | CAP-NEWS-11 | P2 | Sentiment scoring for news, filings and transcripts | LSEG (MarketPsych Analytics data feeds; Workspace not named on page), LSEG (Star | proposed |  | not yet implemented |
 | CAP-NEWS-12 | P1 | Grounded summaries and multi-document Q&A with span-level citations | Bloomberg Terminal, LSEG Workspace, S&P Capital IQ Pro | implemented | 9 | citations are record-level (one tool result), not span-level: filing and transcr |
-| CAP-NEWS-13 | P1 | Alerts on filings, announcements, news and events for watchlists | IBKR (TWS API), LSEG Workspace | tested | 5 | no server-stored alert rules (sources, event types, 8-K item codes, query, senti |
+| CAP-NEWS-13 | P1 | Alerts on filings, announcements, news and events for watchlists | IBKR (TWS API), LSEG Workspace | tested | 8 | no rules on 8-K item codes, free-text query or sentiment; no per-source rule fil |
 | CAP-NEWS-14 | P2 | Event studies and news-impact analytics with point-in-time availability | LSEG (StarMine model fact sheet; Workspace not named in document), S&P Capital I | proposed |  | not yet implemented |
 
 ### macro-rates-fx
@@ -151,15 +151,15 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a542
 |---|---|---|---|---|---|---|
 | CAP-PORT-01 | P0 | Consolidated holdings, per-currency cash ladder and NAV across brokers and accounts | Bloomberg PORT, IBKR PortfolioAnalyst, IBKR TWS Risk Navigator, S&P Capital IQ P | tested | 9 | single broker account only: no multi-broker consolidation (AC4) |
 | CAP-PORT-02 | P0 | Daily, realized and unrealized P&L with tax-lot cost basis, fee finalization and FX translation | IBKR TWS API, IBKR TWS Risk Navigator, Zerodha Kite Connect | tested | 4 | no FX translation P&L (AC2) |
-| CAP-PORT-03 | P0 | Exposure, concentration and fund look-through by sector, country, currency and beta | Bloomberg PORT, IBKR PortfolioAnalyst, IBKR TWS Risk Navigator, S&P Capital IQ P | tested | 5 | no fund look-through (AC3, AC4) |
+| CAP-PORT-03 | P0 | Exposure, concentration and fund look-through by sector, country, currency and beta | Bloomberg PORT, IBKR PortfolioAnalyst, IBKR TWS Risk Navigator, S&P Capital IQ P | tested | 9 | no fund look-through (AC3, AC4) |
 | CAP-PORT-04 | P0 | Time-weighted and money-weighted return measurement with GIPS-consistent cash-flow handling | GIPS 2020 (CFA Institute), IBKR PortfolioAnalyst | tested | 7 | no component (sector) returns by daily aggregation (AC5) |
-| CAP-PORT-05 | P1 | Ex-post risk and risk-adjusted performance statistics (Sharpe, Sortino, IR, TE, beta, alpha, drawdown, Calmar) | Bloomberg PORT, GIPS 2020 (CFA Institute), IBKR PortfolioAnalyst | tested | 5 | benchmark-relative statistics have no benchmark series to consume (CAP-PORT-06) |
+| CAP-PORT-05 | P1 | Ex-post risk and risk-adjusted performance statistics (Sharpe, Sortino, IR, TE, beta, alpha, drawdown, Calmar) | Bloomberg PORT, GIPS 2020 (CFA Institute), IBKR PortfolioAnalyst | tested | 10 | the portfolio's own return series (unit value) still has no benchmark series for |
 | CAP-PORT-06 | P1 | Benchmark registry: index levels, total-return proxies, blended benchmarks and constituent data rights | Bloomberg PORT, IBKR PortfolioAnalyst, S&P Capital IQ Portfolio Analytics, S&P C | proposed |  | not yet implemented |
 | CAP-PORT-07 | P1 | Holdings-based Brinson performance attribution (allocation, selection, interaction) with multi-period linking and contribution to return | Bloomberg PORT, Bloomberg PORT Enterprise, IBKR PortfolioAnalyst, LSEG Workspace | proposed |  | not yet implemented |
 | CAP-PORT-08 | P1 | Equity factor risk model and ex-ante risk decomposition (total, active, factor vs specific, marginal contributions) | Bloomberg PORT, LSEG Workspace, S&P Capital IQ Pro Portfolio Analytics | proposed |  | not yet implemented |
 | CAP-PORT-09 | P2 | Returns-based factor and style attribution using public factor libraries | Bloomberg PORT, LSEG Workspace Portfolio Analytics, S&P Capital IQ Pro Portfolio | proposed |  | not yet implemented |
 | CAP-PORT-10 | P1 | Value-at-Risk and Expected Shortfall (historical, parametric, Monte Carlo) with backtesting | Basel Committee (BIS) market risk standard, Bloomberg PORT, IBKR TWS Risk Naviga | tested | 8 | historical method only: no parametric or Monte Carlo VaR, no component VaR (AC3- |
-| CAP-PORT-11 | P1 | Stress testing and scenario analysis: historical replays, custom shocks, factor-propagated and regulator-published scenarios | Bloomberg PORT, EBA 2025 EU-wide stress test, Federal Reserve supervisory stress | tested | 7 | no historical replays and no regulator scenarios (Fed, EBA) (AC2, AC3) |
+| CAP-PORT-11 | P1 | Stress testing and scenario analysis: historical replays, custom shocks, factor-propagated and regulator-published scenarios | Bloomberg PORT, EBA 2025 EU-wide stress test, Federal Reserve supervisory stress | tested | 8 | no historical replays and no regulator scenarios (Fed, EBA) (AC2, AC3) |
 | CAP-PORT-12 | P0 | What-if portfolio sandbox and pre-trade portfolio impact (exposure, cash, VaR/ES, limits, broker margin/commission preview) | IBKR TWS API, IBKR TWS Risk Navigator, S&P Capital IQ Portfolio Analytics | tested | 7 | no broker what-if commission and margin preview (CAP-IBKR-10) |
 | CAP-PORT-13 | P1 | Constrained portfolio optimisation, target allocations and rebalancing trade lists | Bloomberg PORT, IBKR PortfolioAnalyst, LSEG Workspace, S&P Capital IQ Portfolio  | tested | 8 | no sector or group caps, no tracking-error minimisation, no allocation-goal drif |
 
@@ -230,7 +230,7 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a542
 | CAP-UX-04 | P1 | Persistent, versioned multi-panel workspace layouts with templates, lock mode and recovery | Bloomberg Terminal, IBKR Trader Workstation, LSEG Workspace, S&P Capital IQ (pla | tested | 10 | Browser localStorage only: no backend layout service, no cross-device sync and n |
 | CAP-UX-05 | P2 | Bookmarks, favourites bar and deep links that restore a panel with instrument and parameters (live or as-of) | Bloomberg Terminal, LSEG Workspace | implemented | 2 | no bookmarks or favourites bar (AC1, AC5) |
 | CAP-UX-06 | P1 | Accessibility: WCAG 2.2 AA conformance for dense financial screens, with a published conformance report | LSEG Workspace, W3C WAI-ARIA APG, W3C WCAG 2.2 | tested | 4 | no manual WCAG 2.2 audit and no published conformance report (AC2, AC7) |
-| CAP-UX-07 | P1 | Export any grid to CSV/XLSX with provenance, exact decimals, injection protection and licence gating; validated re-import | Bloomberg Terminal, IBKR Client Portal, IBKR Trader Workstation, LSEG Workspace, | proposed |  | not yet implemented |
+| CAP-UX-07 | P1 | Export any grid to CSV/XLSX with provenance, exact decimals, injection protection and licence gating; validated re-import | Bloomberg Terminal, IBKR Client Portal, IBKR Trader Workstation, LSEG Workspace, | tested | 12 | exports are built in the browser: no server-side streaming, progress or cancel f |
 | CAP-UX-08 | P2 | Optional spreadsheet bridge: custom functions, formula builder and audit from Excel to the private API | Bloomberg Terminal, IBKR Trader Workstation, LSEG Workspace, S&P Capital IQ Pro | proposed |  | not yet implemented |
 | CAP-UX-09 | P0 | 'Show calculation' inspector: formula, inputs, units, adjustments and level-by-level lineage to source records | Bloomberg Terminal, LSEG Workspace, S&P Capital IQ Pro | implemented | 4 | the terminal inspector covers company metrics only (end-to-end test); desk and p |
 | CAP-UX-10 | P1 | Data-item dictionary and contextual function help (definitions, formulas, units, sources, coverage, rights) | Bloomberg Terminal, LSEG Workspace, S&P Capital IQ Pro | proposed |  | not yet implemented |
@@ -531,6 +531,19 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a542
 - Gap: watchlists are per browser, not stored server-side
 - Gap: no paper run against the 100-line budget recorded
 
+### CAP-MKT-09: Alerts on price, volume, time, study values, news and filings (tested)
+
+- Files: `backend/src/unknown/alerts/rules.py`, `backend/src/unknown/alerts/studies.py`, `backend/src/unknown/alerts/evaluate.py`, `backend/src/unknown/alerts/store.py`, `backend/src/unknown/alerts/engine.py`, `backend/src/unknown/alerts/notify.py`, `backend/src/unknown/alerts/stream.py`, `backend/src/unknown/api/routes/alerts.py`, `backend/src/unknown/api/server.py`, `terminal/src/workspaces/alerts/AlertsWorkspace.tsx`, `terminal/src/workspaces/alerts/model.ts`, `terminal/src/workspaces/alerts/index.ts`
+- Tests: `test_alerts::CrossingTests.test_repeatable_cross_with_hysteresis_rearms_only_below_level_minus_h`; `test_alerts::EngineTests.test_once_rule_triggers_exactly_once_on_an_oscillating_fixture`; `test_alerts::CrossingTests.test_trigger_record_and_delayed_labelling`; `test_alerts::CrossingTests.test_real_time_only_and_frozen_data_are_not_evaluated`; `test_alerts::CrossingTests.test_first_value_beyond_the_level_does_not_fire_a_cross`; `test_alerts::CrossingTests.test_percent_move_and_volume_fire_on_first_observation`; `test_alerts::CrossingTests.test_study_value_uses_stored_closes_plus_the_live_price`; `test_alerts::RuleTests.test_validation`; `test_alerts::RuleTests.test_studies_match_the_chart_definitions`; `test_alerts::EngineTests.test_restart_lists_the_downtime_window_as_not_evaluated_and_resumes`; `test_alerts::EngineTests.test_source_outage_puts_rules_in_not_evaluating_and_notifies_once`; `test_alerts::EngineTests.test_snooze_suppresses_and_pause_stops_evaluation`; `test_alerts::EngineTests.test_time_rule_fires_once`; `test_alerts::EngineTests.test_failed_notification_is_retried_and_stays_visible`; `test_alerts::NotifierTests.test_text_is_passed_as_arguments_and_cleaned`; `test_alerts::NotifierTests.test_alerts_package_cannot_reach_orders`; `test_alerts::RouteTests.test_rules_inbox_ack_snooze_and_status`; `test_alerts::RouteTests.test_stream_replays_after_the_last_event_id`; `src/workspaces/alerts/model.test.ts::new-rule form > builds a price cross with exact decimals and a default name`; `src/workspaces/alerts/model.test.ts::rule state and trigger lines > shows not-evaluating before snooze, and waiting when nothing was evaluated`; `src/workspaces/alerts/model.test.ts::registration > registers the workspace and the ALRT functions`
+- Evidence: Rules (price cross on last/bid/ask/mid with hysteresis and once/rearm, % move from the previous close, session volume, time, SMA/EMA/RSI study value or price-versus-study with the chart's chart.studies@1 definitions over stored daily closes plus the live last, news and filings for an issuer) are validated and stored locally in <UNKNOWN_HOME>/alerts/alerts.sqlite and evaluated by an engine thread in the API process that is an ordinary market-data bus client.
+- Evidence: Each trigger records observed value, threshold, data source, data type and both timestamps; delayed data is labelled 'triggered on delayed data', a real-time-only rule is not evaluated on delayed data, FROZEN data is never evaluated; a source outage puts the rule in 'not evaluating' and notifies once; a restart records the downtime window as not evaluated.
+- Evidence: Delivery: the inbox (SSE GET /api/alerts/stream, Last-Event-ID replay) and a macOS notification through osascript with the text passed as argv (no network), retried with backoff and shown as failed when undelivered. Snooze suppresses into the audit; the audit trail is append-only. The alerts package imports nothing that can reach orders (tested on the import graph).
+- Evidence: Terminal: Alerts workspace (g t, ALRT) with inbox, rule form, pause/resume/snooze/delete and the audit trail.
+- Gap: no AND/OR combinations of conditions, no margin or trade conditions, no relative volume, no GTD time-in-force beyond expires_at
+- Gap: detection latency p99 is not measured (no owner-set target); notifications appear on the machine running the API only
+- Gap: study alerts use stored daily closes plus the live last price (no intraday study intervals); no mirrored broker-side alerts
+- Gap: news alerts read the platform's news store (SEC EDGAR and regulator feeds), not licensed broker news
+
 ### CAP-MKT-10: Equity screening with point-in-time criteria, reproducible as-of runs and real-time scans (tested)
 
 - Files: `backend/src/unknown/screener/__init__.py`, `backend/src/unknown/screener/fields.py`, `backend/src/unknown/screener/engine.py`, `backend/src/unknown/screener/store.py`, `backend/src/unknown/api/routes/screener.py`, `terminal/src/workspaces/screener/index.ts`, `terminal/src/workspaces/screener/model.ts`, `terminal/src/workspaces/screener/ScreenerWorkspace.tsx`, `terminal/src/workspaces/screener/screener.css`
@@ -759,11 +772,12 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a542
 
 ### CAP-NEWS-13: Alerts on filings, announcements, news and events for watchlists (tested)
 
-- Files: `backend/src/unknown/news/stream.py`, `backend/src/unknown/api/routes/news.py`, `backend/src/unknown/api/server.py`, `terminal/src/workspaces/news/NewsWorkspace.tsx`, `terminal/src/workspaces/news/model.ts`
-- Tests: `test_news::StreamTests.test_stream_sends_news_and_watchlist_alerts_once_per_story`; `test_news::StreamTests.test_stream_requires_the_owner_session`; `test_news::ApiTests.test_stream_route_is_registered_and_validates_before_headers`; `src/workspaces/news/model.test.ts::live merge and labels > reads alert issuers from the monitor watchlists and ignores bad storage`; `src/workspaces/news/model.test.ts::news functions > registers N, TOP and CN on the command line`
+- Files: `backend/src/unknown/alerts/engine.py`, `backend/src/unknown/alerts/evaluate.py`, `backend/src/unknown/alerts/store.py`, `backend/src/unknown/api/routes/alerts.py`, `backend/src/unknown/api/routes/news.py`, `backend/src/unknown/api/server.py`, `backend/src/unknown/news/stream.py`, `terminal/src/workspaces/alerts/AlertsWorkspace.tsx`, `terminal/src/workspaces/news/NewsWorkspace.tsx`, `terminal/src/workspaces/news/model.ts`
+- Tests: `test_news::StreamTests.test_stream_sends_news_and_watchlist_alerts_once_per_story`; `test_news::StreamTests.test_stream_requires_the_owner_session`; `test_news::ApiTests.test_stream_route_is_registered_and_validates_before_headers`; `src/workspaces/news/model.test.ts::live merge and labels > reads alert issuers from the monitor watchlists and ignores bad storage`; `src/workspaces/news/model.test.ts::news functions > registers N, TOP and CN on the command line`; `test_alerts::NewsAlertTests.test_filing_alert_carries_form_and_accession_and_matches_only_new_items`; `test_alerts::NewsAlertTests.test_missing_news_store_is_a_reason`; `test_alerts::RouteTests.test_rules_inbox_ack_snooze_and_status`
 - Evidence: GET /api/news/stream takes the issuers of the browser-side monitor watchlists (CIK, ticker or TICKER.MIC, at most 500), resolves them through the SEC ticker snapshot, reports unresolved ones, and pushes an alert event for each new item tagged with a watched issuer, once per story; duplicates never alert. The news workspace shows the alerts with their first-seen times.
-- Gap: no server-stored alert rules (sources, event types, 8-K item codes, query, sentiment) and no inbox with acknowledge or mute
-- Gap: alerts exist only while a terminal stream is open; no latency stamps beyond first-seen
+- Evidence: Server-stored news and filing rules per issuer (CIK or ticker, optional form types including /A amendments) are evaluated by the alert engine against new news-store items whether or not a terminal is open; duplicates and already-alerted clusters never alert; each trigger carries form, accession, link and first-seen time; the inbox has acknowledge, snooze and an audit trail (Alerts workspace).
+- Gap: no rules on 8-K item codes, free-text query or sentiment; no per-source rule filter
+- Gap: no latency stamps beyond first-seen
 
 ### CAP-MAC-05: Macro time-series catalog, retrieval, transformations and country-indicator matrix (tested)
 
@@ -829,13 +843,14 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a542
 
 ### CAP-PORT-03: Exposure, concentration and fund look-through by sector, country, currency and beta (tested)
 
-- Files: `backend/src/unknown/analytics/exposure.py`, `backend/src/unknown/api/routes/portfolio.py`, `terminal/src/workspaces/portfolio/RiskTab.tsx`
-- Tests: `test_analytics_exposure::ExposureReportTest.test_groupings_sum_to_totals_and_unclassified_bucket_is_explicit`; `test_analytics_exposure::ExposureReportTest.test_concentration_metrics`; `test_analytics_exposure::ExposureReportTest.test_both_percentage_forms_are_labelled`; `test_analytics_exposure::SicTest.test_alias_recorded_after_the_decision_time_cannot_classify`; `e2e/03-portfolio-agents.spec.ts::exposure and VaR state their basis; the backtest says it has no day yet`
+- Files: `backend/src/unknown/analytics/exposure.py`, `backend/src/unknown/api/routes/portfolio.py`, `terminal/src/workspaces/portfolio/RiskTab.tsx`, `backend/src/unknown/analytics/market_risk.py`, `backend/src/unknown/api/routes/risk_analytics.py`, `terminal/src/workspaces/portfolio/MarketRiskTab.tsx`
+- Tests: `test_analytics_exposure::ExposureReportTest.test_groupings_sum_to_totals_and_unclassified_bucket_is_explicit`; `test_analytics_exposure::ExposureReportTest.test_concentration_metrics`; `test_analytics_exposure::ExposureReportTest.test_both_percentage_forms_are_labelled`; `test_analytics_exposure::SicTest.test_alias_recorded_after_the_decision_time_cannot_classify`; `e2e/03-portfolio-agents.spec.ts::exposure and VaR state their basis; the backtest says it has no day yet`; `test_analytics_market_risk::MarketRiskTest.test_concentration_by_issuer_and_owner_bucket`; `test_analytics_market_risk::MarketRiskTest.test_beta_correlation_and_volatility_from_stored_bars`; `test_analytics_market_risk::RouteTest.test_route_is_read_only_and_validates`; `src/workspaces/portfolio/marketRisk.render.test.ts::market risk view > renders positions without bars as unavailable and leaves them out of the beta scenario`
 - Evidence: Exposure by instrument, owner, SEC SIC division and currency with an explicit unknown bucket and coverage; HHI, effective N and top-k.
 - Evidence: Terminal: Portfolio > Risk shows exposure and concentration with their basis.
+- Evidence: GET /api/risk/analytics adds concentration by issuer (SEC CIK, explicit unknown-issuer bucket) and owner bucket, and position and portfolio beta versus a benchmark ETF from stored daily bars (never assumed 1); Portfolio > Market risk shows them with formula ids and inputs' as-of.
 - Gap: no fund look-through (AC3, AC4)
-- Gap: no country grouping and no beta (AC5) without a benchmark series
-- Gap: the terminal's exposure panel is covered by an end-to-end test only (no unit render test)
+- Gap: no country grouping (AC5); beta needs stored daily bars for every position and the benchmark ETF
+- Gap: the exposure panel's sector and currency views have no unit render test (end-to-end only)
 - Requirements: DAT-05
 
 ### CAP-PORT-04: Time-weighted and money-weighted return measurement with GIPS-consistent cash-flow handling (tested)
@@ -849,12 +864,13 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a542
 
 ### CAP-PORT-05: Ex-post risk and risk-adjusted performance statistics (Sharpe, Sortino, IR, TE, beta, alpha, drawdown, Calmar) (tested)
 
-- Files: `backend/src/unknown/analytics/performance.py`, `terminal/src/workspaces/portfolio/PerformanceTab.tsx`
-- Tests: `test_analytics_performance::PublishedExamplesTest.test_ibkr_sharpe_example`; `test_analytics_performance::PublishedExamplesTest.test_ibkr_information_ratio_example`; `test_analytics_performance::PublishedExamplesTest.test_ibkr_beta_example_consistent_normalisation`; `test_analytics_performance::LedgerDrivenPerformanceTest.test_deposit_at_the_trough_does_not_hide_the_drawdown`; `test_analytics_performance::FormulaTest.test_statistics_conventions_and_insufficient_data`
+- Files: `backend/src/unknown/analytics/performance.py`, `terminal/src/workspaces/portfolio/PerformanceTab.tsx`, `backend/src/unknown/analytics/market_risk.py`, `backend/src/unknown/api/routes/risk_analytics.py`, `terminal/src/workspaces/portfolio/MarketRiskTab.tsx`
+- Tests: `test_analytics_performance::PublishedExamplesTest.test_ibkr_sharpe_example`; `test_analytics_performance::PublishedExamplesTest.test_ibkr_information_ratio_example`; `test_analytics_performance::PublishedExamplesTest.test_ibkr_beta_example_consistent_normalisation`; `test_analytics_performance::LedgerDrivenPerformanceTest.test_deposit_at_the_trough_does_not_hide_the_drawdown`; `test_analytics_performance::FormulaTest.test_statistics_conventions_and_insufficient_data`; `test_analytics_market_risk::MarketRiskTest.test_beta_correlation_and_volatility_from_stored_bars`; `test_analytics_market_risk::MarketRiskTest.test_short_history_is_unavailable_and_never_assumed`; `test_analytics_market_risk::MarketRiskTest.test_portfolio_figures_when_every_position_has_history`; `test_analytics_market_risk::MarketRiskTest.test_lookahead_fixture_and_missing_store`; `src/workspaces/portfolio/marketRisk.render.test.ts::market risk view > shows a figure with its formula and inputs as-of, or the reason`
 - Evidence: Volatility, Sharpe, Sortino, beta, tracking error, IR, alpha and drawdown on the unit-value series, each tested on published examples.
-- Gap: benchmark-relative statistics have no benchmark series to consume (CAP-PORT-06)
+- Evidence: Position historical volatility, beta and correlation versus a benchmark ETF, a pairwise correlation matrix and constant-weight portfolio beta and volatility from stored, non-fixture daily bars available at the valuation instant (mrisk.* formulas); fewer than min_obs returns gives null with the reason.
+- Gap: the portfolio's own return series (unit value) still has no benchmark series for TE, IR and alpha (CAP-PORT-06)
 - Gap: no risk-free series configured: Sharpe is reported as excess over zero, labelled
-- Gap: Portfolio > Performance shows these statistics, but no terminal test asserts their display
+- Gap: stored IBKR closes may be unadjusted: a split or dividend in the window distorts returns (labelled, not corrected)
 - Requirements: DAT-05
 
 ### CAP-PORT-10: Value-at-Risk and Expected Shortfall (historical, parametric, Monte Carlo) with backtesting (tested)
@@ -869,10 +885,11 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a542
 
 ### CAP-PORT-11: Stress testing and scenario analysis: historical replays, custom shocks, factor-propagated and regulator-published scenarios (tested)
 
-- Files: `backend/src/unknown/analytics/stress.py`, `backend/src/unknown/analytics/whatif.py`, `terminal/src/workspaces/portfolio/StressTab.tsx`
-- Tests: `test_analytics_stress::ShockScenarioTest.test_uniform_up_move_is_exactly_proportional`; `test_analytics_stress::ShockScenarioTest.test_gap_down_crosses_triggers_without_capping_the_loss_and_the_core_reacts`; `test_analytics_stress::ShockScenarioTest.test_correlated_selloff_with_betas`; `test_analytics_stress::StaleQuoteTest.test_stale_marks_drop_out_of_fresh_nav_and_the_gate_refuses_exits`; `test_analytics_stress::FeeRevisionTest.test_revised_final_fees_reduce_available_cash_through_the_observation_path`; `src/workspaces/portfolio/stress.render.test.ts::shock scenarios: positions left out of the scenario P&L > lists unpriced positions instead of folding them silently into the total`; `e2e/03-portfolio-agents.spec.ts::stress: a hypothetical overnight gap computed on a private copy of the core`
+- Files: `backend/src/unknown/analytics/stress.py`, `backend/src/unknown/analytics/whatif.py`, `terminal/src/workspaces/portfolio/StressTab.tsx`, `backend/src/unknown/analytics/market_risk.py`, `backend/src/unknown/api/routes/risk_analytics.py`, `terminal/src/workspaces/portfolio/MarketRiskTab.tsx`
+- Tests: `test_analytics_stress::ShockScenarioTest.test_uniform_up_move_is_exactly_proportional`; `test_analytics_stress::ShockScenarioTest.test_gap_down_crosses_triggers_without_capping_the_loss_and_the_core_reacts`; `test_analytics_stress::ShockScenarioTest.test_correlated_selloff_with_betas`; `test_analytics_stress::StaleQuoteTest.test_stale_marks_drop_out_of_fresh_nav_and_the_gate_refuses_exits`; `test_analytics_stress::FeeRevisionTest.test_revised_final_fees_reduce_available_cash_through_the_observation_path`; `src/workspaces/portfolio/stress.render.test.ts::shock scenarios: positions left out of the scenario P&L > lists unpriced positions instead of folding them silently into the total`; `e2e/03-portfolio-agents.spec.ts::stress: a hypothetical overnight gap computed on a private copy of the core`; `test_analytics_market_risk::MarketRiskTest.test_scenarios_are_exact_and_leave_out_positions_without_beta`
 - Evidence: Operational scenarios (overnight gap, correlated selloff, stale quote, fee revision) revalue the real holdings exactly and then run the core's own reaction on a private copy.
 - Evidence: Terminal: Portfolio > Stress runs a scenario on demand and labels the result HYPOTHETICAL.
+- Evidence: Market-risk scenarios: uniform moves and benchmark moves propagated with each position's estimated beta, exact at the ledger scale; positions without a beta are listed, never assumed to move with the market.
 - Gap: no historical replays and no regulator scenarios (Fed, EBA) (AC2, AC3)
 - Gap: venue halt, failed cancel and currency move not built (AC5)
 - Requirements: DAT-05, RSK-07
@@ -1202,6 +1219,19 @@ Checked against `feat/ai-analyst@c36dd7f` on 2026-10-24; `feat/ai-processes@a542
 - Gap: no pause control or reduce-motion preference (AC4)
 - Gap: AC1 asks for V = 0 in CI: every cited test is a Playwright test, and CI does not run the Playwright suite, so a regression is caught only by a local run
 - Requirements: TRM-01
+
+### CAP-UX-07: Export any grid to CSV/XLSX with provenance, exact decimals, injection protection and licence gating; validated re-import (tested)
+
+- Files: `terminal/src/ui/export.ts`, `terminal/src/ui/ExportButton.tsx`, `backend/src/unknown/api/routes/export_rights.py`, `terminal/src/workspaces/portfolio/exportTables.ts`, `terminal/src/workspaces/orders/exportTables.ts`, `terminal/src/workspaces/monitor/exportTables.ts`, `terminal/src/workspaces/news/exportTables.ts`, `terminal/src/workspaces/instruments/exportTables.ts`
+- Tests: `src/ui/export.test.ts::CSV > re-imports random Unicode text with commas, quotes and line breaks to identical values`; `src/ui/export.test.ts::cell rules > neutralises formula starters including full-width forms and leaves numbers alone`; `src/ui/export.test.ts::cell rules > writes a decimal as a number only when it round-trips through a double`; `src/ui/export.test.ts::cell rules > exports a missing value as empty with a status column, never 0`; `src/ui/export.test.ts::XLSX > is a valid stored ZIP with typed cells, a date cell and a Provenance sheet`; `src/ui/export.test.ts::rights gating > allows owner data, gates licensed data on storage, real-time on redistribution, and fails closed`; `src/ui/export.test.ts::rights gating > excludes a column whose rows draw on a source without rights, and lists it`; `src/ui/export.test.ts::CSV > starts with the provenance block and records the delimiter`; `src/ui/export.wiring.test.ts::grid exports > positions: ledger columns always, marks only from a source whose rights allow it`; `src/ui/export.wiring.test.ts::grid exports > watchlist: delayed quotes from a recorded source export, real-time exchange data does not`; `test_export_rights::ExportRightsTest.test_records_and_aliases_come_from_the_registry`; `test_export_rights::ExportRightsTest.test_unreadable_registry_fails_closed`
+- Evidence: One primitive (ui/export.ts, ui/ExportButton.tsx) writes RFC 4180 CSV (comma or semicolon, recorded) and XLSX as a minimal SpreadsheetML package in a stored ZIP with no library; decimals are numeric cells only when they round-trip through a double (else text, noted), missing values are empty with a status column carrying the reason code, date-times are ISO 8601 in CSV and date cells plus a zone column in XLSX, and a Provenance sheet/header lists source, as-of, filters, licence notes and excluded columns.
+- Evidence: Formula injection: text cells starting with = + - @, tab, CR, LF or full-width = + - @ are neutralised; typed numbers are not altered.
+- Evidence: Rights gating from GET /api/export/rights: owner data always; licensed columns only when the source's rights record allows storage (redistribution for real-time exchange data); no record or no registry excludes the column (fail closed).
+- Evidence: Wired into Portfolio positions, the order blotter, the monitor watchlist, the news tape, the instrument master, the alert inbox and Portfolio > Market risk.
+- Gap: exports are built in the browser: no server-side streaming, progress or cancel for very large exports, and the 1,000,000-row heap and 100,000-row time budgets are not measured
+- Gap: the exclusion decision is recorded in the file's provenance, not in an audit log
+- Gap: no import or re-import with diff
+- Gap: the XLSX structure is checked by tests but not opened in Excel or LibreOffice by a test
 
 ### CAP-UX-09: 'Show calculation' inspector: formula, inputs, units, adjustments and level-by-level lineage to source records (implemented)
 

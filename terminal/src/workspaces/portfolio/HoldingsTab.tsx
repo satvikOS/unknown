@@ -5,6 +5,7 @@
  */
 import { useState, type ReactNode } from 'react';
 import { DataTable, type Column } from '../../ui/DataTable';
+import { ExportButton } from '../../ui/ExportButton';
 import { Age, Badge, FixtureRefused, Money, Qty, StatusPill } from '../../ui/primitives';
 import { NoValue } from '../../ui/unavailable';
 import { QueryError, WorkspaceLink } from '../../ui/WorkspaceFrame';
@@ -13,6 +14,7 @@ import type { QueryResult } from '../../state/react';
 import { bpsToPercent } from '../../format/exact';
 import { BarList } from './charts';
 import { dec, exactShares, isRec, num, ofKind, ownerLabel, recs, shortOwnerLabel, str, valuationTone, weightPct, type Rec, type ScopeOption } from './model';
+import { positionsExport } from './exportTables';
 import { PortfolioFrame, FixtureNote, Lineage, OwnerName, QuoteSnapshotNote, ScopeSelect, Toolbar, type FormulaDef } from './parts';
 
 type Basis = 'bid' | 'mid' | 'last';
@@ -280,6 +282,7 @@ export function HoldingsTab({ bar, q, scope, setScope, basis, setBasis, options,
                 value={weightBasis}
                 onChange={setWeightBasis}
               />
+              <ExportButton table={() => positionsExport(body, positions, { scope, basis })} />
             </header>
             <div className="panel-body flush">
               <DataTable

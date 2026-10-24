@@ -5737,12 +5737,59 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "tested",
+        "files": [
+          "backend/src/unknown/alerts/rules.py",
+          "backend/src/unknown/alerts/studies.py",
+          "backend/src/unknown/alerts/evaluate.py",
+          "backend/src/unknown/alerts/store.py",
+          "backend/src/unknown/alerts/engine.py",
+          "backend/src/unknown/alerts/notify.py",
+          "backend/src/unknown/alerts/stream.py",
+          "backend/src/unknown/api/routes/alerts.py",
+          "backend/src/unknown/api/server.py",
+          "terminal/src/workspaces/alerts/AlertsWorkspace.tsx",
+          "terminal/src/workspaces/alerts/model.ts",
+          "terminal/src/workspaces/alerts/index.ts"
         ],
-        "requirements": []
+        "tests": [
+          "backend/tests/test_alerts.py::CrossingTests.test_repeatable_cross_with_hysteresis_rearms_only_below_level_minus_h",
+          "backend/tests/test_alerts.py::EngineTests.test_once_rule_triggers_exactly_once_on_an_oscillating_fixture",
+          "backend/tests/test_alerts.py::CrossingTests.test_trigger_record_and_delayed_labelling",
+          "backend/tests/test_alerts.py::CrossingTests.test_real_time_only_and_frozen_data_are_not_evaluated",
+          "backend/tests/test_alerts.py::CrossingTests.test_first_value_beyond_the_level_does_not_fire_a_cross",
+          "backend/tests/test_alerts.py::CrossingTests.test_percent_move_and_volume_fire_on_first_observation",
+          "backend/tests/test_alerts.py::CrossingTests.test_study_value_uses_stored_closes_plus_the_live_price",
+          "backend/tests/test_alerts.py::RuleTests.test_validation",
+          "backend/tests/test_alerts.py::RuleTests.test_studies_match_the_chart_definitions",
+          "backend/tests/test_alerts.py::EngineTests.test_restart_lists_the_downtime_window_as_not_evaluated_and_resumes",
+          "backend/tests/test_alerts.py::EngineTests.test_source_outage_puts_rules_in_not_evaluating_and_notifies_once",
+          "backend/tests/test_alerts.py::EngineTests.test_snooze_suppresses_and_pause_stops_evaluation",
+          "backend/tests/test_alerts.py::EngineTests.test_time_rule_fires_once",
+          "backend/tests/test_alerts.py::EngineTests.test_failed_notification_is_retried_and_stays_visible",
+          "backend/tests/test_alerts.py::NotifierTests.test_text_is_passed_as_arguments_and_cleaned",
+          "backend/tests/test_alerts.py::NotifierTests.test_alerts_package_cannot_reach_orders",
+          "backend/tests/test_alerts.py::RouteTests.test_rules_inbox_ack_snooze_and_status",
+          "backend/tests/test_alerts.py::RouteTests.test_stream_replays_after_the_last_event_id",
+          "terminal/src/workspaces/alerts/model.test.ts::new-rule form > builds a price cross with exact decimals and a default name",
+          "terminal/src/workspaces/alerts/model.test.ts::rule state and trigger lines > shows not-evaluating before snooze, and waiting when nothing was evaluated",
+          "terminal/src/workspaces/alerts/model.test.ts::registration > registers the workspace and the ALRT functions"
+        ],
+        "evidence": [
+          "Rules (price cross on last/bid/ask/mid with hysteresis and once/rearm, % move from the previous close, session volume, time, SMA/EMA/RSI study value or price-versus-study with the chart's chart.studies@1 definitions over stored daily closes plus the live last, news and filings for an issuer) are validated and stored locally in <UNKNOWN_HOME>/alerts/alerts.sqlite and evaluated by an engine thread in the API process that is an ordinary market-data bus client.",
+          "Each trigger records observed value, threshold, data source, data type and both timestamps; delayed data is labelled 'triggered on delayed data', a real-time-only rule is not evaluated on delayed data, FROZEN data is never evaluated; a source outage puts the rule in 'not evaluating' and notifies once; a restart records the downtime window as not evaluated.",
+          "Delivery: the inbox (SSE GET /api/alerts/stream, Last-Event-ID replay) and a macOS notification through osascript with the text passed as argv (no network), retried with backoff and shown as failed when undelivered. Snooze suppresses into the audit; the audit trail is append-only. The alerts package imports nothing that can reach orders (tested on the import graph).",
+          "Terminal: Alerts workspace (g t, ALRT) with inbox, rule form, pause/resume/snooze/delete and the audit trail."
+        ],
+        "gaps": [
+          "no AND/OR combinations of conditions, no margin or trade conditions, no relative volume, no GTD time-in-force beyond expires_at",
+          "detection latency p99 is not measured (no owner-set target); notifications appear on the machine running the API only",
+          "study alerts use stored daily closes plus the live last price (no intraday study intervals); no mirrored broker-side alerts",
+          "news alerts read the platform's news store (SEC EDGAR and regulator feeds), not licensed broker news"
+        ],
+        "requirements": [],
+        "updated": "2026-10-24",
+        "verified_against": "feat/risk-alerts-export@fb86a3f"
       }
     },
     {
@@ -10461,9 +10508,14 @@
       "implementation": {
         "status": "tested",
         "files": [
-          "backend/src/unknown/news/stream.py",
+          "backend/src/unknown/alerts/engine.py",
+          "backend/src/unknown/alerts/evaluate.py",
+          "backend/src/unknown/alerts/store.py",
+          "backend/src/unknown/api/routes/alerts.py",
           "backend/src/unknown/api/routes/news.py",
           "backend/src/unknown/api/server.py",
+          "backend/src/unknown/news/stream.py",
+          "terminal/src/workspaces/alerts/AlertsWorkspace.tsx",
           "terminal/src/workspaces/news/NewsWorkspace.tsx",
           "terminal/src/workspaces/news/model.ts"
         ],
@@ -10472,18 +10524,22 @@
           "backend/tests/test_news.py::StreamTests.test_stream_requires_the_owner_session",
           "backend/tests/test_news.py::ApiTests.test_stream_route_is_registered_and_validates_before_headers",
           "terminal/src/workspaces/news/model.test.ts::live merge and labels > reads alert issuers from the monitor watchlists and ignores bad storage",
-          "terminal/src/workspaces/news/model.test.ts::news functions > registers N, TOP and CN on the command line"
+          "terminal/src/workspaces/news/model.test.ts::news functions > registers N, TOP and CN on the command line",
+          "backend/tests/test_alerts.py::NewsAlertTests.test_filing_alert_carries_form_and_accession_and_matches_only_new_items",
+          "backend/tests/test_alerts.py::NewsAlertTests.test_missing_news_store_is_a_reason",
+          "backend/tests/test_alerts.py::RouteTests.test_rules_inbox_ack_snooze_and_status"
         ],
         "evidence": [
-          "GET /api/news/stream takes the issuers of the browser-side monitor watchlists (CIK, ticker or TICKER.MIC, at most 500), resolves them through the SEC ticker snapshot, reports unresolved ones, and pushes an alert event for each new item tagged with a watched issuer, once per story; duplicates never alert. The news workspace shows the alerts with their first-seen times."
+          "GET /api/news/stream takes the issuers of the browser-side monitor watchlists (CIK, ticker or TICKER.MIC, at most 500), resolves them through the SEC ticker snapshot, reports unresolved ones, and pushes an alert event for each new item tagged with a watched issuer, once per story; duplicates never alert. The news workspace shows the alerts with their first-seen times.",
+          "Server-stored news and filing rules per issuer (CIK or ticker, optional form types including /A amendments) are evaluated by the alert engine against new news-store items whether or not a terminal is open; duplicates and already-alerted clusters never alert; each trigger carries form, accession, link and first-seen time; the inbox has acknowledge, snooze and an audit trail (Alerts workspace)."
         ],
         "gaps": [
-          "no server-stored alert rules (sources, event types, 8-K item codes, query, sentiment) and no inbox with acknowledge or mute",
-          "alerts exist only while a terminal stream is open; no latency stamps beyond first-seen"
+          "no rules on 8-K item codes, free-text query or sentiment; no per-source rule filter",
+          "no latency stamps beyond first-seen"
         ],
         "requirements": [],
-        "updated": "2026-10-23",
-        "verified_against": "feat/live-news@5e8a06c"
+        "updated": "2026-10-24",
+        "verified_against": "feat/risk-alerts-export@fb86a3f"
       }
     },
     {
@@ -13192,29 +13248,37 @@
         "files": [
           "backend/src/unknown/analytics/exposure.py",
           "backend/src/unknown/api/routes/portfolio.py",
-          "terminal/src/workspaces/portfolio/RiskTab.tsx"
+          "terminal/src/workspaces/portfolio/RiskTab.tsx",
+          "backend/src/unknown/analytics/market_risk.py",
+          "backend/src/unknown/api/routes/risk_analytics.py",
+          "terminal/src/workspaces/portfolio/MarketRiskTab.tsx"
         ],
         "tests": [
           "backend/tests/test_analytics_exposure.py::ExposureReportTest.test_groupings_sum_to_totals_and_unclassified_bucket_is_explicit",
           "backend/tests/test_analytics_exposure.py::ExposureReportTest.test_concentration_metrics",
           "backend/tests/test_analytics_exposure.py::ExposureReportTest.test_both_percentage_forms_are_labelled",
           "backend/tests/test_analytics_exposure.py::SicTest.test_alias_recorded_after_the_decision_time_cannot_classify",
-          "terminal/e2e/03-portfolio-agents.spec.ts::exposure and VaR state their basis; the backtest says it has no day yet"
+          "terminal/e2e/03-portfolio-agents.spec.ts::exposure and VaR state their basis; the backtest says it has no day yet",
+          "backend/tests/test_analytics_market_risk.py::MarketRiskTest.test_concentration_by_issuer_and_owner_bucket",
+          "backend/tests/test_analytics_market_risk.py::MarketRiskTest.test_beta_correlation_and_volatility_from_stored_bars",
+          "backend/tests/test_analytics_market_risk.py::RouteTest.test_route_is_read_only_and_validates",
+          "terminal/src/workspaces/portfolio/marketRisk.render.test.ts::market risk view > renders positions without bars as unavailable and leaves them out of the beta scenario"
         ],
         "evidence": [
           "Exposure by instrument, owner, SEC SIC division and currency with an explicit unknown bucket and coverage; HHI, effective N and top-k.",
-          "Terminal: Portfolio > Risk shows exposure and concentration with their basis."
+          "Terminal: Portfolio > Risk shows exposure and concentration with their basis.",
+          "GET /api/risk/analytics adds concentration by issuer (SEC CIK, explicit unknown-issuer bucket) and owner bucket, and position and portfolio beta versus a benchmark ETF from stored daily bars (never assumed 1); Portfolio > Market risk shows them with formula ids and inputs' as-of."
         ],
         "gaps": [
           "no fund look-through (AC3, AC4)",
-          "no country grouping and no beta (AC5) without a benchmark series",
-          "the terminal's exposure panel is covered by an end-to-end test only (no unit render test)"
+          "no country grouping (AC5); beta needs stored daily bars for every position and the benchmark ETF",
+          "the exposure panel's sector and currency views have no unit render test (end-to-end only)"
         ],
         "requirements": [
           "DAT-05"
         ],
-        "updated": "2026-10-22",
-        "verified_against": "impl/foundation@8b98d00"
+        "updated": "2026-10-24",
+        "verified_against": "feat/risk-alerts-export@fb86a3f"
       }
     },
     {
@@ -13533,28 +13597,37 @@
         "status": "tested",
         "files": [
           "backend/src/unknown/analytics/performance.py",
-          "terminal/src/workspaces/portfolio/PerformanceTab.tsx"
+          "terminal/src/workspaces/portfolio/PerformanceTab.tsx",
+          "backend/src/unknown/analytics/market_risk.py",
+          "backend/src/unknown/api/routes/risk_analytics.py",
+          "terminal/src/workspaces/portfolio/MarketRiskTab.tsx"
         ],
         "tests": [
           "backend/tests/test_analytics_performance.py::PublishedExamplesTest.test_ibkr_sharpe_example",
           "backend/tests/test_analytics_performance.py::PublishedExamplesTest.test_ibkr_information_ratio_example",
           "backend/tests/test_analytics_performance.py::PublishedExamplesTest.test_ibkr_beta_example_consistent_normalisation",
           "backend/tests/test_analytics_performance.py::LedgerDrivenPerformanceTest.test_deposit_at_the_trough_does_not_hide_the_drawdown",
-          "backend/tests/test_analytics_performance.py::FormulaTest.test_statistics_conventions_and_insufficient_data"
+          "backend/tests/test_analytics_performance.py::FormulaTest.test_statistics_conventions_and_insufficient_data",
+          "backend/tests/test_analytics_market_risk.py::MarketRiskTest.test_beta_correlation_and_volatility_from_stored_bars",
+          "backend/tests/test_analytics_market_risk.py::MarketRiskTest.test_short_history_is_unavailable_and_never_assumed",
+          "backend/tests/test_analytics_market_risk.py::MarketRiskTest.test_portfolio_figures_when_every_position_has_history",
+          "backend/tests/test_analytics_market_risk.py::MarketRiskTest.test_lookahead_fixture_and_missing_store",
+          "terminal/src/workspaces/portfolio/marketRisk.render.test.ts::market risk view > shows a figure with its formula and inputs as-of, or the reason"
         ],
         "evidence": [
-          "Volatility, Sharpe, Sortino, beta, tracking error, IR, alpha and drawdown on the unit-value series, each tested on published examples."
+          "Volatility, Sharpe, Sortino, beta, tracking error, IR, alpha and drawdown on the unit-value series, each tested on published examples.",
+          "Position historical volatility, beta and correlation versus a benchmark ETF, a pairwise correlation matrix and constant-weight portfolio beta and volatility from stored, non-fixture daily bars available at the valuation instant (mrisk.* formulas); fewer than min_obs returns gives null with the reason."
         ],
         "gaps": [
-          "benchmark-relative statistics have no benchmark series to consume (CAP-PORT-06)",
+          "the portfolio's own return series (unit value) still has no benchmark series for TE, IR and alpha (CAP-PORT-06)",
           "no risk-free series configured: Sharpe is reported as excess over zero, labelled",
-          "Portfolio > Performance shows these statistics, but no terminal test asserts their display"
+          "stored IBKR closes may be unadjusted: a split or dividend in the window distorts returns (labelled, not corrected)"
         ],
         "requirements": [
           "DAT-05"
         ],
-        "updated": "2026-10-22",
-        "verified_against": "impl/foundation@8b98d00"
+        "updated": "2026-10-24",
+        "verified_against": "feat/risk-alerts-export@fb86a3f"
       }
     },
     {
@@ -14490,7 +14563,10 @@
         "files": [
           "backend/src/unknown/analytics/stress.py",
           "backend/src/unknown/analytics/whatif.py",
-          "terminal/src/workspaces/portfolio/StressTab.tsx"
+          "terminal/src/workspaces/portfolio/StressTab.tsx",
+          "backend/src/unknown/analytics/market_risk.py",
+          "backend/src/unknown/api/routes/risk_analytics.py",
+          "terminal/src/workspaces/portfolio/MarketRiskTab.tsx"
         ],
         "tests": [
           "backend/tests/test_analytics_stress.py::ShockScenarioTest.test_uniform_up_move_is_exactly_proportional",
@@ -14499,11 +14575,13 @@
           "backend/tests/test_analytics_stress.py::StaleQuoteTest.test_stale_marks_drop_out_of_fresh_nav_and_the_gate_refuses_exits",
           "backend/tests/test_analytics_stress.py::FeeRevisionTest.test_revised_final_fees_reduce_available_cash_through_the_observation_path",
           "terminal/src/workspaces/portfolio/stress.render.test.ts::shock scenarios: positions left out of the scenario P&L > lists unpriced positions instead of folding them silently into the total",
-          "terminal/e2e/03-portfolio-agents.spec.ts::stress: a hypothetical overnight gap computed on a private copy of the core"
+          "terminal/e2e/03-portfolio-agents.spec.ts::stress: a hypothetical overnight gap computed on a private copy of the core",
+          "backend/tests/test_analytics_market_risk.py::MarketRiskTest.test_scenarios_are_exact_and_leave_out_positions_without_beta"
         ],
         "evidence": [
           "Operational scenarios (overnight gap, correlated selloff, stale quote, fee revision) revalue the real holdings exactly and then run the core's own reaction on a private copy.",
-          "Terminal: Portfolio > Stress runs a scenario on demand and labels the result HYPOTHETICAL."
+          "Terminal: Portfolio > Stress runs a scenario on demand and labels the result HYPOTHETICAL.",
+          "Market-risk scenarios: uniform moves and benchmark moves propagated with each position's estimated beta, exact at the ledger scale; positions without a beta are listed, never assumed to move with the market."
         ],
         "gaps": [
           "no historical replays and no regulator scenarios (Fed, EBA) (AC2, AC3)",
@@ -14513,8 +14591,8 @@
           "DAT-05",
           "RSK-07"
         ],
-        "updated": "2026-10-22",
-        "verified_against": "impl/foundation@8b98d00"
+        "updated": "2026-10-24",
+        "verified_against": "feat/risk-alerts-export@fb86a3f"
       }
     },
     {
@@ -22519,12 +22597,46 @@
         "method": "independent re-fetch by a second agent"
       },
       "implementation": {
-        "status": "proposed",
-        "evidence": [],
-        "gaps": [
-          "not yet implemented"
+        "status": "tested",
+        "files": [
+          "terminal/src/ui/export.ts",
+          "terminal/src/ui/ExportButton.tsx",
+          "backend/src/unknown/api/routes/export_rights.py",
+          "terminal/src/workspaces/portfolio/exportTables.ts",
+          "terminal/src/workspaces/orders/exportTables.ts",
+          "terminal/src/workspaces/monitor/exportTables.ts",
+          "terminal/src/workspaces/news/exportTables.ts",
+          "terminal/src/workspaces/instruments/exportTables.ts"
         ],
-        "requirements": []
+        "tests": [
+          "terminal/src/ui/export.test.ts::CSV > re-imports random Unicode text with commas, quotes and line breaks to identical values",
+          "terminal/src/ui/export.test.ts::cell rules > neutralises formula starters including full-width forms and leaves numbers alone",
+          "terminal/src/ui/export.test.ts::cell rules > writes a decimal as a number only when it round-trips through a double",
+          "terminal/src/ui/export.test.ts::cell rules > exports a missing value as empty with a status column, never 0",
+          "terminal/src/ui/export.test.ts::XLSX > is a valid stored ZIP with typed cells, a date cell and a Provenance sheet",
+          "terminal/src/ui/export.test.ts::rights gating > allows owner data, gates licensed data on storage, real-time on redistribution, and fails closed",
+          "terminal/src/ui/export.test.ts::rights gating > excludes a column whose rows draw on a source without rights, and lists it",
+          "terminal/src/ui/export.test.ts::CSV > starts with the provenance block and records the delimiter",
+          "terminal/src/ui/export.wiring.test.ts::grid exports > positions: ledger columns always, marks only from a source whose rights allow it",
+          "terminal/src/ui/export.wiring.test.ts::grid exports > watchlist: delayed quotes from a recorded source export, real-time exchange data does not",
+          "backend/tests/test_export_rights.py::ExportRightsTest.test_records_and_aliases_come_from_the_registry",
+          "backend/tests/test_export_rights.py::ExportRightsTest.test_unreadable_registry_fails_closed"
+        ],
+        "evidence": [
+          "One primitive (ui/export.ts, ui/ExportButton.tsx) writes RFC 4180 CSV (comma or semicolon, recorded) and XLSX as a minimal SpreadsheetML package in a stored ZIP with no library; decimals are numeric cells only when they round-trip through a double (else text, noted), missing values are empty with a status column carrying the reason code, date-times are ISO 8601 in CSV and date cells plus a zone column in XLSX, and a Provenance sheet/header lists source, as-of, filters, licence notes and excluded columns.",
+          "Formula injection: text cells starting with = + - @, tab, CR, LF or full-width = + - @ are neutralised; typed numbers are not altered.",
+          "Rights gating from GET /api/export/rights: owner data always; licensed columns only when the source's rights record allows storage (redistribution for real-time exchange data); no record or no registry excludes the column (fail closed).",
+          "Wired into Portfolio positions, the order blotter, the monitor watchlist, the news tape, the instrument master, the alert inbox and Portfolio > Market risk."
+        ],
+        "gaps": [
+          "exports are built in the browser: no server-side streaming, progress or cancel for very large exports, and the 1,000,000-row heap and 100,000-row time budgets are not measured",
+          "the exclusion decision is recorded in the file's provenance, not in an audit log",
+          "no import or re-import with diff",
+          "the XLSX structure is checked by tests but not opened in Excel or LibreOffice by a test"
+        ],
+        "requirements": [],
+        "updated": "2026-10-24",
+        "verified_against": "feat/risk-alerts-export@fb86a3f"
       }
     },
     {
