@@ -16,6 +16,7 @@ import { Badge, StatusPill, Timestamp } from '../../ui/primitives';
 import { NoValue } from '../../ui/unavailable';
 import { QueryError, WorkspaceFrame } from '../../ui/WorkspaceFrame';
 import { describeError } from '../../api/client';
+import { nsStrOf } from '../../api/nsStrings';
 import { RouteTabs } from '../operations/parts';
 import { usePluginPost, usePluginQuery } from '../plugin-api/hooks';
 import type { WorkspaceProps } from '../types';
@@ -183,7 +184,7 @@ function inboxExport(events: readonly AlertEvent[]): ExportTable<AlertEvent> {
 
 function Inbox({ events, loading, onAck }: { events: AlertEvent[]; loading: boolean; onAck: (ids: number[] | null) => void }) {
   const cols: Column<AlertEvent>[] = [
-    { id: 'fired', header: 'Fired (UTC)', cell: (e) => <Timestamp ns={e.fired_ns} />, sortValue: (e) => e.fired_ns, sortKind: 'number' },
+    { id: 'fired', header: 'Fired (UTC)', cell: (e) => <Timestamp ns={e.fired_ns} nsStr={nsStrOf(e, 'fired_ns')} />, sortValue: (e) => e.fired_ns, sortKind: 'number' },
     {
       id: 'rule',
       header: 'Alert',
@@ -276,7 +277,7 @@ function Rules({ rows, nowNs, act }: { rows: RuleRow[]; nowNs: number; act: (pat
             <StatusPill label={s.label} tone={s.tone} detail={s.detail ?? undefined} compact />
             {r.snooze_until_ns && r.snooze_until_ns > nowNs ? (
               <span className="muted">
-                until <Timestamp ns={r.snooze_until_ns} />
+                until <Timestamp ns={r.snooze_until_ns} nsStr={nsStrOf(r, 'snooze_until_ns')} />
               </span>
             ) : null}
             {s.detail ? <span className="muted">{s.detail}</span> : null}
@@ -285,7 +286,7 @@ function Rules({ rows, nowNs, act }: { rows: RuleRow[]; nowNs: number; act: (pat
       },
     },
     { id: 'n', header: 'Triggers', numeric: true, cell: (r) => r.triggers, sortValue: (r) => r.triggers, sortKind: 'number' },
-    { id: 'last', header: 'Last trigger (UTC)', cell: (r) => (r.last_trigger_ns ? <Timestamp ns={r.last_trigger_ns} /> : <NoValue reason="NOT_APPLICABLE" detail="has not fired" />) },
+    { id: 'last', header: 'Last trigger (UTC)', cell: (r) => (r.last_trigger_ns ? <Timestamp ns={r.last_trigger_ns} nsStr={nsStrOf(r, 'last_trigger_ns')} /> : <NoValue reason="NOT_APPLICABLE" detail="has not fired" />) },
     {
       id: 'actions',
       header: 'Actions',
@@ -481,7 +482,7 @@ function NewRule({ onCreate }: { onCreate: (rule: unknown) => Promise<void> }) {
 
 function Audit({ entries, loading }: { entries: AuditEntry[]; loading: boolean }) {
   const cols: Column<AuditEntry>[] = [
-    { id: 'ts', header: 'Time (UTC)', cell: (a) => <Timestamp ns={a.ts_ns} />, sortValue: (a) => a.ts_ns, sortKind: 'number' },
+    { id: 'ts', header: 'Time (UTC)', cell: (a) => <Timestamp ns={a.ts_ns} nsStr={nsStrOf(a, 'ts_ns')} />, sortValue: (a) => a.ts_ns, sortKind: 'number' },
     { id: 'actor', header: 'By', cell: (a) => a.actor },
     { id: 'action', header: 'Action', cell: (a) => <span className="cmd-id">{a.action}</span> },
     { id: 'rule', header: 'Rule', cell: (a) => a.rule_id ?? <NoValue reason="NOT_APPLICABLE" /> },
