@@ -114,16 +114,9 @@ describe('populate commands under an unavailable reason', () => {
       sec: 'python -m unknown.data.sec ingest --cik <CIK>',
       treasury: 'python -m unknown.data.sources.treasury ingest --month YYYYMM',
       ecb: 'python -m unknown.data.sources.ecb ingest --last 1',
-      study: 'python -m unknown.research.study --out <DIR>',
     });
   });
 
-  it('completes the study command the research API names without its required --out argument', () => {
-    // api/routes/research.py, verbatim. `python -m unknown.research.study` alone exits with
-    // "the following arguments are required: --out" (research/study.py main), so it cannot fill the registry.
-    const reason = 'research registry not found at /h/research/experiments.sqlite; record an experiment or run `python -m unknown.research.study` first';
-    expect(populateCommands(reason, [POPULATE.study])).toEqual(['python -m unknown.research.study --out <DIR>']);
-  });
 });
 
 describe('float statistics', () => {

@@ -71,9 +71,9 @@ test('before any research data: the API reason and the command that populates it
   await expect(notSearched.locator('code.rx-command')).toHaveText(['python -m unknown.data.sec ingest --cik <CIK>']);
 
   await open(page, '#/research');
-  await expect(main(page).getByText(/research registry not found at .*experiments\.sqlite; record an experiment or run `python -m unknown\.research\.study` first/)).toBeVisible();
-  // The reason names the study module without the --out argument its command line requires; the complete command is shown.
-  await expect(main(page).locator('code.rx-command')).toHaveText(['python -m unknown.research.study --out <DIR>']);
+  await expect(main(page).getByText(/research registry not found at .*experiments\.sqlite: no experiment has been recorded/)).toBeVisible();
+  // No synthetic study exists to suggest (ADR-0020): the view states the reason and offers no command.
+  await expect(main(page).locator('code.rx-command')).toHaveCount(0);
   // The formula registry is served from code, so it is available without a registry.
   await open(page, '#/research/formulas');
   await expect(main(page).getByRole('row', { name: /dsr@1/ })).toBeVisible();

@@ -3,7 +3,6 @@ import type { ReactNode } from 'react';
 import { nsStrOf } from '../../api/nsStrings';
 import type { QueryResult } from '../../state/react';
 import { Badge, FixtureRefused, Timestamp } from '../../ui/primitives';
-import { POPULATE } from '../research-common/format';
 import { ErrorNotice, Loading, Unavailable } from '../research-common/parts';
 import { provenanceLabel, type Envelope, type Provenance } from './model';
 
@@ -17,7 +16,7 @@ export function EnvelopeView<T>({ q, what, children }: { q: QueryResult<Envelope
   if (q.error) return <ErrorNotice what={what} error={q.error} />;
   if (!q.data) return <Loading what={what.toLowerCase()} />;
   if (!q.data.available || q.data.data === null) {
-    return <Unavailable what={what} reason={q.data.unavailable_reason ?? 'the API reported this view as unavailable without a reason'} commands={[POPULATE.study]} />;
+    return <Unavailable what={what} reason={q.data.unavailable_reason ?? 'the API reported this view as unavailable without a reason'} commands={[]} />;
   }
   if (provenanceLabel(q.data.provenance) === 'FIXTURE') {
     return (

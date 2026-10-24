@@ -13,14 +13,13 @@ function result<T>(data: T): QueryResult<T> {
 }
 
 describe('research envelope without a registry', () => {
-  it('shows the API reason verbatim and a study command that runs (with its required --out)', () => {
+  it('shows the API reason verbatim and offers no command (no synthetic study exists, ADR-0020)', () => {
     // api/routes/research.py, verbatim.
-    const reason = 'research registry not found at /h/research/experiments.sqlite; record an experiment or run `python -m unknown.research.study` first';
+    const reason = 'research registry not found at /h/research/experiments.sqlite: no experiment has been recorded';
     const env: Envelope<unknown[]> = { available: false, data: null, unavailable_reason: reason, provenance: { source: 'research registry' } };
     const html = renderToStaticMarkup(createElement(EnvelopeView<unknown[]>, { q: result(env), what: 'Experiments', children: () => 'data' }));
-    expect(html).toContain('research registry not found at /h/research/experiments.sqlite; record an experiment or run `python -m unknown.research.study` first');
+    expect(html).toContain('research registry not found at /h/research/experiments.sqlite: no experiment has been recorded');
     const commands = [...html.matchAll(/<code class="mono rx-command">([^<]*)<\/code>/g)].map((m) => m[1]);
-    // `python -m unknown.research.study` alone exits with "the following arguments are required: --out".
-    expect(commands).toEqual(['python -m unknown.research.study --out &lt;DIR&gt;']);
+    expect(commands).toEqual([]);
   });
 });

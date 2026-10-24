@@ -27,7 +27,7 @@ Registered as `research` (`g q`, nav order 130). It reads `GET /api/research` (b
 ## Labels and missing data
 
 - Data whose provenance is FIXTURE (`provenance.label`, `fixture`) is refused: the view shows an error, never the data. UNKNOWN ORIGIN is labelled where the API says so, and each panel shows its provenance: source, path, schema version, read time and formulas.
-- Without a registry, the API's reason is shown verbatim. It names `python -m unknown.research.study`, which exits with "the following arguments are required: --out", so the complete command (`python -m unknown.research.study --out <DIR>`) is shown in its place.
+- Without a registry, the API's reason is shown verbatim, with no command: no synthetic study exists to populate it (ADR-0020); experiments come from real research runs.
 - Integers beyond 2^53 in nested records (nanosecond timestamps such as `registered_at_ns`) have already been rounded by the browser's JSON parser. A `*_ns` value is shown exactly from the API's `*_ns_str` sibling; any other such integer is marked with "≈" and the view says so, instead of showing it as exact.
 
 ## API notes found while building this

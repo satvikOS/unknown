@@ -2,8 +2,9 @@
 
 Product ``unknown.cli bootstrap-sim`` registers no instrument (ADR-0020). The e2e harness
 (terminal/e2e/support/harness.py ``test-instruments``) calls :func:`register_test_instruments` before it, so the
-suite has the instruments its TEST quote feed double (``support.fake_market``) publishes. They are flagged
-``fixture`` so every product view that shows them says they are not market data.
+suite has the instruments its TEST quote feed double (``support.fake_market``) publishes. They exist only in the
+suite's temporary home and carry ``test_only``, not ``fixture``: the suite must exercise the views that hold
+positions (holdings, what-if, stress, NAV by owner), which refuse fixture-flagged instruments by design.
 """
 from __future__ import annotations
 
@@ -32,7 +33,7 @@ def register_test_instruments(paths: Paths | None = None) -> list[dict]:
                           settlement_currency="USD", venue_mic="XNAS", quantity_increment=Fixed(1),
                           min_quantity=Fixed(1), multiplier=Fixed(1), settlement_days=1,
                           tick_rules=(TickRule(Fixed(0), Fixed.parse("0.0001")), TickRule(Fixed(1), Fixed.parse("0.01"))),
-                          attributes={"fixture": True})
+                          attributes={"test_only": True})
         r = client.command(f"e2e.register_instrument.{secrets.token_hex(8)}", "register_instrument",
                            {"instrument": inst.to_json(), "mappings": [{"provider": "simulated", "external_id": iid}]},
                            owner)

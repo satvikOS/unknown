@@ -104,17 +104,15 @@ export function extractCommands(reason: string | null | undefined): string[] {
 
 /**
  * The documented commands that populate each research-side source, complete with the arguments their command line
- * requires (data/sec.py, data/sources/treasury.py and ecb.py `main`, research/study.py `main`). The SEC, Treasury
+ * requires (data/sec.py, data/sources/treasury.py and ecb.py `main`). The SEC, Treasury
  * and ECB ones are exactly what the backend's own unavailable reasons write (api/routes/company.py NO_STORE and
- * macro). api/routes/research.py names `python -m unknown.research.study`, which exits with "the following arguments
- * are required: --out", so the complete command replaces it. They are shown only for a source the API reports as
+ * macro). They are shown only for a source the API reports as
  * unavailable, so a reason that names no command, or only part of one, still says how to fill it.
  */
 export const POPULATE = {
   sec: 'python -m unknown.data.sec ingest --cik <CIK>',
   treasury: 'python -m unknown.data.sources.treasury ingest --month YYYYMM',
   ecb: 'python -m unknown.data.sources.ecb ingest --last 1',
-  study: 'python -m unknown.research.study --out <DIR>',
 } as const;
 
 /**
