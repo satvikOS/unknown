@@ -48,7 +48,7 @@ export function ExportButton<T>({ table, label = 'Export', disabled }: ExportBut
         className="btn small"
         aria-haspopup="true"
         aria-expanded={open}
-        aria-controls={menuId}
+        aria-controls={open ? menuId : undefined}
         disabled={disabled || busy}
         onClick={() => setOpen((o) => !o)}
         onKeyDown={(e) => {
